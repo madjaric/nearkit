@@ -23,6 +23,32 @@ export function createTokenService(ctx: NearContext, market: Market): TokenServi
   const list = async (): Promise<TokenListing[]> => market.listTokens(await held())
   const scanner = createScanner(ctx, market)
 
+  /** The checks a token read by exact contract must pass. Nothing is saved here. */
+  async function verify(input: string): Promise<{ contract: string; listing: TokenListing }> {
+    const contract = input.trim()
+    const error = accountIdError(contract)
+    if (error) throw new NearKitError('INVALID_TOKEN', `Contract: ${error}`)
+    if (isForeignToNetwork(contract, ctx.network.id))
+      throw new NearKitError(
+        'NETWORK_MISMATCH',
+        `${contract} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} contract; NearKit is on ${ctx.network.label.toLowerCase()}`,
+      )
+    let state
+    try {
+      state = await accountState(ctx.rpc, contract, 'final')
+    } catch (e) {
+      throw toNearKitError(e, 'RPC_ERROR')
+    }
+    if (!state.exists) throw new NearKitError('INVALID_TOKEN', `${contract} does not exist on ${ctx.network.label.toLowerCase()}`)
+    if (!state.hasContract) throw new NearKitError('INVALID_TOKEN', `${contract} is an account without a contract, not a token`)
+    // Metadata (NEP-148) and total supply (NEP-141) must both answer before the token is shown.
+    await ctx.reader.metadata(contract)
+    await ctx.reader.totalSupply(contract)
+    const listing = (await market.listTokens([contract])).find((t) => t.id === contract)
+    if (!listing) throw new NearKitError('INVALID_TOKEN', `${contract} did not return valid token metadata`)
+    return { contract, listing }
+  }
+
   return {
     listTokens: list,
 
@@ -32,26 +58,12 @@ export function createTokenService(ctx: NearContext, market: Market): TokenServi
       return (await market.listTokens([id])).find((t) => t.id === id) ?? null
     },
 
+    async lookupToken(input) {
+      return (await verify(input)).listing
+    },
+
     async importToken(input) {
-      const contract = input.trim()
-      const error = accountIdError(contract)
-      if (error) throw new NearKitError('INVALID_TOKEN', `Contract: ${error}`)
-      if (isForeignToNetwork(contract, ctx.network.id))
-        throw new NearKitError(
-          'NETWORK_MISMATCH',
-          `${contract} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} contract; NearKit is on ${ctx.network.label.toLowerCase()}`,
-        )
-      let state
-      try {
-        state = await accountState(ctx.rpc, contract, 'final')
-      } catch (e) {
-        throw toNearKitError(e, 'RPC_ERROR')
-      }
-      if (!state.exists) throw new NearKitError('INVALID_TOKEN', `${contract} does not exist on ${ctx.network.label.toLowerCase()}`)
-      if (!state.hasContract) throw new NearKitError('INVALID_TOKEN', `${contract} is an account without a contract, not a token`)
-      // Metadata (NEP-148) and total supply (NEP-141) must both answer before the token is listed.
-      await ctx.reader.metadata(contract)
-      await ctx.reader.totalSupply(contract)
+      const { contract } = await verify(input)
       ctx.stores.tokens.add(contract)
       const listing = (await market.listTokens([contract])).find((t) => t.id === contract)
       if (!listing) throw new NearKitError('INVALID_TOKEN', `${contract} did not return valid token metadata`)

@@ -19,7 +19,8 @@ export interface FakeToken {
 }
 
 export interface FakeChainOptions {
-  accounts?: Record<string, { amount: bigint; storageUsage?: number; code?: boolean }>
+  /** `global`: the account runs a shared global contract (NEP-591) instead of local code. */
+  accounts?: Record<string, { amount: bigint; storageUsage?: number; code?: boolean; global?: string }>
   tokens?: Record<string, Omit<FakeToken, 'balances' | 'registered'> & { balances?: Record<string, bigint>; registered?: string[] }>
   aggregator?: { contract: string; whitelist: string[]; protocolPpm: number; registered?: Record<string, string[]> }
 }
@@ -93,6 +94,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
           amount: a.amount.toString(),
           locked: '0',
           code_hash: a.code ? 'Code1111111111111111111111111111' : NO_CODE,
+          ...(a.global ? { global_contract_hash: a.global } : {}),
           storage_usage: a.storageUsage ?? 182,
           block_height: 1,
           block_hash: 'h',

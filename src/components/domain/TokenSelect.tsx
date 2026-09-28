@@ -4,7 +4,9 @@ import { Popover } from '@/components/ui/Floating'
 import { Tag } from '@/components/ui/Indicators'
 import { Amount, Pct, Price } from '@/components/ui/Num'
 import { cn } from '@/lib/cn'
-import { useHoldings, useTokens } from '@/services/queries'
+import { isValidAccountId } from '@/lib/validation'
+import { describeError } from '@/services/errors'
+import { useCapabilities, useHoldings, useImportToken, useTokenLookup, useTokens } from '@/services/queries'
 import type { TokenId, TokenListing } from '@/types/domain'
 import { SimMark } from './SimMark'
 import { TokenGlyph } from './TokenGlyph'
@@ -42,6 +44,14 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
     )
   }, [tokens, exclude, query])
 
+  // A pasted contract that no list has yet (a token launched minutes ago): read it from
+  // chain and offer to import it. Reading it proves it is a token, not that it trades.
+  const caps = useCapabilities()
+  const exact = query.trim().toLowerCase()
+  const lookupId = isValidAccountId(exact) && (exact.includes('.') || exact.length === 64 || exact.startsWith('0x')) && !tokens.some((t) => t.contract === exact) ? exact : null
+  const lookup = useTokenLookup(open ? lookupId : null)
+  const importer = useImportToken()
+
   const close = () => {
     setOpen(false)
     setQuery('')
@@ -51,6 +61,7 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
     onChange(token.id)
     close()
   }
+  const importAndChoose = (contract: string) => importer.mutate(contract, { onSuccess: (token) => choose(token) })
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -63,6 +74,7 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
       event.preventDefault()
       const token = list[active]
       if (token) choose(token)
+      else if (lookup.data && !importer.isPending) importAndChoose(lookup.data.id)
     }
   }
 
@@ -138,7 +150,42 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
           />
         </div>
         <ul id="token-listbox" role="listbox" aria-label={label} className="max-h-72 overflow-y-auto py-1">
-          {list.length === 0 && <li className="px-3 py-6 text-center text-sm text-fg-3">No token matches “{query}”</li>}
+          {lookupId && (
+            <li role="option" aria-selected={false}>
+              {lookup.data ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={importer.isPending}
+                    onClick={() => importAndChoose(lookup.data.id)}
+                    className="flex w-full items-center gap-2.5 bg-hover px-3 py-2 text-left"
+                  >
+                    <TokenGlyph symbol={lookup.data.symbol} tokenId={lookup.data.id} size={24} />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-fg">
+                        {lookup.data.symbol}
+                        <Tag tone="neutral">Not listed</Tag>
+                      </span>
+                      <span className="truncate text-xs text-fg-3">{lookup.data.name}</span>
+                      <span className="text-[11px] text-fg-4">
+                        <span className="num">{lookup.data.decimals}</span> decimals
+                      </span>
+                      <span className="num break-all text-[11px] text-fg-4">{lookup.data.contract}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-fg-2">{importer.isPending ? 'Importing…' : 'Import'}</span>
+                  </button>
+                  <p className="px-3 pb-2 text-[11px] text-fg-4">
+                    {importer.isError ? describeError(importer.error).message : 'Read from chain. Whether Rhea can trade it shows in the quote.'}
+                  </p>
+                </>
+              ) : (
+                <p className="px-3 py-3 text-sm text-fg-3">
+                  {lookup.isError ? describeError(lookup.error).message : `Checking ${lookupId} on ${caps.networkLabel.toLowerCase()}…`}
+                </p>
+              )}
+            </li>
+          )}
+          {list.length === 0 && !lookupId && <li className="px-3 py-6 text-center text-sm text-fg-3">No token matches “{query}”</li>}
           {list.map((token, index) => {
             const balance = balanceOf(token.id)
             return (

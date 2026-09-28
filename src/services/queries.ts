@@ -11,6 +11,7 @@ export const qk = {
   session: ['session'] as const,
   walletOptions: ['wallet-options'] as const,
   tokens: ['tokens'] as const,
+  tokenLookup: (contract: string | null) => ['token-lookup', contract] as const,
   nearPrice: ['market', 'near'] as const,
   wallets: ['wallets'] as const,
   snapshots: ['wallets', 'snapshots'] as const,
@@ -88,6 +89,18 @@ export function useTokens() {
   const s = useServices()
   const interval = useLiveInterval()
   return useQuery({ queryKey: qk.tokens, queryFn: () => s.tokens.listTokens(), refetchInterval: interval })
+}
+
+/** Reads a pasted contract that is in no list yet (null: nothing to look up). Saves nothing. */
+export function useTokenLookup(contract: string | null) {
+  const s = useServices()
+  return useQuery({
+    queryKey: qk.tokenLookup(contract),
+    queryFn: () => s.tokens.lookupToken(contract as string),
+    enabled: contract !== null,
+    retry: false,
+    staleTime: 60_000,
+  })
 }
 
 export function useImportToken() {

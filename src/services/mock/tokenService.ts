@@ -42,6 +42,10 @@ export function createTokenService(state: MockState): TokenService {
       return quote ? { ...quote } : null
     },
 
+    async lookupToken() {
+      throw new ServiceError('demo', 'Looking up a token contract needs a real network. The demo lists sample tokens only.')
+    },
+
     async importToken() {
       throw new ServiceError('demo', 'Importing a token contract needs a real network. The demo lists sample tokens only.')
     },

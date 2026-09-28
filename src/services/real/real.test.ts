@@ -252,6 +252,50 @@ describe('real transfers (testnet, fake chain)', () => {
   })
 })
 
+// ─── tokens found by exact contract (in no list yet) ────────────────────────
+
+describe('tokens found by exact contract', () => {
+  const SING = 'singularty.nearlytrade.near'
+  const chain = (): FakeChainOptions => ({
+    accounts: {
+      'example.near': { amount: NEAR(10) },
+      // Nearly-launched tokens run a shared global contract: no local code.
+      [SING]: { amount: NEAR(1), global: '1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we' },
+      'plain.near': { amount: NEAR(1) },
+      'app.near': { amount: NEAR(1), code: true },
+    },
+    tokens: { [SING]: { symbol: 'SINGULARTY', name: 'Singularity is NEAR', decimals: 18, boundsMin: MIN_STORAGE, totalSupply: 10n ** 27n } },
+  })
+
+  it('reads an unlisted token on a global contract from chain and shows its metadata, without saving it', async () => {
+    const { services } = setup({ network: 'mainnet', chain: chain(), session: session(['example.near']) })
+    expect((await services.tokens.listTokens()).some((t) => t.id === SING)).toBe(false)
+    expect(await services.tokens.lookupToken(SING)).toMatchObject({
+      id: SING,
+      contract: SING,
+      symbol: 'SINGULARTY',
+      name: 'Singularity is NEAR',
+      decimals: 18,
+      source: 'discovered',
+    })
+    expect((await services.tokens.listTokens()).some((t) => t.id === SING)).toBe(false)
+  })
+
+  it('imports it on request, and from then on lists it as imported', async () => {
+    const { services } = setup({ network: 'mainnet', chain: chain(), session: session(['example.near']) })
+    expect(await services.tokens.importToken(SING)).toMatchObject({ id: SING, symbol: 'SINGULARTY', source: 'imported' })
+    expect((await services.tokens.listTokens()).find((t) => t.id === SING)).toMatchObject({ source: 'imported' })
+  })
+
+  it('refuses what is not a token: a missing account, an account without a contract, a contract without NEP-141', async () => {
+    const { services } = setup({ network: 'mainnet', chain: chain(), session: session(['example.near']) })
+    await expect(services.tokens.lookupToken('ghost.nearlytrade.near')).rejects.toMatchObject({ code: 'INVALID_TOKEN', message: expect.stringMatching(/does not exist/) })
+    await expect(services.tokens.lookupToken('plain.near')).rejects.toMatchObject({ code: 'INVALID_TOKEN', message: expect.stringMatching(/without a contract/) })
+    await expect(services.tokens.lookupToken('app.near')).rejects.toMatchObject({ code: 'INVALID_TOKEN' })
+    await expect(services.tokens.lookupToken('usdt.tether-token.testnet')).rejects.toMatchObject({ code: 'NETWORK_MISMATCH' })
+  })
+})
+
 // ─── swaps on mainnet through the aggregator ────────────────────────────────
 
 const USDT_MAIN = 'usdt.tether-token.near'

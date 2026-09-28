@@ -67,6 +67,8 @@ export function parseSmartxResponse(json: unknown): SmartxQuote {
     throw unavailable(`Rhea found no route for this trade (${reason})`)
   }
   const { amount_in, amount_out, min_amount_out, msg, signature, tokens, dexs } = data
+  // A pair Rhea cannot route still answers code 0, with zero amounts and a signed route that has no steps.
+  if (amount_out === '0' && Array.isArray(dexs) && dexs.length === 0) throw unavailable('Rhea found no route for this trade')
   if (
     typeof amount_in !== 'string' ||
     !INT.test(amount_in) ||

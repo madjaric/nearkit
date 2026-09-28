@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import partial from './fixtures/smartx-blackdragon-partial.json'
+import noRoute from './fixtures/smartx-near-to-singularty-noroute.json'
 import nofee from './fixtures/smartx-near-to-usdt-nofee.json'
 import withFee from './fixtures/smartx-usdt-to-near-fee200.json'
 import nearkitFee from './fixtures/smartx-usdt-to-near-fee10.json'
@@ -44,6 +45,11 @@ describe('smartx response and msg', () => {
   it('rejects a response without a route', () => {
     expect(() => parseSmartxResponse({ result_code: 1, result_message: 'no path', result_data: null })).toThrow(expect.objectContaining({ code: 'QUOTE_UNAVAILABLE' }))
     expect(() => parseSmartxResponse({ result_code: 0, result_data: { amount_in: '1' } })).toThrow(expect.objectContaining({ code: 'QUOTE_UNAVAILABLE' }))
+  })
+
+  it('reports Rhea’s empty route (zero amounts, no steps) as no route', () => {
+    // Real answer for wNEAR → singularty.nearlytrade.near (2026-09-29): code 0 and a signed route with no steps.
+    expect(() => parseSmartxResponse(noRoute)).toThrow(expect.objectContaining({ code: 'QUOTE_UNAVAILABLE', message: 'Rhea found no route for this trade' }))
   })
 
   it('decodes the signed msg (base64, every byte minus 7)', () => {

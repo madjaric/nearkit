@@ -69,6 +69,7 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
         amount: a.amount,
         locked: '0',
         code_hash: a.code ? 'Code1111111111111111111111111111' : NO_CODE,
+        ...(a.global ? { global_contract_hash: a.global } : {}),
         storage_usage: a.storageUsage ?? 182,
         block_height: 1,
         block_hash: 'h',

@@ -33,6 +33,8 @@ const USER = 'e2e-user.testnet'
 const USER2 = 'e2e-two.testnet'
 const USDT = 'usdt.itachicara.testnet'
 const MIN = '1250000000000000000000'
+/** A token launched after every list was built: found only by its exact contract. */
+const FRESH = 'fresh.nearlytrade.testnet'
 
 const near = createFakeNear({
   accounts: {
@@ -42,6 +44,7 @@ const near = createFakeNear({
     'carol.testnet': { amount: String(ONE) },
     [USDT]: { amount: String(ONE), code: true },
     'wrap.testnet': { amount: String(ONE), code: true },
+    [FRESH]: { amount: String(ONE), global: 'GlobalTokenContract1111111111111' },
   },
   tokens: {
     [USDT]: {
@@ -53,6 +56,7 @@ const near = createFakeNear({
       boundsMin: MIN,
     },
     'wrap.testnet': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, balances: {}, registered: ['ref-finance-101.testnet'], boundsMin: MIN },
+    [FRESH]: { symbol: 'FRESH', name: 'Fresh Launch Token', decimals: 18, balances: {}, registered: [], boundsMin: MIN },
   },
 })
 
@@ -178,6 +182,21 @@ await step('a failed transaction is reported as failed, never as confirmed', asy
   await visible('A recipient is not registered with the token contract')
   near.state.outcome = 'success'
   await page.keyboard.press('Escape')
+})
+
+await step('a token in no list is found by its exact contract, shown with its metadata, and imported on request', async () => {
+  await page.goto(BASE + '/swap', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: /^To token:/ }).click()
+  await page.getByLabel('Search tokens').fill(FRESH)
+  const row = page.getByRole('option', { name: /FRESH/ })
+  await row.getByText('Fresh Launch Token').waitFor()
+  await row.getByText(/18 decimals/).waitFor()
+  await row.getByText(FRESH).waitFor()
+  // Found is not tradable: the row says the quote decides.
+  await row.getByText(/not listed/i).waitFor()
+  await row.getByRole('button').click()
+  await page.getByRole('button', { name: 'To token: FRESH' }).waitFor()
+  await shot('real-07-imported-token')
 })
 
 await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and swaps in one transaction', async () => {

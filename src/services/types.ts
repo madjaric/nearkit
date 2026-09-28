@@ -91,6 +91,12 @@ export interface WalletOption {
 export interface TokenService {
   listTokens(): Promise<TokenListing[]>
   getToken(id: TokenId): Promise<TokenListing | null>
+  /**
+   * Read a contract that is in no list yet: it must exist, run a contract (local or
+   * global) and answer NEP-148 metadata and NEP-141 supply. Nothing is saved, and a
+   * token that reads fine may still have no route: the quote decides that.
+   */
+  lookupToken(contract: string): Promise<TokenListing>
   /** Validate a NEP-141 contract and add it to this network's token list. */
   importToken(contract: string): Promise<TokenListing>
   getMarket(ids?: TokenId[]): Promise<MarketQuote[]>
