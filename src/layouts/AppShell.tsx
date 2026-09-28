@@ -5,6 +5,7 @@ import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { IconButton } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Dialog'
 import { Led } from '@/components/ui/Indicators'
+import { isComingSoon } from '@/config/release'
 import { cn } from '@/lib/cn'
 import { NavBody, Sidebar } from './SideNav'
 import { StatusStrip, TopBar } from './TopBar'
@@ -32,7 +33,14 @@ function TabBar({ onOpenNav }: { onOpenNav: () => void }) {
                       <Icon size={18} strokeWidth={1.75} aria-hidden="true" className={isActive ? 'text-accent' : 'text-fg-3'} />
                       {isActive && <Led tone="on" className="absolute -right-2 -top-0.5" />}
                     </span>
-                    <span className={cn('text-[11px] leading-none', isActive ? 'text-fg' : 'text-fg-3')}>{item.label}</span>
+                    <span className="flex h-3.5 items-center gap-1">
+                      <span className={cn('text-[11px] leading-none', isActive ? 'text-fg' : 'text-fg-3')}>{item.label}</span>
+                      {isComingSoon(item.to) && (
+                        <span className="inline-flex h-3.5 items-center rounded-[2px] border border-dashed border-fg-4 px-[3px] text-[9px] font-semibold uppercase leading-none tracking-[0.06em] text-fg-3">
+                          Soon
+                        </span>
+                      )}
+                    </span>
                   </>
                 )}
               </NavLink>

@@ -1,4 +1,5 @@
 import { Layers, SendHorizontal, Split } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Freshness } from '@/components/domain/Freshness'
 import { SimMark } from '@/components/domain/SimMark'
@@ -21,8 +22,19 @@ import { QuickTrade } from '@/features/trade/QuickTrade'
 import { formatAmount, formatUsd } from '@/lib/format'
 import { useActivity, useCapabilities, useOrders, usePositions, useSession, useSummary, useTokens } from '@/services/queries'
 import { useConnectPrompt } from '@/state/contexts'
+import { isComingSoon } from '@/config/release'
 
 const linkKey = 'keycap inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-2xs text-fg-2 transition-colors hover:bg-raised hover:text-fg'
+
+/** An action the public beta holds back: kept in place and tagged SOON, but not clickable. */
+function SoonKey({ children }: { children: ReactNode }) {
+  return (
+    <span aria-disabled="true" className="keycap inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-2xs text-fg-2">
+      <span className="inline-flex items-center gap-1.5 opacity-40">{children}</span>
+      <Tag tone="soon">Soon</Tag>
+    </span>
+  )
+}
 
 /** Orders the page lists: live ones in the demo, local drafts in real mode (nothing executes them). */
 function useOrderView() {
@@ -130,6 +142,7 @@ function OpenOrdersPanel() {
         actions={
           <Link to="/limit-orders" className={linkKey}>
             Manage
+            {isComingSoon('/limit-orders') && <Tag tone="soon">Soon</Tag>}
           </Link>
         }
       />
@@ -138,9 +151,13 @@ function OpenOrdersPanel() {
           title={view.demo ? 'No open orders' : 'No order drafts'}
           graphic={false}
           action={
-            <Link to="/limit-orders" className={linkKey}>
-              Place a limit order
-            </Link>
+            isComingSoon('/limit-orders') ? (
+              <SoonKey>Place a limit order</SoonKey>
+            ) : (
+              <Link to="/limit-orders" className={linkKey}>
+                Place a limit order
+              </Link>
+            )
           }
         >
           {view.demo ? 'Limit, take-profit and stop-loss orders appear here.' : 'Limit, take-profit and stop-loss drafts you save appear here. Nothing executes them yet.'}
@@ -195,9 +212,15 @@ export default function DashboardPage() {
         }
         actions={
           <>
-            <Link to="/multi-trade" className={linkKey}>
-              <Layers size={14} aria-hidden="true" /> Multi buy
-            </Link>
+            {isComingSoon('/multi-trade') ? (
+              <SoonKey>
+                <Layers size={14} aria-hidden="true" /> Multi buy
+              </SoonKey>
+            ) : (
+              <Link to="/multi-trade" className={linkKey}>
+                <Layers size={14} aria-hidden="true" /> Multi buy
+              </Link>
+            )}
             <Link to="/split" className={linkKey}>
               <Split size={14} aria-hidden="true" /> Split
             </Link>

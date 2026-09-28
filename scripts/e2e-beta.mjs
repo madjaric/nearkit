@@ -144,6 +144,51 @@ await step('without a wallet, a held-back page says it is coming soon', async ()
   await shot('beta-01-no-wallet')
 })
 
+await step('Dashboard: the Multi buy and limit-order shortcuts are tagged SOON', async () => {
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  const main = page.locator('main')
+  // Multi buy and Place a limit order are actions the beta can't do: shown, tagged, not clickable.
+  for (const name of [/multi buy/i, /place a limit order/i]) {
+    const key = main.locator('[aria-disabled="true"]', { hasText: name })
+    if (!/soon/i.test(await key.innerText())) throw new Error(`${name} has no SOON tag`)
+  }
+  if ((await main.locator('a[href="/multi-trade"]').count()) !== 0) throw new Error('Multi buy still links to Multi Trade')
+  // Manage only opens the orders page, which says COMING SOON itself.
+  const manage = main.locator('a[href="/limit-orders"]', { hasText: /manage/i })
+  if (!/soon/i.test(await manage.innerText())) throw new Error('Manage has no SOON tag')
+  if ((await main.locator('a[href="/limit-orders"]', { hasText: /place a limit order/i }).count()) !== 0) throw new Error('Place a limit order still links')
+  // The live shortcuts are untouched.
+  for (const route of ['/split', '/batch-send']) {
+    if (/soon/i.test(await main.locator(`header a[href="${route}"]`).innerText())) throw new Error(`${route} is tagged SOON`)
+  }
+  await shot('beta-02-dashboard')
+})
+
+if (WIDTH < 1024) {
+  await step('the phone tab bar tags Multi SOON and still opens it', async () => {
+    const tabs = page.locator('nav[aria-label="Quick navigation"]')
+    if (!/soon/i.test(await tabs.locator('a[href="/multi-trade"]').innerText())) throw new Error('The Multi tab has no SOON mark')
+    for (const route of ['/', '/swap', '/positions']) {
+      if (/soon/i.test(await tabs.locator(`a[href="${route}"]`).innerText())) throw new Error(`The ${route} tab is marked SOON`)
+    }
+  })
+}
+
+if (WIDTH >= 1024) {
+  await step('search tags held-back pages and commands SOON, and only those', async () => {
+    const search = page.getByLabel('Search token, contract or command')
+    const option = (name) => page.getByRole('option', { name }).first()
+    await search.fill('multi')
+    if (!/soon/i.test(await option(/Multi Trade/).innerText())) throw new Error('Multi Trade result has no SOON tag')
+    await search.fill('/snipe')
+    if (!/soon/i.test(await option(/\/snipe/).innerText())) throw new Error('/snipe has no SOON tag')
+    await search.fill('/split')
+    if (/soon/i.test(await option(/\/split/).innerText())) throw new Error('/split is tagged SOON')
+    await search.fill('')
+    await page.keyboard.press('Escape')
+  })
+}
+
 await step('connects through the wallet adapter', async () => {
   await page.getByRole('button', { name: 'Connect wallet' }).first().click()
   await page
@@ -151,6 +196,20 @@ await step('connects through the wallet adapter', async () => {
     .getByRole('button', { name: /E2E Test Wallet/ })
     .click()
   await visible('Wallet connected')
+})
+
+await step('Wallets: a preset’s Use (Multi Trade) is disabled and tagged SOON; presets still work', async () => {
+  await page.goto(BASE + '/wallets', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Create preset' }).first().click()
+  const modal = page.getByRole('dialog', { name: 'Create preset' })
+  await modal.getByLabel('Name').fill('beta')
+  await modal.getByText('Main', { exact: true }).first().click()
+  await modal.getByRole('button', { name: 'Create preset' }).click()
+  await visible('Preset BETA created')
+  const use = page.locator('main').getByRole('button', { name: 'Use', exact: true }).visible().first()
+  if (await use.isEnabled()) throw new Error('Use is still enabled')
+  if (!/soon/i.test(await use.locator('..').innerText())) throw new Error('Use has no SOON tag beside it')
+  await shot('beta-03-preset')
 })
 
 for (const { route, label } of SOON) {

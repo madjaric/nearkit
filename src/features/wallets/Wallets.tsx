@@ -15,6 +15,7 @@ import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/toast-context'
+import { isComingSoon } from '@/config/release'
 import { formatAgo, formatAmount, formatUsd } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { useAccountMutations, useCapabilities, usePresetMutations, usePresets, useWalletSnapshots } from '@/services/queries'
@@ -149,9 +150,10 @@ export function Wallets() {
                   </p>
                 </div>
                 <div className="flex items-center gap-1 md:justify-end">
-                  <Button size="sm" variant="outline" onClick={() => navigate(`/multi-trade?preset=${encodeURIComponent(p.id)}`)}>
+                  <Button size="sm" variant="outline" disabled={isComingSoon('/multi-trade')} onClick={() => navigate(`/multi-trade?preset=${encodeURIComponent(p.id)}`)}>
                     Use
                   </Button>
+                  {isComingSoon('/multi-trade') && <Tag tone="soon">Soon</Tag>}
                   <IconButton label={`Edit ${p.name}`} size="sm" onClick={() => setEditing({ preset: p })}>
                     <Pencil size={14} />
                   </IconButton>

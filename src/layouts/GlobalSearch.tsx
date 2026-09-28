@@ -3,7 +3,8 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type R
 import { useNavigate } from 'react-router'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Popover } from '@/components/ui/Floating'
-import { Kbd } from '@/components/ui/Indicators'
+import { Kbd, Tag } from '@/components/ui/Indicators'
+import { isComingSoon } from '@/config/release'
 import { cn } from '@/lib/cn'
 import { isValidAccountId } from '@/lib/validation'
 import { useTokens } from '@/services/queries'
@@ -18,6 +19,8 @@ interface Result {
   to: string
   icon?: LucideIcon
   token?: TokenListing
+  /** Leads to a feature the public beta holds back. */
+  soon?: boolean
 }
 
 /**
@@ -40,6 +43,7 @@ function buildResults(raw: string, tokens: TokenListing[]): Result[] {
       detail: c.label,
       to: c.to,
       icon: SquareSlash,
+      soon: isComingSoon(c.to.split('?')[0] ?? c.to),
     }))
   }
   const results: Result[] = []
@@ -53,7 +57,7 @@ function buildResults(raw: string, tokens: TokenListing[]): Result[] {
   }
   for (const item of ALL_NAV) {
     if (item.label.toLowerCase().includes(q) || item.keywords?.some((k) => k.includes(q))) {
-      results.push({ id: `p-${item.to}`, group: 'Go to', label: item.label, to: item.to, icon: item.icon })
+      results.push({ id: `p-${item.to}`, group: 'Go to', label: item.label, to: item.to, icon: item.icon, soon: isComingSoon(item.to) })
     }
   }
   return results.slice(0, 9)
@@ -171,6 +175,7 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
                   ) : null}
                   <span className="min-w-0 flex-1 truncate text-sm text-fg">{r.label}</span>
                   {r.detail && <span className="truncate text-xs text-fg-3">{r.detail}</span>}
+                  {r.soon && <Tag tone="soon">Soon</Tag>}
                   {i === active && <CornerDownLeft size={13} className="shrink-0 text-fg-4" aria-hidden="true" />}
                 </div>
               </li>
