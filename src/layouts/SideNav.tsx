@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { Led, Tag } from '@/components/ui/Indicators'
+import { isComingSoon } from '@/config/release'
 import { cn } from '@/lib/cn'
 import { useNetworkWording } from '@/lib/modeCopy'
 import { useCapabilities } from '@/services/queries'
@@ -46,7 +47,7 @@ function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
           <>
             <Icon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? 'text-accent' : 'text-fg-3 group-hover:text-fg-2')} />
             <span className="flex-1 truncate">{item.label}</span>
-            {item.soon && <Tag tone="soon">Soon</Tag>}
+            {(item.soon || isComingSoon(item.to)) && <Tag tone="soon">Soon</Tag>}
             {isActive && <Led tone="on" label="Current page" />}
           </>
         )}

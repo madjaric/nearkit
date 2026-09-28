@@ -103,6 +103,9 @@ const parsed = parseEnv({
 /** The validated build configuration. */
 export const ENV: Readonly<AppEnv> = Object.freeze(parsed.env)
 
+/** A production build (`vite build`), as deployed; false on the dev server and in tests. */
+export const PRODUCTION_BUILD: boolean = import.meta.env.PROD
+
 /** Configuration problems; when non-empty the app shows a configuration error instead of running. */
 export const ENV_ISSUES: readonly EnvIssue[] = Object.freeze(parsed.issues)
 

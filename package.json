@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "e2e": "node scripts/e2e.mjs",
     "e2e:real": "node scripts/e2e-real.mjs",
+    "e2e:beta": "node scripts/e2e-beta.mjs",
     "smoke:live": "vitest run --config vitest.smoke.config.ts",
     "shots": "node scripts/shoot.mjs",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"

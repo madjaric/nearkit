@@ -23,10 +23,12 @@ import { fromLocalInput, MS, nextHour, toLocalInput } from '@/lib/time'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
 import { useAutomationMutations, useBalance, useDcaPlans, useSession, useTokens, useWallets } from '@/services/queries'
+import { useInComingSoon } from '@/state/contexts'
 import type { DcaFrequency } from '@/types/domain'
 
 function Dca() {
   const toast = useToast()
+  const soon = useInComingSoon()
   const wording = useRuleWording()
   const now = useNow(30_000)
   const { data: tokens = [] } = useTokens()
@@ -169,7 +171,7 @@ function Dca() {
               >
                 Create DCA
               </Button>
-              {blocker && <p className="text-xs text-fg-3">{blocker}</p>}
+              {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
               <SimulationNote
                 demo="Plans are saved in standby. Nothing is scheduled or bought."
                 real="Plans are saved as drafts in this browser. Nothing is scheduled or bought: that needs a keeper service NearKit doesn't run yet."

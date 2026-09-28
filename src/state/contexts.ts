@@ -63,3 +63,12 @@ export function useConnectPrompt(): ConnectApi {
   if (!api) throw new Error('useConnectPrompt must be used inside <ConnectProvider>')
   return api
 }
+
+// ─── coming soon ────────────────────────────────────────────────────────────
+
+/** True inside the read-only body of a page the public beta marks COMING SOON. */
+export const ComingSoonContext = createContext(false)
+
+export function useInComingSoon(): boolean {
+  return useContext(ComingSoonContext)
+}

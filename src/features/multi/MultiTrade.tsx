@@ -21,7 +21,7 @@ import { floorTo, formatAmount, formatCompact, formatNumber, formatPct, parseAmo
 import { useDebouncedValue, useNow } from '@/lib/hooks'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useCapabilities, useHoldings, useMultiQuote, usePlanners, usePresets, useSession, useTokens, useWallets } from '@/services/queries'
-import { useSettings } from '@/state/contexts'
+import { useInComingSoon, useSettings } from '@/state/contexts'
 import type { MultiTradeRequest, TradeSide } from '@/types/domain'
 import { OperationModal } from '../tools/OperationModal'
 import { useDefaultTradeToken } from '../trade/useDefaultToken'
@@ -36,6 +36,7 @@ interface MultiTradeProps {
 
 export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
   const { settings } = useSettings()
+  const soon = useInComingSoon()
   const { data: wallets = [], isPending: walletsPending } = useWallets()
   const { data: holdings = [] } = useHoldings()
   const { data: presets = [] } = usePresets()
@@ -437,7 +438,7 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
           <Button size="lg" block variant={side === 'buy' ? 'primary' : 'sell'} disabled={blocker !== null || !q} onClick={() => q && request && setConfirm(request)}>
             Execute {verb.toLowerCase()}
           </Button>
-          {blocker && <p className="text-xs text-fg-3">{blocker}</p>}
+          {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
           <SimulationNote />
         </div>
       </div>

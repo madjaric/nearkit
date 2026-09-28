@@ -1,4 +1,11 @@
+import { useLocation } from 'react-router'
+import { isComingSoon } from '@/config/release'
 import { useCapabilities } from '@/services/queries'
+
+/** The current page is COMING SOON in this build (the public testnet beta). */
+export function useComingSoonPage(): boolean {
+  return isComingSoon(useLocation().pathname)
+}
 
 /**
  * The network's name as the network chip and the sidebar status line print it.

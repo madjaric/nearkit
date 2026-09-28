@@ -16,6 +16,7 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useSession } from '@/services/queries'
 import { useDefaultTradeToken } from '../trade/useDefaultToken'
 import { useBalance, useOrderMutations, useTokens, useWallets } from '@/services/queries'
+import { useInComingSoon } from '@/state/contexts'
 import type { OrderExpiry, OrderType, TradeSide } from '@/types/domain'
 
 const NEAR = NATIVE_TOKEN_ID
@@ -25,6 +26,7 @@ const TYPE_LABEL: Record<OrderType, string> = { limit: 'Limit', 'take-profit': '
 
 export function OrderForm() {
   const toast = useToast()
+  const soon = useInComingSoon()
   const wording = useRuleWording()
   const { data: tokens = [] } = useTokens()
   const { data: wallets = [] } = useWallets()
@@ -245,7 +247,7 @@ export function OrderForm() {
           >
             {cta}
           </Button>
-          {blocker && <p className="text-xs text-fg-3">{blocker}</p>}
+          {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
           <SimulationNote
             demo="Orders are stored for this session only. Nothing watches the price, so they never fill."
             real="Orders are saved as drafts in this browser. Nothing watches the price, so they never fill: that needs a keeper service NearKit doesn't run yet."

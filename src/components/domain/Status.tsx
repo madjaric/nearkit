@@ -3,6 +3,7 @@ import { Tip } from '@/components/ui/Floating'
 import { Led, Tag, type LedTone } from '@/components/ui/Indicators'
 import { cn } from '@/lib/cn'
 import { useCapabilities } from '@/services/queries'
+import { useInComingSoon } from '@/state/contexts'
 import type { OrderStatus, RuleStatus } from '@/types/domain'
 import type { TxPhase } from '@/types/operations'
 
@@ -86,6 +87,14 @@ export function DataTag() {
  */
 export function SimulationNote({ className, children, demo, real }: { className?: string; children?: ReactNode; demo?: ReactNode; real?: ReactNode }) {
   const caps = useCapabilities()
+  const soon = useInComingSoon()
+  if (soon)
+    return (
+      <p className={cn('flex items-start gap-2 text-xs leading-4 text-fg-3', className)}>
+        <Led tone="off" className="mt-[5px]" />
+        <span>Coming soon. This is not available in the public testnet beta yet, so nothing here can be signed, sent or saved.</span>
+      </p>
+    )
   const off = caps.mode === 'near' && !caps.execution.enabled && real === undefined
   const text =
     children ??
