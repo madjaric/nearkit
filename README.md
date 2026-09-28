@@ -1,8 +1,24 @@
 # NearKit
 
+[![CI](https://github.com/madjaric/nearkit/actions/workflows/ci.yml/badge.svg)](https://github.com/madjaric/nearkit/actions/workflows/ci.yml)
+
 The trading toolkit for NEAR. Phase 2 runs on the real NEAR network: wallet connection through NEAR Connect, balances and token metadata read from chain, NEP-141 transfers (Batch Send, Split, Consolidate), and swaps through Rhea. The Phase 1 demo still ships as a separate mode.
 
 Mainnet execution is **off by default**. Prove the testnet checklist below before turning it on.
+
+## Public testnet beta
+
+**https://nearkit.vercel.app** is the public testnet beta. Vercel deploys it from `main`, and pull requests get preview deployments.
+
+| Vercel variable (Production and Preview) | Value |
+|---|---|
+| `VITE_NEARKIT_SERVICES` | `near` |
+| `VITE_NEAR_NETWORK` | `testnet` |
+| `VITE_ENABLE_MAINNET_EXECUTION` | `false` |
+
+Nothing else is set, and none of it is secret. The network chip reads TESTNET BETA. Testnet tokens have no value, and mainnet value-moving execution is off.
+
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request. It covers typecheck, lint, format check, unit and integration tests, and the production build. The e2e suites and live smoke checks run locally (see Tests).
 
 ## Run it
 
