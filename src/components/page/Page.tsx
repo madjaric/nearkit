@@ -45,7 +45,7 @@ export function PageHeader({ title, description, actions, status }: PageHeaderPr
       </header>
       {soon && (
         <p className="rounded-md border border-dashed border-line-strong px-4 py-3 text-sm text-fg-2">
-          {title} is not part of the public testnet beta yet. You can look around, but nothing on this page can be signed, sent or saved.
+          {title} is not part of the public beta yet. You can look around, but nothing on this page can be signed, sent or saved.
         </p>
       )}
     </>
@@ -109,7 +109,7 @@ export function RequireWallet({ feature, children }: { feature: string; children
           }
         >
           {soon
-            ? 'Connect a wallet to preview the page. Nothing on it can be signed, sent or saved during the testnet beta.'
+            ? 'Connect a wallet to preview the page. Nothing on it can be signed, sent or saved during the beta.'
             : caps.mode === 'demo'
               ? `${feature} works across your NearKit wallets. The demo runs on a sample account.`
               : `${feature} works across the accounts you connect. You sign in your wallet; NearKit never sees your keys.`}

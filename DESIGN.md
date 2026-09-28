@@ -361,7 +361,7 @@ Every button is a key: uppercase keycap type, one 3px shape, and color changes o
   - Features the testnet beta doesn't ship yet (`src/config/release.ts`) keep their sidebar entry with the same dashed SOON tag.
   - Their page swaps its status tag for COMING SOON, with a dashed-outline notice under the header.
   - The page body renders read-only: every field and key is disabled, and the execution note reads "Coming soon."
-  - This applies only to production builds on testnet, so development and tests keep the features usable.
+  - This applies to every production build of the real services, on testnet and mainnet, so development and tests keep the features usable.
 - **Network chip:** a 32px hairline chip with an LED, "NEAR" and the network tag: DEMO (idle LED), TESTNET BETA (lit, neutral tag; the public testnet build) or MAINNET (lit, amber tag, because real funds move). When the build can't sign it adds a dashed VIEW ONLY tag and an amber LED. The tooltip says which. The sidebar status line repeats the network name ("NEAR testnet beta · live").
 - **Page status tags:** tools that move value carry `ExecutionTag` (EXECUTION SIMULATED, TESTNET, MAINNET, or "{network} · VIEW ONLY" in amber); data pages carry `DataTag` (DEMO DATA or TESTNET DATA). Automation pages say DRAFTS ONLY in real mode.
 - **Watch tag:** accounts added by ID carry a dashed WATCH tag in wallet lists; they show balances and can receive, and never sign.

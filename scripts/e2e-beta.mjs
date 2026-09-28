@@ -162,7 +162,7 @@ if (WIDTH >= 1024) {
 
 await step('without a wallet, a held-back page says it is coming soon', async () => {
   await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
-  await visible('Multi Trade is not part of the public testnet beta yet')
+  await visible('Multi Trade is not part of the public beta yet')
   await visible('Multi Trade is coming soon')
   if ((await hasSoonTag()) !== 1) throw new Error('No COMING SOON tag beside the title')
   await shot('beta-01-no-wallet')
@@ -246,12 +246,12 @@ for (const { route, label, form } of SOON) {
   await step(`${label}: COMING SOON, and every field and key is disabled`, async () => {
     const before = (await page.evaluate(() => window.__NEARKIT_E2E_SIGNED__ ?? [])).length
     await page.goto(BASE + route, { waitUntil: 'networkidle' })
-    await visible(`${label} is not part of the public testnet beta yet`)
+    await visible(`${label} is not part of the public beta yet`)
     if ((await hasSoonTag()) !== 1) throw new Error('No COMING SOON tag beside the title')
     const gate = page.locator('main fieldset[disabled]')
     await gate.waitFor({ timeout: 8000 })
     // Pages that execute say why under their key; PnL executes nothing.
-    if (form) await gate.getByText('Coming soon. This is not available in the public testnet beta yet').first().waitFor()
+    if (form) await gate.getByText('Coming soon. This is not available in the public beta yet').first().waitFor()
     const controls = await gate.locator('button, input, select, textarea').count()
     const enabled = await gate.locator('button:enabled, input:enabled, select:enabled, textarea:enabled').count()
     if (form && controls === 0) throw new Error('The page rendered no controls to check')
@@ -283,7 +283,7 @@ await step('Split, Consolidate, Batch Send, Wallets and Scanner are not held bac
     await page.locator('main h1').first().waitFor()
     if ((await hasSoonTag()) !== 0) throw new Error(`${route} is tagged COMING SOON`)
     if ((await page.locator('main fieldset[disabled]').count()) !== 0) throw new Error(`${route} is read-only`)
-    if (/not part of the public testnet beta/.test(await page.locator('main').innerText())) throw new Error(`${route} shows the coming-soon notice`)
+    if (/not part of the public beta/.test(await page.locator('main').innerText())) throw new Error(`${route} shows the coming-soon notice`)
   }
   await page.goto(BASE + '/batch-send', { waitUntil: 'networkidle' })
   const list = page.locator('main textarea').first()

@@ -23,7 +23,7 @@ The beta ships Swap and Quick Trade, Split, Consolidate, Batch Send, Wallets, Po
 **Coming soon:** Multi Trade, Limit Orders, DCA, Copy Trade, Sniper and PnL (plus Telegram and $KIT, which are not live in any build).
 - Their pages, code and tests stay. In the beta the sidebar lists them last, in a COMING SOON group with SOON tags, and their pages show COMING SOON with every field and key disabled.
 - The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it.
-- The hold applies only to production builds on testnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
+- The hold applies to every production build of the real services, on testnet and mainnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request. It covers typecheck, lint, format check, unit and integration tests, and the production build. The e2e suites and live smoke checks run locally (see Tests).
 
@@ -36,6 +36,7 @@ npm install
 npm run dev            # real services on NEAR testnet       http://localhost:5196
 npm run dev:demo       # the Phase 1 simulator, demo data     http://localhost:5198
 npm run dev:mainnet    # mainnet (view-only unless enabled)   http://localhost:5200
+npm run preview:mainnet  # mainnet production build, local     http://localhost:5199 (MAINNET_SMOKE_TEST.md)
 npm run dev:e2e        # testnet + scripted test wallet       http://localhost:5202
 npm run build          # typecheck + production build (dist/)
 npm run preview        # serves dist/ on http://localhost:5197
@@ -106,7 +107,7 @@ NearKit can't create accounts or sign for you, so this is done by hand with your
 7. Reject a signature in the wallet: the modal says **Nothing was sent**.
 8. Consolidate from two accounts: NearKit pauses and asks you to connect the second account before its step.
 
-Only after all eight pass, build with `VITE_NEAR_NETWORK=mainnet`, `VITE_NEARKIT_FEE_RECIPIENT=<fee account>` and `VITE_ENABLE_MAINNET_EXECUTION=true`, and repeat steps 3 to 7 with small amounts.
+Only after all eight pass, run the controlled mainnet smoke test in [MAINNET_SMOKE_TEST.md](MAINNET_SMOKE_TEST.md). It is a local production build with very small amounts; the public site stays on the testnet beta.
 
 ## Operator tasks (mainnet fee account)
 

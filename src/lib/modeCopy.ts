@@ -2,7 +2,7 @@ import { useLocation } from 'react-router'
 import { isComingSoon } from '@/config/release'
 import { useCapabilities } from '@/services/queries'
 
-/** The current page is COMING SOON in this build (the public testnet beta). */
+/** The current page is COMING SOON in this build (the public beta). */
 export function useComingSoonPage(): boolean {
   return isComingSoon(useLocation().pathname)
 }

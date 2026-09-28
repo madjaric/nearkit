@@ -208,6 +208,34 @@ describe('real transfers (testnet, fake chain)', () => {
     expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet', 'bob.testnet'])
   })
 
+  it('Split, Consolidate and Batch Send never carry a NearKit fee', async () => {
+    const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    const plans = await Promise.all([
+      services.transfers.prepare({ kind: 'batch-send', tokenId: USDT, sourceWalletId: 'alice.testnet', lines: [{ accountId: 'bob.testnet', amount: '1' }] }),
+      services.transfers.prepare({
+        kind: 'split',
+        tokenId: USDT,
+        sourceWalletId: 'alice.testnet',
+        lines: [
+          { accountId: 'bob.testnet', amount: '1' },
+          { accountId: 'carol.testnet', amount: '1' },
+        ],
+      }),
+      services.transfers.prepare({ kind: 'consolidate', tokenId: USDT, destinationAccountId: 'carol.testnet', sources: [{ walletId: 'alice.testnet', amount: '1' }] }),
+    ])
+    for (const plan of plans) {
+      expect(plan.fee, plan.kind).toBeNull()
+      const actions = plan.transactions.flatMap((t) => t.actions)
+      // Only the transfers themselves and disclosed registrations: nothing else goes to anyone.
+      expect(
+        actions.every((a) => a.kind === 'call' && (a.method === 'ft_transfer' || a.method === 'storage_deposit')),
+        plan.kind,
+      ).toBe(true)
+    }
+  })
+
   it('restores the wallet session once for every first read on page load, not only the first', async () => {
     const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
     const [s, wallets, holdings] = await Promise.all([services.wallets.getSession(), services.wallets.listWallets(), services.wallets.listHoldings()])
@@ -235,7 +263,7 @@ const DEADLINE = 1790625221763
 const OLD_FEE_DEADLINE = 1790600154604
 
 const mainnetChain = (feeRecipientRegistered = true): FakeChainOptions => ({
-  accounts: { 'example.near': { amount: NEAR(10) } },
+  accounts: { 'example.near': { amount: NEAR(10) }, 'fees.example.near': { amount: NEAR(1) } },
   tokens: {
     [USDT_MAIN]: { symbol: 'USDt', decimals: 6, balances: { 'example.near': 10_000_000n }, registered: ['example.near', AGG], boundsMin: MIN_STORAGE },
     [USDC_MAIN]: { symbol: 'USDC', decimals: 6, registered: [AGG], boundsMin: MIN_STORAGE },
@@ -357,6 +385,18 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     expect(services.capabilities.execution.trading.enabled).toBe(false)
   })
 
+  it('blocks trades when the fee account does not exist on mainnet, before anything reaches the wallet', async () => {
+    const chain = mainnetChain()
+    delete chain.accounts!['fees.example.near']
+    const { services, chain: fake, wallet } = setup({ network: 'mainnet', env: MAINNET_ENV, chain, session: session(['example.near']), now: () => DEADLINE - 120_000 })
+    withQuote(fake)
+    await expect(services.trading.prepareSwap(swapRequest)).rejects.toMatchObject({
+      code: 'EXECUTION_DISABLED',
+      message: expect.stringMatching(/fees\.example\.near does not exist/),
+    })
+    expect(wallet.signed).toHaveLength(0)
+  })
+
   it('the mainnet switch: plans can be reviewed but nothing reaches the wallet', async () => {
     const { services, chain, run, wallet } = setup({
       network: 'mainnet',
@@ -386,7 +426,7 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     const { services, chain } = setup({
       network: 'mainnet',
       env: MAINNET_ENV,
-      chain: { ...mainnetChain(), accounts: { 'mallory.near': { amount: NEAR(10) } } },
+      chain: { ...mainnetChain(), accounts: { 'mallory.near': { amount: NEAR(10) }, 'fees.example.near': { amount: NEAR(1) } } },
       session: session(['mallory.near']),
       now: () => DEADLINE - 120_000,
     })

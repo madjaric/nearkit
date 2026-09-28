@@ -11,6 +11,7 @@
     "dev:e2e": "vite --mode e2e --port 5202",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
+    "preview:mainnet": "vite build --mode mainnet --outDir dist/mainnet && vite preview --outDir dist/mainnet --port 5199 --strictPort",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",

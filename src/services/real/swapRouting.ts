@@ -1,6 +1,7 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { mapLimit } from '@/lib/async'
 import { MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
+import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { storageBoundsMin, storageStatus } from '@/services/near/storage'
 import { classicSwapMsg, createFindPathClient, type FindPathClient } from '@/services/rhea/classic'
@@ -67,6 +68,18 @@ export function createSwapRouter(ctx: NearContext) {
   const findPath: FindPathClient = createFindPathClient({ baseUrl: ctx.network.rhea.classic.findPathUrl, fetch: ctx.fetch })
 
   let feeConfig: Promise<{ whitelist: Set<string>; protocolPpm: number }> | null = null
+
+  /** Fees credited to an account that does not exist could never be withdrawn, so trading stops. */
+  let feeAccountExists: string | null = null
+  async function assertFeeAccountExists(accountId: string): Promise<void> {
+    if (feeAccountExists === accountId) return
+    if (!(await accountState(ctx.rpc, accountId, 'final')).exists)
+      throw new NearKitError(
+        'EXECUTION_DISABLED',
+        `The NearKit fee account ${accountId} does not exist on ${ctx.network.label.toLowerCase()}, so trades are blocked. Nothing was signed.`,
+      )
+    feeAccountExists = accountId
+  }
   const aggregatorFeeConfig = () => {
     if (!agg) throw new Error('No aggregator on this network')
     feeConfig ??= Promise.all([
@@ -119,6 +132,7 @@ export function createSwapRouter(ctx: NearContext) {
           appFeeRecipient: recipient,
         }),
         aggregatorFeeConfig(),
+        verify ? assertFeeAccountExists(recipient) : null,
       ])
       if (verify && !(await verifySmartxSignature(quote.msg, quote.signature, agg.signerKey))) {
         throw new NearKitError('QUOTE_REJECTED', 'NearKit refused Rhea’s route: its signature did not verify. Nothing was signed.')

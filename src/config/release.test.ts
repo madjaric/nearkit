@@ -14,10 +14,14 @@ describe('comingSoonRoutes: what the public testnet beta marks COMING SOON', () 
     for (const route of ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/scanner']) expect(soon, route).not.toContain(route)
   })
 
-  it('leaves every feature usable in development and test builds, the demo and mainnet', () => {
+  it('holds back the same features in a mainnet production build', () => {
+    expect(comingSoonRoutes({ ...publicBeta, network: 'mainnet' })).toEqual(comingSoonRoutes(publicBeta))
+  })
+
+  it('leaves every feature usable in development and test builds and the demo', () => {
     expect(comingSoonRoutes({ ...publicBeta, production: false })).toEqual([])
+    expect(comingSoonRoutes({ ...publicBeta, network: 'mainnet', production: false })).toEqual([])
     expect(comingSoonRoutes({ ...publicBeta, services: 'demo' })).toEqual([])
-    expect(comingSoonRoutes({ ...publicBeta, network: 'mainnet' })).toEqual([])
   })
 
   it('names only routes the sidebar has, so a typo cannot silently un-gate a page', () => {
