@@ -89,7 +89,16 @@ export function parseEnv(raw: RawEnv): { env: AppEnv; issues: EnvIssue[] } {
   return { env: { services, network, rpcUrls, mainnetExecution, feeRecipient, kitContract }, issues }
 }
 
-const parsed = parseEnv(import.meta.env)
+// Each key is read by name. Passing `import.meta.env` whole would compile every
+// VITE_ variable of the build machine into the public bundle (Vercel adds its own).
+const parsed = parseEnv({
+  VITE_NEARKIT_SERVICES: import.meta.env.VITE_NEARKIT_SERVICES,
+  VITE_NEAR_NETWORK: import.meta.env.VITE_NEAR_NETWORK,
+  VITE_NEAR_RPC_URL: import.meta.env.VITE_NEAR_RPC_URL,
+  VITE_ENABLE_MAINNET_EXECUTION: import.meta.env.VITE_ENABLE_MAINNET_EXECUTION,
+  VITE_NEARKIT_FEE_RECIPIENT: import.meta.env.VITE_NEARKIT_FEE_RECIPIENT,
+  VITE_KIT_TOKEN_CONTRACT: import.meta.env.VITE_KIT_TOKEN_CONTRACT,
+})
 
 /** The validated build configuration. */
 export const ENV: Readonly<AppEnv> = Object.freeze(parsed.env)

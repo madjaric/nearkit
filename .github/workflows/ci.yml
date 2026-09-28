@@ -41,10 +41,15 @@ jobs:
       - name: Unit and integration tests
         run: npm test
 
-      # The same configuration as the public testnet beta on Vercel.
+      # The same configuration as the public testnet beta on Vercel, plus a canary:
+      # only NearKit's own variables may be compiled into the bundle.
       - name: Production build
         run: npm run build
         env:
           VITE_NEARKIT_SERVICES: near
           VITE_NEAR_NETWORK: testnet
           VITE_ENABLE_MAINNET_EXECUTION: 'false'
+          VITE_BUILD_CANARY: must-not-ship
+
+      - name: No stray build variables in the bundle
+        run: '! grep -rq must-not-ship dist/assets'
