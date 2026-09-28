@@ -71,12 +71,12 @@ await step('dashboard renders readouts, positions and ticket', async () => {
   await page.getByRole('heading', { name: 'Quick trade' }).waitFor()
 })
 
-await step('quick trade: MAX fills, quote prints, fee is 2.00%', async () => {
+await step('quick trade: MAX fills, quote prints, fee is 0.10%', async () => {
   const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
   await ticket.getByRole('button', { name: 'MAX' }).click()
   await ticket.getByText('You receive (est.)').waitFor()
   await ticket.getByText(/1 NEAR ≈ [\d,.]+[KMB]? BLACKDRAGON/).waitFor({ timeout: 6000 })
-  await ticket.getByText('2.00%').first().waitFor()
+  await ticket.getByText('0.10%').first().waitFor()
 })
 
 await step('quick trade: two-step arm then confirm simulates and toasts', async () => {
@@ -92,7 +92,7 @@ await step('quick trade: two-step arm then confirm simulates and toasts', async 
   const review = page.getByRole('dialog', { name: 'Review buy' })
   await review.getByText('You pay').waitFor({ timeout: 6000 })
   await review.getByText('Minimum received').waitFor()
-  await review.getByText(/NearKit fee \(2\.00%\)/).waitFor()
+  await review.getByText(/NearKit fee \(0\.10%\)/).waitFor()
   await shot(page, 'quick-trade-review')
   await review.getByRole('button', { name: /^Buy BLACKDRAGON$/i }).click()
   await page.getByRole('dialog', { name: 'Simulation complete' }).waitFor({ timeout: 8000 })
@@ -181,7 +181,7 @@ await step('multi buy: equal split shows 2.00 NEAR per wallet and executes', asy
   const modal = page.getByRole('dialog', { name: /Review multi buy/i })
   await modal.waitFor()
   await modal.getByText('10 NEAR').first().waitFor({ timeout: 6000 })
-  await modal.getByText(/NearKit fee \(2\.00%\)/).waitFor()
+  await modal.getByText(/NearKit fee \(0\.10%\)/).waitFor()
   await modal.getByText('5 in 5 approvals').waitFor()
   await shot(page, 'multi-confirm')
   await modal.getByRole('button', { name: /Execute multi buy/i }).click()

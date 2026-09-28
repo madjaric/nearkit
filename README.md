@@ -71,7 +71,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | NEAR and NEP-141 balances | Real: `view_account` and `ft_balance_of`; indexers only suggest which tokens to check |
 | Token metadata, import by contract | Real, validated (`ft_metadata`, `ft_total_supply`) |
 | Batch Send, Split, Consolidate | Real: exact amounts, recipient checks, NEP-145 registration, chunking, per-transaction status |
-| Swap, Quick Trade | Real: Rhea aggregator on mainnet (2.00% app fee), Rhea classic router on testnet (no fee) |
+| Swap, Quick Trade | Real: Rhea aggregator on mainnet (0.10% app fee), Rhea classic router on testnet (no fee) |
 | Multi Trade | Real: one verified route per wallet, one approval per wallet, no all-or-nothing. COMING SOON in the public testnet beta |
 | Transaction history | Real for operations sent from this browser, reconciled with the chain |
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
@@ -110,7 +110,7 @@ Only after all eight pass, build with `VITE_NEAR_NETWORK=mainnet`, `VITE_NEARKIT
 
 ## Operator tasks (mainnet fee account)
 
-The 2.00% fee is collected by Rhea's aggregator (`aggregatedex.near`) as an app fee: NearKit's account receives 1.60%, Rhea keeps 0.40%, and Rhea charges its own 0.10% on every swap. Fees accrue as an internal balance on the aggregator, not as transfers.
+The NearKit trading fee is 0.10% (10 bps) on Swap and Quick Trade. Rhea's aggregator (`aggregatedex.near`) collects it as an app fee: NearKit's account receives 0.08%, Rhea keeps 0.02%, and Rhea charges its own 0.10% protocol fee on every swap. Fees accrue as an internal balance on the aggregator, not as transfers. Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate from this fee and not implemented here.
 
 1. **Register the fee account** with the aggregator for the five fee-whitelist tokens (wNEAR, USDC, USDt, USDC.e, USDT.e), 0.005 NEAR each. When a swap's fee lands in another token, NearKit adds that one registration to the user's transaction and shows it as a storage cost.
 

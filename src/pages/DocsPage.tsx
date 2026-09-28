@@ -3,7 +3,7 @@ import { Page, PageHeader } from '@/components/page/Page'
 import { ComingSoon, Kbd, Led, Tag } from '@/components/ui/Indicators'
 import { Panel } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
-import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
+import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
 import { GLOSSARY } from '@/lib/glossary'
 import { useCapabilities } from '@/services/queries'
 
@@ -125,9 +125,10 @@ export default function DocsPage() {
             <Section id="fees" title="Fees">
               <p>
                 On mainnet NearKit charges <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> on each trade. It is collected inside the swap by Rhea’s aggregator as an app
-                fee, never as a separate transfer: of the <span className="num text-fg">{NEARKIT_FEE_LABEL}</span>, NearKit receives <span className="num text-fg">1.60%</span> and
-                Rhea keeps <span className="num text-fg">0.40%</span>. Rhea also charges its own <span className="num text-fg">0.10%</span> on every swap. The fee comes out of the
-                first NEAR, USDC or USDT the route touches, which is usually the NEAR side. Every review shows the exact amount before you sign.
+                fee, never as a separate transfer: of the <span className="num text-fg">{NEARKIT_FEE_LABEL}</span>, NearKit receives{' '}
+                <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span> and Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>. Rhea also charges
+                its own <span className="num text-fg">0.10%</span> protocol fee on every swap. The fee comes out of the first NEAR, USDC or USDT the route touches, which is usually
+                the NEAR side. Every review shows the exact amount before you sign.
               </p>
               <p>Batch send, Split and Consolidate carry no NearKit fee. Testnet trades are not charged, and the demo charges nothing.</p>
               <p>

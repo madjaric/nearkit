@@ -11,10 +11,10 @@ beforeAll(() => {
 const { near, blackdragon, kit, shitzu } = TOKEN_IDS
 
 describe('demo trading', () => {
-  it('charges 2.00% on the NEAR leg of a buy', async () => {
+  it('charges 0.10% on the NEAR leg of a buy', async () => {
     const s = createMockServices()
     const quote = await s.trading.quote({ tokenIn: near, tokenOut: blackdragon, amountIn: '10', slippagePct: 1, walletId: 'w01' })
-    expect(quote.nearkitFee.amountNear).toBeCloseTo(0.2, 10)
+    expect(quote.nearkitFee.amountNear).toBeCloseTo(0.01, 10)
     expect(quote.minAmountOut).toBeCloseTo(quote.amountOut * 0.99, 6)
     expect(quote.path).toEqual(['NEAR', 'BLACKDRAGON'])
     expect(quote.router).toBe('demo')
@@ -24,7 +24,7 @@ describe('demo trading', () => {
     const s = createMockServices()
     const sell = await s.trading.quote({ tokenIn: shitzu, tokenOut: near, amountIn: '1000', slippagePct: 1, walletId: 'w01' })
     const feeNear = sell.nearkitFee.amountNear ?? Number.NaN
-    expect(feeNear / (sell.amountOut + feeNear)).toBeCloseTo(0.02, 10)
+    expect(feeNear / (sell.amountOut + feeNear)).toBeCloseTo(0.001, 10)
     const pair = await s.trading.quote({ tokenIn: kit, tokenOut: shitzu, amountIn: '1000', slippagePct: 1, walletId: 'w01' })
     expect(pair.path).toEqual(['KIT', 'NEAR', 'SHITZU'])
   })
@@ -167,6 +167,6 @@ describe('demo portfolio', () => {
     const b = await createMockServices().portfolio.getPnl('90d')
     expect(a?.realizedUsd).toBe(b?.realizedUsd)
     expect(a?.points).toHaveLength(90)
-    expect(a?.feesUsd).toBeCloseTo((a?.volumeUsd ?? 0) * 0.02, 6)
+    expect(a?.feesUsd).toBeCloseTo((a?.volumeUsd ?? 0) * 0.001, 6)
   })
 })

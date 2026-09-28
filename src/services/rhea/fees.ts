@@ -1,7 +1,7 @@
 /**
  * Fee arithmetic for swaps through Rhea's aggregator, from verified on-chain
  * behavior (PHASE2_IMPLEMENTATION.md §13):
- * - the app fee (NearKit's 2.00%) is `app_fee_rate` parts per million of the fee token;
+ * - the app fee (NearKit's 0.10%) is `app_fee_rate` parts per million of the fee token;
  * - Rhea keeps 20% of it (`earn_app_protocol_fee`), the recipient gets 80% (`earn_app_fee`);
  * - Rhea also charges its own protocol fee on every swap (`query_protocol_fee_rate`, 1000 ppm);
  * - the fee comes out of the first whitelisted token the aggregator holds: the input,

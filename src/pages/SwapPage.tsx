@@ -12,6 +12,7 @@ import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { SwapTicket } from '@/features/trade/SwapTicket'
 import { cn } from '@/lib/cn'
+import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPrice, formatUsdCompact } from '@/lib/format'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
@@ -160,7 +161,7 @@ function SwapScreen({ initialFrom, initialTo }: { initialFrom: TokenId; initialT
         title="Swap"
         description={
           caps.mode === 'demo'
-            ? 'Trade any listed token. Every demo swap is priced through NEAR, with the 2.00% NearKit fee shown on that NEAR leg.'
+            ? `Trade any listed token. Every demo swap is priced through NEAR, with the ${NEARKIT_FEE_LABEL} NearKit fee shown on that NEAR leg.`
             : 'Trade any NEP-141 token through Rhea. The route is quoted again right before you sign, and every fee is shown in the review.'
         }
       />

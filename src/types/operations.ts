@@ -92,7 +92,7 @@ export interface FeeShare {
 
 export interface FeeDisclosure {
   label: string
-  /** Headline rate the user pays as the NearKit fee (200 = 2.00%). */
+  /** Headline rate the user pays as the NearKit fee (10 = 0.10%). */
   bps: number
   amount: AmountValue
   token: TokenRef

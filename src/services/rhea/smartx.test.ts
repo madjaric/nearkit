@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
+import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import partial from './fixtures/smartx-blackdragon-partial.json'
 import nofee from './fixtures/smartx-near-to-usdt-nofee.json'
 import withFee from './fixtures/smartx-usdt-to-near-fee200.json'
+import nearkitFee from './fixtures/smartx-usdt-to-near-fee10.json'
 import { checkSmartxRoute, createSmartxClient, decodeSmartxMsg, parseSmartxResponse, smartxQuoteUrl, verifySmartxSignature, type RouteExpectation } from './smartx'
 
 // Real responses from smartx.rhea.finance, saved during research (2026-09-28).
@@ -13,6 +15,9 @@ const USDC = '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1'
 const feeQuote = parseSmartxResponse(withFee)
 const feeDecoded = decodeSmartxMsg(feeQuote.msg) as { deadline: number }
 
+// The research route (two exchanges) was quoted at an app fee of 2.00%. The checks
+// below test the route checker against that route's own terms. NearKit's own 0.10%
+// is covered in "NearKit's 0.10% fee on Rhea routes", which refuses this route.
 const expectFee: RouteExpectation = {
   user: 'example.near',
   tokenIn: USDT,
@@ -184,9 +189,28 @@ describe('checkSmartxRoute', () => {
       referrals: agg.referrals,
     }
     expect(checkSmartxRoute(q, d, noFee, d.deadline - 120_000).appFeePpm).toBeNull()
-    expect(() => checkSmartxRoute(q, d, { ...noFee, appFeePpm: 20000, appFeeRecipient: 'fees.example.near' }, d.deadline - 120_000)).toThrow(
+    expect(() => checkSmartxRoute(q, d, { ...noFee, appFeePpm: NEARKIT_FEE_BPS * 100, appFeeRecipient: 'fees.example.near' }, d.deadline - 120_000)).toThrow(
       expect.objectContaining({ code: 'QUOTE_REJECTED' }),
     )
+  })
+})
+
+describe('NearKit’s 0.10% fee on Rhea routes', () => {
+  // A real route Rhea signed for the same request at appFeeRate=10 (2026-09-28).
+  const ours = parseSmartxResponse(nearkitFee)
+  const oursDecoded = decodeSmartxMsg(ours.msg) as { deadline: number; app_fee_rate: number }
+  const ourTerms: RouteExpectation = { ...expectFee, appFeePpm: NEARKIT_FEE_BPS * 100 }
+
+  it('passes a route Rhea signed at NearKit’s rate: app_fee_rate 1000 ppm', async () => {
+    expect(await verifySmartxSignature(ours.msg, ours.signature, agg.signerKey)).toBe(true)
+    expect(oursDecoded.app_fee_rate).toBe(1000)
+    const route = checkSmartxRoute(ours, decodeSmartxMsg(ours.msg), ourTerms, oursDecoded.deadline - 120_000)
+    expect(route.appFeePpm).toBe(1000)
+    expect(route.routeTokens).toEqual([USDT, 'wrap.near'])
+  })
+
+  it('refuses a route that still carries the old 2.00% app fee', () => {
+    expect(() => checkSmartxRoute(feeQuote, decodeSmartxMsg(feeQuote.msg), ourTerms, before(120_000))).toThrow(/fee rate differs from the NearKit fee/)
   })
 })
 
@@ -198,13 +222,13 @@ describe('smartx client', () => {
     slippage: 0.005,
     user: 'alice.near',
     skipUnwrapNativeToken: true,
-    appFeeRate: 200,
+    appFeeRate: NEARKIT_FEE_BPS,
     appFeeRecipient: 'fees.nearkit.near',
   }
 
-  it('asks for the NearKit app fee explicitly: appFeeRate=200 and the configured recipient', () => {
+  it('asks for the NearKit app fee explicitly: appFeeRate=10 and the configured recipient', () => {
     const url = new URL(smartxQuoteUrl(agg.quoteUrl, params))
-    expect(url.searchParams.get('appFeeRate')).toBe('200')
+    expect(url.searchParams.get('appFeeRate')).toBe('10')
     expect(url.searchParams.get('appFeeRecipient')).toBe('fees.nearkit.near')
     expect(url.searchParams.get('user')).toBe('alice.near')
     expect(url.searchParams.get('amountIn')).toBe('1000000000000000000000000')

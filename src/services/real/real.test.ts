@@ -4,7 +4,8 @@ import { NETWORKS, type NetworkId } from '@/config/networks'
 import type { RpcTxResult } from '@/services/near/rpc'
 import type { ConnectorTransaction, WalletSession } from '@/services/near/wallet'
 import findPathSingle from '@/services/rhea/fixtures/findpath-testnet-wrap-usdt.json'
-import smartxWithFee from '@/services/rhea/fixtures/smartx-usdt-to-near-fee200.json'
+import smartxOldFee from '@/services/rhea/fixtures/smartx-usdt-to-near-fee200.json'
+import smartxNearkitFee from '@/services/rhea/fixtures/smartx-usdt-to-near-fee10.json'
 import type { OperationProgress } from '@/types/operations'
 import { createNearServices } from './index'
 import { memoryStorage } from './stores'
@@ -228,8 +229,10 @@ describe('real transfers (testnet, fake chain)', () => {
 const USDT_MAIN = 'usdt.tether-token.near'
 const USDC_MAIN = '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1'
 const AGG = 'aggregatedex.near'
-// The saved quote is bound to example.near and fees.example.near, and expires at its deadline.
-const DEADLINE = 1790600154604
+// The saved quote (appFeeRate=10) is bound to example.near and fees.example.near, and expires at its deadline.
+const DEADLINE = 1790625221763
+// An older saved quote for the same request at the former 2.00% app fee.
+const OLD_FEE_DEADLINE = 1790600154604
 
 const mainnetChain = (feeRecipientRegistered = true): FakeChainOptions => ({
   accounts: { 'example.near': { amount: NEAR(10) } },
@@ -251,8 +254,8 @@ const swapRequest = { tokenIn: USDT_MAIN, tokenOut: 'near', amountIn: '5.000013'
 
 function withQuote(chain: FakeChain) {
   chain.route('https://smartx.rhea.finance/swapMultiDexPath', (url) =>
-    url.searchParams.get('appFeeRate') === '200' && url.searchParams.get('appFeeRecipient') === 'fees.example.near' && url.searchParams.get('user') === 'example.near'
-      ? smartxWithFee
+    url.searchParams.get('appFeeRate') === '10' && url.searchParams.get('appFeeRecipient') === 'fees.example.near' && url.searchParams.get('user') === 'example.near'
+      ? smartxNearkitFee
       : { result_code: 1, result_message: 'unexpected request', result_data: null },
   )
 }
@@ -265,8 +268,8 @@ const aggSuccess = (hash: string, signer: string): RpcTxResult => ({
       outcome: {
         executor_id: AGG,
         logs: [
-          'EVENT_JSON:{"data":[{"amount":"80000","receipt":"fees.example.near","token":"usdt.tether-token.near","user":"example.near"}],"event":"earn_app_fee"}',
-          'EVENT_JSON:{"data":[{"amount":"955257561200075821649570","receive_id":"example.near","token_id":"wrap.near","user_id":"example.near"}],"event":"withdraw_started"}',
+          'EVENT_JSON:{"data":[{"amount":"4000","receipt":"fees.example.near","token":"usdt.tether-token.near","user":"example.near"}],"event":"earn_app_fee"}',
+          'EVENT_JSON:{"data":[{"amount":"1056767498589802841019550","receive_id":"example.near","token_id":"wrap.near","user_id":"example.near"}],"event":"withdraw_started"}',
           'EVENT_JSON:{"data":[{}],"event":"single_swap_success"}',
         ],
         receipt_ids: [],
@@ -278,24 +281,24 @@ const aggSuccess = (hash: string, signer: string): RpcTxResult => ({
     // The aggregator's native NEAR transfer to the user: what proves delivery.
     { id: 'r2', outcome: { executor_id: signer, logs: [], receipt_ids: [], gas_burnt: 1, tokens_burnt: '0', status: { SuccessValue: '' } } },
   ],
-  receipts: [{ receipt_id: 'r2', predecessor_id: AGG, receiver_id: signer, receipt: { Action: { actions: [{ Transfer: { deposit: '955257561200075821649570' } }] } } }],
+  receipts: [{ receipt_id: 'r2', predecessor_id: AGG, receiver_id: signer, receipt: { Action: { actions: [{ Transfer: { deposit: '1056767498589802841019550' } }] } } }],
 })
 
 describe('real swaps (mainnet aggregator, fake chain)', () => {
-  it('asks Rhea for the 2.00% app fee and discloses the exact split: NearKit 1.60%, Rhea 0.40%, plus Rhea’s 0.10%', async () => {
+  it('asks Rhea for the 0.10% app fee and discloses the exact split: NearKit 0.08%, Rhea 0.02%, plus Rhea’s own 0.10%', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => DEADLINE - 120_000 })
     withQuote(chain)
     const plan = await services.trading.prepareSwap(swapRequest)
     const quoteCall = chain.requests.find((r) => r.url.startsWith('https://smartx.rhea.finance/'))
-    expect(new URL(quoteCall?.url ?? 'x:').searchParams.get('appFeeRate')).toBe('200')
+    expect(new URL(quoteCall?.url ?? 'x:').searchParams.get('appFeeRate')).toBe('10')
     expect(plan.fee).toMatchObject({
       charged: true,
-      bps: 200,
+      bps: 10,
       recipient: 'fees.example.near',
       token: { id: USDT_MAIN },
-      amount: { raw: '100000', display: '0.1' },
-      received: { bps: 160, amount: { raw: '80000' } },
-      routerShare: { bps: 40, amount: { raw: '20000' } },
+      amount: { raw: '5000', display: '0.005' },
+      received: { bps: 8, amount: { raw: '4000' } },
+      routerShare: { bps: 2, amount: { raw: '1000' } },
       routerFee: { bps: 10, amount: { raw: '5000' } },
       estimated: false,
     })
@@ -305,9 +308,9 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     expect(actions.filter((a) => a.kind === 'call' && a.method === 'ft_transfer_call')).toHaveLength(1)
     const swapCall = actions.find((a) => a.kind === 'call' && a.method === 'ft_transfer_call')
     expect(swapCall).toMatchObject({ args: { receiver_id: AGG, amount: '5000013' }, gas: '300000000000000', deposit: '1' })
-    // The user is registered on the intermediate USDC before the swap (a later hop can refund it).
-    expect(plan.transactions[0]).toMatchObject({ receiverId: USDC_MAIN, actions: [{ method: 'storage_deposit', args: { account_id: 'example.near' } }] })
-    expect(plan.swap).toMatchObject({ router: 'aggregator', minOut: { raw: '950481273394075442541322' }, tokenOut: { contract: null } })
+    // Everything is registered already, so the swap is the only transaction.
+    expect(plan.transactions.map((t) => t.receiverId)).toEqual([USDT_MAIN])
+    expect(plan.swap).toMatchObject({ router: 'aggregator', minOut: { raw: '1051483661096853826814450' }, tokenOut: { contract: null } })
     expect(plan.expiresAt).toBeLessThanOrEqual(DEADLINE - 60_000)
   })
 
@@ -324,7 +327,7 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     const plan = await services.trading.prepareSwap(swapRequest)
     const progress = await run(plan)
     expect(progress.phase).toBe('success')
-    expect(progress.txs.at(-1)?.note).toMatch(/Received 0\.955257 NEAR · NearKit fee 0\.08 USDt/)
+    expect(progress.txs.at(-1)?.note).toMatch(/Received 1\.056767 NEAR · NearKit fee 0\.004 USDt/)
   })
 
   it('registers NearKit’s fee account with Rhea when it is missing, as a disclosed storage cost', async () => {
@@ -335,7 +338,7 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     expect(aggTx?.actions).toEqual([
       { kind: 'call', method: 'tokens_storage_deposit', args: { user: 'fees.example.near', tokens: [USDT_MAIN] }, gas: '30000000000000', deposit: '5000000000000000000000' },
     ])
-    expect(BigInt(plan.totals.storage.raw)).toBe(MIN_STORAGE + 5_000_000_000_000_000_000_000n)
+    expect(BigInt(plan.totals.storage.raw)).toBe(5_000_000_000_000_000_000_000n)
     expect(plan.warnings.join(' ')).toMatch(/registers NearKit’s fee account \(fees\.example\.near\)/)
   })
 
@@ -388,8 +391,24 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
       now: () => DEADLINE - 120_000,
     })
     // A server that ignores the user parameter and returns the route signed for example.near.
-    chain.route('https://smartx.rhea.finance/swapMultiDexPath', () => smartxWithFee)
+    chain.route('https://smartx.rhea.finance/swapMultiDexPath', () => smartxNearkitFee)
     await expect(services.trading.prepareSwap({ ...swapRequest, walletId: 'mallory.near' })).rejects.toMatchObject({ code: 'QUOTE_REJECTED' })
+  })
+
+  it('refuses a route that still carries the old 2.00% fee, even when Rhea returns one', async () => {
+    const { services, chain, wallet } = setup({
+      network: 'mainnet',
+      env: MAINNET_ENV,
+      chain: mainnetChain(),
+      session: session(['example.near']),
+      now: () => OLD_FEE_DEADLINE - 120_000,
+    })
+    chain.route('https://smartx.rhea.finance/swapMultiDexPath', () => smartxOldFee)
+    await expect(services.trading.prepareSwap(swapRequest)).rejects.toMatchObject({
+      code: 'QUOTE_REJECTED',
+      message: expect.stringMatching(/fee rate differs from the NearKit fee/),
+    })
+    expect(wallet.signed).toHaveLength(0)
   })
 })
 

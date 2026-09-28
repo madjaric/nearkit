@@ -1,14 +1,26 @@
 import { ENV } from '@/config/env'
+import { NETWORKS } from '@/config/networks'
 import { mulBps, toYocto } from './amounts'
 
 /**
- * NearKit fee: single source of truth. On mainnet it is collected through Rhea's
- * app-fee mechanism (see PHASE2_IMPLEMENTATION.md §13): the user pays 2.00%, of
- * which Rhea keeps 20%, so NearKit receives 1.60%. The UI never claims otherwise.
+ * NearKit trading fee on Swap and Quick Trade: single source of truth. On mainnet it
+ * is collected through Rhea's app-fee mechanism (see PHASE2_IMPLEMENTATION.md §13):
+ * the user pays 0.10%, of which Rhea keeps 20%, so NearKit receives 0.08%. The UI
+ * never claims otherwise. Transfers (Split, Consolidate, Batch Send) carry no NearKit
+ * fee. The future $KIT buy and sell fee is a separate thing and does not live here.
  */
-export const NEARKIT_FEE_BPS = 200
+export const NEARKIT_FEE_BPS = 10
 export const NEARKIT_FEE_PCT = NEARKIT_FEE_BPS / 100
-export const NEARKIT_FEE_LABEL = '2.00%'
+
+const bpsLabel = (bps: number) => `${(bps / 100).toFixed(2)}%`
+/** Rhea's share of an app fee, in bps of the fee (mainnet aggregator config). */
+const RHEA_APP_FEE_SHARE_BPS = NETWORKS.mainnet.rhea.aggregator?.appFeeRouterShareBps ?? 0
+
+export const NEARKIT_FEE_LABEL = bpsLabel(NEARKIT_FEE_BPS)
+/** What NearKit's fee account receives of the fee on mainnet. */
+export const NEARKIT_FEE_RECEIVED_LABEL = bpsLabel((NEARKIT_FEE_BPS * (10_000 - RHEA_APP_FEE_SHARE_BPS)) / 10_000)
+/** What Rhea's aggregator keeps of the NearKit fee on mainnet. */
+export const RHEA_APP_FEE_SHARE_LABEL = bpsLabel((NEARKIT_FEE_BPS * RHEA_APP_FEE_SHARE_BPS) / 10_000)
 
 /**
  * Account that receives the NearKit fee, from VITE_NEARKIT_FEE_RECIPIENT (public, not a

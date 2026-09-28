@@ -117,7 +117,7 @@ describe('executor', () => {
     const p = plan([tx(0)], [[0]], {
       fee: {
         label: 'NearKit fee',
-        bps: 200,
+        bps: 10,
         amount: { raw: '1', display: '1' },
         token: { id: 'near', symbol: 'NEAR', decimals: 24, contract: null },
         charged: true,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
+import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountState } from '@/services/near/account'
 import { discoverFtHoldings } from '@/services/near/discovery'
 import { fetchNearUsd, fetchTokenPrices } from '@/services/near/prices'
@@ -96,6 +97,35 @@ describe('mainnet (live, read-only)', () => {
       Date.now(),
     )
     expect(route.routeTokens.at(-1)).toBe('usdt.tether-token.near')
+  })
+
+  it('a quote at NearKit’s 0.10% fee comes back signed with app_fee_rate 1000 ppm and passes the route checks', async () => {
+    // Pacing: Rhea answers burst requests with stale amounts.
+    await new Promise((r) => setTimeout(r, 3_000))
+    const request = { tokenIn: net.wrapContract, tokenOut: 'usdt.tether-token.near', amountIn: ONE, slippage: 0.005 }
+    const quote = await createSmartxClient({ baseUrl: agg.quoteUrl, spacingMs: 0 }).quote({
+      ...request,
+      user: 'example.near',
+      skipUnwrapNativeToken: true,
+      appFeeRate: NEARKIT_FEE_BPS,
+      appFeeRecipient: 'fees.example.near',
+    })
+    expect(await verifySmartxSignature(quote.msg, quote.signature, agg.signerKey)).toBe(true)
+    const route = checkSmartxRoute(
+      quote,
+      decodeSmartxMsg(quote.msg),
+      {
+        ...request,
+        user: 'example.near',
+        skipUnwrapNear: true,
+        appFeePpm: NEARKIT_FEE_BPS * 100,
+        appFeeRecipient: 'fees.example.near',
+        dexReceivers: agg.dexReceivers,
+        referrals: agg.referrals,
+      },
+      Date.now(),
+    )
+    expect(route.appFeePpm).toBe(1000)
   })
 
   it('prices: Rhea lists wNEAR and Coinbase or CoinGecko quote NEAR/USD', async () => {

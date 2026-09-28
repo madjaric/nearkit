@@ -107,9 +107,9 @@ describe('yoctoNEAR helpers', () => {
 
 describe('mulBps: fee math on raw amounts', () => {
   it('floors the result so a fee is never rounded up', () => {
-    expect(mulBps(10n * YOCTO, 200)).toBe(2n * 10n ** 23n) // 2.00% of 10 NEAR = 0.2 NEAR
-    expect(mulBps(99n, 200)).toBe(1n) // 1.98 → 1
-    expect(mulBps(49n, 200)).toBe(0n)
+    expect(mulBps(10n * YOCTO, 10)).toBe(10n ** 22n) // 0.10% of 10 NEAR = 0.01 NEAR
+    expect(mulBps(1_999n, 10)).toBe(1n) // 1.999 → 1
+    expect(mulBps(999n, 10)).toBe(0n)
     expect(mulBps(0n, 200)).toBe(0n)
     expect(mulBps(U128_MAX, 10_000)).toBe(U128_MAX)
   })

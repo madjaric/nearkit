@@ -6,12 +6,12 @@
 
 Built and tested as planned, with these deviations and resolutions:
 
-- **Router and fee (was Open, now Decision).** The follow-up confirmed both conditions for the aggregator path: a failed swap refunds the full input **including** the app and protocol fees (104 of 104 refunds checked on chain, 25 of them with an app fee), and the signed route can be decoded and its ed25519 signature verified client-side (355 of 355 accepted routes verify; a tampered one fails). Mainnet swaps therefore go through the aggregator with `appFeeRate=200`; testnet uses the classic router with no fee. Details in §12 and §13.
+- **Router and fee (was Open, now Decision).** The follow-up confirmed both conditions for the aggregator path: a failed swap refunds the full input **including** the app and protocol fees (104 of 104 refunds checked on chain, 25 of them with an app fee), and the signed route can be decoded and its ed25519 signature verified client-side (355 of 355 accepted routes verify; a tampered one fails). Mainnet swaps therefore go through the aggregator with `appFeeRate=10` (0.10%; the plan's 2.00% was corrected on 2026-09-28); testnet uses the classic router with no fee. Details in §12 and §13.
 - **Route verification** is stricter than planned: besides the signature, `checkSmartxRoute` (`src/services/rhea/smartx.ts`) refuses any route whose signer, recipient, fee rate or fee account, deadline (under 60 s left), input token or amount, step chaining, output token, DEX contracts or summed minimums differ from the request. Split routes that cover only part of the input (seen on large amounts) are refused.
 - **Quote freshness.** Ticket quotes are indicative and refresh on a 30 s cycle. Preparing a swap always fetches a new route bound to the signer. A plan expires at the earlier of 120 s after quoting and 60 s before the route's deadline; the executor refuses an expired plan before signing and pauses with "Quote expired" if it expires between approvals, never signing the rest on the old quote.
 - **Quote pacing.** Rhea's quote server returns stale no-fee amounts for burst requests, so NearKit sends one quote request at a time, at least 3 s apart.
 - **Outcome reading for aggregator swaps.** The aggregator reports the whole input as used whether the swap completed or was refunded, so outcomes are read from its `EVENT_JSON` logs (`single_swap_success`, `swap_failed_refund_started`, `withdraw_started`, `earn_app_fee`). A later-hop failure is reported as "you received the intermediate token instead".
-- **Minimum received on fee-from-output routes** is shown as the signed minimum less the app and protocol fees (2.1%), because the exchange checks the minimum before the aggregator deducts them.
+- **Minimum received on fee-from-output routes** is shown as the signed minimum less the app and protocol fees (0.20%: 0.10% + 0.10%), because the exchange checks the minimum before the aggregator deducts them.
 - **Fee account registration.** If NearKit's fee account isn't registered with the aggregator for the token a swap's fee lands in, the plan adds `tokens_storage_deposit` for it and shows the 0.005 NEAR as a storage cost. The operator pre-registers the five whitelist tokens (README), so this only happens for fee-from-output swaps on other tokens.
 - **Wallet popups over dialogs.** NEAR Connect shows some wallets' prompts in a popup appended to `<body>`; NearKit's native modal dialogs made it inert. Dialogs now leave the top layer while that popup is visible (`src/lib/walletOverlay.ts`), verified against the live NEAR Connect build.
 - **Scanner.** Holder figures come from NearBlocks v1 on both networks and are dropped (UNKNOWN) when they don't add up against the on-chain supply. Pool liquidity, minting and pause controls are UNKNOWN; NearKit doesn't read pool depth or contract source.
@@ -69,7 +69,7 @@ Built and tested as planned, with these deviations and resolutions:
 
 Still simulated or not built: automation and orders (local drafts only), PnL and cost basis, value history, pool liquidity in the scanner, the Telegram bot and $KIT.
 
-**Goal:** turn NearKit from a simulator into a real NEAR wallet and trading toolkit: real wallet, real balances, real NEP-141 transfers, real Rhea quotes and swaps, and an honestly disclosed 2.00% NearKit fee. The approved Phase 1 UI stays as it is.
+**Goal:** turn NearKit from a simulator into a real NEAR wallet and trading toolkit: real wallet, real balances, real NEP-141 transfers, real Rhea quotes and swaps, and an honestly disclosed NearKit fee (0.10%; the plan's 2.00% was corrected on 2026-09-28). The approved Phase 1 UI stays as it is.
 
 **Architecture:** keep Phase 1's layering: UI → hooks (`src/services/queries.ts`) → service interfaces (`src/services/types.ts`) → implementation. Phase 2 adds a real implementation (`src/services/real/`) built on NEAR-specific modules (`src/services/near/`, `src/services/rhea/`). One execution engine signs and confirms every value-moving operation.
 
@@ -405,30 +405,32 @@ The UI shows `message` and puts the original error in expandable diagnostics.
 
 ---
 
-## 13. NearKit 2.00% fee strategy
+## 13. NearKit fee strategy (0.10%)
+
+**Changed on 2026-09-28:** the NearKit trading fee is 0.10% (10 bps), not the 2.00% this plan was first written with. Everything below reflects 0.10%. It applies to Swap and Quick Trade only: Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate and not implemented.
 
 - **Configuration** (`src/lib/fees.ts`, single source):
-  - `NEARKIT_FEE_BPS = 200`.
+  - `NEARKIT_FEE_BPS = 10`.
   - `NEARKIT_FEE_RECIPIENT` comes from `VITE_NEARKIT_FEE_RECIPIENT`; there is no default and no personal wallet in code.
   - If the recipient is missing or invalid on mainnet, fee-bearing mainnet execution is **blocked**, with a stated reason. The fee is never sent anywhere else.
-- **Default decision: mainnet swaps go through Rhea's aggregator** with `appFeeRate=200` and `appFeeRecipient=NEARKIT_FEE_RECIPIENT`, which is Rhea's own app-fee mechanism. Verified on-chain split:
-  - Rhea keeps **20% of the app fee**, so of the 2.00% the user pays, NearKit receives **1.60%** and Rhea 0.40%.
+- **Default decision: mainnet swaps go through Rhea's aggregator** with `appFeeRate=10` and `appFeeRecipient=NEARKIT_FEE_RECIPIENT`, which is Rhea's own app-fee mechanism. Verified on-chain split:
+  - Rhea keeps **20% of the app fee**, so of the 0.10% the user pays, NearKit receives **0.08%** and Rhea 0.02%.
   - The aggregator also charges every swap a **0.10% protocol fee**, not stated in its docs but visible on-chain (`earn_protocol_fee`).
   - The fee is collected in the first whitelisted token on the route (wNEAR, USDC or USDt), so on NEAR pairs it is the NEAR leg, matching Phase 1's copy.
   - Fees accrue as the recipient's internal balance on `aggregatedex.near` and must be withdrawn by the fee account; that is an operator task, documented in the README.
 - **Disclosure.**
-  - The UI keeps showing "NearKit fee 2.00%".
-  - The confirmation shows the actual amount (e.g. "0.20 NEAR") **and** the split: NearKit receives 1.60% and Rhea 0.40%, plus the Rhea protocol fee of 0.10%.
-  - Nowhere do we claim NearKit receives the full 2.00%.
+  - The UI shows "NearKit fee 0.10%".
+  - The confirmation shows the actual amount (e.g. "0.01 NEAR" on a 10 NEAR trade) **and** the split: NearKit receives 0.08% and Rhea 0.02%, plus the Rhea protocol fee of 0.10%.
+  - Nowhere do we claim NearKit receives the full 0.10%.
 - **No double charge.** On the aggregator path NearKit adds **no** separate fee transfer; the app-fee parameter is the only fee.
 - **Tests prove it:**
-  - the quote request carries exactly `appFeeRate=200` and the configured recipient;
+  - the quote request carries exactly `appFeeRate=10` and the configured recipient;
   - the transaction contains no extra fee transfer;
-  - the displayed fee equals `mulBps(nearLeg, 200)`;
+  - the displayed fee equals `mulBps(nearLeg, 10)`;
   - execution is refused when the recipient is unset on mainnet.
 - **Resolved.** The follow-up confirmed full refunds (fees included) and client-side verification, so the fallback (our own `ft_transfer` fee on the classic path) was not needed and is not built.
 - **Where the fee is taken.** The first whitelisted token the aggregator holds: the input, a token between two exchanges, or else the output. For input-side fees the review shows exact amounts; for later tokens it shows an estimate labelled as such, and the exact amounts appear in the outcome (from `earn_app_fee`).
-- **Tests that prove it** (`src/services/real/real.test.ts`, `src/services/rhea/*.test.ts`): the quote request carries `appFeeRate=200` and the configured recipient; routes signed with any other fee rate or account are refused; the plan contains exactly one `ft_transfer_call` and no fee transfer; the disclosed split is 2.00% = 1.60% + 0.40%, plus 0.10%; trades are blocked (and Rhea is never asked) when the fee account is missing; the mainnet switch stops execution before the wallet.
+- **Tests that prove it** (`src/services/real/real.test.ts`, `src/services/rhea/*.test.ts`): the quote request carries `appFeeRate=10` and the configured recipient; routes signed with any other fee rate or account are refused, including a real route still signed at the old 2.00%; the plan contains exactly one `ft_transfer_call` and no fee transfer; the disclosed split is 0.10% = 0.08% + 0.02%, plus Rhea's 0.10%; a live smoke check confirms Rhea signs NearKit quotes at 1000 ppm; trades are blocked (and Rhea is never asked) when the fee account is missing; the mainnet switch stops execution before the wallet.
 - **Testnet** swaps use the classic path. The NearKit fee line reads "Not charged on testnet": no Rhea app-fee router exists there, and testnet tokens have no value.
 
 ---

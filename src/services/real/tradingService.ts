@@ -1,7 +1,7 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
-import { NEARKIT_FEE_BPS } from '@/lib/fees'
+import { NEARKIT_FEE_BPS, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { groupTransactions, registrationWarnings, txStorageYocto, txUpfrontYocto } from '@/services/near/plans'
@@ -139,7 +139,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         received: null,
         routerShare: null,
         routerFee: null,
-        note: 'Not charged on testnet. On mainnet the 2.00% is collected inside the swap by Rhea’s aggregator.',
+        note: `Not charged on testnet. On mainnet the ${NEARKIT_FEE_LABEL} is collected inside the swap by Rhea’s aggregator.`,
       }
     }
     const d = f.token.decimals
@@ -230,7 +230,9 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     const w: string[] = []
     if (r.tokenIn.contract === null) w.push('If the swap doesn’t go through, the refund arrives as wNEAR (wrapped NEAR), not NEAR.')
     if (r.fee?.stage === 'output')
-      w.push(`Rhea takes its fees from the ${r.tokenOut.symbol} after the exchange checks the signed minimum, so the minimum shown is that minimum less 2.1%.`)
+      w.push(
+        `Rhea takes its fees from the ${r.tokenOut.symbol} after the exchange checks the signed minimum, so the minimum shown is that minimum less ${((r.fee.appPpm + r.fee.protocolPpm) / 10_000).toFixed(2)}%.`,
+      )
     if (r.multiDex)
       w.push(`This route crosses two exchanges. If the second one misses its minimum, you keep the intermediate token instead of ${r.tokenOut.symbol}, and no fee is charged.`)
     return w

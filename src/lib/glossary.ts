@@ -1,4 +1,4 @@
-import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, STORAGE_DEPOSIT_NEAR } from './fees'
+import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from './fees'
 
 /**
  * One definition per term, shared by tooltips and the documentation page so the
@@ -19,7 +19,7 @@ export const GLOSSARY = {
   },
   nearkitFee: {
     term: 'NearKit fee',
-    text: `NearKit's ${NEARKIT_FEE_LABEL} fee on each trade. On mainnet Rhea's aggregator collects it inside the swap: NearKit receives 1.60% and Rhea keeps 0.40%. Testnet trades and the demo are not charged.`,
+    text: `NearKit's ${NEARKIT_FEE_LABEL} fee on each trade. On mainnet Rhea's aggregator collects it inside the swap: NearKit receives ${NEARKIT_FEE_RECEIVED_LABEL} and Rhea keeps ${RHEA_APP_FEE_SHARE_LABEL}. Testnet trades and the demo are not charged.`,
   },
   networkFee: {
     term: 'Network fee',
