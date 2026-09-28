@@ -1,0 +1,264 @@
+import { ArrowDownUp } from 'lucide-react'
+import { useId, useState } from 'react'
+import { PercentKeys, SlippageControl } from '@/components/domain/TradeControls'
+import { slippageIssue } from '@/lib/slippage'
+import { TokenSelect } from '@/components/domain/TokenSelect'
+import { Button, IconButton } from '@/components/ui/Button'
+import { AmountInput, Field, Select } from '@/components/ui/Form'
+import { Amount } from '@/components/ui/Num'
+import { Panel, PanelHeader } from '@/components/ui/Panel'
+import { cn } from '@/lib/cn'
+import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { formatAmount } from '@/lib/format'
+import { useDebouncedValue, useNow } from '@/lib/hooks'
+import { useBalance, usePlanners, useQuote, useSession, useTokens, useWallets } from '@/services/queries'
+import { useConnectPrompt, useSettings } from '@/state/contexts'
+import type { QuoteRequest, TokenId } from '@/types/domain'
+import { OperationModal } from '../tools/OperationModal'
+import { ArmStatus } from './ArmStatus'
+import { QuoteDetails } from './QuoteDetails'
+import { useArm } from './useArm'
+import { useSpend } from './useSpend'
+
+const NEAR = NATIVE_TOKEN_ID
+
+interface SwapTicketProps {
+  fromId: TokenId
+  toId: TokenId
+  onPairChange: (from: TokenId, to: TokenId) => void
+  walletId: string
+  onWalletChange: (id: string) => void
+}
+
+/** Any listed token for any other. Pairs without NEAR hop through it; the fee sits on that leg. */
+export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChange }: SwapTicketProps) {
+  const uid = useId()
+  const { settings } = useSettings()
+  const { data: session } = useSession()
+  const { promptConnect } = useConnectPrompt()
+  const { data: tokens = [] } = useTokens()
+  const { data: wallets = [] } = useWallets()
+  const planners = usePlanners()
+  const now = useNow(500)
+  const { armed, armedAt, arm, disarm } = useArm()
+  const [amountText, setAmountText] = useState('')
+  const [slippage, setSlippage] = useState(settings.defaultSlippage)
+  const [review, setReview] = useState<QuoteRequest | null>(null)
+
+  const signers = wallets.filter((w) => w.access !== 'watch')
+  const from = tokens.find((t) => t.id === fromId)
+  const to = tokens.find((t) => t.id === toId)
+  const toBalance = useBalance(walletId, toId)
+  const spend = useSpend(walletId, fromId, amountText, Boolean(session))
+  const { balance: fromBalance, amount, insufficient, activeFraction } = spend
+  const settledText = useDebouncedValue(amountText.trim(), 250)
+  const slip = slippageIssue(slippage)
+
+  const request: QuoteRequest | null =
+    session && Number(settledText) > 0 && !spend.precisionError
+      ? { tokenIn: fromId, tokenOut: toId, amountIn: settledText, slippagePct: slip?.level === 'error' ? 1 : slippage, walletId }
+      : null
+  const quote = useQuote(request)
+  const q = amount > 0 && request ? quote.data : undefined
+  const settling = amountText.trim() !== settledText || quote.isFetching
+  const stale = settling || (q !== undefined && now >= q.expiresAt)
+  const outDecimals = toId === NEAR || (to?.decimals ?? 0) <= 8 ? 2 : 0
+
+  const setPair = (nextFrom: TokenId, nextTo: TokenId) => {
+    disarm()
+    // Picking the token already on the other side swaps the two sides instead of emptying one.
+    if (nextFrom === nextTo) onPairChange(nextTo === fromId ? toId : nextFrom, nextFrom === toId ? fromId : nextTo)
+    else onPairChange(nextFrom, nextTo)
+  }
+
+  // Opens the review: the service re-quotes and builds the exact plan the user signs.
+  const execute = () => {
+    disarm()
+    setReview({ tokenIn: fromId, tokenOut: toId, amountIn: amountText.trim(), slippagePct: slippage, walletId })
+  }
+
+  const reason = !(amount > 0)
+    ? 'Enter an amount'
+    : spend.precisionError
+      ? spend.precisionError
+      : insufficient
+        ? `Insufficient ${from?.symbol ?? ''}`
+        : slip?.level === 'error'
+          ? 'Check slippage'
+          : quote.isError
+            ? 'Quote unavailable'
+            : undefined
+  let cta: { label: string; disabled?: boolean; reason?: string; onClick?: () => void; variant: 'primary' | 'secondary' }
+  if (!session) cta = { label: 'Connect wallet', variant: 'secondary', onClick: promptConnect }
+  else if (armed) cta = { label: 'Confirm swap', variant: 'primary', onClick: execute }
+  else
+    cta = {
+      label: `Swap ${from?.symbol ?? ''} → ${to?.symbol ?? ''}`,
+      variant: 'primary',
+      disabled: reason !== undefined,
+      reason,
+      onClick: settings.twoStepConfirm ? arm : execute,
+    }
+
+  return (
+    <Panel aria-labelledby={`${uid}-title`}>
+      <PanelHeader
+        id={`${uid}-title`}
+        title="Swap"
+        actions={
+          session &&
+          wallets.length > 0 && (
+            <Select
+              selectSize="sm"
+              aria-label="Swap from wallet"
+              value={walletId}
+              onChange={(e) => {
+                disarm()
+                onWalletChange(e.target.value)
+                setAmountText('')
+              }}
+              className="w-32"
+            >
+              {signers.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
+              ))}
+            </Select>
+          )
+        }
+      />
+      <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-2">
+          <Field
+            label="From"
+            aside={
+              session ? (
+                <span className="flex items-center gap-1">
+                  Balance <Amount value={fromBalance} minDecimals={fromId === NEAR ? 2 : 0} unit={from?.symbol} className="text-fg-2" />
+                </span>
+              ) : null
+            }
+            error={insufficient ? `This wallet holds ${formatAmount(fromBalance, fromId === NEAR ? 2 : 0)} ${from?.symbol ?? ''}` : undefined}
+          >
+            {({ id, describedBy, invalid }) => (
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <AmountInput
+                    id={id}
+                    size="lg"
+                    placeholder="0.00"
+                    value={amountText}
+                    onValueChange={(v) => {
+                      disarm()
+                      setAmountText(v)
+                    }}
+                    aria-describedby={describedBy}
+                    aria-invalid={invalid}
+                  />
+                </div>
+                <div className="w-48 shrink-0">
+                  <TokenSelect label="From token" size="lg" compact value={fromId} walletId={session ? walletId : undefined} onChange={(id) => setPair(id, toId)} />
+                </div>
+              </div>
+            )}
+          </Field>
+          <PercentKeys
+            disabled={!session || !spend.maxSpend}
+            active={activeFraction}
+            onPick={(f) => {
+              disarm()
+              setAmountText(spend.presetText(f))
+            }}
+          />
+        </div>
+
+        <div className="flex items-center gap-3" aria-hidden={false}>
+          <span className="h-px flex-1 bg-line-soft" />
+          <IconButton
+            label="Flip direction"
+            onClick={() => {
+              disarm()
+              setAmountText('')
+              onPairChange(toId, fromId)
+            }}
+            className="border border-line bg-raised"
+          >
+            <ArrowDownUp size={15} />
+          </IconButton>
+          <span className="h-px flex-1 bg-line-soft" />
+        </div>
+
+        <Field
+          label="To (estimated)"
+          aside={
+            session ? (
+              <span className="flex items-center gap-1">
+                Balance <Amount value={toBalance} minDecimals={toId === NEAR ? 2 : 0} unit={to?.symbol} className="text-fg-2" />
+              </span>
+            ) : null
+          }
+        >
+          {({ id }) => (
+            <div className="flex gap-2">
+              <output
+                id={id}
+                aria-live="polite"
+                className={cn(
+                  'num flex h-11 min-w-0 flex-1 items-center truncate rounded-sm border border-line bg-well/50 px-3 text-xl transition-opacity',
+                  q ? 'text-fg' : 'text-fg-4',
+                  stale && q && 'opacity-45',
+                )}
+              >
+                {q ? formatAmount(q.amountOut, outDecimals) : '0.00'}
+              </output>
+              <div className="w-48 shrink-0">
+                <TokenSelect label="To token" size="lg" compact value={toId} walletId={session ? walletId : undefined} onChange={(id) => setPair(fromId, id)} />
+              </div>
+            </div>
+          )}
+        </Field>
+
+        <SlippageControl
+          value={slippage}
+          onChange={(v) => {
+            disarm()
+            setSlippage(v)
+          }}
+        />
+
+        <div className="border-t border-line-soft pt-3.5">
+          <QuoteDetails
+            quote={q}
+            inSymbol={from?.symbol ?? ''}
+            outSymbol={to?.symbol ?? ''}
+            outDecimals={outDecimals}
+            stale={stale}
+            settling={settling}
+            showPath
+            showReceive={false}
+            error={quote.isError && amount > 0 ? (quote.error instanceof Error ? quote.error.message : 'Quote unavailable') : null}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Button size="lg" block variant={cta.variant} disabled={cta.disabled} title={cta.reason} onClick={cta.onClick} aria-describedby={`${uid}-arm`}>
+            {cta.label}
+          </Button>
+          <ArmStatus id={`${uid}-arm`} armedAt={armedAt} tone="buy" blocked={cta.reason} onCancel={disarm} />
+        </div>
+      </div>
+      {review && (
+        <OperationModal
+          title="Review swap"
+          confirmLabel={`Swap ${from?.symbol ?? ''} → ${to?.symbol ?? ''}`}
+          prepare={() => planners.swap(review)}
+          onClose={() => setReview(null)}
+          onSettled={(p) => {
+            if (p.phase === 'success') setAmountText('')
+          }}
+        />
+      )}
+    </Panel>
+  )
+}

@@ -1,0 +1,39 @@
+# Dependencies and build output
+node_modules
+dist
+*.tsbuildinfo
+
+# Logs, OS and editor files
+*.log
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+
+# Local configuration. Only these secret-free files are committed:
+# .env.example documents every variable; the mode files hold public mode flags.
+.env
+.env.*
+!.env.example
+!.env.demo
+!.env.e2e
+!.env.mainnet
+
+# Keys and wallet data never belong in this repository.
+*.pem
+*.key
+*.p12
+*.keystore
+.near-credentials
+near-credentials
+credentials.json
+
+# Test and review artifacts (screenshots, reports, tool caches)
+coverage
+playwright-report
+test-results
+.impeccable/review
+.impeccable/*.cache.json
+
+# Vercel CLI project link (per machine)
+.vercel

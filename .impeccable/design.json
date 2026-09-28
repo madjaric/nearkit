@@ -1,0 +1,655 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-28T11:26:02.910Z",
+  "title": "Design System: NearKit",
+  "extensions": {
+    "colorMeta": {
+      "well": {
+        "role": "neutral",
+        "displayName": "Well",
+        "canonical": "oklch(0.132 0.004 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 115)",
+          "oklch(0.265 0.004 115)",
+          "oklch(0.38 0.004 115)",
+          "oklch(0.495 0.004 115)",
+          "oklch(0.61 0.004 115)",
+          "oklch(0.725 0.004 115)",
+          "oklch(0.84 0.004 115)",
+          "oklch(0.95 0.004 115)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "canonical": "oklch(0.155 0.004 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 115)",
+          "oklch(0.265 0.004 115)",
+          "oklch(0.38 0.004 115)",
+          "oklch(0.495 0.004 115)",
+          "oklch(0.61 0.004 115)",
+          "oklch(0.725 0.004 115)",
+          "oklch(0.84 0.004 115)",
+          "oklch(0.95 0.004 115)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
+        "canonical": "oklch(0.188 0.005 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.005 115)",
+          "oklch(0.265 0.005 115)",
+          "oklch(0.38 0.005 115)",
+          "oklch(0.495 0.005 115)",
+          "oklch(0.61 0.005 115)",
+          "oklch(0.725 0.005 115)",
+          "oklch(0.84 0.005 115)",
+          "oklch(0.95 0.005 115)"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "canonical": "oklch(0.228 0.006 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 115)",
+          "oklch(0.265 0.006 115)",
+          "oklch(0.38 0.006 115)",
+          "oklch(0.495 0.006 115)",
+          "oklch(0.61 0.006 115)",
+          "oklch(0.725 0.006 115)",
+          "oklch(0.84 0.006 115)",
+          "oklch(0.95 0.006 115)"
+        ]
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Hover",
+        "canonical": "oklch(0.255 0.007 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 115)",
+          "oklch(0.265 0.007 115)",
+          "oklch(0.38 0.007 115)",
+          "oklch(0.495 0.007 115)",
+          "oklch(0.61 0.007 115)",
+          "oklch(0.725 0.007 115)",
+          "oklch(0.84 0.007 115)",
+          "oklch(0.95 0.007 115)"
+        ]
+      },
+      "line-soft": {
+        "role": "neutral",
+        "displayName": "Soft Hairline",
+        "canonical": "oklch(0.245 0.006 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 115)",
+          "oklch(0.265 0.006 115)",
+          "oklch(0.38 0.006 115)",
+          "oklch(0.495 0.006 115)",
+          "oklch(0.61 0.006 115)",
+          "oklch(0.725 0.006 115)",
+          "oklch(0.84 0.006 115)",
+          "oklch(0.95 0.006 115)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.29 0.007 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 115)",
+          "oklch(0.265 0.007 115)",
+          "oklch(0.38 0.007 115)",
+          "oklch(0.495 0.007 115)",
+          "oklch(0.61 0.007 115)",
+          "oklch(0.725 0.007 115)",
+          "oklch(0.84 0.007 115)",
+          "oklch(0.95 0.007 115)"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "oklch(0.38 0.008 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 115)",
+          "oklch(0.265 0.008 115)",
+          "oklch(0.38 0.008 115)",
+          "oklch(0.495 0.008 115)",
+          "oklch(0.61 0.008 115)",
+          "oklch(0.725 0.008 115)",
+          "oklch(0.84 0.008 115)",
+          "oklch(0.95 0.008 115)"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "canonical": "oklch(0.955 0.006 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 115)",
+          "oklch(0.265 0.006 115)",
+          "oklch(0.38 0.006 115)",
+          "oklch(0.495 0.006 115)",
+          "oklch(0.61 0.006 115)",
+          "oklch(0.725 0.006 115)",
+          "oklch(0.84 0.006 115)",
+          "oklch(0.95 0.006 115)"
+        ]
+      },
+      "fg-2": {
+        "role": "neutral",
+        "displayName": "Secondary Text",
+        "canonical": "oklch(0.775 0.008 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 115)",
+          "oklch(0.265 0.008 115)",
+          "oklch(0.38 0.008 115)",
+          "oklch(0.495 0.008 115)",
+          "oklch(0.61 0.008 115)",
+          "oklch(0.725 0.008 115)",
+          "oklch(0.84 0.008 115)",
+          "oklch(0.95 0.008 115)"
+        ]
+      },
+      "fg-3": {
+        "role": "neutral",
+        "displayName": "Legend Grey",
+        "canonical": "oklch(0.64 0.009 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.009 115)",
+          "oklch(0.265 0.009 115)",
+          "oklch(0.38 0.009 115)",
+          "oklch(0.495 0.009 115)",
+          "oklch(0.61 0.009 115)",
+          "oklch(0.725 0.009 115)",
+          "oklch(0.84 0.009 115)",
+          "oklch(0.95 0.009 115)"
+        ]
+      },
+      "fg-4": {
+        "role": "neutral",
+        "displayName": "Ghost Grey",
+        "canonical": "oklch(0.5 0.008 115)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 115)",
+          "oklch(0.265 0.008 115)",
+          "oklch(0.38 0.008 115)",
+          "oklch(0.495 0.008 115)",
+          "oklch(0.61 0.008 115)",
+          "oklch(0.725 0.008 115)",
+          "oklch(0.84 0.008 115)",
+          "oklch(0.95 0.008 115)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Phosphor Lime",
+        "canonical": "oklch(0.905 0.19 124)",
+        "tonalRamp": [
+          "oklch(0.15 0.19 124)",
+          "oklch(0.265 0.19 124)",
+          "oklch(0.38 0.19 124)",
+          "oklch(0.495 0.19 124)",
+          "oklch(0.61 0.19 124)",
+          "oklch(0.725 0.19 124)",
+          "oklch(0.84 0.19 124)",
+          "oklch(0.95 0.19 124)"
+        ]
+      },
+      "accent-hi": {
+        "role": "primary",
+        "displayName": "Lime Glare",
+        "canonical": "oklch(0.94 0.16 124)",
+        "tonalRamp": [
+          "oklch(0.15 0.16 124)",
+          "oklch(0.265 0.16 124)",
+          "oklch(0.38 0.16 124)",
+          "oklch(0.495 0.16 124)",
+          "oklch(0.61 0.16 124)",
+          "oklch(0.725 0.16 124)",
+          "oklch(0.84 0.16 124)",
+          "oklch(0.95 0.16 124)"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Lime Ink",
+        "canonical": "oklch(0.19 0.035 124)",
+        "tonalRamp": [
+          "oklch(0.15 0.035 124)",
+          "oklch(0.265 0.035 124)",
+          "oklch(0.38 0.035 124)",
+          "oklch(0.495 0.035 124)",
+          "oklch(0.61 0.035 124)",
+          "oklch(0.725 0.035 124)",
+          "oklch(0.84 0.035 124)",
+          "oklch(0.95 0.035 124)"
+        ]
+      },
+      "pos": {
+        "role": "primary",
+        "displayName": "Positive Phosphor",
+        "canonical": "oklch(0.875 0.175 126)",
+        "tonalRamp": [
+          "oklch(0.15 0.175 126)",
+          "oklch(0.265 0.175 126)",
+          "oklch(0.38 0.175 126)",
+          "oklch(0.495 0.175 126)",
+          "oklch(0.61 0.175 126)",
+          "oklch(0.725 0.175 126)",
+          "oklch(0.84 0.175 126)",
+          "oklch(0.95 0.175 126)"
+        ]
+      },
+      "neg": {
+        "role": "secondary",
+        "displayName": "Signal Red",
+        "canonical": "oklch(0.7 0.185 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.185 27)",
+          "oklch(0.265 0.185 27)",
+          "oklch(0.38 0.185 27)",
+          "oklch(0.495 0.185 27)",
+          "oklch(0.61 0.185 27)",
+          "oklch(0.725 0.185 27)",
+          "oklch(0.84 0.185 27)",
+          "oklch(0.95 0.185 27)"
+        ]
+      },
+      "neg-solid": {
+        "role": "secondary",
+        "displayName": "Solid Red",
+        "canonical": "oklch(0.665 0.2 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.2 27)",
+          "oklch(0.265 0.2 27)",
+          "oklch(0.38 0.2 27)",
+          "oklch(0.495 0.2 27)",
+          "oklch(0.61 0.2 27)",
+          "oklch(0.725 0.2 27)",
+          "oklch(0.84 0.2 27)",
+          "oklch(0.95 0.2 27)"
+        ]
+      },
+      "neg-hi": {
+        "role": "secondary",
+        "displayName": "Red Glare",
+        "canonical": "oklch(0.72 0.19 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.19 27)",
+          "oklch(0.265 0.19 27)",
+          "oklch(0.38 0.19 27)",
+          "oklch(0.495 0.19 27)",
+          "oklch(0.61 0.19 27)",
+          "oklch(0.725 0.19 27)",
+          "oklch(0.84 0.19 27)",
+          "oklch(0.95 0.19 27)"
+        ]
+      },
+      "neg-ink": {
+        "role": "secondary",
+        "displayName": "Red Ink",
+        "canonical": "oklch(0.18 0.04 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 27)",
+          "oklch(0.265 0.04 27)",
+          "oklch(0.38 0.04 27)",
+          "oklch(0.495 0.04 27)",
+          "oklch(0.61 0.04 27)",
+          "oklch(0.725 0.04 27)",
+          "oklch(0.84 0.04 27)",
+          "oklch(0.95 0.04 27)"
+        ]
+      },
+      "warn": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(0.83 0.13 78)",
+        "tonalRamp": [
+          "oklch(0.15 0.13 78)",
+          "oklch(0.265 0.13 78)",
+          "oklch(0.38 0.13 78)",
+          "oklch(0.495 0.13 78)",
+          "oklch(0.61 0.13 78)",
+          "oklch(0.725 0.13 78)",
+          "oklch(0.84 0.13 78)",
+          "oklch(0.95 0.13 78)"
+        ]
+      },
+      "chart-pos": {
+        "role": "primary",
+        "displayName": "Chart Positive Pole",
+        "canonical": "oklch(0.78 0.17 127)",
+        "tonalRamp": [
+          "oklch(0.15 0.17 127)",
+          "oklch(0.265 0.17 127)",
+          "oklch(0.38 0.17 127)",
+          "oklch(0.495 0.17 127)",
+          "oklch(0.61 0.17 127)",
+          "oklch(0.725 0.17 127)",
+          "oklch(0.84 0.17 127)",
+          "oklch(0.95 0.17 127)"
+        ]
+      },
+      "chart-neg": {
+        "role": "secondary",
+        "displayName": "Chart Negative Pole",
+        "canonical": "oklch(0.64 0.19 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.19 27)",
+          "oklch(0.265 0.19 27)",
+          "oklch(0.38 0.19 27)",
+          "oklch(0.495 0.19 27)",
+          "oklch(0.61 0.19 27)",
+          "oklch(0.725 0.19 27)",
+          "oklch(0.84 0.19 27)",
+          "oklch(0.95 0.19 27)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display readout",
+        "purpose": "Lead readout value (portfolio value): mono 28px from sm, 22px on phones."
+      },
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Readout slot values: mono 22px from sm, 18px on phones."
+      },
+      "headline": {
+        "displayName": "Page title",
+        "purpose": "One per route in the page header; Archivo at 110% width."
+      },
+      "title": {
+        "displayName": "Panel title",
+        "purpose": "Panel-head titles after the corner bracket; uppercase, 88% width."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Base UI text, Archivo at 94% width; descriptions capped at 70ch."
+      },
+      "body-num": {
+        "displayName": "Body figures",
+        "purpose": "Every figure at body size: tabular mono via the num utility and Figures."
+      },
+      "label": {
+        "displayName": "Silkscreen legend",
+        "purpose": "Legends over readouts, control groups and table heads: 11px uppercase, tracked 0.08em, 88% width, fg-3."
+      },
+      "keycap": {
+        "displayName": "Keycap",
+        "purpose": "Label on every button: 12px uppercase 650, tracked 0.045em, 90% width."
+      }
+    },
+    "shadows": [
+      {
+        "name": "pop",
+        "value": "0 12px 32px -8px oklch(0 0 0 / 0.7), 0 2px 6px oklch(0 0 0 / 0.45)",
+        "purpose": "Floating layers only: menus, tooltips, dialogs, toasts, chart hover readouts."
+      },
+      {
+        "name": "sheet",
+        "value": "0 -8px 32px -12px oklch(0 0 0 / 0.8)",
+        "purpose": "Bottom sheets rising from the phone edge."
+      },
+      {
+        "name": "focus-outline",
+        "value": "outline: 2px solid var(--color-accent); outline-offset: 2px",
+        "purpose": "Global :focus-visible treatment."
+      },
+      {
+        "name": "field-focus-ring",
+        "value": "0 0 0 2px color-mix(in oklab, var(--color-accent) 20%, transparent)",
+        "purpose": "Field focus ring alongside a lime border."
+      },
+      {
+        "name": "dialog-backdrop",
+        "value": "oklch(0.08 0.004 115 / 0.72)",
+        "purpose": "Modal backdrop tint."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Default easing for entrances, sheets and price ticks."
+      },
+      {
+        "name": "row-hover",
+        "value": "100ms",
+        "purpose": "Table row color transition."
+      },
+      {
+        "name": "key-transition",
+        "value": "150ms",
+        "purpose": "Button, field border and ring transitions."
+      },
+      {
+        "name": "fade",
+        "value": "fade 180ms ease-out",
+        "purpose": "Overlay and backdrop fade."
+      },
+      {
+        "name": "rise",
+        "value": "rise 220ms var(--ease-out)",
+        "purpose": "Floating layers rise 6px into place."
+      },
+      {
+        "name": "sheet-left / sheet-right",
+        "value": "240ms var(--ease-out)",
+        "purpose": "Phone navigation drawer and side sheets."
+      },
+      {
+        "name": "sheet-up",
+        "value": "260ms var(--ease-out)",
+        "purpose": "Bottom sheets on phones."
+      },
+      {
+        "name": "tick-up / tick-down",
+        "value": "900ms var(--ease-out)",
+        "purpose": "A changed price flashes lime or red and settles to fg."
+      },
+      {
+        "name": "ghost",
+        "value": "ghost 1.4s ease-in-out infinite",
+        "purpose": "Skeletons and the three-dot working indicator (opacity 0.55 to 1)."
+      },
+      {
+        "name": "scan",
+        "value": "scan 1.1s ease-in-out infinite",
+        "purpose": "1px lime route-loading bar under the top bar."
+      },
+      {
+        "name": "drain",
+        "value": "drain linear forwards (duration = remaining lifetime)",
+        "purpose": "Quote freshness bar and the armed-key countdown."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation and transition 0.01ms, 1 iteration",
+        "purpose": "prefers-reduced-motion: reduce collapses all motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Key",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Lime fill for the one primary action; the only lit key.",
+      "html": "<button class=\"ds-key ds-key-primary\">Buy BLACKDRAGON</button>",
+      "css": ".ds-key { font-family: var(--font-sans); font-size: 12px; font-weight: 650; font-stretch: 90%; letter-spacing: 0.045em; text-transform: uppercase; height: 32px; padding: 0 12px; border-radius: 3px; border: 0; display: inline-flex; align-items: center; gap: 8px; transition: background-color 150ms, color 150ms, border-color 150ms; cursor: pointer; } .ds-key:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-key-primary { background: var(--color-accent); color: var(--color-accent-ink); } .ds-key-primary:hover { background: var(--color-accent-hi); } .ds-key-primary:disabled { background: var(--color-raised); color: var(--color-fg-3); cursor: not-allowed; }"
+    },
+    {
+      "name": "Sell Key",
+      "kind": "button",
+      "refersTo": "button-sell",
+      "description": "Solid signal red for sell actions only.",
+      "html": "<button class=\"ds-key ds-key-sell\">Sell SHITZU</button>",
+      "css": ".ds-key { font-family: var(--font-sans); font-size: 12px; font-weight: 650; font-stretch: 90%; letter-spacing: 0.045em; text-transform: uppercase; height: 32px; padding: 0 12px; border-radius: 3px; border: 0; display: inline-flex; align-items: center; gap: 8px; transition: background-color 150ms, color 150ms, border-color 150ms; cursor: pointer; } .ds-key:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-key-sell { background: var(--color-neg-solid); color: var(--color-neg-ink); } .ds-key-sell:hover { background: var(--color-neg-hi); }"
+    },
+    {
+      "name": "Secondary Key",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Raised neutral key for everything that is not the primary action.",
+      "html": "<button class=\"ds-key ds-key-secondary\">Manage</button>",
+      "css": ".ds-key { font-family: var(--font-sans); font-size: 12px; font-weight: 650; font-stretch: 90%; letter-spacing: 0.045em; text-transform: uppercase; height: 32px; padding: 0 12px; border-radius: 3px; border: 0; display: inline-flex; align-items: center; gap: 8px; transition: background-color 150ms, color 150ms, border-color 150ms; cursor: pointer; } .ds-key:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-key-secondary { background: var(--color-raised); color: var(--color-fg); border: 1px solid var(--color-line); } .ds-key-secondary:hover { background: var(--color-hover); border-color: var(--color-line-strong); }"
+    },
+    {
+      "name": "Fire Key with Reason Line",
+      "kind": "button",
+      "refersTo": "button-fire",
+      "description": "Constant action label; when blocked the key disables and the reason prints on the line below it, above the simulation note, in fg-3 (neg only for a touched invalid input). Armed, a drain bar replaces the reason.",
+      "html": "<div class=\"ds-fire\"><button class=\"ds-key ds-key-primary ds-lg\" disabled>Buy BLACKDRAGON</button><p class=\"ds-reason\">Enter an amount</p><p class=\"ds-sim-note\">Simulation only. Nothing is signed or sent in Phase 1.</p></div>",
+      "css": ".ds-key { font-family: var(--font-sans); font-size: 12px; font-weight: 650; font-stretch: 90%; letter-spacing: 0.045em; text-transform: uppercase; height: 32px; padding: 0 12px; border-radius: 3px; border: 0; display: inline-flex; align-items: center; gap: 8px; transition: background-color 150ms, color 150ms, border-color 150ms; cursor: pointer; } .ds-key:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-fire { width: 320px; display: flex; flex-direction: column; gap: 8px; } .ds-lg { height: 40px; padding: 0 16px; width: 100%; justify-content: center; } .ds-key-primary { background: var(--color-accent); color: var(--color-accent-ink); } .ds-key-primary:hover { background: var(--color-accent-hi); } .ds-key-primary:disabled { background: var(--color-raised); color: var(--color-fg-3); cursor: not-allowed; } .ds-reason { margin: 0; font-family: var(--font-sans); font-size: 12px; line-height: 16px; color: var(--color-fg-3); } .ds-reason-invalid { color: var(--color-neg); } .ds-sim-note { margin: 0; font-family: var(--font-sans); font-size: 12px; line-height: 16px; color: var(--color-fg-3); }"
+    },
+    {
+      "name": "Quiet Row Keys",
+      "kind": "button",
+      "refersTo": "button-quiet-buy",
+      "description": "Row-level BUY/SELL keys: neutral at rest, lit only on hover or focus.",
+      "html": "<span class=\"ds-row-keys\"><button class=\"ds-qk ds-qk-buy\">Buy</button><button class=\"ds-qk ds-qk-sell\">Sell</button></span>",
+      "css": ".ds-row-keys { display: inline-flex; gap: 6px; } .ds-qk { font-family: var(--font-sans); font-size: 12px; font-weight: 650; font-stretch: 90%; letter-spacing: 0.045em; text-transform: uppercase; height: 28px; padding: 0 10px; border-radius: 3px; background: transparent; color: var(--color-fg-2); border: 1px solid var(--color-line); transition: color 150ms, border-color 150ms; cursor: pointer; } .ds-qk:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-qk-buy:hover, .ds-qk-buy:focus-visible { color: var(--color-accent); border-color: color-mix(in oklab, var(--color-accent) 60%, transparent); } .ds-qk-sell:hover, .ds-qk-sell:focus-visible { color: var(--color-neg); border-color: color-mix(in oklab, var(--color-neg) 60%, transparent); }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Well-filled field with legend, mono value, unit label, and one message line whose figures are mono.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-legend\">You pay</span><span class=\"ds-wrap\"><input class=\"ds-input\" placeholder=\"0.00\" inputmode=\"decimal\"><span class=\"ds-unit\">NEAR</span></span><span class=\"ds-msg\">Balance <span class=\"ds-n\">8,420.55 NEAR</span></span></label>",
+      "css": ".ds-legend { font-family: var(--font-sans); font-size: 11px; line-height: 16px; font-weight: 560; font-stretch: 88%; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-fg-3); } .ds-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'calt' 0; letter-spacing: -0.012em; } .ds-field { display: flex; flex-direction: column; gap: 6px; width: 280px; } .ds-wrap { position: relative; } .ds-input { width: 100%; box-sizing: border-box; height: 36px; padding: 0 56px 0 12px; background: var(--color-well); color: var(--color-fg); border: 1px solid var(--color-line-strong); border-radius: 3px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; caret-color: var(--color-accent); transition: border-color 150ms, box-shadow 150ms; } .ds-input::placeholder { color: var(--color-fg-3); } .ds-input:hover { border-color: var(--color-fg-4); } .ds-input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent) 20%, transparent); } .ds-unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: var(--color-fg-3); } .ds-msg { font-family: var(--font-sans); font-size: 12px; line-height: 16px; color: var(--color-fg-3); }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Bracketed group legend, 32px items, active item raised with lime icon and LED.",
+      "html": "<nav class=\"ds-nav\"><div class=\"ds-group\"><span class=\"ds-bracket\"></span><span class=\"ds-legend\">Trade</span><span class=\"ds-rule\"></span></div><a class=\"ds-item ds-active\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><path d=\"M8 3 4 7l4 4\"/><path d=\"M4 7h16\"/><path d=\"m16 21 4-4-4-4\"/><path d=\"M20 17H4\"/></svg><span class=\"ds-label\">Swap</span><span class=\"ds-led\"></span></a><a class=\"ds-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><path d=\"m12 2 10 5-10 5L2 7z\"/><path d=\"m2 17 10 5 10-5\"/><path d=\"m2 12 10 5 10-5\"/></svg><span class=\"ds-label\">Multi Trade</span></a></nav>",
+      "css": ".ds-legend { font-family: var(--font-sans); font-size: 11px; line-height: 16px; font-weight: 560; font-stretch: 88%; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-fg-3); } .ds-nav { width: 224px; padding: 8px; background: var(--color-well); display: flex; flex-direction: column; gap: 2px; font-family: var(--font-sans); } .ds-group { display: flex; align-items: center; gap: 6px; padding: 12px 8px 6px; } .ds-bracket { width: 6px; height: 8px; border-left: 1px solid var(--color-line-strong); border-top: 1px solid var(--color-line-strong); } .ds-rule { flex: 1; height: 1px; background: var(--color-line-soft); } .ds-item { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 3px; font-size: 13px; font-stretch: 94%; color: var(--color-fg-2); text-decoration: none; transition: background-color 150ms, color 150ms; } .ds-item svg { color: var(--color-fg-3); flex-shrink: 0; } .ds-item:hover { background: color-mix(in oklab, var(--color-raised) 60%, transparent); color: var(--color-fg); } .ds-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-label { flex: 1; } .ds-active { background: var(--color-raised); color: var(--color-fg); } .ds-active svg { color: var(--color-accent); } .ds-led { width: 6px; height: 6px; border-radius: 1px; background: var(--color-accent); }"
+    },
+    {
+      "name": "Tags and SIM Mark",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Uppercase state tags; dashed outlines (COMING SOON, sim) mean not real yet.",
+      "html": "<span class=\"ds-tags\"><span class=\"ds-tag ds-tag-neutral\">Demo</span><span class=\"ds-tag ds-tag-accent\">Open</span><span class=\"ds-tag ds-tag-neg\">Sell</span><span class=\"ds-tag ds-tag-soon\">Coming soon</span><span class=\"ds-fig\">$0.000538<span class=\"ds-sim\" tabindex=\"0\" title=\"Simulated figure. $KIT has not launched, so it has no market price.\">sim</span></span></span>",
+      "css": ".ds-tags { display: inline-flex; gap: 8px; align-items: center; } .ds-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 2px; font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; font-stretch: 90%; letter-spacing: 0.07em; text-transform: uppercase; line-height: 1; } .ds-tag-neutral { border: 1px solid var(--color-line); color: var(--color-fg-2); } .ds-tag-accent { background: color-mix(in oklab, var(--color-accent) 12%, transparent); color: var(--color-accent); } .ds-tag-neg { background: color-mix(in oklab, var(--color-neg) 14%, transparent); color: var(--color-neg); } .ds-tag-soon { border: 1px dashed var(--color-fg-4); color: var(--color-fg-2); } .ds-fig { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--color-fg); } .ds-sim { display: inline-flex; align-items: center; height: 14px; margin-left: 4px; padding: 0 3px; border: 1px dashed var(--color-fg-4); border-radius: 2px; font-family: var(--font-sans); font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1; color: var(--color-fg-3); vertical-align: middle; } .ds-sim:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Readout Strip",
+      "kind": "custom",
+      "refersTo": "readout-strip",
+      "description": "Fixed-slot measurement strip: slots separated by 1px rules, mono values, figure-only tone in captions, ghost zeros.",
+      "html": "<div class=\"ds-strip\"><div class=\"ds-slot\"><div class=\"ds-head\"><span class=\"ds-legend\">Portfolio value</span><span class=\"ds-age\">1s</span></div><div class=\"ds-val ds-lg\">$45,201.19</div><div class=\"ds-sub\">across <span class=\"ds-n\">12</span> wallets</div></div><div class=\"ds-slot\"><div class=\"ds-head\"><span class=\"ds-legend\">24h PnL</span></div><div class=\"ds-val ds-pos\">+$309.56</div><div class=\"ds-sub\"><span class=\"ds-n ds-pos\">+0.69%</span> vs <span class=\"ds-n\">24h</span> ago</div></div><div class=\"ds-slot\"><div class=\"ds-head\"><span class=\"ds-legend\">Available NEAR</span></div><div class=\"ds-val\">11,490.28 <span class=\"ds-unit\">NEAR</span></div><div class=\"ds-sub\"><span class=\"ds-n\">≈ $32,632.40</span> · Main <span class=\"ds-n\">8,420.55</span></div></div><div class=\"ds-slot\"><div class=\"ds-head\"><span class=\"ds-legend\">Open orders</span></div><div class=\"ds-val ds-ghost\">0</div><div class=\"ds-sub\">—</div></div></div>",
+      "css": ".ds-legend { font-family: var(--font-sans); font-size: 11px; line-height: 16px; font-weight: 560; font-stretch: 88%; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-fg-3); } .ds-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'calt' 0; letter-spacing: -0.012em; } .ds-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--color-line-soft); border: 1px solid var(--color-line); border-radius: 4px; overflow: hidden; font-family: var(--font-sans); } .ds-slot { background: var(--color-panel); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; } .ds-head { display: flex; justify-content: space-between; } .ds-age { font-family: var(--font-mono); font-size: 11px; color: var(--color-fg-4); } .ds-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.012em; font-size: 22px; line-height: 28px; color: var(--color-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-lg { font-size: 28px; line-height: 34px; } .ds-unit { font-family: var(--font-sans); font-size: 14px; font-weight: 500; color: var(--color-fg-3); } .ds-sub { min-height: 16px; font-size: 12px; line-height: 16px; color: var(--color-fg-3); } .ds-pos { color: var(--color-pos); } .ds-ghost { color: var(--color-fg-4); }"
+    },
+    {
+      "name": "Panel with Table",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Flat bordered module with bracketed head; 36px table head. Body rows are 36px; a table that declares two-line cells (rows=\"double\") gets 44px rows, shown here.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-ph\"><h2 class=\"ds-pt\"><span class=\"ds-br\"></span>Positions</h2><span class=\"ds-meta\">4</span></header><table class=\"ds-t\" data-rows=\"double\"><thead><tr><th>Token</th><th class=\"r\">Value</th><th class=\"r\">Actions</th></tr></thead><tbody><tr><td><div class=\"ds-sym\">SHITZU</div><div class=\"ds-subl\">Shitzu</div></td><td class=\"r\"><div class=\"ds-n\">$3,371.05</div><div class=\"ds-n ds-subl ds-pos\">+6.63%</div></td><td class=\"r\"><button class=\"ds-qk\">Buy</button></td></tr><tr><td><div class=\"ds-sym\">BLACKDRAGON</div><div class=\"ds-subl\">Black Dragon</div></td><td class=\"r\"><div class=\"ds-n\">$8,295.22</div><div class=\"ds-n ds-subl ds-neg\">−14.44%</div></td><td class=\"r\"><button class=\"ds-qk\">Buy</button></td></tr></tbody></table></section>",
+      "css": ".ds-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'calt' 0; letter-spacing: -0.012em; } .ds-panel { width: 460px; background: var(--color-panel); border: 1px solid var(--color-line); border-radius: 4px; font-family: var(--font-sans); font-size: 13px; color: var(--color-fg); } .ds-ph { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 16px; border-bottom: 1px solid var(--color-line-soft); } .ds-pt { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; font-weight: 600; font-stretch: 88%; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-fg-2); } .ds-br { width: 6px; height: 8px; border-left: 1px solid var(--color-line-strong); border-top: 1px solid var(--color-line-strong); } .ds-meta { font-family: var(--font-mono); font-size: 12px; color: var(--color-fg-3); } .ds-t { width: 100%; border-collapse: collapse; } .ds-t th { height: 36px; padding: 0 12px; border-bottom: 1px solid var(--color-line); text-align: left; font-size: 11px; font-weight: 560; font-stretch: 88%; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-fg-3); } .ds-t td { height: 36px; padding: 0 12px; border-bottom: 1px solid var(--color-line-soft); } .ds-t[data-rows=double] td { height: 44px; } .ds-t tr:last-child td { border-bottom: 0; } .ds-t th:first-child, .ds-t td:first-child { padding-left: 16px; } .ds-t th:last-child, .ds-t td:last-child { padding-right: 16px; } .ds-t tbody tr { transition: background-color 100ms; } .ds-t tbody tr:hover { background: color-mix(in oklab, var(--color-raised) 50%, transparent); } .ds-t .r { text-align: right; } .ds-sym { font-weight: 600; } .ds-subl { font-size: 12px; line-height: 16px; color: var(--color-fg-3); } .ds-pos { color: var(--color-pos); } .ds-neg { color: var(--color-neg); } .ds-qk { font-size: 12px; font-weight: 650; font-stretch: 90%; letter-spacing: 0.045em; text-transform: uppercase; height: 28px; padding: 0 10px; border-radius: 3px; background: transparent; color: var(--color-fg-2); border: 1px solid var(--color-line); cursor: pointer; transition: color 150ms, border-color 150ms; } .ds-qk:hover, .ds-qk:focus-visible { color: var(--color-accent); border-color: color-mix(in oklab, var(--color-accent) 60%, transparent); } .ds-qk:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }"
+    },
+    {
+      "name": "LED Lamps and Allocation Bar",
+      "kind": "custom",
+      "refersTo": "led",
+      "description": "Square status lamps and the allocation bar balance states.",
+      "html": "<div class=\"ds-alloc\"><div class=\"ds-leds\"><span class=\"ds-led on\"></span>On <span class=\"ds-led off\"></span>Off <span class=\"ds-led warn\"></span>Caution <span class=\"ds-led neg\"></span>Fault</div><div class=\"ds-bar\"><span style=\"width:30%\" class=\"a\"></span><span style=\"width:25%\" class=\"b\"></span><span style=\"width:45%\" class=\"a\"></span></div><div class=\"ds-state\"><span class=\"ds-led on\"></span>Balanced</div><div class=\"ds-bar\"><span style=\"width:40%\" class=\"n\"></span><span style=\"width:45%\" class=\"m\"></span><span style=\"width:15%\" class=\"x\"></span></div><div class=\"ds-state\"><span class=\"ds-led neg\"></span>Over-allocated</div></div>",
+      "css": ".ds-alloc { width: 320px; display: flex; flex-direction: column; gap: 8px; font-family: var(--font-sans); font-size: 12px; color: var(--color-fg-2); } .ds-leds, .ds-state { display: flex; align-items: center; gap: 6px; } .ds-led { display: inline-block; width: 6px; height: 6px; border-radius: 1px; box-sizing: border-box; } .ds-led.on { background: var(--color-accent); } .ds-led.off { border: 1px solid var(--color-fg-4); } .ds-led.warn { background: var(--color-warn); } .ds-led.neg { background: var(--color-neg); } .ds-bar { display: flex; gap: 1px; height: 10px; border-radius: 2px; overflow: hidden; background: var(--color-well); } .ds-bar .a { background: color-mix(in oklab, var(--color-accent) 80%, transparent); } .ds-bar .b { background: color-mix(in oklab, var(--color-accent) 55%, transparent); } .ds-bar .n { background: var(--color-fg-3); } .ds-bar .m { background: var(--color-fg-4); } .ds-bar .x { background: var(--color-neg); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Wallet Oscilloscope",
+    "overview": "NearKit is drawn as a measuring instrument for your wallets. Every screen is a front panel: fixed readouts, silkscreened labels, square status lamps and armed keys, mounted on a graphite bezel. The build rejects the category's default dashboard look. It has no glassy KPI cards, no gradient area charts and no marketing hero. Portfolio figures sit in a readout strip of fixed slots separated by hairlines. Charts are traces on a scope graticule, measured with A/B cursors.\n\nThe panel is dense and quiet. Surfaces step up in lightness by about 0.03 L each (well, canvas, panel, raised) at a warm-neutral hue of 115 with almost no chroma, and hairlines do the separating. One color is lit: phosphor lime. When something glows, it is active, connected, positive, or the action you are about to fire. Signal red is kept for sell, loss and danger, and muted amber only flags caution or staleness. Numbers are the interface. Every figure is set in tabular JetBrains Mono, and the words around it stay in semi-condensed Archivo.\n\nThe product runs on demo data, and the panel says so in its own vocabulary. It uses a DEMO tag on the network chip, dashed COMING SOON tags, dashed SIM marks on pre-launch figures, and freshness ages that turn amber when a value goes stale.",
+    "keyCharacteristics": [
+      "A graphite bezel with one lit color (phosphor lime); red only for sell, loss and danger.",
+      "Mono for every figure, sans for every word, even inside a single caption.",
+      "Readout strips with fixed slots and 1px rules, never card grids.",
+      "Square LED lamps, silkscreen legends and bracketed panel heads.",
+      "Charts on a 10-division oscilloscope graticule with keyboard-operable A/B cursors.",
+      "Visible freshness: quote drain bars, \"Ns\" ages, amber \"stale\" after 20s.",
+      "Honest state marks: DEMO, SIM, COMING SOON, \"Simulation only\"."
+    ],
+    "rules": [
+      {
+        "name": "The One Lit Color Rule",
+        "body": "Lime means active, connected, positive or primary action, and nothing else. Row-level BUY/SELL keys stay neutral until hover or focus, so the lamp keeps its meaning.",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal Red Rule",
+        "body": "Red appears only for sell, loss, danger and errors. It is never an accent or a highlight.",
+        "section": "colors"
+      },
+      {
+        "name": "The Cleared Palette Rule",
+        "body": "The default Tailwind palette is cleared (--color-*: initial). Every color on screen comes from these tokens.",
+        "section": "colors"
+      },
+      {
+        "name": "The Figures Rule",
+        "body": "JetBrains Mono (tabular, calt off, −0.012em) sets every figure, and Archivo sets the words around it, even inside one caption. A figure is the number plus everything bound to it: sign, ≈, $, thousands separators, decimals, K/M/B/T magnitude, %, a ticker unit of three or more capitals written after the number (\"850 SHITZU\"), durations (\"2h 15m\"), dates and times (\"Sep 25, 11:59\") and counts. \"TP\" and \"SL\" stay words, and digits inside ids (\"w01\") are left alone. The rule is implemented once, in splitFigures (src/lib/figures.ts, covered by tests) rendered by Figures. It is applied centrally in readout sub-lines, panel-head meta, summary Line labels and values, field messages, page-header descriptions, empty-state bodies and toasts. New caption surfaces route through Figures; they do not hand-split.",
+        "section": "typography"
+      },
+      {
+        "name": "The Display Unit Rule",
+        "body": "At display size the unit leaves the figure. In readout values and the Amount component, the unit is a smaller (0.86em or 14px), medium-weight sans label in fg-3 beside the mono value (\"11,490.28 NEAR\").",
+        "section": "typography"
+      },
+      {
+        "name": "The Toned Figure Rule",
+        "body": "When a caption carries tone, only the figure takes the pos/neg color (\"+0.69% vs 24h ago\", \"Unrealized +$3,961.59\"). The words stay in the caption color.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Panel Rule",
+        "body": "Modules never cast shadows and are never nested inside another bordered panel. Depth on the panel face is tonal; shadow is only for floating layers.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do set every figure in mono through Figures / splitFigures, and keep the words around it in Archivo.",
+      "Do keep lime for active, connected, positive and primary action only, and red for sell, loss, danger and errors only.",
+      "Do put readouts in fixed-slot strips with 1px rules and ghost zeros in fg-4 for absent values.",
+      "Do keep fire-key labels constant and print the blocking reason on a line below the key.",
+      "Do set table body rows at 36px, and declare rows=\"double\" for 44px only when a cell carries a second line.",
+      "Do mark every $KIT price, entry, market and exit figure with the dashed SIM mark, and mark unshipped features with the dashed COMING SOON tag.",
+      "Do show freshness on live values: \"Ns\" ages, amber \"stale\" after 20s, and a drain bar on quotes.",
+      "Do draw charts as traces on the 10-division graticule with the \"/div\" scale readout.",
+      "Do keep corners at 2–4px and panels flat, with shadows only on floating layers."
+    ],
+    "donts": [
+      "Don't light row-level BUY/SELL keys at rest; they stay neutral until hover or focus.",
+      "Don't tint a whole toned caption; only the figure takes pos or neg.",
+      "Don't replace a fire key's label with its blocking reason.",
+      "Don't use KPI card grids, gradient area fills, glassmorphism or pill-shaped controls.",
+      "Don't show a price, supply or market cap for $KIT before launch.",
+      "Don't nest a bordered panel inside another panel.",
+      "Don't introduce colors outside the token set; the default palette is cleared."
+    ]
+  }
+}

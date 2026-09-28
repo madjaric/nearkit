@@ -1,0 +1,70 @@
+import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { accountIdError, isForeignToNetwork } from '@/lib/validation'
+import { accountState } from '@/services/near/account'
+import { NearKitError, toNearKitError } from '@/services/near/errors'
+import type { TokenListing } from '@/types/domain'
+import type { TokenService } from '../types'
+import type { NearContext } from './context'
+import type { Market } from './market'
+import { createScanner } from './scanner'
+
+/**
+ * Tokens in real mode: native NEAR, the network's configured tokens, $KIT when
+ * configured, tokens the user imported, and tokens the connected accounts hold.
+ * Every NEP-141 entry is backed by validated on-chain metadata.
+ */
+export function createTokenService(ctx: NearContext, market: Market): TokenService {
+  const held = async (): Promise<string[]> => {
+    const accounts = ctx.session.current?.accounts ?? []
+    const balances = await Promise.all(accounts.map((id) => ctx.balances.get(id).catch(() => null)))
+    return balances.flatMap((b) => b?.fts.map((f) => f.contract) ?? [])
+  }
+
+  const list = async (): Promise<TokenListing[]> => market.listTokens(await held())
+  const scanner = createScanner(ctx, market)
+
+  return {
+    listTokens: list,
+
+    async getToken(id) {
+      const found = (await list()).find((t) => t.id === id)
+      if (found || id === NATIVE_TOKEN_ID || accountIdError(id) !== null) return found ?? null
+      return (await market.listTokens([id])).find((t) => t.id === id) ?? null
+    },
+
+    async importToken(input) {
+      const contract = input.trim()
+      const error = accountIdError(contract)
+      if (error) throw new NearKitError('INVALID_TOKEN', `Contract: ${error}`)
+      if (isForeignToNetwork(contract, ctx.network.id))
+        throw new NearKitError(
+          'NETWORK_MISMATCH',
+          `${contract} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} contract; NearKit is on ${ctx.network.label.toLowerCase()}`,
+        )
+      let state
+      try {
+        state = await accountState(ctx.rpc, contract, 'final')
+      } catch (e) {
+        throw toNearKitError(e, 'RPC_ERROR')
+      }
+      if (!state.exists) throw new NearKitError('INVALID_TOKEN', `${contract} does not exist on ${ctx.network.label.toLowerCase()}`)
+      if (!state.hasContract) throw new NearKitError('INVALID_TOKEN', `${contract} is an account without a contract, not a token`)
+      // Metadata (NEP-148) and total supply (NEP-141) must both answer before the token is listed.
+      await ctx.reader.metadata(contract)
+      await ctx.reader.totalSupply(contract)
+      ctx.stores.tokens.add(contract)
+      const listing = (await market.listTokens([contract])).find((t) => t.id === contract)
+      if (!listing) throw new NearKitError('INVALID_TOKEN', `${contract} did not return valid token metadata`)
+      return listing
+    },
+
+    async getMarket(ids) {
+      const tokens = await list()
+      return tokens.flatMap((t) => (t.market && (!ids || ids.includes(t.id)) ? [t.market] : []))
+    },
+
+    getNearPrice: () => market.nearQuote(),
+    scan: (query) => scanner.scan(query),
+    scanSuggestions: () => scanner.suggestions(),
+  }
+}

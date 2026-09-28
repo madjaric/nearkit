@@ -1,0 +1,179 @@
+import type { EnvIssue } from '@/config/env'
+import type {
+  ActivityItem,
+  CopyRule,
+  CopyRuleInput,
+  DcaInput,
+  DcaPlan,
+  Holding,
+  LimitOrder,
+  MarketQuote,
+  MultiTradeQuote,
+  MultiTradeRequest,
+  OrderInput,
+  PnlRange,
+  PnlReport,
+  PortfolioSummary,
+  Position,
+  PresetInput,
+  Quote,
+  QuoteRequest,
+  ScanResult,
+  Session,
+  SniperConfig,
+  SniperInput,
+  TokenId,
+  TokenListing,
+  TransferRequest,
+  ValuePoint,
+  Wallet,
+  WalletPreset,
+  WalletSnapshot,
+} from '@/types/domain'
+import type { NetworkName, OperationPlan, OperationProgress } from '@/types/operations'
+
+/**
+ * Service contracts. The UI reaches data and actions only through these
+ * interfaces (via the hooks in `queries.ts`) and never knows which
+ * implementation answers:
+ *
+ *   UI  →  hooks (queries.ts)  →  NearKitServices  →  real/  (NEAR: wallet, RPC, indexers, Rhea)
+ *                                                  →  mock/  (demo mode: simulated)
+ *
+ * Value-moving operations are two steps: a `prepare*` call returns an exact,
+ * reviewable `OperationPlan`; `execution.run` signs and confirms it.
+ */
+
+/** What the running implementation can do, so the UI can explain rather than guess. */
+export interface Capabilities {
+  mode: 'demo' | 'near'
+  /** Null in demo mode. */
+  network: NetworkName | null
+  networkLabel: 'Demo' | 'Testnet' | 'Mainnet'
+  explorerUrl: string | null
+  /** RPC endpoints in failover order, for display (empty in demo mode). */
+  rpcUrls: readonly string[]
+  /** USD prices exist (mainnet and demo; never testnet). */
+  prices: boolean
+  /** Cost basis, PnL and value history are tracked (demo only in Phase 2). */
+  pnl: boolean
+  /** Automation and orders: simulated demo, or local drafts that nothing executes. */
+  automation: 'demo' | 'drafts'
+  execution: {
+    /** Transfers can be signed and sent (true in demo, where they are simulated). */
+    enabled: boolean
+    simulated: boolean
+    /** Why execution is off (e.g. the mainnet switch), in plain words. */
+    reason: string | null
+    trading: {
+      enabled: boolean
+      reason: string | null
+      router: 'aggregator' | 'classic' | 'demo'
+      /** The NearKit fee is collected on this network. */
+      feeCharged: boolean
+      feeRecipient: string | null
+    }
+  }
+  /** $KIT contract once configured; null until launch. */
+  kitContract: string | null
+  configIssues: readonly EnvIssue[]
+}
+
+export interface WalletOption {
+  id: string
+  name: string
+  icon: string | null
+  description: string
+  website: string
+  injected: boolean
+}
+
+export interface TokenService {
+  listTokens(): Promise<TokenListing[]>
+  getToken(id: TokenId): Promise<TokenListing | null>
+  /** Validate a NEP-141 contract and add it to this network's token list. */
+  importToken(contract: string): Promise<TokenListing>
+  getMarket(ids?: TokenId[]): Promise<MarketQuote[]>
+  /** NEAR/USD, or null where no price exists (testnet). */
+  getNearPrice(): Promise<MarketQuote | null>
+  scan(query: string): Promise<ScanResult | null>
+  scanSuggestions(): Promise<{ query: string; label: string }[]>
+}
+
+export interface WalletService {
+  getSession(): Promise<Session | null>
+  /** Wallets that can connect on this network (empty in demo mode). */
+  listWalletOptions(): Promise<WalletOption[]>
+  connect(walletId?: string): Promise<Session>
+  disconnect(): Promise<void>
+  listWallets(): Promise<Wallet[]>
+  listSnapshots(): Promise<WalletSnapshot[]>
+  listHoldings(): Promise<Holding[]>
+  /** Add a watch-only account to the account book. */
+  addAccount(input: { accountId: string; label?: string }): Promise<Wallet>
+  removeAccount(walletId: string): Promise<void>
+  listPresets(): Promise<WalletPreset[]>
+  createPreset(input: PresetInput): Promise<WalletPreset>
+  updatePreset(id: string, input: PresetInput): Promise<WalletPreset>
+  duplicatePreset(id: string): Promise<WalletPreset>
+  deletePreset(id: string): Promise<void>
+}
+
+export interface TransferService {
+  /** Validate and price a Batch Send, Split or Consolidate into an exact plan. */
+  prepare(request: TransferRequest): Promise<OperationPlan>
+}
+
+export interface TradingService {
+  quote(request: QuoteRequest): Promise<Quote>
+  /** Fresh quote and exact swap plan; the review shows this plan, not the ticket's earlier quote. */
+  prepareSwap(request: QuoteRequest): Promise<OperationPlan>
+  quoteMulti(request: MultiTradeRequest): Promise<MultiTradeQuote>
+  prepareMulti(request: MultiTradeRequest): Promise<OperationPlan>
+  listOrders(): Promise<LimitOrder[]>
+  createOrder(input: OrderInput): Promise<LimitOrder>
+  cancelOrder(id: string): Promise<LimitOrder>
+}
+
+export interface ExecutionService {
+  /**
+   * Sign and confirm a plan (or simulate it in demo mode). Continue a paused run
+   * by passing its last progress as `prior`.
+   */
+  run(plan: OperationPlan, prior: OperationProgress | null, onProgress: (progress: OperationProgress) => void): Promise<OperationProgress>
+}
+
+export interface AutomationService {
+  listDcaPlans(): Promise<DcaPlan[]>
+  createDcaPlan(input: DcaInput): Promise<DcaPlan>
+  deleteDcaPlan(id: string): Promise<void>
+  listCopyRules(): Promise<CopyRule[]>
+  createCopyRule(input: CopyRuleInput): Promise<CopyRule>
+  deleteCopyRule(id: string): Promise<void>
+  listSniperConfigs(): Promise<SniperConfig[]>
+  createSniperConfig(input: SniperInput): Promise<SniperConfig>
+  deleteSniperConfig(id: string): Promise<void>
+}
+
+export interface PortfolioService {
+  getSummary(): Promise<PortfolioSummary>
+  listPositions(): Promise<Position[]>
+  getValueHistory(days: number): Promise<ValuePoint[]>
+  /** Null where PnL is not tracked (real mode in Phase 2). */
+  getPnl(range: PnlRange): Promise<PnlReport | null>
+  listActivity(limit?: number): Promise<ActivityItem[]>
+}
+
+export interface NearKitServices {
+  mode: 'demo' | 'near'
+  capabilities: Capabilities
+  tokens: TokenService
+  wallets: WalletService
+  transfers: TransferService
+  trading: TradingService
+  execution: ExecutionService
+  automation: AutomationService
+  portfolio: PortfolioService
+  /** Demo only: restore the seeded demo state. */
+  resetDemo?: () => void
+}

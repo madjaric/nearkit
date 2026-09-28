@@ -1,0 +1,27 @@
+{
+  "result_code": 0,
+  "result_message": "",
+  "result_data": {
+    "routes": [
+      {
+        "pools": [
+          {
+            "pool_id": "1352",
+            "token_in": "wrap.testnet",
+            "token_out": "usdt.itachicara.testnet",
+            "amount_in": "1000000000000000000000000",
+            "amount_out": "0",
+            "min_amount_out": "4018917753285859662296638"
+          }
+        ],
+        "amount_in": "1000000000000000000000000",
+        "min_amount_out": "4018917753285859662296638",
+        "amount_out": "0"
+      }
+    ],
+    "contract_in": "wrap.testnet",
+    "contract_out": "usdt.itachicara.testnet",
+    "amount_in": "1000000000000000000000000",
+    "amount_out": "4039113319885286092760441"
+  }
+}

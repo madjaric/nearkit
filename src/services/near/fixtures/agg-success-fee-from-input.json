@@ -1,0 +1,401 @@
+{
+  "final_execution_status": "FINAL",
+  "status": { "SuccessValue": "IjUwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIg==" },
+  "transaction": {
+    "hash": "2g6qM2Nv2w1uLSVhX1AFTLE6FM8doi4nGueUBkKRG4Uq",
+    "signer_id": "mrbrando.near",
+    "receiver_id": "wrap.near",
+    "actions": [
+      {
+        "FunctionCall": {
+          "args": "eyJyZWNlaXZlcl9pZCI6ImFnZ3JlZ2F0ZWRleC5uZWFyIiwiYW1vdW50IjoiNTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtc2ciOiJ7XCJtc2dcIjpcImdpbDhlbXg1S1VFcGRIbHBlV2gxYTNZMWRXeG9lU2t6S1hsc2FteHdmV3htZkhwc2VTbEJkWHh6Y3pNcGJtaDZLVUVwT1Q0M056YzNOemMzTnpjM056YzNLVE1wYW5aMWUzbG9hbnQ2S1VGaUtYNTVhSGMxZFd4b2VTbGtNeWwwYkh0dmRtdDZLVUZpS1cxN1pudDVhSFY2Yld4NVptcG9jM01wWkRNcGRIcHVlaWxCWWltQ1l5bG9kSFo4ZFh0aktVRmpLVHczTnpjM056YzNOemMzTnpjM056YzNOemMzTnpjM056YzNZeWt6WXlsMGVtNWpLVUZqS1lKalkyTXBiWFo1YW14alkyTXBRVGN6WTJOaktXaHFlM0IyZFhwalkyTXBRV0tDWTJOaktYZDJkbk5tY0d0alkyTXBRVHM1UGowelkyTmpLWHQyY214MVpuQjFZMk5qS1VGalkyTXBmbmxvZHpWMWJHaDVZMk5qS1ROalkyTXBlM1p5YkhWbWRueDdZMk5qS1VGalkyTXBhWE5vYW5KcmVXaHVkblUxZTNKMU5YVnNhSGxqWTJNcE0yTmpZeWxvZEhaOGRYdG1jSFZqWTJNcFFXTmpZeWs4TnpjM056YzNOemMzTnpjM056YzNOemMzTnpjM056YzNOMk5qWXlrelkyTmpLWFJ3ZFdab2RIWjhkWHRtZG54N1kyTmpLVUZqWTJNcFFEZzdOemc1UEQwOE9UazZPems2UHpvM096bytQRHcrUFRrN1BEbzRPRDQzUG1Oall5bUVaRE5qWTJNcGVuSndkMlpyYkc1c2RXWjNlWEJxYkdaNmdIVnFZMk5qS1VGN2VYeHNNMk5qWXlsNmNuQjNabngxZm5sb2QyWjFiR2g1WTJOaktVRjdlWHhzTTJOall5bDViRzFzZVhsb2MyWndhMk5qWXlsQlkyTmpLWFoxYkdsMmV6VjFiR2g1WTJOaktZUmpLVE5qS1hsc2FteHdmV3g1Wm5Ccll5bEJZeWw5T1RWNWJHMDBiWEIxYUhWcWJEVjFiR2g1WXltRUtXUXpLVzVvZW1aemNIcDdLVUZpUHp3M056YzNOemMzTnpjM056ZGtNeWwxYkdoNVptaDBkbngxZTNvcFFXSXBPQ2xrTXlsNmNuQjNabngxZm5sb2QyWjFiR2g1S1VGN2VYeHNNeWxxZG5OemJHcDdiR3RtYld4c0tVRnRhSE42YkRNcGVXeHRiSGw1YUhNcFFTbDJkV3hwZG5zMWRXeG9lU2t6S1doM2QyWnRiR3htZVdoN2JDbEJPamMzTnpNcGFIZDNabTFzYkdaNWJHcHdkM0JzZFhzcFFTbDBiSHRzZG5rMGJXeHNlalYxYkdoNUtUTXBmSHh3YXlsQktXMXBhVDFBYVRocE5EdHJha0EwT3pzNFB6Um9hemMrTkRvOWEwQnNPRDArYlR3OFFDa3pLV3RzYUd0emNIVnNLVUU0UGtBM1BFQStPemRBUFRsQWhBPT1cIixcInNpZ25hdHVyZVwiOlwiNjg2N2JjMzdkMTZlZWI1NmJlNzRlNjkwZWRmM2ZjYzM2ODViYTAxMjMxYTIwOWI3Y2YyMDNlOWZmMzZlOGFmOWMxNDUwZDYzMTJjZmFlZjhlYWUxMzBjYTFiYmYxMmI3ZTc5YzdhMDRmYTVlODJkZWMyMjQzODUyMTY5MTEzMGVcIn0ifQ==",
+          "deposit": "1",
+          "gas": 300000000000000,
+          "method_name": "ft_transfer_call"
+        }
+      }
+    ]
+  },
+  "transaction_outcome": {
+    "id": "2g6qM2Nv2w1uLSVhX1AFTLE6FM8doi4nGueUBkKRG4Uq",
+    "outcome": {
+      "logs": [],
+      "receipt_ids": [],
+      "gas_burnt": 374387547565,
+      "tokens_burnt": "37438754756500000000",
+      "executor_id": "mrbrando.near",
+      "status": { "SuccessReceiptId": "EQ64dkjFsZZbEqyHUbozGLniHdQn3bakeuvxoEEwYwQ4" }
+    }
+  },
+  "receipts_outcome": [
+    {
+      "id": "EQ64dkjFsZZbEqyHUbozGLniHdQn3bakeuvxoEEwYwQ4",
+      "outcome": {
+        "logs": ["Transfer 50000000000000000000000000 from mrbrando.near to aggregatedex.near"],
+        "receipt_ids": [],
+        "gas_burnt": 2862237679721,
+        "tokens_burnt": "286223767972100000000",
+        "executor_id": "wrap.near",
+        "status": { "SuccessReceiptId": "6nxgaZru8zLzcixahT4RLz5jE5isrFrmijjJNaJpLdWz" }
+      }
+    },
+    {
+      "id": "FQEfWjPF9aU6zXCEGtaaUwvQkaU3JU9NDj4JNebR6Mkc",
+      "outcome": {
+        "logs": [
+          "Gas info => prepaid: 270000000000000 yoctoGas, used: 679116158675 yoctoGas, remaining: 269320883841325 yoctoGas",
+          "Gas info => prepaid: 270000000000000 yoctoGas, used: 4151126497641 yoctoGas, remaining: 265848873502359 yoctoGas, dex_gas_transfer_call:180000000000000,GAS_FOR_DEX_FT_TRANSFER_CALL_BACK:15000000000000"
+        ],
+        "receipt_ids": [],
+        "gas_burnt": 6720735075395,
+        "tokens_burnt": "672073507539500000000",
+        "executor_id": "aggregatedex.near",
+        "status": { "SuccessValue": "IjAi" }
+      }
+    },
+    {
+      "id": "3iuDD9rs8jkcatFPEJUZBEz3S7CAF1uU1xVKAJ8pPmYU",
+      "outcome": {
+        "logs": ["Transfer 49800000000000000000000000 from aggregatedex.near to v2.ref-finance.near"],
+        "receipt_ids": [],
+        "gas_burnt": 2867612400041,
+        "tokens_burnt": "286761240004100000000",
+        "executor_id": "wrap.near",
+        "status": { "SuccessReceiptId": "6YW4cdcJJfZXoW7hXrM3i79P7qRnT55F6WW1pEz4DR13" }
+      }
+    },
+    {
+      "id": "9qgdTwP3dpCT9TYZJ62hckCvEq9GrkuKQAEHWDVy6Q3X",
+      "outcome": {
+        "logs": [
+          "Swapped 49800000000000000000000000 wrap.near for 9167818240094576153812048503987295 blackdragon.tkn.near",
+          "Exchange v2.ref-finance.near got 3136726591002788642 shares, No referral fee"
+        ],
+        "receipt_ids": [],
+        "gas_burnt": 8024487473386,
+        "tokens_burnt": "802448747338600000000",
+        "executor_id": "v2.ref-finance.near",
+        "status": { "SuccessValue": "IjAi" }
+      }
+    },
+    {
+      "id": "HwTeBVxx1S2Ju1RQJPxfd8p4Q7vavaCVeypcCfqfC3A2",
+      "outcome": {
+        "logs": ["Transfer 9167818240094576153812048503987295 from v2.ref-finance.near to aggregatedex.near"],
+        "receipt_ids": [],
+        "gas_burnt": 2825690017091,
+        "tokens_burnt": "282569001709100000000",
+        "executor_id": "blackdragon.tkn.near",
+        "status": { "SuccessReceiptId": "6Q5GGZ7yEnUm4fUEftipoGGnsSbC5g54Mrv98iWT6VJx" }
+      }
+    },
+    {
+      "id": "6J4JLG2Gj8bGWf2Ux5woP1rTzFLn5k5rRgfZFPx8K1RW",
+      "outcome": {
+        "logs": [
+          "Gas info => prepaid: 50000000000000 yoctoGas, used: 673052825921 yoctoGas, remaining: 49326947174079 yoctoGas",
+          "EVENT_JSON:{\"data\":[{\"amount\":\"50000000000000000000000\",\"token\":\"wrap.near\",\"user\":\"mrbrando.near\"}],\"event\":\"earn_protocol_fee\"}",
+          "EVENT_JSON:{\"data\":[{\"amount\":\"120000000000000000000000\",\"receipt\":\"meteor-fees.near\",\"token\":\"wrap.near\",\"user\":\"mrbrando.near\"}],\"event\":\"earn_app_fee\"}",
+          "EVENT_JSON:{\"data\":[{\"amount\":\"30000000000000000000000\",\"token\":\"wrap.near\",\"user\":\"mrbrando.near\"}],\"event\":\"earn_app_protocol_fee\"}",
+          "EVENT_JSON:{\"data\":[{\"amount\":\"9167818240094576153812048503987295\",\"receive_id\":\"mrbrando.near\",\"token_id\":\"blackdragon.tkn.near\",\"user_id\":\"mrbrando.near\"}],\"event\":\"withdraw_started\"}"
+        ],
+        "receipt_ids": [],
+        "gas_burnt": 6349896167218,
+        "tokens_burnt": "634989616721800000000",
+        "executor_id": "aggregatedex.near",
+        "status": { "SuccessValue": "IjAi" }
+      }
+    },
+    {
+      "id": "7cTjKYeS4ZurTAzLaG7HK4Fi8o6AVmxJ5qNQ3R4wCRas",
+      "outcome": {
+        "logs": ["Transfer 9167818240094576153812048503987295 from aggregatedex.near to mrbrando.near"],
+        "receipt_ids": [],
+        "gas_burnt": 1900177730190,
+        "tokens_burnt": "190017773019000000000",
+        "executor_id": "blackdragon.tkn.near",
+        "status": { "SuccessValue": "" }
+      }
+    },
+    {
+      "id": "CDpiTRdHgqz3hb8LortrWz9xCWfUMRQeuzXxUPCkNRJw",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "2SLaf8UtPyw9RcQBCJetRzXXKsLPGsH2nmjPRqnsCdqH",
+      "outcome": {
+        "logs": [
+          "EVENT_JSON:{\"data\":[{\"amount\":\"9167818240094576153812048503987295\",\"receive_id\":\"mrbrando.near\",\"token_id\":\"blackdragon.tkn.near\",\"user_id\":\"mrbrando.near\"}],\"event\":\"withdraw_succeeded\"}"
+        ],
+        "receipt_ids": [],
+        "gas_burnt": 2062820285256,
+        "tokens_burnt": "206282028525600000000",
+        "executor_id": "aggregatedex.near",
+        "status": { "SuccessValue": "dHJ1ZQ==" }
+      }
+    },
+    {
+      "id": "F1j2o5qYB7qwh8brMptKD7ZGDgzzsS9RBaPCpnBZbwM2",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "8mir9rFyme5cVtQG79EocSEYKi3DZ3tYrjEHs2PpGPZt",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "6Q5GGZ7yEnUm4fUEftipoGGnsSbC5g54Mrv98iWT6VJx",
+      "outcome": {
+        "logs": [],
+        "receipt_ids": [],
+        "gas_burnt": 1362547325276,
+        "tokens_burnt": "136254732527600000000",
+        "executor_id": "blackdragon.tkn.near",
+        "status": { "SuccessValue": "IjkxNjc4MTgyNDAwOTQ1NzYxNTM4MTIwNDg1MDM5ODcyOTUi" }
+      }
+    },
+    {
+      "id": "bsmwgFmJmkriuhb8ky19Cbbycu5rjNxZnfQYcjRJaHr",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "3oVrqLwLQjpAgzEHEbJD6tW7SNYsvJsgmdMxXXgW7YMM",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "D5vM5SAJVKCWWngxjt9jEt6WswPCGTRKV2YBHcA2A7ez",
+      "outcome": {
+        "logs": [],
+        "receipt_ids": [],
+        "gas_burnt": 2161972310513,
+        "tokens_burnt": "216197231051300000000",
+        "executor_id": "v2.ref-finance.near",
+        "status": { "SuccessValue": "IjkxNjc4MTgyNDAwOTQ1NzYxNTM4MTIwNDg1MDM5ODcyOTUi" }
+      }
+    },
+    {
+      "id": "BTWK3D7ZgM2TsvTTAu3TkAAbR3VwQ28BXcVvJPQJhxJR",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "F49XgT8judEP1qCHbTi8ar8M6jyEUbQc7VZHy5JjXr6a",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "6YW4cdcJJfZXoW7hXrM3i79P7qRnT55F6WW1pEz4DR13",
+      "outcome": {
+        "logs": [],
+        "receipt_ids": [],
+        "gas_burnt": 1363192598052,
+        "tokens_burnt": "136319259805200000000",
+        "executor_id": "wrap.near",
+        "status": { "SuccessValue": "IjQ5ODAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIg==" }
+      }
+    },
+    {
+      "id": "5zzh4kiucTWjX5dk6u3vQ3tBDqErQutCKUyypaerwhhA",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "v2UFs7mB6MUyN4rQyECuNdDEuegarK7Z7ir1QHsEovb",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "8rYLfz6B7rYz7ujMLQRfnE8SBANaChLbRHZbXYB78zR2",
+      "outcome": {
+        "logs": ["EVENT_JSON:{\"data\":[{}],\"event\":\"single_swap_success\"}"],
+        "receipt_ids": [],
+        "gas_burnt": 2068187589878,
+        "tokens_burnt": "206818758987800000000",
+        "executor_id": "aggregatedex.near",
+        "status": { "SuccessValue": "" }
+      }
+    },
+    {
+      "id": "kT3CVPtJFA2iq2hHkiZJ8x13ZVAUc2mXZmCBur6QxNv",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "GHyLnoJdNkP9oUb5rfauwVHRYt9epyvewmtAAiF3VDXp",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "6nxgaZru8zLzcixahT4RLz5jE5isrFrmijjJNaJpLdWz",
+      "outcome": {
+        "logs": [],
+        "receipt_ids": [],
+        "gas_burnt": 1322144993656,
+        "tokens_burnt": "132214499365600000000",
+        "executor_id": "wrap.near",
+        "status": { "SuccessValue": "IjUwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIg==" }
+      }
+    },
+    {
+      "id": "7iCqUgLphns4RDaB7U5k6XrQBQk85ZNNgKdCmTNUa173",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    },
+    {
+      "id": "5yjh5e8hugyZJRofhixiyWskPhswdX8FC6XHTVMApVUo",
+      "outcome": { "logs": [], "receipt_ids": [], "gas_burnt": 223182562500, "tokens_burnt": "0", "executor_id": "mrbrando.near", "status": { "SuccessValue": "" } }
+    }
+  ],
+  "receipts": [
+    {
+      "receipt_id": "EQ64dkjFsZZbEqyHUbozGLniHdQn3bakeuvxoEEwYwQ4",
+      "predecessor_id": "mrbrando.near",
+      "receiver_id": "wrap.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_transfer_call", "args": "", "gas": 300000000000000, "deposit": "1" } }] } }
+    },
+    {
+      "receipt_id": "FQEfWjPF9aU6zXCEGtaaUwvQkaU3JU9NDj4JNebR6Mkc",
+      "predecessor_id": "wrap.near",
+      "receiver_id": "aggregatedex.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_on_transfer", "args": "", "gas": 270000000000000, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "3iuDD9rs8jkcatFPEJUZBEz3S7CAF1uU1xVKAJ8pPmYU",
+      "predecessor_id": "aggregatedex.near",
+      "receiver_id": "wrap.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_transfer_call", "args": "", "gas": 180000000000000, "deposit": "1" } }] } }
+    },
+    {
+      "receipt_id": "9qgdTwP3dpCT9TYZJ62hckCvEq9GrkuKQAEHWDVy6Q3X",
+      "predecessor_id": "wrap.near",
+      "receiver_id": "v2.ref-finance.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_on_transfer", "args": "", "gas": 150000000000000, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "HwTeBVxx1S2Ju1RQJPxfd8p4Q7vavaCVeypcCfqfC3A2",
+      "predecessor_id": "v2.ref-finance.near",
+      "receiver_id": "blackdragon.tkn.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_transfer_call", "args": "", "gas": 80000000000000, "deposit": "1" } }] } }
+    },
+    {
+      "receipt_id": "6J4JLG2Gj8bGWf2Ux5woP1rTzFLn5k5rRgfZFPx8K1RW",
+      "predecessor_id": "blackdragon.tkn.near",
+      "receiver_id": "aggregatedex.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_on_transfer", "args": "", "gas": 50000000000000, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "7cTjKYeS4ZurTAzLaG7HK4Fi8o6AVmxJ5qNQ3R4wCRas",
+      "predecessor_id": "aggregatedex.near",
+      "receiver_id": "blackdragon.tkn.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_transfer", "args": "", "gas": 21381397803303, "deposit": "1" } }] } }
+    },
+    {
+      "receipt_id": "CDpiTRdHgqz3hb8LortrWz9xCWfUMRQeuzXxUPCkNRJw",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "22079663123684000000000" } }] } }
+    },
+    {
+      "receipt_id": "2SLaf8UtPyw9RcQBCJetRzXXKsLPGsH2nmjPRqnsCdqH",
+      "predecessor_id": "aggregatedex.near",
+      "receiver_id": "aggregatedex.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "after_ft_transfer", "args": "", "gas": 21381397803303, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "F1j2o5qYB7qwh8brMptKD7ZGDgzzsS9RBaPCpnBZbwM2",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "22063528552349400000000" } }] } }
+    },
+    {
+      "receipt_id": "8mir9rFyme5cVtQG79EocSEYKi3DZ3tYrjEHs2PpGPZt",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "5714906550496200000000" } }] } }
+    },
+    {
+      "receipt_id": "6Q5GGZ7yEnUm4fUEftipoGGnsSbC5g54Mrv98iWT6VJx",
+      "predecessor_id": "blackdragon.tkn.near",
+      "receiver_id": "blackdragon.tkn.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_resolve_transfer", "args": "", "gas": 5000000000000, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "bsmwgFmJmkriuhb8ky19Cbbycu5rjNxZnfQYcjRJaHr",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "5752104382628400000000" } }] } }
+    },
+    {
+      "receipt_id": "3oVrqLwLQjpAgzEHEbJD6tW7SNYsvJsgmdMxXXgW7YMM",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "23829103186210900000000" } }] } }
+    },
+    {
+      "receipt_id": "D5vM5SAJVKCWWngxjt9jEt6WswPCGTRKV2YBHcA2A7ez",
+      "predecessor_id": "v2.ref-finance.near",
+      "receiver_id": "v2.ref-finance.near",
+      "receipt": {
+        "Action": { "actions": [{ "FunctionCall": { "method_name": "exchange_callback_post_ft_transfer_call_withdraw", "args": "", "gas": 5000000000000, "deposit": "0" } }] }
+      }
+    },
+    {
+      "receipt_id": "BTWK3D7ZgM2TsvTTAu3TkAAbR3VwQ28BXcVvJPQJhxJR",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "5672222254322700000000" } }] } }
+    },
+    {
+      "receipt_id": "F49XgT8judEP1qCHbTi8ar8M6jyEUbQc7VZHy5JjXr6a",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "63310086511105400000000" } }] } }
+    },
+    {
+      "receipt_id": "6YW4cdcJJfZXoW7hXrM3i79P7qRnT55F6WW1pEz4DR13",
+      "predecessor_id": "wrap.near",
+      "receiver_id": "wrap.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_resolve_transfer", "args": "", "gas": 5000000000000, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "5zzh4kiucTWjX5dk6u3vQ3tBDqErQutCKUyypaerwhhA",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "5752021967878800000000" } }] } }
+    },
+    {
+      "receipt_id": "v2UFs7mB6MUyN4rQyECuNdDEuegarK7Z7ir1QHsEovb",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "23824910947915900000000" } }] } }
+    },
+    {
+      "receipt_id": "8rYLfz6B7rYz7ujMLQRfnE8SBANaChLbRHZbXYB78zR2",
+      "predecessor_id": "aggregatedex.near",
+      "receiver_id": "aggregatedex.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "callback_swap", "args": "", "gas": 82389492699161, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "kT3CVPtJFA2iq2hHkiZJ8x13ZVAUc2mXZmCBur6QxNv",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "83073210855045200000000" } }] } }
+    },
+    {
+      "receipt_id": "GHyLnoJdNkP9oUb5rfauwVHRYt9epyvewmtAAiF3VDXp",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "6048661567855500000000" } }] } }
+    },
+    {
+      "receipt_id": "6nxgaZru8zLzcixahT4RLz5jE5isrFrmijjJNaJpLdWz",
+      "predecessor_id": "wrap.near",
+      "receiver_id": "wrap.near",
+      "receipt": { "Action": { "actions": [{ "FunctionCall": { "method_name": "ft_resolve_transfer", "args": "", "gas": 5000000000000, "deposit": "0" } }] } }
+    },
+    {
+      "receipt_id": "7iCqUgLphns4RDaB7U5k6XrQBQk85ZNNgKdCmTNUa173",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "5756113312714400000000" } }] } }
+    },
+    {
+      "receipt_id": "5yjh5e8hugyZJRofhixiyWskPhswdX8FC6XHTVMApVUo",
+      "predecessor_id": "system",
+      "receiver_id": "mrbrando.near",
+      "receipt": { "Action": { "actions": [{ "Transfer": { "deposit": "23825466307419900000000" } }] } }
+    }
+  ]
+}

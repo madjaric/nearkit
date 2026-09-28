@@ -1,0 +1,7 @@
+# LF everywhere, so Prettier's check passes on every platform.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
