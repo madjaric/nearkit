@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   BookOpen,
   ChartLine,
+  ChevronsRight,
   Coins,
   Copy,
   Crosshair,
@@ -29,9 +30,18 @@ export interface NavItem {
   end?: boolean
 }
 
+/** An entry that opens something in place instead of a page. */
+export interface NavAction {
+  action: 'quick-trade'
+  label: string
+  icon: LucideIcon
+}
+
+export const isNavAction = (entry: NavItem | NavAction): entry is NavAction => 'action' in entry
+
 export interface NavGroup {
   label: string
-  items: NavItem[]
+  items: (NavItem | NavAction)[]
 }
 
 export const NAV_HOME: NavItem = { to: '/', label: 'Dashboard', icon: LayoutGrid, end: true, keywords: ['home', 'overview', 'terminal'] }
@@ -41,6 +51,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Trade',
     items: [
       { to: '/swap', label: 'Swap', icon: ArrowLeftRight, keywords: ['buy', 'sell', 'trade', 'exchange'] },
+      // The Quick Trade ticket, opened over the current page (the trade drawer).
+      { action: 'quick-trade', label: 'Quick Trade', icon: ChevronsRight },
       { to: '/multi-trade', label: 'Multi Trade', icon: Layers, keywords: ['multi buy', 'multi sell', 'bundle', 'wallets'] },
       { to: '/limit-orders', label: 'Limit Orders', icon: ListOrdered, keywords: ['orders', 'take profit', 'stop loss', 'tp', 'sl'] },
     ],
@@ -81,7 +93,8 @@ export const NAV_FOOTER: NavItem[] = [
   { to: '/telegram', label: 'Telegram', icon: MessageSquare, soon: true, keywords: ['bot'] },
 ]
 
-export const ALL_NAV: NavItem[] = [NAV_HOME, ...NAV_GROUPS.flatMap((g) => g.items), ...NAV_FOOTER]
+/** Every page the navigation links to (in-place actions such as Quick Trade are not pages). */
+export const ALL_NAV: NavItem[] = [NAV_HOME, ...NAV_GROUPS.flatMap((g) => g.items.filter((i): i is NavItem => !isNavAction(i))), ...NAV_FOOTER]
 
 /** Telegram-style commands the search box understands. */
 export const COMMANDS: { command: string; to: string; label: string }[] = [

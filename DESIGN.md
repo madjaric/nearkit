@@ -392,6 +392,9 @@ Fixed-slot measurement strip. The strip ground is `line-soft` and slots sit on i
 
 ### Navigation
 - **Sidebar:** 224px on `well`. Group legends open with the corner bracket. Items are 32px with a 16px line icon: active is `raised` with `fg` text, a lime icon and a lit LED at right; inactive is `fg-2`. Unshipped entries carry a SOON tag.
+  - **Order:** live features come first, in their groups (Trade, Tools, Portfolio, Intelligence); a group left empty is hidden. Every entry that is not live in the build sits in one COMING SOON group at the end, above Settings and Documentation.
+  - **Quick Trade:** it has no page of its own. Its entry opens the Quick Trade ticket over the current page, on the default trade token.
+  - **Phone:** the drawer mirrors the sidebar, and a held-back tab moves after the live tabs in the tab bar.
 - **Top bar:** 48px on `canvas` (see Layout).
 - **Phone:** a 56px tab bar with 18px icons and 11px labels. The active tab has a lime icon, `fg` label and an LED at the icon's corner. The drawer slides from the left in 240ms.
 

@@ -68,14 +68,32 @@ const near = createFakeNear({
   },
 })
 
+// form: the page body has fields and keys (PnL's held-back body is a note and a link).
 const SOON = [
-  { route: '/multi-trade', label: 'Multi Trade' },
-  { route: '/limit-orders', label: 'Limit Orders' },
-  { route: '/dca', label: 'DCA' },
-  { route: '/copy-trade', label: 'Copy Trade' },
-  { route: '/sniper', label: 'Sniper' },
+  { route: '/multi-trade', label: 'Multi Trade', form: true },
+  { route: '/limit-orders', label: 'Limit Orders', form: true },
+  { route: '/dca', label: 'DCA', form: true },
+  { route: '/copy-trade', label: 'Copy Trade', form: true },
+  { route: '/sniper', label: 'Sniper', form: true },
+  { route: '/pnl', label: 'PnL', form: false },
 ]
-const LIVE = ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/scanner']
+const LIVE = ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/scanner']
+/** The sidebar, top to bottom: live features first, everything held back in COMING SOON. */
+const SIDEBAR = [
+  ['Trade', ['Swap', 'Quick Trade']],
+  ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
+  ['Portfolio', ['Positions']],
+  ['Intelligence', ['Scanner']],
+  ['Coming soon', ['Multi Trade', 'Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'PnL', 'Telegram', '$KIT'].map((l) => `${l} SOON`)],
+]
+/** Group names and entries of a navigation body, as rendered. */
+const navGroups = (nav) =>
+  nav
+    .locator('[role="group"]')
+    .evaluateAll((groups) =>
+      groups.map((g) => [g.getAttribute('aria-label'), [...g.querySelectorAll('li')].map((li) => li.innerText.replace(/\s+/g, ' ').trim().replace(/soon$/i, 'SOON'))]),
+    )
+const sameNav = (actual) => JSON.stringify(actual) === JSON.stringify(SIDEBAR)
 
 const errors = []
 const results = []
@@ -124,15 +142,21 @@ await step('boots as the testnet beta', async () => {
 })
 
 if (WIDTH >= 1024) {
-  await step('the sidebar tags exactly the five held-back features SOON', async () => {
-    for (const { route, label } of SOON) {
-      const text = await page.locator(`aside a[href="${route}"]`).innerText()
-      if (!/soon/i.test(text)) throw new Error(`${label} has no SOON tag`)
-    }
-    for (const route of LIVE) {
-      const text = await page.locator(`aside a[href="${route}"]`).innerText()
-      if (/soon/i.test(text)) throw new Error(`${route} is tagged SOON`)
-    }
+  await step('the sidebar lists the live features first and every held-back one under COMING SOON', async () => {
+    const groups = await navGroups(page.locator('aside nav[aria-label="Main"]'))
+    if (!sameNav(groups)) throw new Error(`Sidebar is ${JSON.stringify(groups)}`)
+    const footer = await page.locator('aside nav[aria-label="Main"] + div li').allInnerTexts()
+    if (footer.map((t) => t.trim()).join() !== 'Settings,Documentation') throw new Error(`Footer is ${footer}`)
+    await shot('beta-00-sidebar')
+  })
+
+  await step('Quick Trade in the sidebar opens the trade ticket without leaving the page', async () => {
+    await page.locator('aside').getByRole('button', { name: 'Quick Trade' }).click()
+    const ticket = page.getByRole('dialog', { name: 'Trade ticket' })
+    await ticket.getByText('Trade USDT').waitFor()
+    if (new URL(page.url()).pathname !== '/') throw new Error('Quick Trade navigated away')
+    await ticket.getByRole('button', { name: 'Close trade ticket' }).click()
+    await ticket.waitFor({ state: 'hidden' })
   })
 }
 
@@ -165,12 +189,18 @@ await step('Dashboard: the Multi buy and limit-order shortcuts are tagged SOON',
 })
 
 if (WIDTH < 1024) {
-  await step('the phone tab bar tags Multi SOON and still opens it', async () => {
+  await step('phone: Multi (SOON) comes after the live tabs, and the menu matches the sidebar', async () => {
     const tabs = page.locator('nav[aria-label="Quick navigation"]')
-    if (!/soon/i.test(await tabs.locator('a[href="/multi-trade"]').innerText())) throw new Error('The Multi tab has no SOON mark')
-    for (const route of ['/', '/swap', '/positions']) {
-      if (/soon/i.test(await tabs.locator(`a[href="${route}"]`).innerText())) throw new Error(`The ${route} tab is marked SOON`)
-    }
+    const order = (await tabs.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim().replace(/soon$/i, 'SOON'))
+    if (order.join('|') !== 'Home|Trade|Positions|Multi SOON|Menu') throw new Error(`Tabs are ${order.join(', ')}`)
+    await tabs.locator('a[href="/multi-trade"]').waitFor()
+    await page.getByRole('button', { name: 'Open navigation' }).first().click()
+    const drawer = page.getByRole('dialog', { name: 'Navigation' })
+    const groups = await navGroups(drawer.locator('nav[aria-label="Main"]'))
+    if (!sameNav(groups)) throw new Error(`Menu is ${JSON.stringify(groups)}`)
+    await shot('beta-00-menu')
+    await drawer.getByRole('button', { name: 'Close navigation' }).click()
+    await drawer.waitFor({ state: 'hidden' })
   })
 }
 
@@ -212,7 +242,7 @@ await step('Wallets: a preset’s Use (Multi Trade) is disabled and tagged SOON;
   await shot('beta-03-preset')
 })
 
-for (const { route, label } of SOON) {
+for (const { route, label, form } of SOON) {
   await step(`${label}: COMING SOON, and every field and key is disabled`, async () => {
     const before = (await page.evaluate(() => window.__NEARKIT_E2E_SIGNED__ ?? [])).length
     await page.goto(BASE + route, { waitUntil: 'networkidle' })
@@ -220,10 +250,11 @@ for (const { route, label } of SOON) {
     if ((await hasSoonTag()) !== 1) throw new Error('No COMING SOON tag beside the title')
     const gate = page.locator('main fieldset[disabled]')
     await gate.waitFor({ timeout: 8000 })
-    await gate.getByText('Coming soon. This is not available in the public testnet beta yet').first().waitFor()
+    // Pages that execute say why under their key; PnL executes nothing.
+    if (form) await gate.getByText('Coming soon. This is not available in the public testnet beta yet').first().waitFor()
     const controls = await gate.locator('button, input, select, textarea').count()
     const enabled = await gate.locator('button:enabled, input:enabled, select:enabled, textarea:enabled').count()
-    if (controls === 0) throw new Error('The page rendered no controls to check')
+    if (form && controls === 0) throw new Error('The page rendered no controls to check')
     if (enabled !== 0) throw new Error(`${enabled} of ${controls} controls are still enabled`)
     const text = await page.locator('main').innerText()
     if (/Enter a (total|buy) amount|Enter a trigger price|Select at least one wallet/.test(text)) throw new Error('A form hint suggests the page can be used')

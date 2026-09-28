@@ -18,10 +18,10 @@ Mainnet execution is **off by default**. Prove the testnet checklist below befor
 
 Nothing else is set, and none of it is secret. The network chip reads TESTNET BETA. Testnet tokens have no value, and mainnet value-moving execution is off.
 
-The beta ships Swap and Quick Trade, Split, Consolidate, Batch Send, Wallets and Scanner.
+The beta ships Swap and Quick Trade, Split, Consolidate, Batch Send, Wallets, Positions and Scanner.
 
-**Coming soon:** Multi Trade, Limit Orders, DCA, Copy Trade and Sniper.
-- Their pages, code and tests stay. In the beta the sidebar tags them SOON, and their pages show COMING SOON with every field and key disabled.
+**Coming soon:** Multi Trade, Limit Orders, DCA, Copy Trade, Sniper and PnL (plus Telegram and $KIT, which are not live in any build).
+- Their pages, code and tests stay. In the beta the sidebar lists them last, in a COMING SOON group with SOON tags, and their pages show COMING SOON with every field and key disabled.
 - The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it.
 - The hold applies only to production builds on testnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
 

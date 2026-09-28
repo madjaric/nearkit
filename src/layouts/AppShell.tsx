@@ -19,10 +19,12 @@ const TAB_BAR = [
 
 /** Phone tab bar: the four most-used surfaces plus the full menu. */
 function TabBar({ onOpenNav }: { onOpenNav: () => void }) {
+  // Live tabs first; a tab the public beta holds back moves to the end, before Menu.
+  const tabs = [...TAB_BAR.filter((t) => !isComingSoon(t.to)), ...TAB_BAR.filter((t) => isComingSoon(t.to))]
   return (
     <nav aria-label="Quick navigation" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-well pb-[env(safe-area-inset-bottom)] lg:hidden">
       <ul className="grid h-14 grid-cols-5">
-        {TAB_BAR.map((item) => {
+        {tabs.map((item) => {
           const Icon = item.icon
           return (
             <li key={item.to}>
