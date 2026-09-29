@@ -18,9 +18,9 @@ Mainnet execution is **off by default**. Prove the testnet checklist below befor
 
 Nothing else is set, and none of it is secret. The network chip reads TESTNET BETA. Testnet tokens have no value, and mainnet value-moving execution is off.
 
-The beta ships Swap and Quick Trade, Split, Consolidate, Batch Send, Wallets, Positions and Scanner.
+The beta ships Swap and Quick Trade, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner.
 
-**Coming soon:** Multi Trade, Limit Orders, DCA, Copy Trade, Sniper and PnL (plus Telegram and $KIT, which are not live in any build).
+**Coming soon:** Multi Trade, Limit Orders, DCA, Copy Trade and Sniper (plus Telegram, live only in a build that names a running NearKit server, and $KIT, which has not launched).
 - Their pages, code and tests stay. In the beta the sidebar lists them last, in a COMING SOON group with SOON tags, and their pages show COMING SOON with every field and key disabled.
 - The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it.
 - The hold applies to every production build of the real services, on testnet and mainnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
@@ -76,23 +76,36 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | Multi Trade | Real: one verified route per wallet, one approval per wallet, no all-or-nothing. COMING SOON in the public testnet beta |
 | Transaction history | Real for operations sent from this browser, reconciled with the chain |
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
-| Positions | Real balances and Rhea prices; entry price and PnL are not tracked yet |
+| Positions, PnL | Real: balances from chain, Rhea prices, average-cost PnL from each account's on-chain history (see "Positions and PnL") |
 | Limit/TP/SL, DCA, Copy Trade, Sniper | Drafts saved in this browser; nothing executes them. COMING SOON in the public testnet beta |
-| Telegram bot, $KIT | Not live |
+| Telegram bot | Real, in `server/` (see `server/README.md`): linking, buy/sell signed in the wallet, buybot, /positions and /pnl. Needs a hosted server; until then the web page stays COMING SOON |
+| $KIT | Not launched |
 
 ## Tests
 
 ```bash
 npm test              # unit + integration (real services against a fake chain), no network
 npm run e2e           # Phase 1 suite, 28 steps, against the demo server (5198)
-npm run e2e:real      # real-mode suite, 13 steps, against dev:e2e (5202); fake network, no live calls
+npm run e2e:real      # real-mode suite, 14 steps, against dev:e2e (5202); fake network, no live calls
 npm run e2e:real -- --width 390   # the same suite at phone width (also run at 768)
 npm run e2e:beta      # the public beta's COMING SOON features in a production build (port 5204)
+npm run e2e:telegram  # the built server + web app with Telegram and NEAR faked over HTTP
 npm run smoke:live    # opt-in: read-only checks against live testnet and mainnet endpoints
 npm run check         # typecheck + lint + unit tests + production build
 ```
 
 `e2e`, `e2e:real` and `shots` drive the Chromium that Playwright installed under `%LOCALAPPDATA%\ms-playwright` (or `CHROME_PATH`).
+
+## Positions and PnL
+
+One engine, `src/lib/pnl.ts`, computes every PnL figure NearKit shows: the Positions and PnL pages, and the Telegram bot's `/positions` and `/pnl`. Its header defines each term.
+
+- **Method:** weighted average cost, per token and per account. NEAR figures are exact (from on-chain amounts); USD figures use NEAR/USD at the hour of each trade (Coinbase hourly candles). On mainnet, USDC and USDt count at face value. Testnet has no USD prices, so its figures are in NEAR.
+- **History:** each account's transactions come from FastNEAR's transaction index (`tx.main.fastnear.com`, `tx.test.fastnear.com`), up to the latest 600 per account. Buys and sells are read from the receipts that succeeded (`src/services/near/flows.ts`, the same analyzer the buybot uses). A trade's value is what moved, so NearKit's fee, Rhea's fees and the gas the account paid are inside it. Storage deposits are not trades.
+- **Never guessed:**
+  - Tokens that arrived by transfer, or through a token-for-token swap, have no known cost. They are tracked apart and left out of cost and PnL.
+  - When the history doesn't explain the balance on chain (older than 600 transactions, or not indexed), the figures say "partial" and why.
+  - A missing price leaves unrealized PnL unknown, not zero.
 
 ## Testnet checklist (before enabling mainnet)
 

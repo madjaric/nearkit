@@ -25,6 +25,8 @@ export function buildPnlReport(input: {
   currency: 'USD' | 'NEAR'
   tokens: TokenInput[]
   gasNear: number
+  /** The history read: when it was capped, older trades are missing and the report says so. */
+  history: { complete: boolean; txs: number }
   walletOf: (accountId: string) => string
 }): PnlReport {
   const { range, now, currency } = input
@@ -33,6 +35,7 @@ export function buildPnlReport(input: {
   const money = (s: Sale): number | null => (currency === 'USD' ? s.realizedUsd : s.realizedNear === null ? null : Number(s.realizedNear) / 1e24)
   const proceeds = (s: Sale): number | null => (currency === 'USD' ? s.proceedsUsd : s.proceedsNear === null ? null : Number(s.proceedsNear) / 1e24)
   const limits = new Set<PnlLimitation>()
+  if (!input.history.complete) limits.add('history-incomplete')
 
   const byToken: TokenPnl[] = []
   const closed: (ClosedTrade & { known: boolean })[] = []
@@ -97,6 +100,7 @@ export function buildPnlReport(input: {
     complete: limits.size === 0 || (limits.size === 1 && limits.has('no-current-price')),
     limitations: [...limits],
     gasNear: input.gasNear,
+    history: input.history,
     points,
     realizedUsd: known.reduce((s, c) => s + c.pnlUsd, 0),
     unrealizedUsd: byToken.reduce((s, t) => s + t.unrealizedUsd, 0),

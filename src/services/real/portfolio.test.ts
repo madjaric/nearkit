@@ -91,6 +91,15 @@ describe('positions with PnL from on-chain history', () => {
     expect(report?.gasNear).toBeGreaterThan(0)
   })
 
+  it('a held token the history does not explain makes the PnL report partial, not silently complete', async () => {
+    const services = setup({ history: [] })
+    await services.wallets.connect('fake')
+    const report = await services.portfolio.getPnl('all')
+    expect(report?.complete).toBe(false)
+    expect(report?.limitations).toContain('history-incomplete')
+    expect(report?.history).toEqual({ complete: true, txs: 0 })
+  })
+
   it('without history, positions still show balances and say PnL is unavailable rather than zero', async () => {
     const services = setup({ history: [] })
     await services.wallets.connect('fake')

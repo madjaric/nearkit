@@ -6,7 +6,7 @@ import type { NearContext } from './context'
 import type { Market } from './market'
 import type { PnlTracker } from './pnlTracker'
 import { buildPnlReport } from './pnlReport'
-import { tokenPnl, withPnl } from './positionsPnl'
+import { historyOf, reportTokenIds, reportTokens, withPnl } from './positionsPnl'
 
 /**
  * Portfolio from real balances. Values need a price; where there is none
@@ -107,25 +107,27 @@ export function createPortfolioService(
       const accounts = [...new Set(snapshots.map((s) => s.accountId))]
       if (!accounts.length) return null
       const ledgers = await Promise.all(accounts.map((a) => tracker.ledger(a)))
-      const ids = [...new Set(ledgers.flatMap((l) => [...l.byToken.keys()]))]
-      const listings = new Map((await market.listTokens(ids)).map((t) => [t.id, t]))
-      const currency = ctx.capabilities.prices ? 'USD' : 'NEAR'
-      const tokens = ids.flatMap((id) => {
-        const token = listings.get(id)
-        if (!token || !token.contract) return []
-        const balances = new Map<string, bigint>()
-        for (const s of snapshots) {
-          const raw = s.holdings.find((h) => h.tokenId === id)?.raw
-          if (raw) balances.set(s.accountId, BigInt(raw))
+      // token → account → raw balance now, for every token a connected account holds
+      const held = new Map<string, Map<string, bigint>>()
+      for (const s of snapshots)
+        for (const h of s.holdings) {
+          if (!h.raw || h.tokenId === NATIVE_TOKEN_ID) continue
+          const raw = BigInt(h.raw)
+          if (raw > 0n) held.set(h.tokenId, (held.get(h.tokenId) ?? new Map<string, bigint>()).set(s.accountId, raw))
         }
-        const { combined, sales, events } = tokenPnl(token, ledgers, balances)
-        const trades = events.flatMap(({ event: e }) =>
-          e.kind === 'buy' || e.kind === 'sell' ? [{ at: e.at, value: currency === 'USD' ? e.value.usd : e.value.near === null ? null : Number(e.value.near) / 1e24 }] : [],
-        )
-        return [{ token, combined, sales, trades }]
-      })
+      const listings = new Map((await market.listTokens(reportTokenIds(ledgers, held))).map((t) => [t.id, t]))
+      const currency = ctx.capabilities.prices ? 'USD' : 'NEAR'
+      const tokens = reportTokens({ ledgers, held, listings, currency })
       const gasNear = ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0)
-      return buildPnlReport({ range, now: ctx.now(), currency, tokens, gasNear, walletOf: (a) => snapshots.find((s) => s.accountId === a)?.id ?? a })
+      return buildPnlReport({
+        range,
+        now: ctx.now(),
+        currency,
+        tokens,
+        gasNear,
+        history: historyOf(ledgers),
+        walletOf: (a) => snapshots.find((s) => s.accountId === a)?.id ?? a,
+      })
     },
 
     async listActivity(limit = 50) {

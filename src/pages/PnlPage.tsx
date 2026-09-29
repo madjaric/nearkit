@@ -197,7 +197,7 @@ function Pnl() {
             }
             loading={loading}
             value={r?.gasNear !== undefined ? NEAR_FORMAT.full(r.gasNear) : '—'}
-            sub="all history"
+            sub={r?.history && !r.history.complete ? `latest ${r.history.txs} transactions only` : 'whole history'}
           />
         ) : (
           <ReadoutSlot

@@ -245,8 +245,10 @@ export interface PnlReport {
   /** Every trade and unit was valued; false lists why in `limitations`. */
   complete?: boolean
   limitations?: PnlLimitation[]
-  /** Real mode: NEAR paid as gas by these accounts across their history (swap fees are inside trade values). */
+  /** Real mode: NEAR paid as gas by these accounts over the history read (swap fees are inside trade values). */
   gasNear?: number
+  /** Real mode: the history read. Not complete when it was capped: older trades and gas are not in this report. */
+  history?: { complete: boolean; txs: number }
   points: PnlPoint[]
   realizedUsd: number
   unrealizedUsd: number

@@ -1,5 +1,6 @@
 import { computePnl, type LedgerEvent, type PnlResult } from '@/lib/pnl'
 import type { PnlFiguresView, Position, PositionEvent, PositionPnl, TokenListing, WalletSnapshot } from '@/types/domain'
+import type { TokenInput } from './pnlReport'
 import { combinePnl, type AccountLedger, type PnlTracker } from './pnlTracker'
 
 /**
@@ -81,6 +82,38 @@ export function tokenPnl(token: TokenListing, ledgers: AccountLedger[], balances
     events,
     view: toPositionPnl(combined, token.decimals, historyRows(events, token.decimals)),
   }
+}
+
+/** What the accounts' history covers: capped histories leave older trades and gas out. */
+export function historyOf(ledgers: readonly AccountLedger[]) {
+  return { complete: ledgers.every((l) => l.complete), txs: ledgers.reduce((s, l) => s + l.txCount, 0) }
+}
+
+/**
+ * The PnL report's tokens, for the web and Telegram alike: every token with history
+ * or a balance now (`held`: token → account → raw), so a holding the history doesn't
+ * explain still marks the report partial instead of dropping out of it.
+ */
+export function reportTokens(input: {
+  ledgers: AccountLedger[]
+  held: ReadonlyMap<string, ReadonlyMap<string, bigint>>
+  listings: ReadonlyMap<string, TokenListing>
+  currency: 'USD' | 'NEAR'
+}): TokenInput[] {
+  return reportTokenIds(input.ledgers, input.held).flatMap((id) => {
+    const token = input.listings.get(id)
+    if (!token?.contract) return []
+    const { combined, sales, events } = tokenPnl(token, input.ledgers, new Map(input.held.get(id) ?? []))
+    const trades = events.flatMap(({ event: e }) =>
+      e.kind === 'buy' || e.kind === 'sell' ? [{ at: e.at, value: input.currency === 'USD' ? e.value.usd : e.value.near === null ? null : nearNum(e.value.near) }] : [],
+    )
+    return [{ token, combined, sales, trades }]
+  })
+}
+
+/** The token ids of `ledgers` plus the ones held now, for one listing call. */
+export function reportTokenIds(ledgers: readonly AccountLedger[], held: ReadonlyMap<string, unknown>): string[] {
+  return [...new Set([...ledgers.flatMap((l) => [...l.byToken.keys()]), ...held.keys()])]
 }
 
 export async function withPnl(positions: Position[], snapshots: WalletSnapshot[], tracker: PnlTracker, waitMs: number): Promise<Position[]> {

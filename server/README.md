@@ -59,6 +59,13 @@ it: each hash is read from chain and must be signed by the linked account the tr
 prepared for, and the amounts come from the chain's record. Only then does the bot
 report "Bought … for …", "the swap failed", or "confirmed, but no swap went through".
 
+## Positions and PnL in Telegram
+
+`/positions` and `/pnl [7d|30d|90d]` run the web app's own engine, tracker and report
+(`src/lib/pnl.ts`, `src/services/real/pnlTracker.ts`, `pnlReport.ts`) over the user's linked
+accounts, and link back to the NearKit pages. Figures the history can't support are marked
+partial, with the reason. Gas is reported for the history actually read.
+
 ## Buybot
 
 Group admins send `/buybot` in their group, add a token by its exact contract (NearKit

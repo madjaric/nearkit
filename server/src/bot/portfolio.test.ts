@@ -9,7 +9,7 @@ const SING = 'singularty.nearlytrade.near'
 const ACCOUNT = 'mort1705.tg'
 const TX = directBuy as unknown as { transaction: { hash: string }; block_height: number; block_timestamp: string }
 
-async function bot(options: { link?: boolean; network?: 'mainnet' | 'testnet' } = {}) {
+async function bot(options: { link?: boolean; network?: 'mainnet' | 'testnet'; history?: boolean } = {}) {
   let list: () => { name: string; command: Command }[] = () => []
   const network = options.network ?? 'mainnet'
   const h = await botHarness({
@@ -24,10 +24,11 @@ async function bot(options: { link?: boolean; network?: 'mainnet' | 'testnet' } 
   })
   list = () => h.app.commands()
   const host = network === 'mainnet' ? 'https://tx.main.fastnear.com' : 'https://tx.test.fastnear.com'
+  const txs = options.history === false ? [] : [TX]
   h.chain.route(`${host}/v0/account`, () => ({
-    account_txs: [{ transaction_hash: TX.transaction.hash, tx_block_height: TX.block_height, tx_block_timestamp: TX.block_timestamp }],
+    account_txs: txs.map((t) => ({ transaction_hash: t.transaction.hash, tx_block_height: t.block_height, tx_block_timestamp: t.block_timestamp })),
   }))
-  h.chain.route(`${host}/v0/transactions`, () => ({ transactions: [TX] }))
+  h.chain.route(`${host}/v0/transactions`, () => ({ transactions: txs }))
   const hour = Math.floor(Number(BigInt(TX.block_timestamp) / 1_000_000n) / 3_600_000) * 3_600
   h.chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/candles', () => [[hour, 4.5, 4.9, 4.6, 4.8, 1]])
   h.chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/ticker', () => ({ price: '5.00' }))
@@ -67,9 +68,17 @@ describe('/positions and /pnl in Telegram', () => {
     expect(text).toContain('PnL · all time')
     expect(text).toContain('Realized: <b>$0.00</b> over 0 sales')
     expect(text).toMatch(/Unrealized now: <b>\+\$2\.\d\d<\/b>/)
-    expect(text).toMatch(/Gas paid \(all history\): 0\.00\d+ NEAR/)
+    expect(text).toMatch(/Gas paid \(whole history, 1 transaction\): 0\.00\d+ NEAR/)
     await h.press('pf:pnl7d')
     expect(h.last()?.text).toContain('PnL · last 7d')
+  })
+
+  it('a holding the history does not explain makes /pnl say it is partial', async () => {
+    const h = await bot({ history: false })
+    await h.say('/pnl')
+    const text = h.last()?.text ?? ''
+    expect(text).toContain('doesn’t explain the whole balance')
+    expect(text).toContain('Gas paid (whole history, 0 transactions)')
   })
 
   it('on testnet, without USD prices, speaks NEAR', async () => {

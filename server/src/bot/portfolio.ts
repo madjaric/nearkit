@@ -3,7 +3,7 @@ import { formatCompact, formatPct, NEAR_FORMAT, USD_FORMAT } from '@/lib/format'
 import { describeError } from '@/services/errors'
 import { createPnlTracker, type PnlTracker } from '@/services/real/pnlTracker'
 import { buildPnlReport } from '@/services/real/pnlReport'
-import { tokenPnl } from '@/services/real/positionsPnl'
+import { historyOf, reportTokenIds, reportTokens, tokenPnl } from '@/services/real/positionsPnl'
 import type { PnlLimitation, PnlRange } from '@/types/domain'
 import { bold, esc } from '../telegram/html'
 import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
@@ -93,21 +93,17 @@ async function showPnl(ctx: BotCtx, range: PnlRange) {
   try {
     const ledgers = await Promise.all(list.map((a) => tracker(ctx).ledger(a)))
     const balances = await Promise.all(list.map((a) => near.ctx.balances.get(a)))
-    const ids = [...new Set(ledgers.flatMap((l) => [...l.byToken.keys()]))]
-    const listings = new Map((await near.market.listTokens(ids)).map((t) => [t.id, t]))
+    // token → account → raw balance now
+    const held = new Map<string, Map<string, bigint>>()
+    for (const b of balances) for (const f of b.fts) if (f.raw > 0n) held.set(f.contract, (held.get(f.contract) ?? new Map<string, bigint>()).set(b.accountId, f.raw))
+    const listings = new Map((await near.market.listTokens(reportTokenIds(ledgers, held))).map((t) => [t.id, t]))
     const currency = near.ctx.capabilities.prices ? 'USD' : 'NEAR'
     const money = currency === 'USD' ? USD_FORMAT : NEAR_FORMAT
-    const tokens = ids.flatMap((id) => {
-      const token = listings.get(id)
-      if (!token?.contract) return []
-      const perAccount = new Map(balances.map((b) => [b.accountId, b.fts.find((f) => f.contract === id)?.raw ?? 0n]))
-      const { combined, sales, events } = tokenPnl(token, ledgers, perAccount)
-      const trades = events.flatMap(({ event: e }) =>
-        e.kind === 'buy' || e.kind === 'sell' ? [{ at: e.at, value: currency === 'USD' ? e.value.usd : e.value.near === null ? null : Number(e.value.near) / 1e24 }] : [],
-      )
-      return [{ token, combined, sales, trades }]
-    })
-    const r = buildPnlReport({ range, now: ctx.deps.now(), currency, tokens, gasNear: ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0), walletOf: (a) => a })
+    const tokens = reportTokens({ ledgers, held, listings, currency })
+    const history = historyOf(ledgers)
+    const gasNear = ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0)
+    const r = buildPnlReport({ range, now: ctx.deps.now(), currency, tokens, gasNear, history, walletOf: (a) => a })
+    const scope = history.complete ? `whole history, ${history.txs} ${history.txs === 1 ? 'transaction' : 'transactions'}` : `latest ${history.txs} transactions only`
     const top = r.byToken
       .slice(0, 5)
       .map((t) => `• ${bold(t.token.symbol)} realized ${esc(money.full(t.realizedUsd, { signed: true }))} · open ${esc(money.full(t.unrealizedUsd, { signed: true }))}`)
@@ -117,7 +113,7 @@ async function showPnl(ctx: BotCtx, range: PnlRange) {
         '',
         `Realized: ${bold(money.full(r.realizedUsd, { signed: true }))} over ${r.trades} ${r.trades === 1 ? 'sale' : 'sales'}${r.wins + r.losses ? ` (${r.wins} won, ${r.losses} lost)` : ''}`,
         `Unrealized now: ${bold(money.full(r.unrealizedUsd, { signed: true }))}`,
-        `Gas paid (all history): ${esc(NEAR_FORMAT.full(r.gasNear ?? 0))}`,
+        `Gas paid (${scope}): ${esc(NEAR_FORMAT.full(r.gasNear ?? 0))}`,
         ...(top.length ? ['', ...top] : []),
         ...limitationsNote(new Set(r.limitations ?? [])),
         '',

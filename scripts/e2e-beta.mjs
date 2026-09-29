@@ -68,23 +68,22 @@ const near = createFakeNear({
   },
 })
 
-// form: the page body has fields and keys (PnL's held-back body is a note and a link).
+// form: the page body has fields and keys.
 const SOON = [
   { route: '/multi-trade', label: 'Multi Trade', form: true },
   { route: '/limit-orders', label: 'Limit Orders', form: true },
   { route: '/dca', label: 'DCA', form: true },
   { route: '/copy-trade', label: 'Copy Trade', form: true },
   { route: '/sniper', label: 'Sniper', form: true },
-  { route: '/pnl', label: 'PnL', form: false },
 ]
-const LIVE = ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/scanner']
+const LIVE = ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/pnl', '/scanner']
 /** The sidebar, top to bottom: live features first, everything held back in COMING SOON. */
 const SIDEBAR = [
   ['Trade', ['Swap', 'Quick Trade']],
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
-  ['Portfolio', ['Positions']],
+  ['Portfolio', ['Positions', 'PnL']],
   ['Intelligence', ['Scanner']],
-  ['Coming soon', ['Multi Trade', 'Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'PnL', 'Telegram', '$KIT'].map((l) => `${l} SOON`)],
+  ['Coming soon', ['Multi Trade', 'Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'Telegram', '$KIT'].map((l) => `${l} SOON`)],
 ]
 /** Group names and entries of a navigation body, as rendered. */
 const navGroups = (nav) =>
@@ -277,7 +276,7 @@ await step('the live tools stay live: a testnet swap quotes and can be reviewed'
   await page.keyboard.press('Escape')
 })
 
-await step('Split, Consolidate, Batch Send, Wallets and Scanner are not held back', async () => {
+await step('Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner are not held back', async () => {
   for (const route of LIVE.slice(1)) {
     await page.goto(BASE + route, { waitUntil: 'networkidle' })
     await page.locator('main h1').first().waitFor()
@@ -289,6 +288,20 @@ await step('Split, Consolidate, Batch Send, Wallets and Scanner are not held bac
   const list = page.locator('main textarea').first()
   await list.waitFor()
   if (!(await list.isEnabled())) throw new Error('Batch Send is not editable')
+})
+
+await step('PnL is live on the beta and honest: NEAR figures from on-chain history, partial when history does not explain a balance', async () => {
+  await page.goto(BASE + '/pnl', { waitUntil: 'networkidle' })
+  await visible('On-chain history')
+  await visible('in NEAR: no USD prices on this network')
+  // The fake index has no transactions, yet the account holds USDT: said, not hidden.
+  await page
+    .getByText(/doesn’t explain the whole balance/)
+    .visible()
+    .first()
+    .waitFor({ timeout: 15000 })
+  if ((await page.locator('main fieldset[disabled]').count()) !== 0) throw new Error('PnL is read-only')
+  await shot('beta-pnl')
 })
 
 if (near.state.external.length) {
