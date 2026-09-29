@@ -18,6 +18,7 @@ import { Store } from './db/store'
 import { createLinkService } from './link/service'
 import { createLogger, type Logger } from './log'
 import { buildBuybotDeps, runBuybot } from './buybot/service'
+import { checkChainIds } from './chainId'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
@@ -102,6 +103,10 @@ export async function startServer(options: { env: Record<string, string | undefi
   }
   const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis)
   const now = options.now ?? Date.now
+
+  // Each RPC provider must serve this network: a wrong one stops the server here.
+  const rpcCheck = await checkChainIds(config.network.rpcUrls, config.network.id, fetchImpl)
+  if (rpcCheck.unreachable.length) log.warn('some RPC providers did not answer at start', { urls: rpcCheck.unreachable })
 
   const db = await openDatabase(config.database)
   const schema = await migrate(db)
@@ -229,6 +234,8 @@ export async function startServer(options: { env: Record<string, string | undefi
   if (config.telegramToken) {
     tg = createTelegramApi({ token: config.telegramToken, fetch: fetchImpl, baseUrl: config.telegramApiUrl })
     const me = await tg.getMe()
+    if (config.telegramBotUsername && me.username?.toLowerCase() !== config.telegramBotUsername.toLowerCase())
+      throw new Error(`The bot token belongs to @${me.username ?? '?'}, not @${config.telegramBotUsername} (TELEGRAM_BOT_USERNAME).`)
     const webhook = await tg.getWebhookInfo()
     if (webhook.url) throw new Error('A webhook is set for this bot, so long polling cannot run. Remove the webhook (deleteWebhook) or stop the other deployment first.')
     const deps: BotDeps = {

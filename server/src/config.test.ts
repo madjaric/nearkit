@@ -85,6 +85,13 @@ describe('server config', () => {
   })
 })
 
+describe('the bot', () => {
+  it('can be pinned to one bot username; a token of another bot is caught at start', () => {
+    expect(loadConfig({ TELEGRAM_BOT_USERNAME: '@NearKitBot' }).config.telegramBotUsername).toBe('NearKitBot')
+    expect(loadConfig({ TELEGRAM_BOT_USERNAME: 'not a bot' }).issues.map((i) => i.key)).toEqual(['TELEGRAM_BOT_USERNAME'])
+  })
+})
+
 describe('trading wallets (custody)', () => {
   const KEK = Buffer.alloc(32, 7).toString('base64')
   const AUTH = Buffer.alloc(32, 9).toString('base64')
@@ -131,6 +138,19 @@ describe('trading wallets (custody)', () => {
     })
     expect(ready.issues).toEqual([])
     expect(ready.config.custody).toMatchObject({ enabled: true, signer: { kind: 'remote', url: 'https://signer.internal' } })
+  })
+
+  it('on mainnet with the switch on, owner signatures must name the real https web app', () => {
+    const base = {
+      NEAR_NETWORK: 'mainnet',
+      NEARKIT_MAINNET_CUSTODY: 'enabled',
+      NEARKIT_SIGNER_URL: 'https://signer.internal',
+      NEARKIT_SIGNER_AUTH_KEY: AUTH,
+      NEARKIT_DATABASE_URL: PG,
+      NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
+    }
+    expect(keys(loadConfig({ ...base, NEARKIT_WEB_URL: 'http://localhost:5199' }).issues)).toEqual(['NEARKIT_WEB_URL'])
+    expect(loadConfig({ ...base, NEARKIT_WEB_URL: 'https://nearkit.app' }).issues).toEqual([])
   })
 
   it('refuse a KEK in the app’s environment on mainnet, and any fee account but the production one', () => {

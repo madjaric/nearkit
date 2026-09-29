@@ -18,6 +18,8 @@ import { parseAuthKey } from './signer/auth'
 export interface ServerConfig {
   /** Secret. Null runs the API without the bot. Never logged. */
   telegramToken: string | null
+  /** The bot the token must belong to (TELEGRAM_BOT_USERNAME); the server refuses another one. */
+  telegramBotUsername: string | null
   /** Bot API server: Telegram's, or a self-hosted telegram-bot-api. */
   telegramApiUrl: string
   env: AppEnv
@@ -102,6 +104,13 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
     const token = raw.TELEGRAM_BOT_TOKEN.trim()
     if (/^\d{5,16}:[A-Za-z0-9_-]{30,}$/.test(token)) telegramToken = token
     else issue('TELEGRAM_BOT_TOKEN', 'Not shaped like a bot token from @BotFather (value not shown)')
+  }
+
+  let telegramBotUsername: string | null = null
+  if (!blank(raw.TELEGRAM_BOT_USERNAME)) {
+    const name = raw.TELEGRAM_BOT_USERNAME.trim().replace(/^@/, '')
+    if (/^[A-Za-z][A-Za-z0-9_]{3,30}bot$/i.test(name)) telegramBotUsername = name
+    else issue('TELEGRAM_BOT_USERNAME', `${name} is not a Telegram bot username (letters, digits and _, ending in "bot")`)
   }
 
   const tgApi = blank(raw.TELEGRAM_API_URL) ? new URL('https://api.telegram.org') : httpUrl(raw.TELEGRAM_API_URL)
@@ -200,6 +209,9 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
       if (blank(raw.NEARKIT_DATABASE_URL)) issue('NEARKIT_DATABASE_URL', 'Mainnet custody needs PostgreSQL')
       if (!env.feeRecipient) issue('NEARKIT_FEE_RECIPIENT', 'Mainnet custody needs the production fee account')
       if (remote && remote.url.startsWith('http://')) issue('NEARKIT_SIGNER_URL', 'On mainnet the signer is reached over https:// (TLS)')
+      // Owner signatures name the web app's host: on mainnet it is a real https host, never a local one.
+      if (!web || web.protocol !== 'https:' || ['localhost', '127.0.0.1'].includes(web.hostname))
+        issue('NEARKIT_WEB_URL', 'Mainnet custody needs the production web app’s https:// URL (owner signatures name its host)')
       custody = { enabled: remote !== null, reason: remote ? null : 'The signer service is not configured.', signer: remote ? { kind: 'remote', ...remote } : null }
     }
   } else if (remote) {
@@ -216,6 +228,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   return {
     config: {
       telegramToken,
+      telegramBotUsername,
       telegramApiUrl: tgApi ? tgApi.origin + tgApi.pathname.replace(/\/$/, '') : 'https://api.telegram.org',
       env,
       network,

@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http'
 import { resolve } from 'node:path'
 import { listen } from '../api/http'
 import type { BuybotDeps } from '../bot/context'
+import { checkChainIds } from '../chainId'
 import { loadConfig, type ServerConfig } from '../config'
 import type { Database } from '../db/database'
 import { instanceId, Leases } from '../db/leases'
@@ -80,6 +81,8 @@ export async function startBuybotService(o: { env: Record<string, string | undef
   }
   const fetchImpl = o.fetch ?? globalThis.fetch.bind(globalThis)
   const now = o.now ?? Date.now
+  const rpcCheck = await checkChainIds(config.buybot.network.rpcUrls, config.buybot.network.id, fetchImpl)
+  if (rpcCheck.unreachable.length) log.warn('some RPC providers did not answer at start', { urls: rpcCheck.unreachable })
   const db = await openDatabase(config.database)
   await migrate(db)
   const tg = createTelegramApi({ token: config.telegramToken as string, fetch: fetchImpl, baseUrl: config.telegramApiUrl })

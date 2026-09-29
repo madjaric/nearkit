@@ -3,6 +3,7 @@ import { listen } from '../api/http'
 import { keyring, localKeyWrapper, type KeyWrapper } from '../custody/vault'
 import { databaseSecrets, describeDatabase, openDatabase } from '../db/open'
 import { createLogger, type Logger } from '../log'
+import { checkChainIds } from '../chainId'
 import { createSignerChain } from './chain'
 import { loadSignerConfig, type SignerServiceConfig } from './config'
 import { createSignerCore } from './core'
@@ -73,6 +74,8 @@ export async function startSignerService(o: SignerDepsOverrides & { env: Record<
     for (const i of issues) log.error('signer configuration problem', { key: i.key, problem: i.message })
     throw new Error(`Signer configuration has ${issues.length} problem(s); see the log above`)
   }
+  const rpcCheck = await checkChainIds(config.rpc.urls, config.network.id, o.fetch)
+  if (rpcCheck.unreachable.length) log.warn('some RPC providers did not answer at start', { urls: rpcCheck.unreachable })
   const s = await buildSigner(config, { ...o, log })
   const kek = await probeKek(s.keys.current)
   if (kek === 'ok') log.info('signer key-encryption key ready', { keyRef: s.keys.current.ref })
