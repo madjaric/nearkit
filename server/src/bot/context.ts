@@ -7,6 +7,7 @@ import type { Logger } from '../log'
 import type { ServerNear } from '../near'
 import type { TelegramApi } from '../telegram/api'
 import type { BuybotStore } from '../buybot/store'
+import type { CustodyDeps } from '../custody/wallets'
 import type { BuyMarket } from '../buybot/market'
 import type { Follower, TxIndex } from '../buybot/follower'
 import type { ForceReply, InlineButton, InlineKeyboard, TgChat, TgChatMemberUpdated, TgMessage, TgUser } from '../telegram/types'
@@ -27,6 +28,8 @@ export interface BotDeps {
   features: Set<string>
   /** Buy alerts; null when the buybot is off. */
   buybot: BuybotDeps | null
+  /** NearKit trading wallets; null when they are off here (mainnet, or no key-encryption key). */
+  custody: CustodyDeps | null
 }
 
 export interface BuybotDeps {

@@ -1,6 +1,7 @@
 import { bold } from '../telegram/html'
 import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule, type Command } from './context'
 import { help, SAFETY, welcome } from './texts'
+import { tradingWallet, showWalletHome } from './tradingWallet'
 import { linkedAccount, nearAvailable, showWallet } from './wallet'
 
 /**
@@ -10,7 +11,7 @@ import { linkedAccount, nearAvailable, showWallet } from './wallet'
 
 export function mainMenu(ctx: BotCtx) {
   const has = (name: string) => ctx.deps.features.has(name)
-  const linked = linkedAccount(ctx) !== null
+  const linked = linkedAccount(ctx) !== null || tradingWallet(ctx.deps, ctx.user.id) !== null
   return keyboard(
     linked ? [] : [btn('🔗 Link wallet', 'acct:link')],
     [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
@@ -22,8 +23,9 @@ export function mainMenu(ctx: BotCtx) {
 
 /** The first screen: who is trading, with how much NEAR, and every action one tap away. */
 async function home(ctx: BotCtx, edit: boolean) {
-  const account = linkedAccount(ctx)
-  const text = [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account) } : null), SAFETY].join('\n')
+  const nearkit = tradingWallet(ctx.deps, ctx.user.id)?.accountId ?? null
+  const account = nearkit ?? linkedAccount(ctx)
+  const text = [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account), nearkit: nearkit !== null } : null), SAFETY].join('\n')
   if (edit) await ctx.show(text, mainMenu(ctx))
   else await ctx.reply(text, mainMenu(ctx))
 }
@@ -78,9 +80,11 @@ export function coreModule(commandList: () => { name: string; command: Command }
           case 'help':
             return ctx.show(helpText(ctx), keyboard([btn('« Menu', 'menu:home')]))
           case 'wallet':
-            return showWallet(ctx)
+            return showWalletHome(ctx)
           case 'walletdetails':
-            return showWallet(ctx, { details: true })
+            return showWalletHome(ctx, true)
+          case 'linked':
+            return showWallet(ctx)
           case 'buybot':
             return buybotInfo(ctx)
           default:

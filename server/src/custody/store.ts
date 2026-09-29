@@ -240,6 +240,11 @@ export class CustodyStore {
     return r ? toWallet(r) : null
   }
 
+  /** Wallets a user created since `since`, closed ones included. */
+  countWalletsSince(userId: number, since: number): number {
+    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM trading_wallets WHERE user_id = ? AND created_at >= ?', [userId, since])?.n ?? 0
+  }
+
   walletByAccount(network: string, accountId: string): TradingWallet | null {
     const r = this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE network = ? AND account_id = ?', [network, accountId])
     return r ? toWallet(r) : null

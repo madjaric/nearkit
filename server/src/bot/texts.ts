@@ -1,6 +1,6 @@
 import { NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL } from '@/lib/fees'
 import type { ServerConfig } from '../config'
-import { bold, code, esc } from '../telegram/html'
+import { bold, code, esc, shortAccount } from '../telegram/html'
 
 /** Copy the bot reuses. Short and plain; every figure comes from NearKit's own config. */
 
@@ -11,10 +11,11 @@ export function networkNote(config: Pick<ServerConfig, 'network'>): string {
 }
 
 /** The /start header: who is trading, with what, on which network. */
-export function welcome(config: Pick<ServerConfig, 'network'>, wallet: { accountId: string; near: string | null } | null): string {
+export function welcome(config: Pick<ServerConfig, 'network'>, wallet: { accountId: string; near: string | null; nearkit?: boolean } | null): string {
+  const who = wallet ? (wallet.nearkit ? `NearKit wallet ${code(shortAccount(wallet.accountId))}` : code(wallet.accountId)) : null
   return [
     `${bold('NearKit')} · NEAR trading`,
-    wallet ? `👛 ${code(wallet.accountId)}${wallet.near !== null ? ` · ${esc(wallet.near)} NEAR` : ''}` : '👛 No wallet linked yet',
+    wallet ? `👛 ${who}${wallet.near !== null ? ` · ${esc(wallet.near)} NEAR` : ''}` : '👛 No wallet linked yet',
     ...(config.network.id === 'testnet' ? [esc(networkNote(config))] : []),
   ].join('\n')
 }

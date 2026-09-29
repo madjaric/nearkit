@@ -9,7 +9,8 @@ import { looksLikeContract, resolveToken } from '../trade/tokens'
 import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
 import { Buckets } from './ratelimit'
 import { amountText, friendlyError, UNKNOWN } from './ui'
-import { linkedAccount, needAccount, showWallet } from './wallet'
+import { showWalletHome } from './tradingWallet'
+import { linkedAccount, needAccount } from './wallet'
 
 /**
  * /buy, /sell, /quote, /token and /balance. Quotes come from NearKit's own trading
@@ -295,7 +296,7 @@ export function tradeModule(): BotModule {
       sell: { ...documented('sell'), run: (ctx, args) => startTrade(ctx, 'sell', args) },
       quote: { ...documented('quote'), run: (ctx, args) => startTrade(ctx, 'buy', args) },
       token: { ...documented('token'), run: showToken },
-      balance: { ...documented('balance'), run: (ctx, args) => showWallet(ctx, { details: /details/i.test(args) }) },
+      balance: { ...documented('balance'), run: (ctx, args) => showWalletHome(ctx, /details/i.test(args)) },
     },
     flows: {
       'trade.token': async (ctx, text, data) => {

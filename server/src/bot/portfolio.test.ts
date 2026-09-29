@@ -46,7 +46,7 @@ describe('/positions and /pnl in Telegram', () => {
   it('asks to link an account first', async () => {
     const h = await bot({ link: false })
     await h.say('/positions')
-    expect(h.last()?.text).toContain('Link a NEAR account first')
+    expect(h.last()?.text).toContain('Link a NEAR account or create a NearKit wallet first')
   })
 
   it('shows holdings valued now, with unrealized PnL from the real buy', async () => {

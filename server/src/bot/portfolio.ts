@@ -24,14 +24,16 @@ const tracker = (ctx: BotCtx) => {
   return t
 }
 
+/** The NearKit wallet first (when there is one), then the linked accounts. */
 function accounts(ctx: BotCtx): string[] {
-  return ctx.deps.store.linksOf(ctx.user.id, ctx.deps.config.network.id).map((l) => l.accountId)
+  const nearkit = ctx.deps.custody?.store.activeWallet(ctx.user.id, ctx.deps.config.network.id)?.accountId
+  return [...(nearkit ? [nearkit] : []), ...ctx.deps.store.linksOf(ctx.user.id, ctx.deps.config.network.id).map((l) => l.accountId)]
 }
 
 async function needAccounts(ctx: BotCtx): Promise<string[] | null> {
   const list = accounts(ctx)
   if (!list.length) {
-    await ctx.reply('Link a NEAR account first to see its positions: /link', keyboard([btn('🔗 Link wallet', 'acct:link')]))
+    await ctx.reply('Link a NEAR account or create a NearKit wallet first to see positions.', keyboard([btn('🔗 Link wallet', 'acct:link'), btn('👛 Wallet', 'menu:wallet')]))
     return null
   }
   return list

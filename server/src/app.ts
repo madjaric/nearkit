@@ -24,6 +24,16 @@ import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
 import { createHandoffs } from './trade/handoff'
+import { createChainAccess } from './custody/chain'
+import { createEngine } from './custody/engine'
+import { createLocalSigner } from './custody/signer'
+import { CustodyStore, type Intent } from './custody/store'
+import { localKeyWrapper } from './custody/vault'
+import type { CustodyDeps } from './custody/wallets'
+import { withdrawHandler } from './custody/withdraw'
+import { intentsModule, notifySettled } from './bot/intents'
+import { tradingWalletModule } from './bot/tradingWallet'
+import { friendlyError } from './bot/ui'
 
 /**
  * Wires the server together: configuration, database, NearKit services, the
@@ -41,7 +51,7 @@ export interface RunningServer {
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
   // `/start link` (from the "open a private chat" button) goes straight to linking.
-  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), tradeModule(), portfolioModule(), buybotModule()]
+  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), tradeModule(), portfolioModule(), buybotModule(), tradingWalletModule(), intentsModule()]
 }
 
 /** Commands for Telegram's menu, per chat type. */
@@ -86,6 +96,29 @@ export async function startServer(options: { env: Record<string, string | undefi
   })
   log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: config.dbPath, bot: Boolean(config.telegramToken) })
 
+  // NearKit trading wallets: testnet only, and only with a key-encryption key (config.ts).
+  let custody: CustodyDeps | null = null
+  let onSettled: (intent: Intent) => Promise<void> = async () => {}
+  if (config.custody.enabled && config.custody.kek) {
+    const cstore = new CustodyStore(db, now)
+    const signer = createLocalSigner({ wrapper: localKeyWrapper(config.custody.kek), network: config.network, store: cstore, now })
+    const chain = createChainAccess({ rpc: near.ctx.rpc, fetch: fetchImpl })
+    const engine = createEngine({
+      store: cstore,
+      signer,
+      chain,
+      handlers: { withdraw: withdrawHandler({ near, network: config.network }) },
+      log,
+      now,
+      explain: (e) => friendlyError(e, { network: config.network.id }),
+      onSettled: (intent) => onSettled(intent),
+    })
+    custody = { store: cstore, signer, engine, chain }
+    log.info('trading wallets on', { network: config.network.id, keyRef: signer.keyRef })
+  } else {
+    log.info('trading wallets off', { reason: config.custody.reason })
+  }
+
   // Buy alerts read the chain on their own network; they need the bot to post.
   let buybot: BuybotDeps | null = null
   if (config.buybot.enabled && config.telegramToken) {
@@ -109,7 +142,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     const me = await tg.getMe()
     const webhook = await tg.getWebhookInfo()
     if (webhook.url) throw new Error('A webhook is set for this bot, so long polling cannot run. Remove the webhook (deleteWebhook) or stop the other deployment first.')
-    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set(), buybot, handoffs }
+    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set(), buybot, handoffs, custody }
     let list: () => { name: string; command: Command }[] = () => []
     bot = createBotApp(
       deps,
@@ -120,6 +153,8 @@ export async function startServer(options: { env: Record<string, string | undefi
     notifyUser = async (userId, html) => {
       if (store.getSettings(userId).notifyTrades) await app.notify(userId, html)
     }
+    // Results the resolver settles in the background (after a timeout or a restart) always reach the user.
+    onSettled = (intent) => notifySettled(deps, (userId, html, markup) => app.notify(userId, html, markup), intent)
     await tg.setMyCommands(menuCommands(bot, 'private'), { type: 'all_private_chats' })
     await tg.setMyCommands(menuCommands(bot, 'group'), { type: 'all_group_chats' })
     poller = startPolling({ tg, store, log, handle: (u) => app.handle(u) })
@@ -147,12 +182,31 @@ export async function startServer(options: { env: Record<string, string | undefi
     health: () => ({
       bot: bot ? true : false,
       buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : 'needs the bot token',
+      wallets: custody ? 'on' : 'off',
       boot: boot.boot,
     }),
     now,
   })
   const apiPort = await listen(api, config.api.port, config.api.host)
   log.info('API listening', { url: `http://${config.api.host}:${apiPort}`, public: config.api.publicUrl, origins: config.api.allowedOrigins })
+
+  // Anything in flight when the process stopped is settled from the chain (read only), then every 15 s.
+  let resolving = false
+  const resolve = async () => {
+    if (!custody || resolving) return
+    resolving = true
+    try {
+      const settled = await custody.engine.resolvePending()
+      if (settled.length) log.info('settled wallet intents', { count: settled.length })
+    } catch (e) {
+      log.warn('resolving wallet intents failed', { error: e })
+    } finally {
+      resolving = false
+    }
+  }
+  void resolve()
+  const resolver = setInterval(() => void resolve(), 15_000)
+  resolver.unref()
 
   const housekeeping = setInterval(() => {
     try {
@@ -171,6 +225,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     apiPort,
     async stop() {
       clearInterval(housekeeping)
+      clearInterval(resolver)
       await buybotRunner?.stop()
       await poller?.stop()
       await new Promise<void>((resolve) => api.close(() => resolve()))

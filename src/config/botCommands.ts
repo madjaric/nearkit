@@ -17,6 +17,9 @@ export interface BotCommandDoc {
 }
 
 export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
+  { name: 'wallet', description: 'your NearKit wallet: balance, deposit, withdraw, recovery', section: 'Account', scope: 'private' },
+  { name: 'deposit', description: 'the address to fund your NearKit wallet', section: 'Account', scope: 'private' },
+  { name: 'withdraw', description: 'send NEAR or tokens from your NearKit wallet to any address', section: 'Account', scope: 'private' },
   { name: 'link', description: 'link a NEAR account (you sign a free message in your wallet)', section: 'Account', scope: 'private' },
   { name: 'accounts', description: 'linked accounts and the default one', section: 'Account', scope: 'private' },
   { name: 'unlink', description: 'remove a linked account', section: 'Account', scope: 'private' },
@@ -25,7 +28,7 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'sell', usage: '[token] [amount or %]', description: 'sell a token for NEAR; you sign in the NearKit web app', section: 'Trading', scope: 'private' },
   { name: 'quote', usage: '[token] [NEAR amount]', description: 'price a buy through Rhea without signing anything', section: 'Trading', scope: 'private' },
   { name: 'token', usage: '<symbol or contract>', description: 'token details read from chain', section: 'Trading', scope: 'private' },
-  { name: 'balance', description: 'balances of your default linked account', section: 'Trading', scope: 'private' },
+  { name: 'balance', description: 'balances of your NearKit wallet (or your linked account)', section: 'Trading', scope: 'private' },
   { name: 'positions', description: 'holdings with cost basis and PnL from on-chain history', section: 'Portfolio', scope: 'private' },
   { name: 'pnl', usage: '[7d|30d|90d]', description: 'realized and unrealized PnL', section: 'Portfolio', scope: 'private' },
   { name: 'buybot', description: 'buy alerts for a token in your group (group admins)', section: 'Groups', scope: 'any' },
