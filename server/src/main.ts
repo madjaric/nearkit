@@ -1,4 +1,4 @@
-import { resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { startServer } from './app'
 import { loadEnvFile } from './env-file'
 import { createLogger } from './log'
@@ -12,8 +12,9 @@ import { createLogger } from './log'
 
 const envFile = resolve(process.env.NEARKIT_ENV_FILE ?? 'server/.env.local')
 const loaded = loadEnvFile(envFile)
-// The trading-wallet key-encryption key sits in its own git-ignored file (npm run server:wallet-key).
-const walletFile = resolve(process.env.NEARKIT_WALLET_ENV_FILE ?? 'server/.env.wallet.local')
+// The trading-wallet key-encryption key sits in its own git-ignored file next to the env file
+// (npm run server:wallet-key), wherever the process was started from.
+const walletFile = resolve(process.env.NEARKIT_WALLET_ENV_FILE ?? join(dirname(envFile), '.env.wallet.local'))
 const walletLoaded = loadEnvFile(walletFile)
 const secrets = [process.env.TELEGRAM_BOT_TOKEN, process.env.NEARKIT_WALLET_KEK].filter((s): s is string => Boolean(s))
 const boot = createLogger({ secrets })
