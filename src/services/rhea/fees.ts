@@ -1,13 +1,16 @@
 /**
  * Fee arithmetic for swaps through Rhea's aggregator, from verified on-chain
  * behavior (PHASE2_IMPLEMENTATION.md §13):
- * - the app fee (NearKit's 0.10%) is `app_fee_rate` parts per million of the fee token;
+ * - the app fee (NearKit's fee, NEARKIT_FEE in src/lib/fees.ts) is `app_fee_rate` parts
+ *   per million of the fee token;
  * - Rhea keeps 20% of it (`earn_app_protocol_fee`), the recipient gets 80% (`earn_app_fee`);
  * - Rhea also charges its own protocol fee on every swap (`query_protocol_fee_rate`, 1000 ppm);
  * - the fee comes out of the first whitelisted token the aggregator holds: the input,
  *   a token between DEX steps, or else the output.
  * All shares round down.
  */
+
+import { feeLedger } from '@/lib/fees'
 
 const PPM = 1_000_000n
 
@@ -38,8 +41,8 @@ export interface FeeSplit {
 
 export function aggregatorFee({ base, appFeePpm, protocolFeePpm, routerShareBps }: { base: bigint; appFeePpm: number; protocolFeePpm: number; routerShareBps: number }): FeeSplit {
   const app = (base * BigInt(appFeePpm)) / PPM
-  const router = (app * BigInt(routerShareBps)) / 10_000n
-  return { app, nearkit: app - router, router, protocol: (base * BigInt(protocolFeePpm)) / PPM }
+  const ledger = feeLedger(app, routerShareBps)
+  return { app, nearkit: ledger.received, router: ledger.routerShare, protocol: (base * BigInt(protocolFeePpm)) / PPM }
 }
 
 /**

@@ -13,7 +13,7 @@ import { Buckets } from './ratelimit'
 /**
  * /buy, /sell, /quote, /token and /balance. Quotes come from NearKit's own trading
  * service (Rhea's router with every route check the web app runs, the same
- * 0.10% fee). Nothing is signed here: "Review & sign" opens the NearKit web app
+ * NearKit fee). Nothing is signed here: "Review & sign" opens the NearKit web app
  * with the trade filled in, where it is quoted again and the wallet signs.
  */
 

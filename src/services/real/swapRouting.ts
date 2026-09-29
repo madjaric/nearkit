@@ -14,7 +14,7 @@ import type { NearContext } from './context'
 
 /**
  * Routing and on-chain prerequisites for swaps. Mainnet routes go through Rhea's
- * aggregator with NearKit's app fee (`appFeeRate=10`, 0.10%) and are verified before
+ * aggregator with NearKit's app fee (`appFeeRate` = NEARKIT_FEE_BPS) and are verified before
  * anything is signed; testnet routes use Rhea's classic router with no fee.
  */
 

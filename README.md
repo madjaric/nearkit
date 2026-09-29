@@ -72,7 +72,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | NEAR and NEP-141 balances | Real: `view_account` and `ft_balance_of`; indexers only suggest which tokens to check |
 | Token metadata, import by contract | Real, validated (`ft_metadata`, `ft_total_supply`) |
 | Batch Send, Split, Consolidate | Real: exact amounts, recipient checks, NEP-145 registration, chunking, per-transaction status |
-| Swap, Quick Trade | Real: Rhea aggregator on mainnet (0.10% app fee), Rhea classic router on testnet (no fee) |
+| Swap, Quick Trade | Real: Rhea aggregator on mainnet (NearKit's 0.50% app fee), Rhea classic router on testnet (no fee) |
 | Multi Trade | Real: one verified route per wallet, signed wallet by wallet. No all-or-nothing: it stops at a failed step or an expired quote, wallets already done keep their swaps, and wallets that can't cover their share are left out |
 | Transaction history | Real for operations sent from this browser, reconciled with the chain |
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
@@ -125,7 +125,9 @@ Only after all eight pass, run the controlled mainnet smoke test in [MAINNET_SMO
 
 ## Operator tasks (mainnet fee account)
 
-The NearKit trading fee is 0.10% (10 bps) on Swap and Quick Trade. Rhea's aggregator (`aggregatedex.near`) collects it as an app fee: NearKit's account receives 0.08%, Rhea keeps 0.02%, and Rhea charges its own 0.10% protocol fee on every swap. Fees accrue as an internal balance on the aggregator, not as transfers. Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate from this fee and not implemented here.
+The NearKit trading fee is 0.50% (50 bps) on Swap and Quick Trade. It is set in one place, `NEARKIT_FEE` in `src/lib/fees.ts`, and everything derives from it: quotes on the web and in Telegram, the rate Rhea is asked to collect, the route checks, reviews, docs and tests.
+
+Rhea's aggregator (`aggregatedex.near`) collects the fee as an app fee. NearKit's account receives 0.40% and Rhea keeps 0.10% (20% of the app fee). Rhea also charges its own separate 0.10% protocol fee on every swap, and pools charge their own fees. `feeLedger` is ready for referrals: it splits a collected fee into Rhea's share, what NearKit received, a referrer's share and NearKit's net. Referrals are off. Fees accrue as an internal balance on the aggregator, not as transfers. Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate from this fee and not implemented here.
 
 1. **Register the fee account** with the aggregator for the five fee-whitelist tokens (wNEAR, USDC, USDt, USDC.e, USDT.e), 0.005 NEAR each. When a swap's fee lands in another token, NearKit adds that one registration to the user's transaction and shows it as a storage cost.
 

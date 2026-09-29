@@ -99,7 +99,7 @@ describe('mainnet (live, read-only)', () => {
     expect(route.routeTokens.at(-1)).toBe('usdt.tether-token.near')
   })
 
-  it('a quote at NearKit’s 0.10% fee comes back signed with app_fee_rate 1000 ppm and passes the route checks', async () => {
+  it('a quote at NearKit’s fee (NEARKIT_FEE_BPS) comes back signed with that app_fee_rate and passes the route checks', async () => {
     // Pacing: Rhea answers burst requests with stale amounts.
     await new Promise((r) => setTimeout(r, 3_000))
     const request = { tokenIn: net.wrapContract, tokenOut: 'usdt.tether-token.near', amountIn: ONE, slippage: 0.005 }
@@ -125,7 +125,7 @@ describe('mainnet (live, read-only)', () => {
       },
       Date.now(),
     )
-    expect(route.appFeePpm).toBe(1000)
+    expect(route.appFeePpm).toBe(NEARKIT_FEE_BPS * 100)
   })
 
   it('prices: Rhea lists wNEAR and Coinbase or CoinGecko quote NEAR/USD', async () => {

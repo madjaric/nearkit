@@ -3,13 +3,30 @@ import { NETWORKS } from '@/config/networks'
 import { mulBps, toYocto } from './amounts'
 
 /**
- * NearKit trading fee on Swap and Quick Trade: single source of truth. On mainnet it
- * is collected through Rhea's app-fee mechanism (see PHASE2_IMPLEMENTATION.md §13):
- * the user pays 0.10%, of which Rhea keeps 20%, so NearKit receives 0.08%. The UI
- * never claims otherwise. Transfers (Split, Consolidate, Batch Send) carry no NearKit
- * fee. The future $KIT buy and sell fee is a separate thing and does not live here.
+ * NearKit's trading fee: the ONE place it is set. Web and Telegram quotes, the fee Rhea
+ * is asked to collect (`appFeeRate`) and the route checks that require it, review
+ * screens, disclosures, accounting and tests all derive from NEARKIT_FEE.
+ *
+ * - The user pays NEARKIT_FEE.bps of a swap as NearKit's fee (50 = 0.50%). On mainnet
+ *   Rhea's aggregator collects it inside the swap as an app fee and keeps its share of it
+ *   (the router share in src/config/networks.ts), so NearKit's account receives the rest.
+ * - It is never the whole cost of a trade: Rhea's own protocol fee, pool fees and NEAR
+ *   gas are separate, and quotes show them on their own lines.
+ * - Referrals (not live): `feeLedger` splits a collected fee into router share, what
+ *   NearKit received, a referrer's share of that, and NearKit's net revenue.
+ * - Testnet collects no fee (the classic router has no app fee). Without a configured
+ *   fee account, fee-bearing mainnet trades are blocked.
+ * Transfers (Split, Consolidate, Batch Send) carry no NearKit fee. The future $KIT buy and
+ * sell fee is a separate thing and does not live here.
  */
-export const NEARKIT_FEE_BPS = 10
+export const NEARKIT_FEE = {
+  /** Basis points of a swap the user pays as NearKit's fee: 50 = 0.50%. */
+  bps: 50,
+  /** Basis points of what NearKit receives that would go to a referrer. 0: referrals are off. */
+  referralShareBps: 0,
+} as const
+
+export const NEARKIT_FEE_BPS: number = NEARKIT_FEE.bps
 export const NEARKIT_FEE_PCT = NEARKIT_FEE_BPS / 100
 
 const bpsLabel = (bps: number) => `${(bps / 100).toFixed(2)}%`
@@ -27,6 +44,28 @@ export const RHEA_APP_FEE_SHARE_LABEL = bpsLabel((NEARKIT_FEE_BPS * RHEA_APP_FEE
  * secret). Never hardcoded; when unset, fee-bearing mainnet trades are blocked.
  */
 export const NEARKIT_FEE_RECIPIENT: string | null = ENV.feeRecipient
+
+/** How one collected NearKit fee divides, in raw units of the fee token. */
+export interface FeeLedger {
+  /** What the user paid as NearKit's fee. */
+  gross: bigint
+  /** The router's share of it (Rhea keeps a share of every app fee). */
+  routerShare: bigint
+  /** What reached NearKit's fee account. */
+  received: bigint
+  /** Owed to a referrer out of what NearKit received (0 while referrals are off). */
+  referral: bigint
+  /** NearKit's revenue. */
+  net: bigint
+}
+
+/** Splits a collected fee for accounting. Every share rounds down; the parts add up to `gross`. */
+export function feeLedger(gross: bigint, routerShareBps: number, referralShareBps: number = NEARKIT_FEE.referralShareBps): FeeLedger {
+  const routerShare = (gross * BigInt(routerShareBps)) / 10_000n
+  const received = gross - routerShare
+  const referral = (received * BigInt(referralShareBps)) / 10_000n
+  return { gross, routerShare, received, referral, net: received - referral }
+}
 
 /** Display-only fee on a float amount. */
 export function nearkitFee(amount: number): number {

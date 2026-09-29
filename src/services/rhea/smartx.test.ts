@@ -5,7 +5,7 @@ import partial from './fixtures/smartx-blackdragon-partial.json'
 import noRoute from './fixtures/smartx-near-to-singularty-noroute.json'
 import nofee from './fixtures/smartx-near-to-usdt-nofee.json'
 import withFee from './fixtures/smartx-usdt-to-near-fee200.json'
-import nearkitFee from './fixtures/smartx-usdt-to-near-fee10.json'
+import nearkitFee from './fixtures/smartx-usdt-to-near-fee50.json'
 import { checkSmartxRoute, createSmartxClient, decodeSmartxMsg, parseSmartxResponse, smartxQuoteUrl, verifySmartxSignature, type RouteExpectation } from './smartx'
 
 // Real responses from smartx.rhea.finance, saved during research (2026-09-28).
@@ -201,17 +201,17 @@ describe('checkSmartxRoute', () => {
   })
 })
 
-describe('NearKit’s 0.10% fee on Rhea routes', () => {
-  // A real route Rhea signed for the same request at appFeeRate=10 (2026-09-28).
+describe('NearKit’s fee on Rhea routes', () => {
+  // A real route Rhea signed for the same request at appFeeRate=50 (2026-09-29, read-only).
   const ours = parseSmartxResponse(nearkitFee)
   const oursDecoded = decodeSmartxMsg(ours.msg) as { deadline: number; app_fee_rate: number }
   const ourTerms: RouteExpectation = { ...expectFee, appFeePpm: NEARKIT_FEE_BPS * 100 }
 
-  it('passes a route Rhea signed at NearKit’s rate: app_fee_rate 1000 ppm', async () => {
+  it('passes a route Rhea signed at NearKit’s rate: app_fee_rate 5000 ppm', async () => {
     expect(await verifySmartxSignature(ours.msg, ours.signature, agg.signerKey)).toBe(true)
-    expect(oursDecoded.app_fee_rate).toBe(1000)
+    expect(oursDecoded.app_fee_rate).toBe(5000)
     const route = checkSmartxRoute(ours, decodeSmartxMsg(ours.msg), ourTerms, oursDecoded.deadline - 120_000)
-    expect(route.appFeePpm).toBe(1000)
+    expect(route.appFeePpm).toBe(5000)
     expect(route.routeTokens).toEqual([USDT, 'wrap.near'])
   })
 
@@ -232,9 +232,9 @@ describe('smartx client', () => {
     appFeeRecipient: 'fees.nearkit.near',
   }
 
-  it('asks for the NearKit app fee explicitly: appFeeRate=10 and the configured recipient', () => {
+  it('asks for the NearKit app fee explicitly: appFeeRate=50 and the configured recipient', () => {
     const url = new URL(smartxQuoteUrl(agg.quoteUrl, params))
-    expect(url.searchParams.get('appFeeRate')).toBe('10')
+    expect(url.searchParams.get('appFeeRate')).toBe('50')
     expect(url.searchParams.get('appFeeRecipient')).toBe('fees.nearkit.near')
     expect(url.searchParams.get('user')).toBe('alice.near')
     expect(url.searchParams.get('amountIn')).toBe('1000000000000000000000000')

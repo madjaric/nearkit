@@ -25,7 +25,7 @@ function clampSlippage(pct: number): number {
 
 /**
  * Every swap is priced through NEAR: tokenIn → NEAR → tokenOut. The NearKit fee
- * (0.10%) is taken on the NEAR leg: from the input on buys, from proceeds on sells.
+ * (NEARKIT_FEE_BPS) is taken on the NEAR leg: from the input on buys, from proceeds on sells.
  */
 export function computeQuote(state: MockState, request: QuoteRequest, now = Date.now()): Quote {
   const tokenIn = tokenOf(state, request.tokenIn)

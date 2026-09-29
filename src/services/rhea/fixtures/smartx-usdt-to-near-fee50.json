@@ -1,0 +1,13 @@
+{
+  "result_code": 0,
+  "result_message": "",
+  "result_data": {
+    "amount_in": "5000013",
+    "amount_out": "1042766627316648153600859",
+    "min_amount_out": "1037552794180064912832854",
+    "dexs": ["RheaAMM"],
+    "msg": "gil8emx5KUEpbH9odHdzbDV1bGh5KTMpeWxqbHB9bGZ8emx5KUF1fHNzMyluaHopQSk5Pjc3Nzc3Nzc3Nzc3NzcpMylqdnV7eWhqe3opQWIpfHprezV7bHtvbHk0e3ZybHU1dWxoeSlkMyl0bHtvdmt6KUFiKW17Znt5aHV6bWx5Zmpoc3MpZDMpdHpueilBYimCYylodHZ8dXtjKUFjKTw3Nzc3ODpjKTNjKXR6bmMpQWMpgmNjYyltdnlqbGNjYylBNzNjY2MpaGp7cHZ1emNjYylBYoJjY2Mpd3Z2c2Zwa2NjYylBPTc9OjNjY2Mpe3ZybHVmcHVjY2MpQWNjYyl8emt7NXtse29seTR7dnJsdTV1bGh5Y2NjKTNjY2Mpe3ZybHVmdnx7Y2NjKUFjY2MpfnlodzV1bGh5Y2NjKTNjY2MpaHR2fHV7ZnB1Y2NjKUFjY2MpPDc3Nzc4OmNjYykzY2NjKXRwdWZodHZ8dXtmdnx7Y2NjKUFjY2MpODc6Pjw8OT5AOzg/Nzc9O0A4OT86OT88O2NjYymEZDNjY2MpenJwd2ZrbG5sdWZ3eXBqbGZ6gHVqY2NjKUF7eXxsM2NjYyl6cnB3Znx1fnlod2Z1bGh5Y2NjKUF7eXxsM2NjYyl5bG1seXloc2Zwa2NjYylBY2NjKXZ1bGl2ezV1bGh5Y2NjKYRjKTNjKXlsamxwfWx5ZnBrYylBYyl9OTV5bG00bXB1aHVqbDV1bGh5YymEKWQzKW5oemZzcHp7KUFiPzw3Nzc3Nzc3Nzc3NzdkMyl1bGh5Zmh0dnx1e3opQWIpOClkMyl6cnB3Znx1fnlod2Z1bGh5KUFtaHN6bDMpanZzc2xqe2xrZm1sbClBbWhzemwzKXlsbWx5eWhzKUEpdnVsaXZ7NXVsaHkpMylod3dmbWxsZnloe2wpQTw3NzczKWh3d2ZtbGxmeWxqcHdwbHV7KUEpbWxsejVsf2h0d3NsNXVsaHkpMyl8fHBrKUEpbGg4QGo4OGs0QEBANzQ7OD9ANEBpOzw0Pz9tOjhoPjw5PDlAKTMpa2xoa3NwdWwpQTg+QDc9PT8+PDw9NzqE",
+    "signature": "cc54c3df9729d7feee2eda2e801e1b9564c662f92bd70c4c7cd7c968297ad20998c4b37ce25db6e4574d637f73ed3efe6c925ba8e65ae286899d9c618e740809",
+    "tokens": ["usdt.tether-token.near", "wrap.near"]
+  }
+}

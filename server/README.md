@@ -46,7 +46,7 @@ default account. Tokens are found by symbol or by exact contract (the same `look
 as the web app's exact-contract import, so a token launched minutes ago works).
 
 The quote comes from NearKit's own trading service: Rhea's router with every route
-check the web app runs, the same 0.10% fee on mainnet, and "Rhea found no route" said
+check the web app runs, the same NearKit fee on mainnet (`NEARKIT_FEE`, 0.50%), and "Rhea found no route" said
 plainly when there is none. Nothing is ever faked or estimated into a trade.
 
 **Signing stays in the wallet.** NearKit has no custody and the bot holds no keys, so a

@@ -407,6 +407,8 @@ The UI shows `message` and puts the original error in expandable diagnostics.
 
 ## 13. NearKit fee strategy (0.10%)
 
+**Changed again on 2026-09-29:** the fee is now 0.50% (50 bps), set in `NEARKIT_FEE` in `src/lib/fees.ts`. NearKit receives 0.40% and Rhea keeps 0.10%. The mechanism below is unchanged. The figures below are the 2026-09-28 ones.
+
 **Changed on 2026-09-28:** the NearKit trading fee is 0.10% (10 bps), not the 2.00% this plan was first written with. Everything below reflects 0.10%. It applies to Swap and Quick Trade only: Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate and not implemented.
 
 - **Configuration** (`src/lib/fees.ts`, single source):

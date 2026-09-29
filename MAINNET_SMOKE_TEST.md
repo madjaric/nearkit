@@ -5,7 +5,7 @@ A controlled first run of NearKit on NEAR mainnet, with very small amounts, befo
 ## What you need first
 
 1. **The NearKit fee account.** This is an existing mainnet account you control, for example `nearkit-fees.near`.
-   - On every Swap and Quick Trade it receives 0.08% (NearKit's share of the 0.10% fee) as an internal balance on Rhea's aggregator (`aggregatedex.near`), and only this account can withdraw it.
+   - On every Swap and Quick Trade it receives 0.40% (NearKit's share of the 0.50% fee) as an internal balance on Rhea's aggregator (`aggregatedex.near`), and only this account can withdraw it.
    - NearKit refuses to trade if the account is missing, malformed, belongs to testnet or does not exist.
 2. **The fee account registered with the aggregator** (recommended). This is one transaction, signed by the fee account (0.025 NEAR):
 
@@ -43,8 +43,8 @@ Amounts are deliberately tiny. Budget about 0.3 NEAR on A for the whole run: reg
 | 1 | **Wallet connection.** Connect A with HOT (or Meteor); disconnect; reconnect | none | The top bar shows A's `.near` account; after a reload the session is restored; disconnect clears it |
 | 2 | **NEAR balance.** Open Positions and Wallets | none | A's NEAR balance matches the wallet (minus storage reserve) |
 | 3 | **Token balance.** Any token A already holds, or USDC after step 4 | none | The amount matches the wallet and the explorer to the last digit |
-| 4 | **Swap.** Swap 0.1 NEAR → USDC | 0.1 NEAR | The review shows the Rhea route, the minimum received, and a NearKit fee of 0.10% (0.0001 NEAR) split as NearKit 0.08% and Rhea 0.02%, plus Rhea's own 0.10% protocol fee and any storage. After signing it reads **Confirmed** with an explorer link, and the USDC balance rises by about the expected amount |
-| 5 | **Quick Trade.** From the sidebar's Quick Trade, buy USDC with 0.05 NEAR | 0.05 NEAR | Same checks as step 4, fee 0.00005 NEAR |
+| 4 | **Swap.** Swap 0.1 NEAR → USDC | 0.1 NEAR | The review shows the Rhea route, the minimum received, and a NearKit fee of 0.50% (0.0005 NEAR) split as NearKit 0.40% and Rhea 0.10%, plus Rhea's own 0.10% protocol fee and any storage. After signing it reads **Confirmed** with an explorer link, and the USDC balance rises by about the expected amount |
+| 5 | **Quick Trade.** From the sidebar's Quick Trade, buy USDC with 0.05 NEAR | 0.05 NEAR | Same checks as step 4, fee 0.00025 NEAR |
 | 6 | **Split.** Split 0.2 USDC from A to B and C, 50/50 | 0.2 USDC | The review says "NearKit fee: None on transfers" and lists any registration; B and C each receive exactly 0.1 USDC |
 | 7 | **Batch Send.** Two lines: 0.01 NEAR to B, 0.01 NEAR to C | 0.02 NEAR | No NearKit fee; each recipient receives exactly 0.01 NEAR |
 | 8 | **Consolidate.** Gather 0.1 USDC from B into A | 0.1 USDC | NearKit pauses and asks you to connect B for B's step; A receives exactly 0.1 USDC; no NearKit fee |
@@ -63,12 +63,12 @@ Amounts are deliberately tiny. Budget about 0.3 NEAR on A for the whole run: reg
    near contract call-function as-read-only aggregatedex.near query_user_exist_balance json-args '{"user":"<fee account>","from_index":0,"count":50}' network-config mainnet now
    ```
 
-   After steps 4 and 5, wNEAR (`wrap.near`) should have grown by about 0.00012 wNEAR: 0.08% of 0.15 NEAR. That is `120000000000000000000` in yocto. If the route took the fee in another whitelisted token, look for it there instead.
+   After steps 4 and 5, wNEAR (`wrap.near`) should have grown by about 0.0006 wNEAR: 0.40% of 0.15 NEAR. That is `600000000000000000000` in yocto. If the route took the fee in another whitelisted token, look for it there instead.
 4. **Transfers:** the Split, Batch Send and Consolidate transactions on the explorer contain only `ft_transfer`, `storage_deposit` or plain NEAR transfers. Nothing goes to the fee account.
 
 ## Stop and report if
 
-- any fee other than 0.10% appears, or a transfer shows a NearKit fee;
+- any NearKit fee other than 0.50% appears, or a transfer shows a NearKit fee;
 - anything reads **Confirmed** before the explorer shows the transaction;
 - an amount or recipient on chain differs from the review;
 - a COMING SOON feature lets you sign anything;

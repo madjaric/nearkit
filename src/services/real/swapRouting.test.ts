@@ -24,7 +24,7 @@ function router(feeRecipient: string) {
   return createSwapRouter(createNearContext({ env, network: NETWORKS.mainnet, fetch: chain.fetch, kv: memoryStorage() }))
 }
 
-// NEAR → USDC through the aggregator; the 0.10% fee is taken from the wNEAR going in.
+// NEAR → USDC through the aggregator; NearKit's fee is taken from the wNEAR going in.
 const swap = (feeRecipient: string): RoutedSwap => ({
   router: 'aggregator',
   tokenIn: { id: 'near', symbol: 'NEAR', decimals: 24, contract: null },
