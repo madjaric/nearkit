@@ -81,6 +81,15 @@ describe('/positions and /pnl in Telegram', () => {
     expect(text).toContain('Gas paid (whole history, 0 transactions)')
   })
 
+  it('an unknown figure reads as unknown, never as 0', async () => {
+    const h = await bot()
+    h.chain.route('https://api.rhea.finance/list-token-price', () => ({}))
+    await h.say('/pnl')
+    const text = h.last()?.text ?? ''
+    expect(text).toContain('Unrealized now: <b>—</b>')
+    expect(text).not.toMatch(/Unrealized now: <b>[+−-]?\$0\.00<\/b>/)
+  })
+
   it('on testnet, without USD prices, speaks NEAR', async () => {
     const h = await bot({ network: 'testnet' })
     await h.say('/pnl')

@@ -17,6 +17,8 @@ export interface TokenInput {
   sales: { accountId: string; sale: Sale }[]
   /** Buys and sells in the range, for volume: value in the report's currency (null when unknown). */
   trades: { at: number; value: number | null }[]
+  /** Held now (on chain). Defaults to what the history says is held. */
+  held?: boolean
 }
 
 export function buildPnlReport(input: {
@@ -39,13 +41,21 @@ export function buildPnlReport(input: {
 
   const byToken: TokenPnl[] = []
   const closed: (ClosedTrade & { known: boolean })[] = []
+  // Unrealized PnL of open positions now, whatever the range: unknown ones are left out
+  // of the sum, and the sum itself is unknown when no open position has a known figure.
+  const open: (number | null)[] = []
   for (const t of input.tokens) {
     for (const l of t.combined.limitations) limits.add(l)
     const sales = t.sales.filter((x) => x.sale.at >= since)
-    const realized = sales.reduce((s, x) => s + (money(x.sale) ?? 0), 0)
+    const judged = sales.filter((x) => money(x.sale) !== null)
+    // Realized in the range: 0 without sales; unknown when every sale's result is.
+    const realized = sales.length && !judged.length ? null : judged.reduce((s, x) => s + (money(x.sale) as number), 0)
     if (sales.some((x) => money(x.sale) === null)) limits.add('unknown-proceeds')
     const unrealized = currency === 'USD' ? t.combined.usd.unrealized : t.combined.near.unrealized === null ? null : Number(t.combined.near.unrealized) / 1e24
-    const judged = sales.filter((x) => money(x.sale) !== null)
+    if (t.held ?? t.combined.quantity > 0n) {
+      open.push(unrealized)
+      if (unrealized === null) limits.add(t.combined.limitations.includes('no-current-price') ? 'no-current-price' : 'unknown-cost-units')
+    }
     const wins = judged.filter((x) => (money(x.sale) as number) > 0).length
     const volume = t.trades.filter((x) => x.at >= since).reduce((s, x) => s + Math.abs(x.value ?? 0), 0)
     if (!sales.length && !t.trades.some((x) => x.at >= since) && unrealized === null) continue
@@ -54,7 +64,7 @@ export function buildPnlReport(input: {
       trades: t.trades.filter((x) => x.at >= since).length,
       volumeUsd: volume,
       realizedUsd: realized,
-      unrealizedUsd: unrealized ?? 0,
+      unrealizedUsd: unrealized,
       winRatePct: judged.length ? (wins / judged.length) * 100 : 0,
       closed: judged.length,
     })
@@ -97,20 +107,20 @@ export function buildPnlReport(input: {
     range,
     currency,
     source: 'chain',
-    complete: limits.size === 0 || (limits.size === 1 && limits.has('no-current-price')),
+    complete: limits.size === 0,
     limitations: [...limits],
     gasNear: input.gasNear,
     history: input.history,
     points,
-    realizedUsd: known.reduce((s, c) => s + c.pnlUsd, 0),
-    unrealizedUsd: byToken.reduce((s, t) => s + t.unrealizedUsd, 0),
+    realizedUsd: closed.length && !known.length ? null : known.reduce((s, c) => s + c.pnlUsd, 0),
+    unrealizedUsd: open.length && open.every((u) => u === null) ? null : open.reduce<number>((s, u) => s + (u ?? 0), 0),
     volumeUsd: byToken.reduce((s, t) => s + t.volumeUsd, 0),
     feesUsd: 0,
     trades: closed.length,
     wins,
     losses,
     winRatePct: known.length ? (wins / known.length) * 100 : 0,
-    byToken: byToken.sort((a, b) => b.realizedUsd + b.unrealizedUsd - (a.realizedUsd + a.unrealizedUsd)),
+    byToken: byToken.sort((a, b) => (b.realizedUsd ?? 0) + (b.unrealizedUsd ?? 0) - ((a.realizedUsd ?? 0) + (a.unrealizedUsd ?? 0))),
     recentTrades: closed.slice(0, 25).map(({ known: _known, ...c }) => c),
   }
 }

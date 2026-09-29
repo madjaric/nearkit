@@ -37,8 +37,9 @@ const TOKEN_GETTERS: Record<TokenKey, (t: TokenPnl) => number | string> = {
   token: (t) => t.token.symbol,
   trades: (t) => t.trades,
   volume: (t) => t.volumeUsd,
-  realized: (t) => t.realizedUsd,
-  unrealized: (t) => t.unrealizedUsd,
+  // Unknown figures sort below every known one.
+  realized: (t) => t.realizedUsd ?? Number.NEGATIVE_INFINITY,
+  unrealized: (t) => t.unrealizedUsd ?? Number.NEGATIVE_INFINITY,
   win: (t) => t.winRatePct,
 }
 
@@ -192,14 +193,14 @@ function Pnl() {
           size="lg"
           legend={<Term term="realizedPnl" />}
           loading={loading}
-          value={r ? <span className={toneOf(r.realizedUsd)}>{money.full(r.realizedUsd, { signed: true })}</span> : '—'}
+          value={r ? <Money money={money} value={r.realizedUsd} signed colored /> : '—'}
           sub={r ? `${r.trades} closed trades` : ''}
         />
         <ReadoutSlot
           legend={<Term term="unrealizedPnl" />}
           loading={loading}
-          value={r ? <span className={toneOf(r.unrealizedUsd)}>{money.full(r.unrealizedUsd, { signed: true })}</span> : '—'}
-          sub="open positions, now"
+          value={r ? <Money money={money} value={r.unrealizedUsd} signed colored /> : '—'}
+          sub={r?.unrealizedUsd === null ? 'unknown: no current price' : 'open positions, now'}
         />
         <ReadoutSlot legend="Trading volume" loading={loading} value={r ? money.compact(r.volumeUsd, 2) : '—'} sub="entries + exits" />
         {chain ? (
@@ -248,7 +249,7 @@ function Pnl() {
       <Panel>
         <PanelHeader
           title="Cumulative realized PnL"
-          meta={r ? <span className={cn('num', toneOf(r.realizedUsd))}>{money.compact(r.realizedUsd)}</span> : undefined}
+          meta={r && r.realizedUsd !== null ? <span className={cn('num', toneOf(r.realizedUsd))}>{money.compact(r.realizedUsd)}</span> : undefined}
           actions={
             <Segmented
               label="View"

@@ -104,15 +104,15 @@ async function showPnl(ctx: BotCtx, range: PnlRange) {
     const gasNear = ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0)
     const r = buildPnlReport({ range, now: ctx.deps.now(), currency, tokens, gasNear, history, walletOf: (a) => a })
     const scope = history.complete ? `whole history, ${history.txs} ${history.txs === 1 ? 'transaction' : 'transactions'}` : `latest ${history.txs} transactions only`
-    const top = r.byToken
-      .slice(0, 5)
-      .map((t) => `• ${bold(t.token.symbol)} realized ${esc(money.full(t.realizedUsd, { signed: true }))} · open ${esc(money.full(t.unrealizedUsd, { signed: true }))}`)
+    // Unknown reads as —, never 0.
+    const fig = (v: number | null) => (v === null ? '—' : money.full(v, { signed: true }))
+    const top = r.byToken.slice(0, 5).map((t) => `• ${bold(t.token.symbol)} realized ${esc(fig(t.realizedUsd))} · open ${esc(fig(t.unrealizedUsd))}`)
     await ctx.reply(
       [
         bold(`PnL · ${range === 'all' ? 'all time' : `last ${range}`} · ${list.length === 1 ? list[0] : `${list.length} accounts`}`),
         '',
-        `Realized: ${bold(money.full(r.realizedUsd, { signed: true }))} over ${r.trades} ${r.trades === 1 ? 'sale' : 'sales'}${r.wins + r.losses ? ` (${r.wins} won, ${r.losses} lost)` : ''}`,
-        `Unrealized now: ${bold(money.full(r.unrealizedUsd, { signed: true }))}`,
+        `Realized: ${bold(fig(r.realizedUsd))} over ${r.trades} ${r.trades === 1 ? 'sale' : 'sales'}${r.wins + r.losses ? ` (${r.wins} won, ${r.losses} lost)` : ''}`,
+        `Unrealized now: ${bold(fig(r.unrealizedUsd))}`,
         `Gas paid (${scope}): ${esc(NEAR_FORMAT.full(r.gasNear ?? 0))}`,
         ...(top.length ? ['', ...top] : []),
         ...limitationsNote(new Set(r.limitations ?? [])),

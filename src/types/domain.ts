@@ -214,8 +214,10 @@ export interface TokenPnl {
   token: Token
   trades: number
   volumeUsd: number
-  realizedUsd: number
-  unrealizedUsd: number
+  /** Null when unknown (sales whose results aren't known). Never 0 for unknown. */
+  realizedUsd: number | null
+  /** Null when unknown (no current price, or no unit with a known cost). Never 0 for unknown. */
+  unrealizedUsd: number | null
   winRatePct: number
   /** Sales with a known result in the range: the win rate covers these only. Absent in demo data, where every trade is closed. */
   closed?: number
@@ -250,8 +252,10 @@ export interface PnlReport {
   /** Real mode: the history read. Not complete when it was capped: older trades and gas are not in this report. */
   history?: { complete: boolean; txs: number }
   points: PnlPoint[]
-  realizedUsd: number
-  unrealizedUsd: number
+  /** Null when unknown; `limitations` says why. Never 0 for unknown. */
+  realizedUsd: number | null
+  /** Open positions now; null when none has a known figure. Never 0 for unknown. */
+  unrealizedUsd: number | null
   volumeUsd: number
   feesUsd: number
   trades: number

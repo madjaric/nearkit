@@ -137,8 +137,29 @@ export function combinePnl(parts: { result: PnlResult; balance: bigint; ledgerCo
   const unit = 10n ** BigInt(decimals)
   const nearCost = sumBig((r) => r.near.costBasis)
   const usdCost = sumNum((r) => r.usd.costBasis)
-  const nearTotal = sumNullBig((r) => r.near.total)
-  const usdTotal = sumNullNum((r) => r.usd.total)
+  // An account holding tokens of which none has a known cost (by its history) has unknown
+  // PnL; the others still count. Unknown overall only when every holding account is.
+  const holding = parts.filter((p) => p.balance > 0n || p.result.quantity > 0n)
+  const unknownHolding = (p: (typeof parts)[number]) => (p.balance > 0n || p.result.quantity > 0n) && p.result.quantity - p.result.unknownCostQuantity === 0n
+  const unrealizedOf = <T>(pick: (r: PnlResult) => T | null, add: (a: T, b: T) => T, zero: T): T | null => {
+    const known = parts.filter((p) => !unknownHolding(p) && pick(p.result) !== null)
+    if (holding.length > 0 && holding.every((p) => unknownHolding(p) || pick(p.result) === null)) return null
+    return known.reduce((s, p) => add(s, pick(p.result) as T), zero)
+  }
+  const nearUnrealized = unrealizedOf<bigint>(
+    (r) => r.near.unrealized,
+    (a, b) => a + b,
+    0n,
+  )
+  const usdUnrealized = unrealizedOf<number>(
+    (r) => r.usd.unrealized,
+    (a, b) => a + b,
+    0,
+  )
+  const nearRealized = sumBig((r) => r.near.realized)
+  const usdRealized = sumNum((r) => r.usd.realized)
+  const nearTotal = nearUnrealized === null ? null : nearRealized + nearUnrealized
+  const usdTotal = usdUnrealized === null ? null : usdRealized + usdUnrealized
   const nearInvested = sumBig((r) => r.near.invested)
   const usdInvested = sumNum((r) => r.usd.invested)
   const complete = parts.every((p) => p.result.complete && p.ledgerComplete) && !mismatch
@@ -154,8 +175,8 @@ export function combinePnl(parts: { result: PnlResult; balance: bigint; ledgerCo
     near: {
       costBasis: nearCost,
       avgEntry: known === 0n ? null : Number((nearCost * unit) / known) / 1e24,
-      realized: sumBig((r) => r.near.realized),
-      unrealized: sumNullBig((r) => r.near.unrealized),
+      realized: nearRealized,
+      unrealized: nearUnrealized,
       total: nearTotal,
       invested: nearInvested,
       pnlPct: nearTotal === null || nearInvested === 0n ? null : (Number((nearTotal * 10n ** 12n) / nearInvested) / 1e12) * 100,
@@ -165,8 +186,8 @@ export function combinePnl(parts: { result: PnlResult; balance: bigint; ledgerCo
     usd: {
       costBasis: usdCost,
       avgEntry: known === 0n ? null : usdCost / (Number(known) / Number(unit)),
-      realized: sumNum((r) => r.usd.realized),
-      unrealized: sumNullNum((r) => r.usd.unrealized),
+      realized: usdRealized,
+      unrealized: usdUnrealized,
       total: usdTotal,
       invested: usdInvested,
       pnlPct: usdTotal === null || usdInvested === 0 ? null : (usdTotal / usdInvested) * 100,

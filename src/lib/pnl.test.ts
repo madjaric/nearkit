@@ -82,6 +82,24 @@ describe('PnL engine (weighted average cost)', () => {
     expect(r.limitations).toContain('unknown-cost-units')
   })
 
+  it('holding only units of unknown cost: unrealized and total are unknown, never 0', () => {
+    const r = computePnl([tin(100n * T)], price(0.2, 1))
+    expect(r.quantity).toBe(100n * T)
+    expect(r.near.unrealized).toBeNull()
+    expect(r.near.total).toBeNull()
+    expect(r.near.pnlPct).toBeNull()
+    expect(r.usd.unrealized).toBeNull()
+    expect(r.limitations).toContain('unknown-cost-units')
+  })
+
+  it('zero is only a computed zero: a fully exited position has 0 unrealized', () => {
+    const r = computePnl([buy(100n * T, 10n * N), sell(100n * T, 10n * N)], price(0.2))
+    expect(r.quantity).toBe(0n)
+    expect(r.near.unrealized).toBe(0n)
+    expect(r.near.realized).toBe(0n)
+    expect(r.near.total).toBe(0n)
+  })
+
   it('selling from a mix sells known and unknown units in proportion', () => {
     const r = computePnl([buy(100n * T, 10n * N), tin(100n * T), sell(100n * T, 30n * N)], price(0.2))
     // Half the sold units had a known cost (0.1 each): 50 units cost 5, proceeds share 15 → +10.

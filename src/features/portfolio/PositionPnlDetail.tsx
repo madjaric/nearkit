@@ -24,10 +24,20 @@ function Near({ value, signed = false }: { value: number | null; signed?: boolea
   return <span className={cn('num', signed && toneOf(value))}>{text}</span>
 }
 
-function Figures({ label, f, currency }: { label: string; f: PnlFiguresView; currency: 'NEAR' | 'USD' }) {
+function Figures({ label, f, currency, costKnown }: { label: string; f: PnlFiguresView; currency: 'NEAR' | 'USD'; costKnown: boolean }) {
   const money = (v: number | null, signed = false) => (currency === 'NEAR' ? <Near value={v} signed={signed} /> : <Usd value={v} signed={signed} colored={signed} />)
   const rows: [string, ReactNode][] = [
-    ['Cost basis', money(f.costBasis)],
+    // No unit held has a known cost: its cost basis is unknown, not 0.
+    [
+      'Cost basis',
+      costKnown ? (
+        money(f.costBasis)
+      ) : (
+        <span key="c" className="num text-fg-4">
+          —
+        </span>
+      ),
+    ],
     ['Avg entry', f.avgEntry === null ? <span className="num text-fg-4">—</span> : currency === 'NEAR' ? <Near value={f.avgEntry} /> : <Usd value={f.avgEntry} />],
     ['Realized', money(f.realized, true)],
     ['Unrealized', money(f.unrealized, true)],
@@ -61,6 +71,7 @@ export function PositionPnlDetail({ position }: { position: Position }) {
   if (position.pnlStatus === 'loading') return <p className="text-xs text-fg-3">Reading this position’s on-chain history…</p>
   if (!pnl) return null
   const kind = { buy: 'Buy', sell: 'Sell', 'transfer-in': 'Received', 'transfer-out': 'Sent' } as const
+  const costKnown = !(pnl.unknownCostAmount > 0 && position.balance <= pnl.unknownCostAmount)
   const card = (at: number) => cardFromPosition(position, { usd: caps.prices, network: caps.network, demo: caps.mode === 'demo', at })
   const accounts = [...new Set(position.wallets.map((w) => wallets.find((x) => x.id === w.walletId)?.accountId ?? w.walletId))]
   return (
@@ -74,8 +85,8 @@ export function PositionPnlDetail({ position }: { position: Position }) {
       )}
       {sharedAt !== null && card(sharedAt) && <PnlCardDialog card={card(sharedAt) as PnlCard} accounts={accounts} onClose={() => setSharedAt(null)} />}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Figures label="In NEAR · exact" f={pnl.near} currency="NEAR" />
-        {caps.prices && <Figures label="In USD · at each trade’s hour" f={pnl.usd} currency="USD" />}
+        <Figures label="In NEAR · exact" f={pnl.near} currency="NEAR" costKnown={costKnown} />
+        {caps.prices && <Figures label="In USD · at each trade’s hour" f={pnl.usd} currency="USD" costKnown={costKnown} />}
       </div>
       <p className="text-[11px] text-fg-3">
         Average cost, per account. Bought {formatCompact(pnl.bought.amount, 2)}, sold {formatCompact(pnl.sold.amount, 2)} in {pnl.trades} {pnl.trades === 1 ? 'trade' : 'trades'}.

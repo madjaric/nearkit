@@ -61,16 +61,18 @@ export function cardFromPosition(position: Position, opts: { usd: boolean; netwo
 /** The PnL page's card for its range: realized in the range plus unrealized now. */
 export function cardFromReport(r: PnlReport, opts: { network: 'mainnet' | 'testnet' | null; at: number }): PnlCard {
   const money = r.currency === 'NEAR' ? NEAR_FORMAT : USD_FORMAT
-  const total = r.realizedUsd + r.unrealizedUsd
+  // Unknown stays unknown: a total needs both parts.
+  const total = r.realizedUsd === null || r.unrealizedUsd === null ? null : r.realizedUsd + r.unrealizedUsd
+  const fig = (v: number | null) => (v === null ? '—' : money.full(v, { signed: true }))
   const judged = r.wins + r.losses
   return {
     title: 'Portfolio',
     scope: SCOPE[r.range],
-    headline: { label: 'Total PnL', value: money.full(total, { signed: true }), tone: toneOf(total) },
+    headline: { label: 'Total PnL', value: fig(total), tone: total === null ? 'flat' : toneOf(total) },
     pct: null,
     rows: [
-      { label: 'Realized', value: money.full(r.realizedUsd, { signed: true }) },
-      { label: 'Unrealized', value: money.full(r.unrealizedUsd, { signed: true }) },
+      { label: 'Realized', value: fig(r.realizedUsd) },
+      { label: 'Unrealized', value: fig(r.unrealizedUsd) },
       { label: 'Closed trades', value: formatNumber(r.trades, 0, 0) },
       { label: 'Win rate', value: judged > 0 ? `${formatNumber(r.winRatePct, 0, 1)}%` : '—' },
     ],

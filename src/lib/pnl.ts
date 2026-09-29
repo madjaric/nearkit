@@ -11,6 +11,8 @@
  * - AVERAGE ENTRY: cost basis ÷ units with a known cost.
  * - REALIZED PNL: for each sale, proceeds minus the average cost of the units sold.
  * - UNREALIZED PNL: units with a known cost × current price, minus their cost basis.
+ *   Unknown (null) without a current price or when none of the units held has a known
+ *   cost; 0 only when it computes to 0 (e.g. nothing is held). Unknown is never shown as 0.
  * - TOTAL PNL: realized + unrealized.
  * - PNL %: total PnL ÷ everything invested (the sum of all known buy costs).
  * - Units that arrived by transfer have no known cost. They are tracked apart and never
@@ -277,9 +279,12 @@ export function computePnl(input: readonly LedgerEvent[], price: CurrentPrice | 
   }
 
   const unit = 10n ** BigInt(price?.decimals ?? 0)
-  if (!price || price.near === null) limits.add('no-current-price')
-  const nearValue = price && price.near !== null ? (near.knownQty * scaled(price.near, 24)) / unit : null
-  const usdValue = price && price.usd !== null ? (Number(usd.knownQty) / Number(unit)) * price.usd : null
+  const held = qty > 0n
+  if (held && (!price || price.near === null)) limits.add('no-current-price')
+  // Value of the units with a known cost. Nothing held: exactly 0. Units held but none of
+  // known cost, or no price: unknown (null), never 0.
+  const nearValue = !held ? 0n : price && price.near !== null && near.knownQty > 0n ? (near.knownQty * scaled(price.near, 24)) / unit : null
+  const usdValue = !held ? 0 : price && price.usd !== null && usd.knownQty > 0n ? (Number(usd.knownQty) / Number(unit)) * price.usd : null
 
   return {
     quantity: qty,

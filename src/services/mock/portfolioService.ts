@@ -121,7 +121,7 @@ export function createPortfolioService(state: MockState): PortfolioService {
           winRatePct: tt.length ? (w / tt.length) * 100 : 0,
         }
       })
-      byToken.sort((a, b) => b.realizedUsd + b.unrealizedUsd - (a.realizedUsd + a.unrealizedUsd))
+      byToken.sort((a, b) => (b.realizedUsd ?? 0) + (b.unrealizedUsd ?? 0) - ((a.realizedUsd ?? 0) + (a.unrealizedUsd ?? 0)))
 
       return {
         range,

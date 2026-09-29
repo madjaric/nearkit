@@ -110,6 +110,13 @@ describe('PnL card: the report', () => {
     ])
   })
 
+  it('an unknown part makes the total unknown: shown as —, never as 0', () => {
+    const card = cardFromReport(report({ unrealizedUsd: null, complete: false, limitations: ['no-current-price'] }), { network: 'testnet', at: AT })
+    expect(card.headline).toEqual({ label: 'Total PnL', value: '—', tone: 'flat' })
+    expect(card.rows.find((r) => r.label === 'Unrealized')?.value).toBe('—')
+    expect(card.partial).toBe('Partial: no current price')
+  })
+
   it('marks demo data as demo, and a capped history as partial', () => {
     expect(cardFromReport(report({ source: 'demo' }), { network: null, at: AT })).toMatchObject({ demo: true, network: null })
     const capped = cardFromReport(report({ complete: false, limitations: ['history-incomplete'], wins: 0, losses: 0, trades: 0 }), { network: 'mainnet', at: AT })

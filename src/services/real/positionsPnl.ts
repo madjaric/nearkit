@@ -107,7 +107,8 @@ export function reportTokens(input: {
     const trades = events.flatMap(({ event: e }) =>
       e.kind === 'buy' || e.kind === 'sell' ? [{ at: e.at, value: input.currency === 'USD' ? e.value.usd : e.value.near === null ? null : nearNum(e.value.near) }] : [],
     )
-    return [{ token, combined, sales, trades }]
+    const held = [...(input.held.get(id)?.values() ?? [])].some((raw) => raw > 0n)
+    return [{ token, combined, sales, trades, held }]
   })
 }
 
