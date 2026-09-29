@@ -20,10 +20,12 @@ import { CustodyStore } from '../custody/store'
 import { localKeyWrapper } from '../custody/vault'
 import type { CustodyDeps } from '../custody/wallets'
 import { withdrawHandler } from '../custody/withdraw'
+import { createSwapService } from '../custody/swap'
+import { unwrapHandler } from '../custody/unwrap'
 import { createBotApp } from './app'
 import type { BotDeps, BotModule } from './context'
 import { notifySettled } from './intents'
-import { friendlyError } from './ui'
+import { walletErrorText } from './ui'
 
 /**
  * A whole bot wired to fakes: Telegram (fake.ts), NEAR (fakeChain) and an
@@ -70,19 +72,20 @@ export async function botHarness(
     const cstore = new CustodyStore(db, now)
     const signer = createLocalSigner({ wrapper: localKeyWrapper(config.custody.kek), network: config.network, store: cstore, now })
     const access = createChainAccess({ rpc: near.ctx.rpc, fetch: chain.fetch })
+    const swaps = createSwapService(near)
     const engine = createEngine({
       store: cstore,
       signer,
       chain: access,
-      handlers: { withdraw: withdrawHandler({ near, network: config.network }) },
+      handlers: { withdraw: withdrawHandler({ near, network: config.network }), buy: swaps.handler, sell: swaps.handler, unwrap: unwrapHandler(near) },
       log: silentLogger,
       now,
       sleep: async (ms) => void (clock += ms),
       confirmMs: 2_000,
-      explain: (e) => friendlyError(e, { network: config.network.id }),
+      explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => notifySettled(deps, settledNotice, intent),
     })
-    custody = { store: cstore, signer, engine, chain: access }
+    custody = { store: cstore, signer, engine, chain: access, swaps }
   }
   const deps: BotDeps = {
     tg,

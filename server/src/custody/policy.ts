@@ -53,6 +53,8 @@ export type WalletOperation =
   | { kind: 'withdraw-token'; token: string; to: string; amount: bigint; registration: bigint | null }
   | { kind: 'add-backup-key'; publicKey: string }
   | { kind: 'revoke'; publicKey: string }
+  /** wNEAR back to NEAR (e.g. after a buy was refunded as wNEAR). */
+  | { kind: 'unwrap'; amount: bigint }
 
 export interface PolicyWallet {
   accountId: string
@@ -248,6 +250,13 @@ export function checkPlan(op: WalletOperation, plan: readonly WalletTxPlan[], wa
       if (plan.length !== 1 || !tx || tx.receiverId !== wallet.accountId) return refuse('the backup key is added by the wallet to itself')
       const [a] = tx.actions
       if (tx.actions.length !== 1 || a?.kind !== 'add-key' || a.publicKey !== op.publicKey) refuse('the key added differs from your linked wallet’s key')
+      return
+    }
+    case 'unwrap': {
+      if (op.amount <= 0n) refuse('the amount is not positive')
+      const [tx] = plan
+      if (plan.length !== 1 || !tx || tx.receiverId !== network.wrapContract || tx.actions.length !== 1) return refuse('unwrapping is one call to the wrap contract')
+      expectCall(tx.actions[0], 'near_withdraw', { amount: op.amount.toString() }, 1n, GAS.NEAR_WITHDRAW)
       return
     }
     case 'revoke': {

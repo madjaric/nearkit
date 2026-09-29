@@ -35,5 +35,13 @@ export function help(config: Pick<ServerConfig, 'network'>, commands: { name: st
       return [bold(section), ...list.map((c) => `/${c.name}${c.usage ? ` ${esc(c.usage)}` : ''} · ${esc(c.description)}`)].join('\n')
     })
     .filter((s): s is string => s !== null)
-  return [bold('NearKit · help'), '', sections.join('\n\n'), '', esc(feeNote(config)), 'You sign every trade in your own wallet.', SAFETY].join('\n')
+  return [
+    bold('NearKit · help'),
+    '',
+    sections.join('\n\n'),
+    '',
+    esc(feeNote(config)),
+    'Trades from your NearKit wallet run right here when you confirm. Trades from a linked wallet are signed in your own wallet.',
+    SAFETY,
+  ].join('\n')
 }

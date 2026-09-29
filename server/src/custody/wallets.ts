@@ -2,6 +2,7 @@ import { RpcError } from '@/services/near/rpc'
 import type { ServerNear } from '../near'
 import type { ChainAccess } from './chain'
 import type { Engine } from './engine'
+import type { SwapService } from './swap'
 import type { TradingSigner } from './signer'
 import type { CustodyStore, TradingWallet } from './store'
 
@@ -16,6 +17,8 @@ export interface CustodyDeps {
   signer: TradingSigner
   engine: Engine
   chain: ChainAccess
+  /** Quotes for Buy/Sell from the NearKit wallet (the same router the engine re-checks with). */
+  swaps: SwapService
 }
 
 /** Wallets one Telegram user may create in a day: abuse protection, not a trading limit. */

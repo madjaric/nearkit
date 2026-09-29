@@ -51,7 +51,13 @@ async function confirm(ctx: BotCtx, id: string) {
   if (!custody || !intent || intent.userId !== ctx.user.id) return ctx.answer('That button expired.', true)
   if (intent.status !== 'quoted') {
     // A second press, a replayed update or an old message: nothing runs again.
-    return ctx.answer(intent.status === 'expired' ? 'That expired. Nothing was sent.' : 'Already confirmed: see the result.', false)
+    const toast =
+      intent.status === 'expired'
+        ? 'That expired. Nothing was sent.'
+        : intent.status === 'cancelled' || intent.status === 'replaced'
+          ? 'That quote was replaced or cancelled. Nothing was sent.'
+          : 'Already confirmed: see the result.'
+    return ctx.answer(toast, false)
   }
   await ctx.answer('Sending…')
   // The buttons go away at once, so this message can't be pressed again.

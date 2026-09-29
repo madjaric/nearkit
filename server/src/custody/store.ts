@@ -29,7 +29,7 @@ export interface TradingWallet {
   closedAt: number | null
 }
 
-export type IntentKind = 'buy' | 'sell' | 'withdraw' | 'backup-key' | 'revoke'
+export type IntentKind = 'buy' | 'sell' | 'withdraw' | 'unwrap' | 'backup-key' | 'revoke'
 export type IntentStatus = 'quoted' | 'confirmed' | 'signing' | 'submitted' | 'done' | 'failed' | 'cancelled' | 'expired' | 'replaced'
 
 /** An intent in these states may have, or be about to have, a transaction in flight. */
@@ -332,6 +332,18 @@ export class CustodyStore {
   /** Every intent that may have something on its way to the chain, for the resolver. */
   allInFlight(): Intent[] {
     return this.db.all<IntentRow>(`SELECT * FROM wallet_intents WHERE status IN (${placeholders(IN_FLIGHT.length)}) ORDER BY created_at`, [...IN_FLIGHT]).map(toIntent)
+  }
+
+  /**
+   * A new quote replaces the wallet's older open ones of the same kinds, so two
+   * Confirm buttons on screen can never both trade.
+   */
+  cancelQuoted(walletId: string, kinds: readonly IntentKind[]): number {
+    return this.db.run(`UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE wallet_id = ? AND status = 'quoted' AND kind IN (${placeholders(kinds.length)})`, [
+      this.now(),
+      walletId,
+      ...kinds,
+    ])
   }
 
   /** Quotes nobody confirmed in time. */

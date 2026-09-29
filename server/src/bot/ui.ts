@@ -66,3 +66,17 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
       return 'Something went wrong. Nothing was sent or signed. Try again in a moment.'
   }
 }
+
+/**
+ * For NearKit wallet actions: a shortfall keeps its numbers (how much is needed, how
+ * much the wallet has), because the wallet code writes them for people. Everything
+ * else reads like friendlyError.
+ */
+export function walletErrorText(e: unknown, opts: { network: 'mainnet' | 'testnet'; side?: 'buy' | 'sell'; log?: Logger; context?: string }): string {
+  const err = toNearKitError(e)
+  if (err.code === 'INSUFFICIENT_BALANCE' || err.code === 'INSUFFICIENT_GAS') {
+    opts.log?.info(opts.context ?? 'wallet action refused', { code: err.code })
+    return err.message.endsWith('.') ? err.message : `${err.message}.`
+  }
+  return friendlyError(e, opts)
+}

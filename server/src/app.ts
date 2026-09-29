@@ -31,9 +31,12 @@ import { CustodyStore, type Intent } from './custody/store'
 import { localKeyWrapper } from './custody/vault'
 import type { CustodyDeps } from './custody/wallets'
 import { withdrawHandler } from './custody/withdraw'
+import { createSwapService } from './custody/swap'
+import { unwrapHandler } from './custody/unwrap'
+import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
 import { tradingWalletModule } from './bot/tradingWallet'
-import { friendlyError } from './bot/ui'
+import { walletErrorText } from './bot/ui'
 
 /**
  * Wires the server together: configuration, database, NearKit services, the
@@ -51,7 +54,17 @@ export interface RunningServer {
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
   // `/start link` (from the "open a private chat" button) goes straight to linking.
-  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), tradeModule(), portfolioModule(), buybotModule(), tradingWalletModule(), intentsModule()]
+  return [
+    coreModule(list, { link: startLink }),
+    accountsModule(),
+    settingsModule(),
+    tradeModule(),
+    portfolioModule(),
+    buybotModule(),
+    tradingWalletModule(),
+    nativeTradeModule(),
+    intentsModule(),
+  ]
 }
 
 /** Commands for Telegram's menu, per chat type. */
@@ -103,17 +116,18 @@ export async function startServer(options: { env: Record<string, string | undefi
     const cstore = new CustodyStore(db, now)
     const signer = createLocalSigner({ wrapper: localKeyWrapper(config.custody.kek), network: config.network, store: cstore, now })
     const chain = createChainAccess({ rpc: near.ctx.rpc, fetch: fetchImpl })
+    const swaps = createSwapService(near)
     const engine = createEngine({
       store: cstore,
       signer,
       chain,
-      handlers: { withdraw: withdrawHandler({ near, network: config.network }) },
+      handlers: { withdraw: withdrawHandler({ near, network: config.network }), buy: swaps.handler, sell: swaps.handler, unwrap: unwrapHandler(near) },
       log,
       now,
-      explain: (e) => friendlyError(e, { network: config.network.id }),
+      explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => onSettled(intent),
     })
-    custody = { store: cstore, signer, engine, chain }
+    custody = { store: cstore, signer, engine, chain, swaps }
     log.info('trading wallets on', { network: config.network.id, keyRef: signer.keyRef })
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })

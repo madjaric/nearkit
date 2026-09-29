@@ -25,6 +25,12 @@ const tracker = (ctx: BotCtx) => {
 }
 
 /** The NearKit wallet first (when there is one), then the linked accounts. */
+/** After a trade: the next Positions/PnL reads the chain again (no optimistic figures). */
+export function refreshPortfolio(deps: BotCtx['deps'], accountId: string) {
+  deps.near.ctx.balances.invalidate(accountId)
+  trackers.get(deps.near)?.invalidate(accountId)
+}
+
 function accounts(ctx: BotCtx): string[] {
   const nearkit = ctx.deps.custody?.store.activeWallet(ctx.user.id, ctx.deps.config.network.id)?.accountId
   return [...(nearkit ? [nearkit] : []), ...ctx.deps.store.linksOf(ctx.user.id, ctx.deps.config.network.id).map((l) => l.accountId)]

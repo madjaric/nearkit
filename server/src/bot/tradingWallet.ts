@@ -7,7 +7,7 @@ import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_M
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
 import { btn, documented, FLOW_TTL_MS, keyboard, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
-import { amountText, friendlyError, nearText, UNKNOWN } from './ui'
+import { amountText, nearText, UNKNOWN, walletErrorText } from './ui'
 import { linkedAccount, nearAvailable, needAccount, showWallet } from './wallet'
 
 /**
@@ -31,7 +31,7 @@ export function tradingWallet(deps: BotDeps, userId: number): TradingWallet | nu
 
 const networkName = (deps: BotDeps) => `NEAR ${deps.config.network.label}`
 const walletRow = [btn('👛 Wallet', 'cw:home'), btn('« Menu', 'menu:home')]
-const errorText = (ctx: BotCtx, e: unknown) => esc(friendlyError(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'wallet action failed' }))
+const errorText = (ctx: BotCtx, e: unknown) => esc(walletErrorText(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'wallet action failed' }))
 
 async function tokensOf(ctx: BotCtx, view: WalletView) {
   const listed = await ctx.deps.near.market.listTokens(view.tokens.map((t) => t.contract)).catch(() => [] as TokenListing[])
@@ -71,6 +71,7 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
   const held = await tokensOf(ctx, view)
   const linked = linkedAccount(ctx)
   const backup = w.backupKey && view.keys?.includes(w.backupKey)
+  const wnear = view.tokens.some((t) => t.contract === ctx.deps.config.network.wrapContract && t.raw > 0n)
   const balance =
     view.exists === false
       ? ['Empty: send testnet NEAR here to start (📥 Deposit).']
@@ -105,6 +106,7 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
     keyboard(
       [btn('📥 Deposit', 'cw:dep'), btn('📤 Withdraw', 'cw:wd')],
       [btn('🟢 Buy', 'tr:buy'), btn('🔴 Sell', 'tr:sell')],
+      wnear ? [btn('🔁 Unwrap wNEAR', 'cu:unwrap')] : [],
       [btn('⚙️ Settings', 'set:show'), btn('🔄 Refresh', 'cw:home')],
       [btn(details ? '🔎 Less' : '🔎 Details', details ? 'cw:home' : 'cw:details'), btn('🔗 Linked wallet', 'menu:linked')],
       [btn('« Menu', 'menu:home')],
