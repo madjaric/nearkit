@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from 'node:path'
 import { startServer } from './app'
-import { loadEnvFile } from './env-file'
+import { loadEnvFile, loadSecretFiles } from './env-file'
 import { createLogger } from './log'
 
 /**
@@ -16,10 +16,13 @@ const loaded = loadEnvFile(envFile)
 // (npm run server:wallet-key), wherever the process was started from.
 const walletFile = resolve(process.env.NEARKIT_WALLET_ENV_FILE ?? join(dirname(envFile), '.env.wallet.local'))
 const walletLoaded = loadEnvFile(walletFile)
+// Container secrets mounted as files (NAME_FILE), for the secrets that allow it.
+const fromFiles = loadSecretFiles()
 const secrets = [process.env.TELEGRAM_BOT_TOKEN, process.env.NEARKIT_WALLET_KEK].filter((s): s is string => Boolean(s))
 const boot = createLogger({ secrets })
 if (loaded.length) boot.info('loaded settings from env file', { file: envFile, keys: loaded })
 if (walletLoaded.length) boot.info('loaded settings from env file', { file: walletFile, keys: walletLoaded })
+if (fromFiles.length) boot.info('loaded secrets from files', { keys: fromFiles })
 
 try {
   const server = await startServer({ env: process.env })

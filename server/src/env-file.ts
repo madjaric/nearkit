@@ -36,3 +36,34 @@ export function loadEnvFile(path: string, target: Record<string, string | undefi
   }
   return filled
 }
+
+/** Secrets that may come from a file (`NAME_FILE=/run/secrets/…`), as container platforms mount them. */
+export const FILE_SECRETS = [
+  'TELEGRAM_BOT_TOKEN',
+  'NEARKIT_DATABASE_URL',
+  'NEARKIT_SIGNER_AUTH_KEY',
+  'NEARKIT_SIGNER_DATABASE_URL',
+  'NEARKIT_WALLET_KEK',
+  'NEARKIT_SIGNER_KEK',
+] as const
+
+/**
+ * For each secret above that isn't set but has `NAME_FILE`, reads the file (trimmed) into
+ * `NAME`. Only these names: no other variable can make the process read a file. Returns
+ * the names it filled, never the values. A file that can't be read stops the process,
+ * naming the variable.
+ */
+export function loadSecretFiles(target: Record<string, string | undefined> = process.env): string[] {
+  const filled: string[] = []
+  for (const name of FILE_SECRETS) {
+    const path = target[`${name}_FILE`]
+    if (!path || (target[name] !== undefined && target[name] !== '')) continue
+    try {
+      target[name] = readFileSync(path, 'utf8').trim()
+    } catch (e) {
+      throw new Error(`${name}_FILE: cannot read the file (${(e as NodeJS.ErrnoException).code ?? 'error'})`)
+    }
+    filled.push(name)
+  }
+  return filled
+}

@@ -4,7 +4,7 @@ import { createSignerClient } from '../custody/signer'
 import { CustodyStore } from '../custody/store'
 import { openDatabase } from '../db/open'
 import { migrate } from '../db/schema'
-import { loadEnvFile } from '../env-file'
+import { loadEnvFile, loadSecretFiles } from '../env-file'
 import { httpSignerTransport } from '../signer/client'
 import { migrateSigner } from '../signer/schema'
 import { SignerStore } from '../signer/store'
@@ -136,5 +136,6 @@ export async function runOpsAdmin(
 // Run as a script (not when imported by tests).
 if (process.argv[1] && /ops-admin\.(js|ts)$/.test(process.argv[1])) {
   loadEnvFile(resolve(process.env.NEARKIT_ENV_FILE ?? 'server/.env.local'))
+  loadSecretFiles()
   process.exitCode = await runOpsAdmin(process.argv.slice(2), process.env, (line) => process.stdout.write(`${line}\n`))
 }

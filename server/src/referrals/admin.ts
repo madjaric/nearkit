@@ -4,7 +4,7 @@ import { createRpcClient, RpcError, type RpcClient } from '@/services/near/rpc'
 import { loadConfig } from '../config'
 import { openDatabase } from '../db/open'
 import { migrate } from '../db/schema'
-import { loadEnvFile } from '../env-file'
+import { loadEnvFile, loadSecretFiles } from '../env-file'
 import { createTelegramApi } from '../telegram/api'
 import { CustodyStore } from '../custody/store'
 import { checkPayout } from './payout'
@@ -155,5 +155,6 @@ export async function runReferralsAdmin(
 // Run as a script (not when imported by tests).
 if (process.argv[1] && /referrals-admin\.(js|ts)$/.test(process.argv[1])) {
   loadEnvFile(resolve(process.env.NEARKIT_ENV_FILE ?? 'server/.env.local'))
+  loadSecretFiles()
   process.exitCode = await runReferralsAdmin(process.argv.slice(2), process.env, (line) => process.stdout.write(`${line}\n`))
 }

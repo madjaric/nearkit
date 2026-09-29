@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { loadEnvFile } from '../env-file'
+import { loadEnvFile, loadSecretFiles } from '../env-file'
 import { createLogger } from '../log'
 import { loadSignerConfig } from './config'
 import { resealWalletKey } from './envelope'
@@ -86,5 +86,6 @@ export async function runAdmin(argv: string[], env: Record<string, string | unde
 if (process.argv[1] && /admin\.(js|ts)$/.test(process.argv[1])) {
   const envFile = resolve(process.env.NEARKIT_SIGNER_ENV_FILE ?? 'server/.env.signer.local')
   loadEnvFile(envFile)
+  loadSecretFiles()
   process.exitCode = await runAdmin(process.argv.slice(2), process.env, (line) => process.stdout.write(`${line}\n`))
 }

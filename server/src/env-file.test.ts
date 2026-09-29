@@ -24,3 +24,38 @@ describe('env file', () => {
     expect(loadEnvFile(join(tmpdir(), 'nk-missing-dir', '.env.local'), {})).toEqual([])
   })
 })
+
+describe('secrets mounted as files', () => {
+  it('fills only the allowed secrets from NAME_FILE, never overriding a set value', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const { loadSecretFiles } = await import('./env-file')
+    const dir = mkdtempSync(join(tmpdir(), 'nearkit-secrets-'))
+    try {
+      writeFileSync(join(dir, 'token'), 'from-file\n')
+      writeFileSync(join(dir, 'other'), 'nope')
+      const env: Record<string, string | undefined> = {
+        TELEGRAM_BOT_TOKEN_FILE: join(dir, 'token'),
+        NEARKIT_DATABASE_URL: 'already-set',
+        NEARKIT_DATABASE_URL_FILE: join(dir, 'token'),
+        SOMETHING_ELSE_FILE: join(dir, 'other'),
+      }
+      expect(loadSecretFiles(env)).toEqual(['TELEGRAM_BOT_TOKEN'])
+      expect(env.TELEGRAM_BOT_TOKEN).toBe('from-file')
+      expect(env.NEARKIT_DATABASE_URL).toBe('already-set')
+      expect(env.SOMETHING_ELSE).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a missing secret file stops the process and names the variable', async () => {
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const { loadSecretFiles } = await import('./env-file')
+    const env: Record<string, string | undefined> = { NEARKIT_SIGNER_AUTH_KEY_FILE: join(tmpdir(), 'nearkit-no-such-dir', 'auth') }
+    expect(() => loadSecretFiles(env)).toThrow(/^NEARKIT_SIGNER_AUTH_KEY_FILE: cannot read the file \(ENOENT\)$/)
+    expect(env.NEARKIT_SIGNER_AUTH_KEY).toBeUndefined()
+  })
+})

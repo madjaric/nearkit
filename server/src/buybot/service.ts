@@ -8,7 +8,7 @@ import type { Database } from '../db/database'
 import { instanceId, Leases } from '../db/leases'
 import { databaseSecrets, openDatabase } from '../db/open'
 import { migrate } from '../db/schema'
-import { loadEnvFile } from '../env-file'
+import { loadEnvFile, loadSecretFiles } from '../env-file'
 import { createLogger, type Logger } from '../log'
 import { createServerNear, type ServerNear } from '../near'
 import { createTelegramApi, type TelegramApi } from '../telegram/api'
@@ -124,6 +124,7 @@ export async function startBuybotService(o: { env: Record<string, string | undef
 // Run as a script (not when imported by tests).
 if (process.argv[1] && /buybot\.(js|ts)$/.test(process.argv[1])) {
   loadEnvFile(resolve(process.env.NEARKIT_ENV_FILE ?? 'server/.env.local'))
+  loadSecretFiles()
   const boot = createLogger({ secrets: [process.env.TELEGRAM_BOT_TOKEN].filter((s): s is string => Boolean(s)) })
   try {
     const service = await startBuybotService({ env: process.env })

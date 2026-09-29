@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { loadEnvFile } from '../env-file'
+import { loadEnvFile, loadSecretFiles } from '../env-file'
 import { createLogger } from '../log'
 import { signerSecrets, startSignerService } from './service'
 
@@ -12,8 +12,11 @@ import { signerSecrets, startSignerService } from './service'
 
 const envFile = resolve(process.env.NEARKIT_SIGNER_ENV_FILE ?? 'server/.env.signer.local')
 const loaded = loadEnvFile(envFile)
+// Container secrets mounted as files (NAME_FILE), for the secrets that allow it.
+const fromFiles = loadSecretFiles()
 const boot = createLogger({ secrets: signerSecrets(process.env, null) })
 if (loaded.length) boot.info('loaded settings from env file', { file: envFile, keys: loaded })
+if (fromFiles.length) boot.info('loaded secrets from files', { keys: fromFiles })
 for (const forbidden of ['TELEGRAM_BOT_TOKEN', 'NEARKIT_DATABASE_URL', 'NEARKIT_WALLET_KEK'])
   if (process.env[forbidden]) boot.warn('the signer does not use this setting; remove it from the signer host', { key: forbidden })
 

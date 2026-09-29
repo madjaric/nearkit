@@ -1,0 +1,150 @@
+# REFERENCE ONLY: NearKit's production topology as containers (DEPLOYMENT.md). This file
+# is not used by CI or any deployment, and nothing is deployed from it without the owner.
+#
+# - One image (server/Dockerfile) runs three processes: the app (bot + API), the signer
+#   and the buy bot.
+# - Two PostgreSQL databases with separate credentials.
+# - The signer sits on an internal network with no published port.
+# - Secrets come from the host's secret store (the `secrets:` below point at files that
+#   the host provides; never commit them). The KMS is AWS: the signer's credentials come
+#   from its task/instance role, not from this file.
+#
+#   docker build -f server/Dockerfile -t nearkit-server .
+#   docker compose -f deploy/docker-compose.production.yml up -d
+
+name: nearkit
+
+x-server: &server
+  image: nearkit-server
+  user: node # the image's unprivileged user; the processes write nothing to disk
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+
+services:
+  app:
+    <<: *server
+    command: ['node', '--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist-server/main.js']
+    environment:
+      NEAR_NETWORK: mainnet
+      TELEGRAM_BOT_USERNAME: NearKitBot
+      NEARKIT_WEB_URL: https://app.nearkit.example
+      NEARKIT_API_HOST: 0.0.0.0
+      NEARKIT_API_PORT: '8787'
+      NEARKIT_API_PUBLIC_URL: https://api.nearkit.example
+      NEARKIT_API_ALLOWED_ORIGINS: https://app.nearkit.example
+      NEARKIT_FEE_RECIPIENT: nearkitfee.near
+      NEARKIT_SIGNER_URL: https://signer:8790
+      # "off" until the owner's go-live (MAINNET_CEREMONY.md), then "enabled".
+      NEARKIT_MAINNET_CUSTODY: 'off'
+      BUYBOT_RUNNER: separate
+      NEAR_RPC_URL: https://rpc.mainnet.example-1,https://rpc.mainnet.example-2
+      # Secrets come as files (NAME_FILE, read at start for the secrets that allow it:
+      # server/src/env-file.ts), or directly as the hosting platform's secret variables.
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      NEARKIT_DATABASE_URL_FILE: /run/secrets/app_database_url
+      NEARKIT_SIGNER_AUTH_KEY_FILE: /run/secrets/signer_auth_key
+    secrets: [telegram_bot_token, app_database_url, signer_auth_key]
+    ports: ['127.0.0.1:8787:8787'] # behind the reverse proxy (TLS)
+    networks: [edge, internal]
+    depends_on: [app-db, signer]
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8787/health').then(r=>r.json()).then(h=>process.exit(h.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  signer:
+    <<: *server
+    command: ['node', '--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist-server/signer.js']
+    environment:
+      NEAR_NETWORK: mainnet
+      NEARKIT_MAINNET_CUSTODY: 'off' # "enabled" only at go-live
+      NEARKIT_KMS_KEY_ARN: arn:aws:kms:eu-central-1:000000000000:key/00000000-0000-0000-0000-000000000000
+      NEARKIT_SIGNER_RECIPIENT: app.nearkit.example
+      NEARKIT_FEE_RECIPIENT: nearkitfee.near
+      NEARKIT_SIGNER_RPC_URLS: https://rpc.mainnet.example-1,https://rpc.mainnet.example-2
+      NEARKIT_SIGNER_RPC_QUORUM: '2'
+      NEARKIT_SIGNER_HOST: 0.0.0.0
+      NEARKIT_SIGNER_PORT: '8790'
+      NEARKIT_SIGNER_TLS_CERT: /run/secrets/signer_tls_cert
+      NEARKIT_SIGNER_TLS_KEY: /run/secrets/signer_tls_key
+      # Host kill switch: while this file exists nothing is signed, exported or approved.
+      #   docker compose -f deploy/docker-compose.production.yml exec -u root signer touch /run/nearkit/signer.paused
+      # It lives on a volume, so a restart keeps the pause (removing the file resumes).
+      NEARKIT_SIGNER_PAUSE_FILE: /run/nearkit/signer.paused
+      NEARKIT_SIGNER_AUTH_KEY_FILE: /run/secrets/signer_auth_key
+      NEARKIT_SIGNER_DATABASE_URL_FILE: /run/secrets/signer_database_url
+    secrets: [signer_auth_key, signer_database_url, signer_tls_cert, signer_tls_key]
+    volumes: [signer-control:/run/nearkit]
+    networks: [internal] # no published port: only the app reaches it
+    depends_on: [signer-db]
+    healthcheck:
+      # Liveness only (no secrets); its TLS certificate names "signer", so the local probe skips verification.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('https').get({host:'127.0.0.1',port:8790,path:'/livez',rejectUnauthorized:false},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  buybot:
+    <<: *server
+    command: ['node', '--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist-server/buybot.js']
+    environment:
+      NEAR_NETWORK: mainnet
+      BUYBOT_NETWORK: mainnet
+      NEARKIT_WEB_URL: https://app.nearkit.example
+      BUYBOT_HEALTH_PORT: '8791'
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      NEARKIT_DATABASE_URL_FILE: /run/secrets/app_database_url
+    secrets: [telegram_bot_token, app_database_url]
+    networks: [edge, internal]
+    depends_on: [app-db]
+
+  app-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nearkit
+      POSTGRES_USER: nearkit
+      POSTGRES_PASSWORD_FILE: /run/secrets/app_db_password
+    secrets: [app_db_password]
+    volumes: [app-db:/var/lib/postgresql/data]
+    networks: [internal]
+
+  signer-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nearkit_signer
+      POSTGRES_USER: nearkit_signer
+      POSTGRES_PASSWORD_FILE: /run/secrets/signer_db_password
+    secrets: [signer_db_password]
+    volumes: [signer-db:/var/lib/postgresql/data]
+    networks: [internal]
+
+networks:
+  edge: {}
+  internal:
+    internal: true
+
+volumes:
+  app-db: {}
+  signer-db: {}
+  signer-control: {}
+
+secrets:
+  telegram_bot_token: { file: ./secrets/telegram_bot_token }
+  app_database_url: { file: ./secrets/app_database_url }
+  signer_database_url: { file: ./secrets/signer_database_url }
+  signer_auth_key: { file: ./secrets/signer_auth_key }
+  signer_tls_cert: { file: ./secrets/signer_tls_cert }
+  signer_tls_key: { file: ./secrets/signer_tls_key }
+  app_db_password: { file: ./secrets/app_db_password }
+  signer_db_password: { file: ./secrets/signer_db_password }
