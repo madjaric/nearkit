@@ -1,12 +1,16 @@
-import type { ReactNode } from 'react'
+import { Share2 } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { Button } from '@/components/ui/Button'
 import { Tag } from '@/components/ui/Indicators'
 import { Pct, Usd } from '@/components/ui/Num'
 import { toneOf } from '@/lib/tone'
 import { cn } from '@/lib/cn'
 import { formatCompact, formatDateTime, formatNumber } from '@/lib/format'
 import { explorerTxUrl } from '@/services/near/explorer'
-import { useCapabilities } from '@/services/queries'
+import { useCapabilities, useWallets } from '@/services/queries'
 import type { PnlFiguresView, Position } from '@/types/domain'
+import { cardFromPosition, type PnlCard } from './pnlCard'
+import { PnlCardDialog } from './PnlCardDialog'
 import { LIMITATION_TEXT } from './pnlText'
 
 /**
@@ -50,12 +54,25 @@ function Figures({ label, f, currency }: { label: string; f: PnlFiguresView; cur
 
 export function PositionPnlDetail({ position }: { position: Position }) {
   const caps = useCapabilities()
+  const { data: wallets = [] } = useWallets()
+  /** When the card was opened: its "as of" time. */
+  const [sharedAt, setSharedAt] = useState<number | null>(null)
   const pnl = position.pnl
   if (position.pnlStatus === 'loading') return <p className="text-xs text-fg-3">Reading this position’s on-chain history…</p>
   if (!pnl) return null
   const kind = { buy: 'Buy', sell: 'Sell', 'transfer-in': 'Received', 'transfer-out': 'Sent' } as const
+  const card = (at: number) => cardFromPosition(position, { usd: caps.prices, network: caps.network, demo: caps.mode === 'demo', at })
+  const accounts = [...new Set(position.wallets.map((w) => wallets.find((x) => x.id === w.walletId)?.accountId ?? w.walletId))]
   return (
     <div className="flex flex-col gap-3 py-1">
+      {card(0) && (
+        <div className="flex justify-end">
+          <Button size="xs" variant="ghost" icon={<Share2 size={13} />} onClick={() => setSharedAt(Date.now())} aria-label={`Share ${position.token.symbol} PnL card`}>
+            Share card
+          </Button>
+        </div>
+      )}
+      {sharedAt !== null && card(sharedAt) && <PnlCardDialog card={card(sharedAt) as PnlCard} accounts={accounts} onClose={() => setSharedAt(null)} />}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Figures label="In NEAR · exact" f={pnl.near} currency="NEAR" />
         {caps.prices && <Figures label="In USD · at each trade’s hour" f={pnl.usd} currency="USD" />}

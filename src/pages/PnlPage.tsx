@@ -1,9 +1,11 @@
+import { Share2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { PnlScope } from '@/components/chart/PnlScope'
 import { SimMark } from '@/components/domain/SimMark'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Page, PageHeader, RequireWallet } from '@/components/page/Page'
+import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Segmented } from '@/components/ui/Form'
 import { InfoTip, Term } from '@/components/ui/Help'
@@ -18,6 +20,8 @@ import { cn } from '@/lib/cn'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatCompact, formatDate, formatDateTime, formatNumber, formatPrice, NEAR_FORMAT, USD_FORMAT, type MoneyFormat } from '@/lib/format'
 import { useCapabilities, usePnl, useWallets } from '@/services/queries'
+import { cardFromReport } from '@/features/portfolio/pnlCard'
+import { PnlCardDialog } from '@/features/portfolio/PnlCardDialog'
 import { LIMITATION_TEXT } from '@/features/portfolio/pnlText'
 import type { PnlRange, TokenPnl } from '@/types/domain'
 
@@ -156,21 +160,31 @@ function Pnl() {
   const dim = pnl.isPlaceholderData
   const chain = r?.source === 'chain'
   const money = r?.currency === 'NEAR' ? NEAR_FORMAT : USD_FORMAT
+  const caps = useCapabilities()
+  /** When the card was opened: its "as of" time. */
+  const [sharedAt, setSharedAt] = useState<number | null>(null)
+  const accounts = [...new Set(wallets.map((w) => w.accountId))]
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented label="Date range" value={range} onChange={setRange} options={RANGES} />
-        {chain ? (
-          <span className="flex items-center gap-2 text-xs text-fg-3">
-            <Tag tone="neutral">On-chain history</Tag> Average cost · {r?.currency === 'NEAR' ? 'in NEAR: no USD prices on this network' : 'USD at each trade’s hour'}
-          </span>
-        ) : (
-          <span className="flex items-center gap-2 text-xs text-fg-3">
-            <Tag tone="neutral">Demo history</Tag> Closed trades generated for the preview
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {chain ? (
+            <span className="flex items-center gap-2 text-xs text-fg-3">
+              <Tag tone="neutral">On-chain history</Tag> Average cost · {r?.currency === 'NEAR' ? 'in NEAR: no USD prices on this network' : 'USD at each trade’s hour'}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2 text-xs text-fg-3">
+              <Tag tone="neutral">Demo history</Tag> Closed trades generated for the preview
+            </span>
+          )}
+          <Button size="sm" variant="secondary" icon={<Share2 size={14} />} disabled={!r || dim} onClick={() => setSharedAt(Date.now())}>
+            Share card
+          </Button>
+        </div>
       </div>
+      {sharedAt !== null && r && <PnlCardDialog card={cardFromReport(r, { network: caps.network, at: sharedAt })} accounts={accounts} onClose={() => setSharedAt(null)} />}
 
       <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-5" className={dim ? 'opacity-60 transition-opacity' : undefined}>
         <ReadoutSlot

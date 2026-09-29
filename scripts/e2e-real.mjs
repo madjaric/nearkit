@@ -4,7 +4,7 @@
 // A fake NEAR network (scripts/lib/fake-near.mjs) answers RPC, indexers and Rhea;
 // any other external request is aborted and fails the run.
 import { chromium } from 'playwright-core'
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createFakeNear } from './lib/fake-near.mjs'
 
@@ -323,6 +323,23 @@ await step('activity shows what NearKit sent, with explorer links', async () => 
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await visible('Sent from this browser')
   await visible(/Send USDT from Main to 2 recipients/)
+})
+
+await step('PnL card: the figures on screen, exported as a PNG', async () => {
+  await page.goto(BASE + '/pnl', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Share card' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Share PnL card' })
+  const card = dialog.getByRole('img', { name: /^PnL card: Portfolio, Last 90 days, Total PnL/ })
+  await card.waitFor()
+  const label = await card.getAttribute('aria-label')
+  // The fake index has no history for a held token, so the card must say it is partial.
+  if (!/Partial: .*history incomplete/.test(label ?? '')) throw new Error(`Card label: ${label}`)
+  const [download] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'Download PNG' }).click()])
+  if (download.suggestedFilename() !== 'nearkit-pnl-portfolio.png') throw new Error(`File is ${download.suggestedFilename()}`)
+  const bytes = readFileSync(await download.path())
+  if (bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || bytes.length < 10_000) throw new Error('Not a PNG card')
+  await shot('real-pnl-card')
+  await page.keyboard.press('Escape')
 })
 
 await step('disconnect ends the session', async () => {

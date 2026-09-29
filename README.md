@@ -106,6 +106,7 @@ One engine, `src/lib/pnl.ts`, computes every PnL figure NearKit shows: the Posit
   - Tokens that arrived by transfer, or through a token-for-token swap, have no known cost. They are tracked apart and left out of cost and PnL.
   - When the history doesn't explain the balance on chain (older than 600 transactions, or not indexed), the figures say "partial" and why.
   - A missing price leaves unrealized PnL unknown, not zero.
+- **Share card:** the PnL page and each position can export their figures as a 1200×630 PNG (`src/features/portfolio/pnlCard.ts`). The card marks partial figures and demo data, and shows the account only if the user adds it.
 
 ## Testnet checklist (before enabling mainnet)
 

@@ -7,3 +7,11 @@ export const LIMITATION_TEXT: Record<PnlLimitation, string> = {
   'history-incomplete': 'The history NearKit could read doesn’t explain the whole balance (older or unindexed transactions): figures cover what it could read.',
   'no-current-price': 'No current price: unrealized PnL is unknown.',
 }
+
+/** The same, in a few words, for a shareable PnL card. */
+export const LIMITATION_SHORT: Record<PnlLimitation, string> = {
+  'unknown-cost-units': 'some tokens have no known cost',
+  'unknown-proceeds': 'some sales have no known value',
+  'history-incomplete': 'history incomplete',
+  'no-current-price': 'no current price',
+}
