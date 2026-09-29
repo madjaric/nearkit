@@ -217,6 +217,8 @@ export interface TokenPnl {
   realizedUsd: number
   unrealizedUsd: number
   winRatePct: number
+  /** Sales with a known result in the range: the win rate covers these only. Absent in demo data, where every trade is closed. */
+  closed?: number
 }
 
 export interface ClosedTrade {

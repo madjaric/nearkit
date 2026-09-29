@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import { createBrowserRouter } from 'react-router'
 import { AppShell } from '@/layouts/AppShell'
-import { BootScreen, RouteError } from '@/pages/system'
+import NotFoundPage, { BootScreen, RouteError } from '@/pages/system'
 
 /** Each screen is its own chunk; the shell stays mounted while the next one loads. */
 const page = (load: () => Promise<{ default: ComponentType }>) => async () => ({ Component: (await load()).default })
@@ -32,7 +32,8 @@ export const router = createBrowserRouter([
           { path: 'telegram', lazy: page(() => import('@/pages/TelegramPage')) },
           { path: 'settings', lazy: page(() => import('@/pages/SettingsPage')) },
           { path: 'docs', lazy: page(() => import('@/pages/DocsPage')) },
-          { path: '*', lazy: page(() => import('@/pages/system')) },
+          // Already in the main chunk for the boot and error screens.
+          { path: '*', Component: NotFoundPage },
         ],
       },
     ],

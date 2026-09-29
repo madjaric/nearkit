@@ -83,6 +83,10 @@ describe('positions with PnL from on-chain history', () => {
     expect(report?.realizedUsd).toBe(0)
     const sing = report?.byToken.find((t) => t.token.id === SING)
     expect(sing?.trades).toBe(1)
+    // Nothing sold yet: no win rate to speak of, rather than a 0% one.
+    expect(sing?.closed).toBe(0)
+    expect(report?.wins).toBe(0)
+    expect(report?.losses).toBe(0)
     expect(sing?.unrealizedUsd).toBeCloseTo(69099.416 * 0.0002 - (sing ? 0 : 0) - 1.0 * 4.8, 1)
     expect(report?.gasNear).toBeGreaterThan(0)
   })

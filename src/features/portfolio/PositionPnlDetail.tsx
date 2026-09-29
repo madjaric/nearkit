@@ -73,30 +73,32 @@ export function PositionPnlDetail({ position }: { position: Position }) {
         </ul>
       )}
       {pnl.history.length > 0 && (
-        <table className="w-full text-xs" aria-label={`${position.token.symbol} transactions`}>
-          <tbody>
-            {pnl.history.slice(0, 8).map((h) => (
-              <tr key={`${h.tx}:${h.accountId}:${h.kind}`} className="border-t border-line-soft">
-                <td className="py-1 pr-3 text-fg-3">{formatDateTime(h.at)}</td>
-                <td className="py-1 pr-3 text-fg-2">{kind[h.kind]}</td>
-                <td className="num py-1 pr-3 text-right text-fg">{formatCompact(h.amount, 2)}</td>
-                <td className="py-1 pr-3 text-right">{h.valueNear !== null ? <Near value={h.valueNear} /> : <span className="text-fg-4">{h.counterparty ?? '—'}</span>}</td>
-                <td className="py-1 text-right">
-                  {caps.explorerUrl && (
-                    <a
-                      href={explorerTxUrl({ explorerUrl: caps.explorerUrl }, h.tx)}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="text-fg-3 underline-offset-2 hover:text-fg hover:underline"
-                    >
-                      tx
-                    </a>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs" aria-label={`${position.token.symbol} transactions`}>
+            <tbody>
+              {pnl.history.slice(0, 8).map((h) => (
+                <tr key={`${h.tx}:${h.accountId}:${h.kind}`} className="border-t border-line-soft">
+                  <td className="whitespace-nowrap py-1 pr-3 text-fg-3">{formatDateTime(h.at)}</td>
+                  <td className="py-1 pr-3 text-fg-2">{kind[h.kind]}</td>
+                  <td className="num py-1 pr-3 text-right text-fg">{formatCompact(h.amount, 2)}</td>
+                  <td className="py-1 pr-3 text-right">{h.valueNear !== null ? <Near value={h.valueNear} /> : <span className="text-fg-4">{h.counterparty ?? '—'}</span>}</td>
+                  <td className="py-1 text-right">
+                    {caps.explorerUrl && (
+                      <a
+                        href={explorerTxUrl({ explorerUrl: caps.explorerUrl }, h.tx)}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-fg-3 underline-offset-2 hover:text-fg hover:underline"
+                      >
+                        tx
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

@@ -71,7 +71,7 @@ function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
                   {t.token.status === 'prelaunch' && <SimMark className="ml-0" />}
                 </span>
                 <span className="num text-[11px] text-fg-3">
-                  {t.trades} trades · {t.trades ? `${formatNumber(t.winRatePct, 0, 1)}% won` : '—'}
+                  {t.trades} {t.trades === 1 ? 'trade' : 'trades'} · {(t.closed ?? t.trades) ? `${formatNumber(t.winRatePct, 0, 1)}% won` : 'none closed'}
                 </span>
               </span>
             </span>
@@ -134,8 +134,8 @@ function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
                 <Td align="right">
                   <Money money={money} value={t.unrealizedUsd} signed colored />
                 </Td>
-                <Td align="right" mono className={t.trades ? 'text-fg-2' : 'text-fg-4'}>
-                  {t.trades ? `${formatNumber(t.winRatePct, 0, 1)}%` : '—'}
+                <Td align="right" mono className={(t.closed ?? t.trades) ? 'text-fg-2' : 'text-fg-4'}>
+                  {(t.closed ?? t.trades) ? `${formatNumber(t.winRatePct, 0, 1)}%` : '—'}
                 </Td>
               </Tr>
             ))}
@@ -215,8 +215,8 @@ function Pnl() {
           className="md:col-span-2 xl:col-span-1"
           legend={<Term term="winRate" />}
           loading={loading}
-          value={r ? `${formatNumber(r.winRatePct, 1, 1)}%` : '—'}
-          sub={r ? `${r.wins} won · ${r.losses} lost` : ''}
+          value={r && r.wins + r.losses > 0 ? `${formatNumber(r.winRatePct, 1, 1)}%` : '—'}
+          sub={r ? (r.wins + r.losses > 0 ? `${r.wins} won · ${r.losses} lost` : 'no closed trades with a known result') : ''}
         />
       </ReadoutStrip>
 

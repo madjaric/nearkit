@@ -53,6 +53,7 @@ export function buildPnlReport(input: {
       realizedUsd: realized,
       unrealizedUsd: unrealized ?? 0,
       winRatePct: judged.length ? (wins / judged.length) * 100 : 0,
+      closed: judged.length,
     })
     for (const x of sales) {
       const pnl = money(x.sale)

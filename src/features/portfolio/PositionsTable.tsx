@@ -287,6 +287,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                   <div className="text-xs">
                     <Usd value={p.pnlUsd} signed colored /> <Pct value={p.pnlPct} className="text-fg-3" colored />
                   </div>
+                  <PnlState position={p} />
                 </div>
               </div>
               <dl className="grid grid-cols-3 gap-2 text-xs">
@@ -309,6 +310,19 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                   </dd>
                 </div>
               </dl>
+              {expandable && (p.pnl || p.pnlStatus === 'loading') && (
+                <div>
+                  <button type="button" onClick={() => toggle(p.token.id)} aria-expanded={open.has(p.token.id)} className="flex items-center gap-1 text-xs text-fg-3 hover:text-fg">
+                    <ChevronRight size={13} className={cn('transition-transform duration-150', open.has(p.token.id) && 'rotate-90')} />
+                    PnL details
+                  </button>
+                  {open.has(p.token.id) && (
+                    <div className="mt-2">
+                      <PositionPnlDetail position={p} />
+                    </div>
+                  )}
+                </div>
+              )}
               {!p.token.isNative && <TradeKeysMobile position={p} />}
             </li>
           ))}
