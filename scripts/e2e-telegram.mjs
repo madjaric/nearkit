@@ -27,6 +27,8 @@ const WEB_PORT = 5206
 const API_PORT = 8799
 const WEB = `http://localhost:${WEB_PORT}`
 const TOKEN = '4242424242:E2E-fake-token-not-a-real-bot-000000000'
+// A test-only key-encryption key: NearKit trading wallets are on for this server.
+const KEK = Buffer.alloc(32, 9).toString('base64')
 const ONE = 10n ** 24n
 const USER = 'e2e-user.testnet'
 const TG_USER = { id: 777, is_bot: false, first_name: 'Tess', username: 'tester' }
@@ -106,6 +108,7 @@ const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning',
     NEARKIT_WEB_URL: WEB,
     NEARKIT_API_PORT: String(API_PORT),
     NEARKIT_DB_PATH: join(data, 'e2e.sqlite'),
+    NEARKIT_WALLET_KEK: KEK,
     BUYBOT_ENABLED: 'false',
     LOG_LEVEL: 'warn',
   },
@@ -320,6 +323,26 @@ await step('a buy prepared in Telegram is signed in NearKit, checked on chain an
   if (!/Bought 4\.0\d+ USDT/.test(done.text) || !done.text.includes('for 1 NEAR')) throw new Error(`unexpected result: ${done.text}`)
 })
 
+await step('a NearKit wallet is created in Telegram: one address even on a double tap, and /health says wallets are on', async () => {
+  const health = await fetch(`http://127.0.0.1:${API_PORT}/health`).then((r) => r.json())
+  if (health.wallets !== 'on') throw new Error(`wallets: ${health.wallets}`)
+  let from = tg.sent.length
+  say(TG_USER, '/wallet')
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('not created yet'), { from })
+  from = tg.sent.length
+  press(TG_USER, 'cw:create')
+  press(TG_USER, 'cw:create')
+  const made = await tg.waitFor(TG_USER.id, (x) => /[0-9a-f]{64}/.test(x.text), { from })
+  const address = made.text.match(/[0-9a-f]{64}/)[0]
+  await new Promise((r) => setTimeout(r, 300))
+  const shown = new Set(tg.sent.slice(from).flatMap((x) => x.text.match(/[0-9a-f]{64}/g) ?? []))
+  if (shown.size !== 1) throw new Error(`more than one wallet address: ${[...shown].join(', ')}`)
+  from = tg.sent.length
+  press(TG_USER, 'cw:dep')
+  const dep = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Deposit to your NearKit wallet'), { from })
+  if (!dep.text.includes(address) || !dep.text.includes('NEAR Testnet')) throw new Error(`unexpected deposit screen: ${dep.text.slice(0, 200)}`)
+})
+
 await step('unlinking from Telegram removes the account', async () => {
   let from = tg.sent.length
   say(TG_USER, '/unlink')
@@ -338,6 +361,7 @@ await step('unlinking from Telegram removes the account', async () => {
 await step('no request left for a live network, and no token in the server log', async () => {
   if (near.state.external.length) throw new Error(`external requests: ${near.state.external.slice(0, 3).join(', ')}`)
   if (serverLog.join('').includes(TOKEN)) throw new Error('the bot token reached the server log')
+  if (serverLog.join('').includes(KEK)) throw new Error('the wallet key-encryption key reached the server log')
 })
 
 console.log(results.join('\n'))

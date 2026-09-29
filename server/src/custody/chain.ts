@@ -115,8 +115,9 @@ export function createChainAccess(opts: { rpc: RpcClient; fetch?: typeof fetch; 
         } catch (e) {
           last = e instanceof Error ? e.message : String(e)
           if (e instanceof RpcError && e.kind === 'handler') {
-            // Refused outright, and nothing earlier may have reached the network: it can never land.
-            if (e.causeName === 'INVALID_TRANSACTION' && !mayHaveLanded) return { kind: 'rejected', reason: last }
+            // Refused outright (invalid, or bytes the node can't even parse), and nothing earlier may have
+            // reached the network: it can never land.
+            if ((e.causeName === 'INVALID_TRANSACTION' || e.causeName === 'PARSE_ERROR') && !mayHaveLanded) return { kind: 'rejected', reason: last }
             return { kind: 'unknown', reason: last }
           }
           // A timeout or transport failure: this node may have forwarded it. The next endpoint gets the
