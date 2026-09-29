@@ -9,7 +9,7 @@ related_targets: ["src/layouts/AppShell.tsx","src/index.css"]
 
 Scope: the whole NearKit web app. Visitor mode: **Operate**. Dashboard is the first surface; every other route inherits the shell and system.
 
-Audience and job: NEAR traders who run several wallets and come back many times a day to read positions and act in seconds. Task surfaces: trade ticket, multi-wallet fan-out, split / consolidate / batch send, automation rules, scanner. Constraints: Phase 1 is UI only. Mock services behind interfaces, demo data labeled, unshipped features marked COMING SOON, NearKit fee 0.10% on every trade surface.
+Audience and job: NEAR traders who run several wallets and come back many times a day to read positions and act in seconds. Task surfaces: trade ticket, multi-wallet fan-out, split / consolidate / batch send, automation rules, scanner. Constraints: Phase 1 is UI only. Mock services behind interfaces, demo data labeled, unshipped features marked COMING SOON, NearKit fee 0.50% on every trade surface.
 
 Build path: code-led (no comp round). Direction round not presented interactively because the user's brief pinned the palette, layout and tone and asked for a straight plan → build run. The roll's assignment governs the dimensions the brief left open.
 
@@ -21,7 +21,7 @@ OWN-WORLD: A graphite bezel: near-black ground, panels one step lighter, hairlin
 
 STORY: A trader opens NearKit and reads their portfolio as instrument readouts, scans positions, and fires a trade from the ticket without leaving the page. Tools fan one instruction across many wallets and show the allocation before anything happens. Anything not live says so plainly.
 
-FIRST VIEWPORT: At 1440 the viewport holds a 224px sidebar with bracketed group legends, a 48px top bar (search, NEAR price, network LED, wallet), and a full-width readout strip of five fixed slots (portfolio value with a 7d trace, 24h PnL, available NEAR, active positions, open orders). Below it, a dense sortable positions table and the portfolio trace sit on the left, with a 360px Quick Trade ticket on the right (buy/sell, token, amount, 25/50/75/MAX, slippage, expected output, NearKit fee 0.10%). The primary action is the ticket's BUY/SELL button, above the fold at top right.
+FIRST VIEWPORT: At 1440 the viewport holds a 224px sidebar with bracketed group legends, a 48px top bar (search, NEAR price, network LED, wallet), and a full-width readout strip of five fixed slots (portfolio value with a 7d trace, 24h PnL, available NEAR, active positions, open orders). Below it, a dense sortable positions table and the portfolio trace sit on the left, with a 360px Quick Trade ticket on the right (buy/sell, token, amount, 25/50/75/MAX, slippage, expected output, NearKit fee 0.50%). The primary action is the ticket's BUY/SELL button, above the fold at top right.
 
 FORM: Oscilloscope / test-instrument front panel, candidate 6 of 7 on the ordered list, seed key c4c2d057. Signature interaction: the PnL trace has two draggable measurement cursors (A/B) that read ΔPnL, Δ% and Δt like scope cursors, and are keyboard operable. Raises:
 - eBoy: one hard grid shared by every object.

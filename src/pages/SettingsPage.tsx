@@ -9,7 +9,7 @@ import { InfoTip } from '@/components/ui/Help'
 import { ComingSoon, Led, Tag } from '@/components/ui/Indicators'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { useToast } from '@/components/ui/toast-context'
-import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL } from '@/lib/fees'
 import { useCapabilities, useDisconnect, useResetDemo, useSession } from '@/services/queries'
 import { useConnectPrompt, useSettings } from '@/state/contexts'
 
@@ -84,7 +84,6 @@ function NetworkPanel() {
 function FeesPanel() {
   const caps = useCapabilities()
   const t = caps.execution.trading
-  const pct = (bps: number) => `${(bps / 100).toFixed(2)}%`
   return (
     <Panel>
       <PanelHeader title="Fees" />
@@ -96,7 +95,7 @@ function FeesPanel() {
           {caps.mode === 'near' && t.feeCharged && (
             <>
               <Line label="Of which" mono={false}>
-                NearKit receives <span className="num text-fg">{pct(160)}</span>, Rhea keeps <span className="num text-fg">{pct(40)}</span>
+                NearKit receives <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span>, Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>
               </Line>
               <Line label="Rhea protocol fee" mono={false}>
                 <span className="num text-fg">0.10%</span> on every swap, Rhea’s own

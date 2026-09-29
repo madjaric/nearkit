@@ -17,8 +17,8 @@ const feeQuote = parseSmartxResponse(withFee)
 const feeDecoded = decodeSmartxMsg(feeQuote.msg) as { deadline: number }
 
 // The research route (two exchanges) was quoted at an app fee of 2.00%. The checks
-// below test the route checker against that route's own terms. NearKit's own 0.10%
-// is covered in "NearKit's 0.10% fee on Rhea routes", which refuses this route.
+// below test the route checker against that route's own terms. NearKit's own fee
+// is covered in "NearKit’s fee on Rhea routes", which refuses this route.
 const expectFee: RouteExpectation = {
   user: 'example.near',
   tokenIn: USDT,

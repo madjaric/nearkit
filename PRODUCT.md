@@ -37,7 +37,7 @@ The one place on NEAR where multi-wallet execution and wallet housekeeping (spli
 
 - **Phase 1 is UI/UX only.** No real NEAR transactions, smart contracts, Rhea or Nearly integration, private key handling, Telegram bot, swaps, or blockchain execution.
 - The UI talks only to service interfaces (`TradingService`, `WalletService`, `TokenService`, `AutomationService`, plus portfolio/scanner as needed). Phase 1 ships mock implementations, and components must not know whether data comes from mocks or chain.
-- NearKit fee: **0.10%** (10 bps) on Swap and Quick Trade, shown on every trade surface (corrected from 2.00% on 2026-09-28). Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its Nearly launch and is separate.
+- NearKit fee: **0.50%** (50 bps) on Swap and Quick Trade on the web and on Buy and Sell in Telegram, shown on every trade surface and set once, in `NEARKIT_FEE` (`src/lib/fees.ts`). Of it NearKit receives 0.40% and Rhea's aggregator keeps 0.10%; Rhea's own protocol fee, pool fees and gas are separate. (0.10% from 2026-09-28 and 2.00% before that; 0.50% since 2026-09-29.) Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its Nearly launch and is separate.
 - Mock state may reset on refresh; persistence is not required.
 - Terminology: Split = distribute one wallet's tokens to many; Consolidate = gather from many into one; Batch Send = many transfers from one list; Presets = saved wallet groups.
 
