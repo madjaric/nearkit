@@ -107,9 +107,9 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
       [btn('📥 Deposit', 'cw:dep'), btn('📤 Withdraw', 'cw:wd')],
       [btn('🟢 Buy', 'tr:buy'), btn('🔴 Sell', 'tr:sell')],
       wnear ? [btn('🔁 Unwrap wNEAR', 'cu:unwrap')] : [],
-      [btn('⚙️ Settings', 'set:show'), btn('🔄 Refresh', 'cw:home')],
-      [btn(details ? '🔎 Less' : '🔎 Details', details ? 'cw:home' : 'cw:details'), btn('🔗 Linked wallet', 'menu:linked')],
-      [btn('« Menu', 'menu:home')],
+      [btn('🔐 Recovery', 'cr:show'), btn('⚙️ Settings', 'set:show')],
+      [btn('🔄 Refresh', 'cw:home'), btn(details ? '🔎 Less' : '🔎 Details', details ? 'cw:home' : 'cw:details')],
+      [btn('🔗 Linked wallet', 'menu:linked'), btn('« Menu', 'menu:home')],
     ),
   )
 }
@@ -133,7 +133,7 @@ async function create(ctx: BotCtx) {
       code(wallet.accountId),
       '',
       'It’s empty. Send testnet NEAR to this address to start trading here. Tap the address to copy it.',
-      'Once it’s funded, you can add your linked wallet as its backup key: then it’s yours even without NearKit.',
+      'Once it’s funded, add your linked wallet as its backup key (🔐 Recovery): then it’s yours even without NearKit.',
     ].join('\n'),
     keyboard([btn('📥 Deposit', 'cw:dep'), btn('👛 Wallet', 'cw:home')]),
   )

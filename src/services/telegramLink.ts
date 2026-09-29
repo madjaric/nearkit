@@ -89,3 +89,41 @@ export const confirmLink = (
   body: { code: string; accountId: string; publicKey: string; signature: string },
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
 ) => post<LinkResult>(apiUrl, '/api/link/confirm', body, fetchImpl)
+
+// ─── NearKit wallet key export ───────────────────────────────────────────────
+
+export interface RecoveryDescription {
+  telegram: { name: string; username: string | null }
+  network: string
+  /** The NearKit wallet whose key would be exported. */
+  wallet: string
+  /** Linked accounts: one of them must sign. */
+  accounts: string[]
+  recipient: string
+  message: string
+  /** Base64 of the 32-byte NEP-413 nonce. */
+  nonce: string
+  expiresAt: number
+}
+
+export interface RecoveryExport {
+  accountId: string
+  publicKey: string
+  /** The private key. Kept in memory only while the page shows it; never stored. */
+  secretKey: string
+}
+
+/** `#recover=<code>` → code; anything else → null. The fragment never reaches a server log. */
+export function readRecoverCode(hash: string): string | null {
+  const m = /^#recover=([A-Za-z0-9_-]{16,64})$/.exec(hash)
+  return m ? (m[1] as string) : null
+}
+
+export const describeRecovery = (apiUrl: string, code: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
+  post<RecoveryDescription>(apiUrl, '/api/recovery/describe', { code }, fetchImpl)
+
+export const exportRecovery = (
+  apiUrl: string,
+  body: { code: string; accountId: string; publicKey: string; signature: string },
+  fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
+) => post<RecoveryExport>(apiUrl, '/api/recovery/export', body, fetchImpl)

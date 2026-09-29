@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
 import { base58Decode, base58Encode, base64Decode } from '@/lib/encoding'
@@ -99,5 +102,40 @@ describe('signer', () => {
     expect(actions.filter((a) => a === 'key-exported')).toHaveLength(1)
     // The security log never holds the key.
     expect(JSON.stringify(store.auditOf(wallet.id))).not.toContain(secret.slice(8))
+  })
+})
+
+describe('restart', () => {
+  it('a wallet saved to disk still signs after the process restarts with the same key-encryption key', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nearkit-signer-'))
+    try {
+      const path = join(dir, 'db.sqlite')
+      const first = await Db.open(path)
+      migrate(first)
+      new Store(first, () => now).upsertUser({ userId: 101, username: null, firstName: 'A', languageCode: null })
+      const s1 = new CustodyStore(first, () => now)
+      const signer1 = createLocalSigner({ wrapper: localKeyWrapper(kek), network: net, store: s1 })
+      const { wallet } = s1.createWallet({ userId: 101, network: 'testnet', ...(await signer1.createKey('testnet')), keyRef: signer1.keyRef })
+      first.close()
+
+      const second = await Db.open(path)
+      migrate(second)
+      const s2 = new CustodyStore(second, () => now)
+      const reopened = s2.activeWallet(101, 'testnet') as TradingWallet
+      expect(reopened).toEqual(wallet)
+      const signer2 = createLocalSigner({ wrapper: localKeyWrapper(Buffer.from(kek)), network: net, store: s2 })
+      const signed = await signer2.sign({
+        wallet: reopened,
+        op: { kind: 'withdraw-near', to: 'bob.testnet', amount: 5n },
+        plan: transfer('bob.testnet', 5n),
+        index: 0,
+        nonce: 1n,
+        blockHash: BLOCK,
+      })
+      expect(deserializeSignedTransaction(base64Decode(signed.base64) as Uint8Array).transaction.signerId).toBe(wallet.accountId)
+      second.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

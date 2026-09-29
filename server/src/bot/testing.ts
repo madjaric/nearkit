@@ -22,6 +22,7 @@ import type { CustodyDeps } from '../custody/wallets'
 import { withdrawHandler } from '../custody/withdraw'
 import { createSwapService } from '../custody/swap'
 import { unwrapHandler } from '../custody/unwrap'
+import { backupKeyHandler, createRecoveryService, revokeHandler } from '../custody/recovery'
 import { createBotApp } from './app'
 import type { BotDeps, BotModule } from './context'
 import { notifySettled } from './intents'
@@ -77,7 +78,14 @@ export async function botHarness(
       store: cstore,
       signer,
       chain: access,
-      handlers: { withdraw: withdrawHandler({ near, network: config.network }), buy: swaps.handler, sell: swaps.handler, unwrap: unwrapHandler(near) },
+      handlers: {
+        withdraw: withdrawHandler({ near, network: config.network }),
+        buy: swaps.handler,
+        sell: swaps.handler,
+        unwrap: unwrapHandler(near),
+        'backup-key': backupKeyHandler({ near, links: store, custody: cstore }),
+        revoke: revokeHandler({ near, custody: cstore }),
+      },
       log: silentLogger,
       now,
       sleep: async (ms) => void (clock += ms),
@@ -85,7 +93,8 @@ export async function botHarness(
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => notifySettled(deps, settledNotice, intent),
     })
-    custody = { store: cstore, signer, engine, chain: access, swaps }
+    const recovery = createRecoveryService({ store, custody: cstore, signer, config, rpc: near.ctx.rpc, now })
+    custody = { store: cstore, signer, engine, chain: access, swaps, recovery }
   }
   const deps: BotDeps = {
     tg,

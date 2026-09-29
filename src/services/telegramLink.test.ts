@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { confirmLink, describeLink, LinkRequestError, readHandoffId, readLinkCode } from './telegramLink'
+import { confirmLink, describeLink, exportRecovery, LinkRequestError, readHandoffId, readLinkCode, readRecoverCode } from './telegramLink'
 
 const code = 'Abc_DEF-123456789012345'
 
@@ -52,5 +52,27 @@ describe('NearKit API calls', () => {
       throw new TypeError('Failed to fetch')
     }) as typeof fetch).catch((e: unknown) => e)
     expect(error).toMatchObject({ status: 0, code: 'unreachable' })
+  })
+})
+
+describe('wallet key export', () => {
+  it('reads the export code only from a well-formed fragment, never the link code', () => {
+    expect(readRecoverCode(`#recover=${code}`)).toBe(code)
+    expect(readRecoverCode(`#link=${code}`)).toBeNull()
+    expect(readRecoverCode('#recover=short')).toBeNull()
+    expect(readLinkCode(`#recover=${code}`)).toBeNull()
+  })
+
+  it('posts the wallet signature and passes the server’s refusal through as a readable error', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const refuse = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init?.body)) })
+      return new Response(JSON.stringify({ error: { code: 'used', message: 'This export link was already used.' } }), { status: 409 })
+    }) as typeof fetch
+    const body = { code, accountId: 'alice.testnet', publicKey: 'ed25519:K', signature: 'sig' }
+    const error = await exportRecovery('https://api.test', body, refuse).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(LinkRequestError)
+    expect(error).toMatchObject({ status: 409, code: 'used', message: 'This export link was already used.' })
+    expect(calls).toEqual([{ url: 'https://api.test/api/recovery/export', body }])
   })
 })

@@ -20,7 +20,8 @@ export const LINKED_KEY = 'ed25519:Anu7LYDfpLtkP7E16LT9imXF694BdQaa9ufVkQiwTQxC'
 export const REG = 1_250_000_000_000_000_000_000n
 const FIND_PATH = 'https://smartroutertest.refburrow.top/findPath'
 
-export async function walletBot(options: { link?: boolean } = {}) {
+export async function walletBot(options: { link?: boolean; linkedKey?: string; extraKeys?: Record<string, 'full' | 'function-call'> } = {}) {
+  const linkedKey = options.linkedKey ?? LINKED_KEY
   /** USDT (6 decimals) per NEAR, times 1e6: 4_000_000 = 4 USDT. */
   const market = { usdtPerNear: 4_000_000n, noRoute: false }
   const rate = (tokenIn: string, tokenOut: string, amount: bigint) =>
@@ -30,7 +31,7 @@ export async function walletBot(options: { link?: boolean } = {}) {
     custody: true,
     chain: {
       accounts: {
-        [LINKED]: { amount: 5n * ONE, keys: { [LINKED_KEY]: 'full' } },
+        [LINKED]: { amount: 5n * ONE, keys: { [linkedKey]: 'full', ...options.extraKeys } },
         'bob.testnet': { amount: ONE },
         [USDT]: { amount: ONE, code: true },
         [WRAP]: { amount: ONE, code: true },
@@ -70,7 +71,7 @@ export async function walletBot(options: { link?: boolean } = {}) {
   if (options.link !== false) {
     h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
     h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
-    h.store.completeLink({ codeHash: 'h', network: 'testnet', accountId: LINKED, userId: ALICE.id, publicKey: LINKED_KEY })
+    h.store.completeLink({ codeHash: 'h', network: 'testnet', accountId: LINKED, userId: ALICE.id, publicKey: linkedKey })
     h.store.updateSettings(ALICE.id, { defaultAccount: LINKED })
   }
   const custody = h.deps.custody as NonNullable<typeof h.deps.custody>

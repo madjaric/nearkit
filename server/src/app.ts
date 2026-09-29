@@ -33,6 +33,10 @@ import type { CustodyDeps } from './custody/wallets'
 import { withdrawHandler } from './custody/withdraw'
 import { createSwapService } from './custody/swap'
 import { unwrapHandler } from './custody/unwrap'
+import { backupKeyHandler, createRecoveryService, revokeHandler } from './custody/recovery'
+import { recoveryRoutes } from './api/recoveryRoutes'
+import { exportedText, recoveryModule } from './bot/recovery'
+import { btn, keyboard } from './bot/context'
 import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
 import { tradingWalletModule } from './bot/tradingWallet'
@@ -63,6 +67,7 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     buybotModule(),
     tradingWalletModule(),
     nativeTradeModule(),
+    recoveryModule(),
     intentsModule(),
   ]
 }
@@ -121,13 +126,21 @@ export async function startServer(options: { env: Record<string, string | undefi
       store: cstore,
       signer,
       chain,
-      handlers: { withdraw: withdrawHandler({ near, network: config.network }), buy: swaps.handler, sell: swaps.handler, unwrap: unwrapHandler(near) },
+      handlers: {
+        withdraw: withdrawHandler({ near, network: config.network }),
+        buy: swaps.handler,
+        sell: swaps.handler,
+        unwrap: unwrapHandler(near),
+        'backup-key': backupKeyHandler({ near, links: store, custody: cstore }),
+        revoke: revokeHandler({ near, custody: cstore }),
+      },
       log,
       now,
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => onSettled(intent),
     })
-    custody = { store: cstore, signer, engine, chain, swaps }
+    const recovery = createRecoveryService({ store, custody: cstore, signer, config, rpc: near.ctx.rpc, now })
+    custody = { store: cstore, signer, engine, chain, swaps, recovery }
     log.info('trading wallets on', { network: config.network.id, keyRef: signer.keyRef })
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })
@@ -190,8 +203,18 @@ export async function startServer(options: { env: Record<string, string | undefi
   const api: Server = createApiServer({
     config,
     log,
-    routes: { ...linkRoutes({ link, onLinked }), ...handoffRoutes(handoffs) },
-    limits: { '/api/link/describe': 30, '/api/link/confirm': 10, '/api/handoff/describe': 30, '/api/handoff/result': 20 },
+    routes: {
+      ...linkRoutes({ link, onLinked }),
+      ...handoffRoutes(handoffs),
+      ...(custody
+        ? recoveryRoutes({
+            recovery: custody.recovery,
+            // The owner hears about every export in Telegram, whoever did it.
+            onExported: async (r) => void (await bot?.notify(r.userId, exportedText(r.wallet, r.signedBy), keyboard([btn('📤 Withdraw', 'cw:wd'), btn('👛 Wallet', 'cw:home')]))),
+          })
+        : {}),
+    },
+    limits: { '/api/link/describe': 30, '/api/link/confirm': 10, '/api/handoff/describe': 30, '/api/handoff/result': 20, '/api/recovery/describe': 30, '/api/recovery/export': 5 },
     // Public and secret-free: whether the bot and buy alerts run, and the boot count (see Store.recordBoot).
     health: () => ({
       bot: bot ? true : false,
