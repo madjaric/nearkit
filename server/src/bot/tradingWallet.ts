@@ -26,8 +26,8 @@ interface Asset {
   decimals: number
 }
 
-export function tradingWallet(deps: BotDeps, userId: number): TradingWallet | null {
-  return deps.custody?.store.activeWallet(userId, deps.config.network.id) ?? null
+export async function tradingWallet(deps: BotDeps, userId: number): Promise<TradingWallet | null> {
+  return (await deps.custody?.store.activeWallet(userId, deps.config.network.id)) ?? null
 }
 
 const networkName = (deps: BotDeps) => `NEAR ${deps.config.network.label}`
@@ -43,7 +43,7 @@ async function tokensOf(ctx: BotCtx, view: WalletView) {
 }
 
 async function offerCreate(ctx: BotCtx) {
-  const linked = linkedAccount(ctx)
+  const linked = await linkedAccount(ctx)
   const near = linked ? await nearAvailable(ctx, linked) : null
   await ctx.show(
     [
@@ -66,12 +66,12 @@ async function offerCreate(ctx: BotCtx) {
 /** The Wallet button: the NearKit wallet when trading wallets run here, else the linked wallet. */
 export async function showWalletHome(ctx: BotCtx, details = false) {
   if (!ctx.deps.custody) return showWallet(ctx, { details })
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return offerCreate(ctx)
   const view = await readWallet(ctx.deps.near, w)
   const held = await tokensOf(ctx, view)
-  const linked = linkedAccount(ctx)
-  const mine = ownerKeyNow(ctx.deps.store, w)
+  const linked = await linkedAccount(ctx)
+  const mine = await ownerKeyNow(ctx.deps.store, w)
   const backup = mine !== null && view.keys?.includes(mine)
   const wnear = view.tokens.some((t) => t.contract === ctx.deps.config.network.wrapContract && t.raw > 0n)
   const balance =
@@ -120,7 +120,7 @@ async function create(ctx: BotCtx) {
   const custody = ctx.deps.custody
   if (!custody) return ctx.answer('NearKit wallets aren’t available on this server.', true)
   const linked = await needAccount(ctx)
-  const link = linked ? ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
+  const link = linked ? await ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
   if (!link) return
   await ctx.answer()
   let result
@@ -145,7 +145,7 @@ async function create(ctx: BotCtx) {
 }
 
 async function deposit(ctx: BotCtx) {
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   await ctx.show(
     [
@@ -164,18 +164,18 @@ async function deposit(ctx: BotCtx) {
 // ─── withdraw ───────────────────────────────────────────────────────────────
 
 async function withdrawStart(ctx: BotCtx) {
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   const view = await readWallet(ctx.deps.near, w)
   if (!view.exists) return ctx.show('Your NearKit wallet is empty: nothing to withdraw yet.', keyboard([btn('📥 Deposit', 'cw:dep')], walletRow))
   const held = await tokensOf(ctx, view)
   const put = (a: Asset) => ctx.deps.store.putCallback(a, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
   const nearMax = view.near !== null ? maxNearWithdraw(view.near) : 0n
+  const nearId = nearMax > 0n ? await put({ asset: NATIVE_TOKEN_ID, symbol: 'NEAR', decimals: NEAR_DECIMALS }) : null
+  const heldIds = await Promise.all(held.map((t) => put({ asset: t.contract, symbol: t.token.symbol, decimals: t.token.decimals })))
   const rows = [
-    ...(nearMax > 0n ? [[btn(`NEAR · ${nearText(view.near ?? 0n)}`, `cw:wa:${put({ asset: NATIVE_TOKEN_ID, symbol: 'NEAR', decimals: NEAR_DECIMALS })}`)]] : []),
-    ...held.map((t) => [
-      btn(`${t.token.symbol} · ${amountText(t.raw, t.token.decimals)}`, `cw:wa:${put({ asset: t.contract, symbol: t.token.symbol, decimals: t.token.decimals })}`),
-    ]),
+    ...(nearId ? [[btn(`NEAR · ${nearText(view.near ?? 0n)}`, `cw:wa:${nearId}`)]] : []),
+    ...held.map((t, i) => [btn(`${t.token.symbol} · ${amountText(t.raw, t.token.decimals)}`, `cw:wa:${heldIds[i]}`)]),
   ]
   if (!rows.length) return ctx.show('Nothing to withdraw: the wallet only holds what it needs for fees.', keyboard(walletRow))
   await ctx.show(`📤 ${bold('Withdraw')} · what?`, keyboard(...rows, [btn('✖ Cancel', 'cw:home')]))
@@ -190,13 +190,14 @@ async function available(ctx: BotCtx, w: TradingWallet, a: Asset): Promise<bigin
 }
 
 async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   const max = await available(ctx, w, a)
   if (max === null) return ctx.show(`⚠️ ${esc('The NEAR network isn’t answering right now. Try again in a moment.')}`, keyboard(walletRow))
   if (max === 0n) return ctx.show(`Nothing of ${esc(a.symbol)} to withdraw.`, keyboard(walletRow))
   const put = (amount: bigint) => ctx.deps.store.putCallback({ ...a, amount: amount.toString() }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
-  ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.amount', { ...a, max: max.toString() }, FLOW_TTL_MS)
+  const [q1, q2, qMax] = await Promise.all([put(fractionOf(max, 25, 100)), put(fractionOf(max, 50, 100)), put(max)])
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.amount', { ...a, max: max.toString() }, FLOW_TTL_MS)
   await ctx.show(
     [
       `📤 ${bold(`Withdraw ${a.symbol}`)}`,
@@ -204,21 +205,14 @@ async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
       '',
       `How much? Tap or send an amount.`,
     ].join('\n'),
-    keyboard(
-      [
-        btn('25%', `cw:wm:${put(fractionOf(max, 25, 100))}`),
-        btn('50%', `cw:wm:${put(fractionOf(max, 50, 100))}`),
-        btn(`MAX · ${amountText(max, a.decimals, 4)}`, `cw:wm:${put(max)}`),
-      ],
-      [btn('✖ Cancel', 'cw:home')],
-    ),
+    keyboard([btn('25%', `cw:wm:${q1}`), btn('50%', `cw:wm:${q2}`), btn(`MAX · ${amountText(max, a.decimals, 4)}`, `cw:wm:${qMax}`)], [btn('✖ Cancel', 'cw:home')]),
   )
 }
 
 async function askDestination(ctx: BotCtx, a: Asset & { amount: string }) {
-  const linked = linkedAccount(ctx)
-  const put = (to: string, isLinked: boolean) => ctx.deps.store.putCallback({ ...a, to, linked: isLinked }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
-  ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.to', a, FLOW_TTL_MS)
+  const linked = await linkedAccount(ctx)
+  const linkedId = linked ? await ctx.deps.store.putCallback({ ...a, to: linked, linked: true }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS) : null
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.to', a, FLOW_TTL_MS)
   await ctx.show(
     [
       `📤 ${bold(`Withdraw ${amountText(BigInt(a.amount), a.decimals, 6)} ${a.symbol}`)} · where to?`,
@@ -227,7 +221,7 @@ async function askDestination(ctx: BotCtx, a: Asset & { amount: string }) {
         ? `Your linked wallet is ready below, or send any NEAR ${esc(ctx.deps.config.network.id)} address.`
         : `Send the NEAR ${esc(ctx.deps.config.network.id)} address to withdraw to.`,
     ].join('\n'),
-    keyboard([...(linked ? [btn(`🔗 ${shortAccount(linked, 28)} (linked)`, `cw:wt:${put(linked, true)}`)] : [])], [btn('✖ Cancel', 'cw:home')]),
+    keyboard([...(linked && linkedId ? [btn(`🔗 ${shortAccount(linked, 28)} (linked)`, `cw:wt:${linkedId}`)] : [])], [btn('✖ Cancel', 'cw:home')]),
   )
 }
 
@@ -251,18 +245,26 @@ export function withdrawReviewText(deps: BotDeps, input: WithdrawInput, review: 
 
 async function reviewAndConfirm(ctx: BotCtx, input: WithdrawInput) {
   const custody = ctx.deps.custody
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!custody || !w) return showWalletHome(ctx)
   let review: WithdrawReview
   try {
     review = await reviewWithdraw(ctx.deps.near, ctx.deps.config.network, w, input)
   } catch (e) {
-    ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.to', { asset: input.asset, symbol: input.symbol, decimals: input.decimals, amount: input.amount }, FLOW_TTL_MS)
+    await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.to', { asset: input.asset, symbol: input.symbol, decimals: input.decimals, amount: input.amount }, FLOW_TTL_MS)
     await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`, keyboard([btn('✖ Cancel', 'cw:home')]))
     return
   }
-  ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
-  const intent = custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'withdraw', params: input, quote: review, ttlMs: WITHDRAW_TTL_MS })
+  await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+  const intent = await custody.store.createIntent({
+    walletId: w.id,
+    userId: ctx.user.id,
+    chatId: ctx.chat.id,
+    kind: 'withdraw',
+    params: input,
+    quote: review,
+    ttlMs: WITHDRAW_TTL_MS,
+  })
   await ctx.reply(withdrawReviewText(ctx.deps, input, review), intentKeyboard(intent, '✅ Confirm withdraw'))
 }
 
@@ -308,7 +310,7 @@ export function tradingWalletModule(): BotModule {
       },
       'wd.to': async (ctx, text, data) => {
         const a = data as unknown as Asset & { amount: string }
-        const w = tradingWallet(ctx.deps, ctx.user.id)
+        const w = await tradingWallet(ctx.deps, ctx.user.id)
         if (!w) return showWalletHome(ctx)
         let to: string
         try {
@@ -317,7 +319,7 @@ export function tradingWalletModule(): BotModule {
           await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`)
           return
         }
-        await reviewAndConfirm(ctx, { ...a, to, linked: to === linkedAccount(ctx) })
+        await reviewAndConfirm(ctx, { ...a, to, linked: to === (await linkedAccount(ctx)) })
       },
     },
     callbacks: {
@@ -325,7 +327,7 @@ export function tradingWalletModule(): BotModule {
         switch (action) {
           case 'home':
             await ctx.answer()
-            ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+            await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
             return showWalletHome(ctx)
           case 'details':
             await ctx.answer()
@@ -339,19 +341,19 @@ export function tradingWalletModule(): BotModule {
             await ctx.answer()
             return withdrawStart(ctx)
           case 'wa': {
-            const a = payload<Asset>(ctx, arg)
+            const a = await payload<Asset>(ctx, arg)
             if (!a) return ctx.answer('That button expired. Open the wallet again.', true)
             await ctx.answer()
             return askWithdrawAmount(ctx, a)
           }
           case 'wm': {
-            const a = payload<Asset & { amount: string }>(ctx, arg)
+            const a = await payload<Asset & { amount: string }>(ctx, arg)
             if (!a) return ctx.answer('That button expired. Open the wallet again.', true)
             await ctx.answer()
             return askDestination(ctx, a)
           }
           case 'wt': {
-            const a = payload<WithdrawInput>(ctx, arg)
+            const a = await payload<WithdrawInput>(ctx, arg)
             if (!a) return ctx.answer('That button expired. Open the wallet again.', true)
             await ctx.answer()
             return reviewAndConfirm(ctx, a)

@@ -70,7 +70,7 @@ async function userTokens(ctx: BotCtx, account: string): Promise<string[]> {
     .get(account)
     .then((b) => b.fts.map((f) => f.contract))
     .catch(() => [])
-  return [...new Set([...ctx.deps.store.userTokens(ctx.user.id, ctx.deps.config.network.id), ...held])]
+  return [...new Set([...(await ctx.deps.store.userTokens(ctx.user.id, ctx.deps.config.network.id)), ...held])]
 }
 
 const fmt = (raw: bigint, decimals: number, maxFraction = 6) => formatUnits(raw, decimals, { maxFraction, group: true })
@@ -90,16 +90,14 @@ function tokenHeader(side: Side, t: TokenListing): string {
 async function chooseToken(ctx: BotCtx, state: TradeState, query: string) {
   const match = await resolveToken(ctx.deps.near, query, await userTokens(ctx, state.account))
   if (match.kind === 'none') {
-    ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
+    await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
     await ctx.reply(`⚠️ ${match.error ? errorText(ctx, match.error) : esc(match.message)}\n\nSend another symbol or contract, or /cancel.`)
     return
   }
   if (match.kind === 'many') {
-    const rows = match.tokens.map((t) => [
-      btn(
-        `${t.symbol}${t.contract ? ` · ${t.contract.length > 28 ? `${t.contract.slice(0, 12)}…${t.contract.slice(-10)}` : t.contract}` : ''}`,
-        `tr:pick:${ctx.deps.store.putCallback({ ...state, token: t.id }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)}`,
-      ),
+    const ids = await Promise.all(match.tokens.map((t) => ctx.deps.store.putCallback({ ...state, token: t.id }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)))
+    const rows = match.tokens.map((t, i) => [
+      btn(`${t.symbol}${t.contract ? ` · ${t.contract.length > 28 ? `${t.contract.slice(0, 12)}…${t.contract.slice(-10)}` : t.contract}` : ''}`, `tr:pick:${ids[i]}`),
     ])
     await ctx.reply('Several tokens match. Check the contract and pick one:', keyboard(...rows, [btn('✖ Cancel', 'tr:cancel')]))
     return
@@ -107,15 +105,15 @@ async function chooseToken(ctx: BotCtx, state: TradeState, query: string) {
   const token = match.token
   if (token.id === NATIVE_TOKEN_ID) {
     await ctx.reply(state.side === 'buy' ? 'You pay with NEAR: send the token to buy.' : 'Send the token to sell for NEAR.')
-    ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
+    await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
     return
   }
-  if (token.contract && looksLikeContract(query.trim().toLowerCase())) ctx.deps.store.addUserToken(ctx.user.id, ctx.deps.config.network.id, token.contract)
+  if (token.contract && looksLikeContract(query.trim().toLowerCase())) await ctx.deps.store.addUserToken(ctx.user.id, ctx.deps.config.network.id, token.contract)
   await askAmount(ctx, { ...state, native: state.native ?? false, token: token.id }, token)
 }
 
 async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenListing) {
-  const settings = ctx.deps.store.getSettings(ctx.user.id)
+  const settings = await ctx.deps.store.getSettings(ctx.user.id)
   const buy = state.side === 'buy'
   const balance = await balanceOf(ctx, state.account, buy ? NATIVE_TOKEN_ID : state.token).catch(() => null)
   const decimals = buy ? NEAR_DECIMALS : token.decimals
@@ -134,20 +132,25 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
   }
 
   if (!buy && balance === 0n) {
-    ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+    await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
     await ctx.reply([...head, '', `You don’t hold any ${esc(token.symbol)} in this wallet.`].join('\n'), keyboard([btn('« Menu', 'menu:home')]))
     return
   }
-  ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.amount', state, FLOW_TTL_MS)
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.amount', state, FLOW_TTL_MS)
   let rows
   if (buy) {
-    const presets = settings.buyPresets.slice(0, 3).map((p) => btn(`${p} NEAR`, `tr:amt:${put(p)}`))
+    const buttons = settings.buyPresets.slice(0, 3)
+    const ids = await Promise.all(buttons.map((p) => put(p)))
+    const presets = buttons.map((p, i) => btn(`${p} NEAR`, `tr:amt:${ids[i]}`))
     // MAX keeps NEAR back for gas bought upfront and registrations; everything is checked again before signing.
     const reserve = state.native ? buyReserve() : GAS_RESERVE_YOCTO
     const max = balance !== null && balance > reserve ? balance - reserve : null
-    rows = [presets, [...(max !== null ? [btn(`MAX · ${fmt(max, NEAR_DECIMALS, 2)}`, `tr:amt:${put(formatUnits(max, NEAR_DECIMALS))}`)] : []), btn('✏️ Custom', 'tr:custom')]]
+    const maxId = max !== null ? await put(formatUnits(max, NEAR_DECIMALS)) : null
+    rows = [presets, [...(max !== null && maxId ? [btn(`MAX · ${fmt(max, NEAR_DECIMALS, 2)}`, `tr:amt:${maxId}`)] : []), btn('✏️ Custom', 'tr:custom')]]
   } else {
-    const shares = balance ? settings.sellPresets.slice(0, 4).map((pct) => btn(`${pct}%`, `tr:amt:${put(formatUnits(fractionOf(balance, pct, 100), decimals))}`)) : []
+    const pcts = balance ? settings.sellPresets.slice(0, 4) : []
+    const ids = await Promise.all(pcts.map((pct) => put(formatUnits(fractionOf(balance ?? 0n, pct, 100), decimals))))
+    const shares = pcts.map((pct, i) => btn(`${pct}%`, `tr:amt:${ids[i]}`))
     rows = [shares, [btn('✏️ Custom', 'tr:custom')]]
   }
   await ctx.reply([...head, '', buy ? 'How much NEAR?' : `How much ${esc(token.symbol)}?`].join('\n'), keyboard(...rows, [btn('✖ Cancel', 'tr:cancel')]))
@@ -191,7 +194,7 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
   const parsed = tryParseUnits(state.amount, decimals)
   if (!parsed.ok || parsed.value <= 0n) {
     await ctx.reply(`⚠️ ${esc(state.amount)} is not an amount above 0 with at most ${decimals} decimals. Send another, or /cancel.`)
-    store.setSession(ctx.chat.id, ctx.user.id, 'trade.amount', state, FLOW_TTL_MS)
+    await store.setSession(ctx.chat.id, ctx.user.id, 'trade.amount', state, FLOW_TTL_MS)
     return
   }
   const balance = await balanceOf(ctx, state.account, buy ? NATIVE_TOKEN_ID : state.token).catch(() => null)
@@ -199,7 +202,7 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
     const unit = buy ? 'NEAR' : token.symbol
     await ctx.reply(
       `⚠️ ${buy ? 'Not enough NEAR for this trade plus gas.' : `Not enough ${esc(token.symbol)}.`} ${code(state.account)} has ${esc(fmt(balance, decimals, 4))} ${esc(unit)}, less than ${esc(state.amount)} ${esc(unit)}.`,
-      keyboard([btn('✏️ Another amount', `tr:start:${store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)}`), btn('✖ Cancel', 'tr:cancel')]),
+      keyboard([btn('✏️ Another amount', `tr:start:${await store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)}`), btn('✖ Cancel', 'tr:cancel')]),
     )
     return
   }
@@ -207,16 +210,16 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
     await ctx.reply('⏳ Too many quotes in a row. Wait a few seconds and try again.')
     return
   }
-  store.clearSession(ctx.chat.id, ctx.user.id)
+  await store.clearSession(ctx.chat.id, ctx.user.id)
   const request = {
     tokenIn: buy ? NATIVE_TOKEN_ID : state.token,
     tokenOut: buy ? state.token : NATIVE_TOKEN_ID,
     amountIn: state.amount,
-    slippagePct: store.getSettings(ctx.user.id).slippagePct,
+    slippagePct: (await store.getSettings(ctx.user.id)).slippagePct,
     walletId: state.account,
   }
   if (state.native && token.contract) {
-    const again = store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+    const again = await store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
     const params: SwapParams = { side: state.side, token: token.contract, symbol: token.symbol, decimals: token.decimals, amountIn: state.amount, slippagePct: request.slippagePct }
     await sendNativeQuote(ctx, params, `tr:again:${again}`)
     return
@@ -229,7 +232,7 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
     await ctx.reply(`⚠️ ${errorText(ctx, e, state.side)}\n\nNothing was prepared.`, keyboard([btn('« Menu', 'menu:home')]))
     return
   }
-  const { url } = ctx.deps.handoffs.create({
+  const { url } = await ctx.deps.handoffs.create({
     userId: ctx.user.id,
     chatId: ctx.chat.id,
     accountId: state.account,
@@ -239,7 +242,7 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
     amountIn: state.amount,
     slippagePct: request.slippagePct,
   })
-  const again = store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  const again = await store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
   const tip = ctx.deps.custody ? '\n\n💡 A NearKit wallet trades right here, without the browser: 👛 Wallet.' : ''
   await ctx.reply(
     quoteText(ctx, state.side, token, state.amount, quote) + tip,
@@ -248,13 +251,13 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
 }
 
 async function startTrade(ctx: BotCtx, side: Side, args: string) {
-  const nearkit = tradingWallet(ctx.deps, ctx.user.id)
+  const nearkit = await tradingWallet(ctx.deps, ctx.user.id)
   const account = nearkit?.accountId ?? (await needAccount(ctx))
   if (!account) return
   const [tokenArg = '', amountArg = ''] = plainText(args, 200).split(' ')
   const state: TradeState = { side, account, native: nearkit !== null }
   if (!tokenArg) {
-    ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
+    await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
     await ctx.reply(`${side === 'buy' ? '🟢 Buy' : '🔴 Sell'}: which token? Send its symbol or exact contract ID.`, keyboard([btn('✖ Cancel', 'tr:cancel')]))
     return
   }
@@ -281,9 +284,9 @@ async function showToken(ctx: BotCtx, args: string) {
     await ctx.reply('Send /token with a symbol or an exact contract ID, e.g. /token wrap.near')
     return
   }
-  const nearkit = tradingWallet(ctx.deps, ctx.user.id)
-  const account = nearkit?.accountId ?? linkedAccount(ctx)
-  const match = await resolveToken(ctx.deps.near, query, account ? await userTokens(ctx, account) : ctx.deps.store.userTokens(ctx.user.id, ctx.deps.config.network.id))
+  const nearkit = await tradingWallet(ctx.deps, ctx.user.id)
+  const account = nearkit?.accountId ?? (await linkedAccount(ctx))
+  const match = await resolveToken(ctx.deps.near, query, account ? await userTokens(ctx, account) : await ctx.deps.store.userTokens(ctx.user.id, ctx.deps.config.network.id))
   if (match.kind === 'none') {
     await ctx.reply(`⚠️ ${match.error ? errorText(ctx, match.error) : esc(match.message)}`)
     return
@@ -301,6 +304,7 @@ async function showToken(ctx: BotCtx, args: string) {
   }
   const [supply, held] = await Promise.all([ctx.deps.near.ctx.reader.totalSupply(t.contract).catch(() => null), account ? balanceOf(ctx, account, t.id).catch(() => null) : null])
   const state = (side: Side) => ctx.deps.store.putCallback({ side, account: account ?? '', token: t.id, native: nearkit !== null }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  const [buyId, sellId] = account ? await Promise.all([state('buy'), state('sell')]) : ['', '']
   await ctx.reply(
     [
       `${bold(t.symbol)} · ${esc(t.name)}`,
@@ -310,7 +314,7 @@ async function showToken(ctx: BotCtx, args: string) {
       `Supply ${supply !== null ? esc(fmt(supply, t.decimals, 0)) : UNKNOWN} · ${t.decimals} decimals`,
       ...(account ? [`You hold ${held !== null ? bold(`${esc(amountText(held, t.decimals))} ${esc(t.symbol)}`) : UNKNOWN}`] : []),
     ].join('\n'),
-    keyboard(...(account ? [[btn(`🟢 Buy ${t.symbol}`, `tr:start:${state('buy')}`), btn(`🔴 Sell ${t.symbol}`, `tr:start:${state('sell')}`)]] : []), [
+    keyboard(...(account ? [[btn(`🟢 Buy ${t.symbol}`, `tr:start:${buyId}`), btn(`🔴 Sell ${t.symbol}`, `tr:start:${sellId}`)]] : []), [
       urlBtn('🔗 Explorer', explorerTokenUrl(ctx.deps.config.network, t.contract)),
     ]),
   )
@@ -327,7 +331,7 @@ export function tradeModule(): BotModule {
     },
     flows: {
       'trade.token': async (ctx, text, data) => {
-        ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
         await chooseToken(ctx, data as unknown as TradeState, plainText(text, 80))
       },
       'trade.amount': async (ctx, text, data) => {
@@ -339,7 +343,7 @@ export function tradeModule(): BotModule {
       tr: async (ctx, action, arg) => {
         const { store } = ctx.deps
         if (action === 'cancel') {
-          store.clearSession(ctx.chat.id, ctx.user.id)
+          await store.clearSession(ctx.chat.id, ctx.user.id)
           await ctx.answer()
           await ctx.show('Cancelled. Nothing was prepared or signed.', keyboard([btn('« Menu', 'menu:home')]))
           return
@@ -354,9 +358,9 @@ export function tradeModule(): BotModule {
           await ctx.reply('Send the amount, e.g. 0.25. /cancel to stop.')
           return
         }
-        const payload = store.getCallback<Required<TradeState> & { amount?: string }>(arg, ctx.user.id)
+        const payload = await store.getCallback<Required<TradeState> & { amount?: string }>(arg, ctx.user.id)
         if (!payload) return ctx.answer('That button expired. Start again with /buy or /sell.', true)
-        const account = payload.native ? (tradingWallet(ctx.deps, ctx.user.id)?.accountId ?? null) : linkedAccount(ctx)
+        const account = payload.native ? ((await tradingWallet(ctx.deps, ctx.user.id))?.accountId ?? null) : await linkedAccount(ctx)
         if (!account) {
           await ctx.answer()
           if (payload.native) return showWalletHome(ctx)

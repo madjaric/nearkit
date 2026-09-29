@@ -108,10 +108,10 @@ export function createFollower(deps: { network: string; rpc: RpcClient; index: T
 
   async function followToken(token: string, head: number): Promise<number> {
     const target = head - TRAIL
-    const cursor = deps.store.tokenCursor(deps.network, token)
+    const cursor = await deps.store.tokenCursor(deps.network, token)
     // First time: start from now. Never backfill old buys into a chat.
     if (cursor === null) {
-      deps.store.advanceToken(deps.network, token, target, [])
+      await deps.store.advanceToken(deps.network, token, target, [])
       return 0
     }
     let from = cursor
@@ -128,7 +128,7 @@ export function createFollower(deps: { network: string; rpc: RpcClient; index: T
       if (!r.resumeToken || oldest === undefined || oldest <= from) break
       resumeToken = r.resumeToken
     }
-    deps.store.advanceToken(
+    await deps.store.advanceToken(
       deps.network,
       token,
       Math.max(from, target),
@@ -140,7 +140,7 @@ export function createFollower(deps: { network: string; rpc: RpcClient; index: T
   return {
     /** One pass over every followed token. `idle`: nothing followed; `caught-up`: all read to the head. */
     async step(): Promise<'idle' | 'caught-up'> {
-      const tokens = deps.store.activeTokens(deps.network)
+      const tokens = await deps.store.activeTokens(deps.network)
       if (!tokens.length) return 'idle'
       const head = await finalHeight()
       let total = 0

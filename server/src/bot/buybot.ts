@@ -60,7 +60,7 @@ function describeConfig(c: BuybotConfig): string {
 }
 
 async function showMenu(ctx: BotCtx, bb: BuybotDeps, note?: string) {
-  const configs = bb.store.configsForChat(ctx.chat.id)
+  const configs = await bb.store.configsForChat(ctx.chat.id)
   const anyOn = configs.some((c) => c.enabled && !c.pausedReason)
   await ctx.show(
     [
@@ -136,7 +136,7 @@ async function showEmoji(ctx: BotCtx, c: BuybotConfig) {
 }
 
 async function askMedia(ctx: BotCtx, c: BuybotConfig) {
-  ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'buybot.media', { configId: c.id }, FLOW_TTL_MS)
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'buybot.media', { configId: c.id }, FLOW_TTL_MS)
   await ctx.deps.tg.sendMessage(
     ctx.chat.id,
     `<a href="tg://user?id=${ctx.user.id}">${esc(ctx.user.first_name)}</a>, reply to this message with a photo, GIF or short video for ${bold(c.symbol)} alerts. /cancel to keep ${c.media ? 'the current one' : 'none'}.`,
@@ -147,12 +147,12 @@ async function askMedia(ctx: BotCtx, c: BuybotConfig) {
 
 async function showStatus(ctx: BotCtx, bb: BuybotDeps) {
   const network = bb.near.ctx.network.id
-  const configs = bb.store.configsForChat(ctx.chat.id)
-  const stats = bb.store.stats(
+  const configs = await bb.store.configsForChat(ctx.chat.id)
+  const stats = await bb.store.stats(
     network,
     configs.map((c) => c.id),
   )
-  const cursors = bb.store.tokenCursors(network).filter((c) => configs.some((cfg) => cfg.token === c.token))
+  const cursors = (await bb.store.tokenCursors(network)).filter((c) => configs.some((cfg) => cfg.token === c.token))
   const cursor = cursors.length ? Math.min(...cursors.map((c) => c.height)) : null
   const head = await bb.follower.finalHeight().catch(() => null)
   const lag = head !== null && cursor !== null ? Math.max(0, head - cursor) : null
@@ -205,8 +205,8 @@ async function sendPreview(ctx: BotCtx, bb: BuybotDeps, c: BuybotConfig) {
   else await ctx.reply(html)
 }
 
-function configOf(ctx: BotCtx, bb: BuybotDeps, id: string): BuybotConfig | null {
-  const c = bb.store.config(Number(id))
+async function configOf(ctx: BotCtx, bb: BuybotDeps, id: string): Promise<BuybotConfig | null> {
+  const c = await bb.store.config(Number(id))
   return c && c.chatId === ctx.chat.id ? c : null
 }
 
@@ -234,7 +234,7 @@ async function groupAdmin(ctx: BotCtx): Promise<BuybotDeps | null> {
 }
 
 async function askToken(ctx: BotCtx, bb: BuybotDeps) {
-  ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'buybot.add', {}, FLOW_TTL_MS)
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'buybot.add', {}, FLOW_TTL_MS)
   await ctx.deps.tg.sendMessage(
     ctx.chat.id,
     `<a href="tg://user?id=${ctx.user.id}">${esc(ctx.user.first_name)}</a>, reply to this message with the token’s exact contract ID (e.g. ${code(bb.near.ctx.network.id === 'mainnet' ? 'token.example.near' : 'token.example.testnet')}).`,
@@ -242,8 +242,8 @@ async function askToken(ctx: BotCtx, bb: BuybotDeps) {
   )
 }
 
-function setAll(ctx: BotCtx, bb: BuybotDeps, on: boolean) {
-  const n = bb.store.setChatEnabled(ctx.chat.id, on)
+async function setAll(ctx: BotCtx, bb: BuybotDeps, on: boolean) {
+  const n = await bb.store.setChatEnabled(ctx.chat.id, on)
   return n ? `${on ? '▶️ Resumed' : '⏸ Paused'} alerts for ${n} ${n === 1 ? 'token' : 'tokens'}.` : 'No token is followed here yet.'
 }
 
@@ -257,7 +257,8 @@ export function buybotModule(): BotModule {
         run: async (ctx, args) => {
           const bb = await groupAdmin(ctx)
           if (!bb) return
-          if (bb.store.configsForChat(ctx.chat.id).length >= MAX_CONFIGS_PER_CHAT) return void (await ctx.reply(`A group can follow at most ${MAX_CONFIGS_PER_CHAT} tokens.`))
+          if ((await bb.store.configsForChat(ctx.chat.id)).length >= MAX_CONFIGS_PER_CHAT)
+            return void (await ctx.reply(`A group can follow at most ${MAX_CONFIGS_PER_CHAT} tokens.`))
           // "/add token.near" skips the prompt.
           if (plainText(args, 80)) return addFlow(ctx, args)
           await askToken(ctx, bb)
@@ -268,7 +269,7 @@ export function buybotModule(): BotModule {
         run: async (ctx) => {
           const bb = await groupAdmin(ctx)
           if (!bb) return
-          const configs = bb.store.configsForChat(ctx.chat.id)
+          const configs = await bb.store.configsForChat(ctx.chat.id)
           if (!configs.length) return void (await ctx.reply('No token is followed here.'))
           await ctx.reply('Which token should stop posting here?', keyboard(...configs.map((c) => [btn(`🗑 ${c.symbol}`, `bb:rm:${c.id}`)]), [btn('Keep them all', 'bb:menu')]))
         },
@@ -277,14 +278,14 @@ export function buybotModule(): BotModule {
         ...documented('pause'),
         run: async (ctx) => {
           const bb = await groupAdmin(ctx)
-          if (bb) await ctx.reply(setAll(ctx, bb, false))
+          if (bb) await ctx.reply(await setAll(ctx, bb, false))
         },
       },
       resume: {
         ...documented('resume'),
         run: async (ctx) => {
           const bb = await groupAdmin(ctx)
-          if (bb) await ctx.reply(setAll(ctx, bb, true))
+          if (bb) await ctx.reply(await setAll(ctx, bb, true))
         },
       },
     },
@@ -301,31 +302,31 @@ export function buybotModule(): BotModule {
             return showStatus(ctx, bb)
           case 'pauseall':
           case 'resumeall':
-            return showMenu(ctx, bb, setAll(ctx, bb, action === 'resumeall'))
+            return showMenu(ctx, bb, await setAll(ctx, bb, action === 'resumeall'))
           case 'add':
             await ctx.answer()
             return askToken(ctx, bb)
           case 'confirm': {
-            const payload = ctx.deps.store.getCallback<{ token: string; symbol: string; name: string; decimals: number }>(id, ctx.user.id)
+            const payload = await ctx.deps.store.getCallback<{ token: string; symbol: string; name: string; decimals: number }>(id, ctx.user.id)
             if (!payload) return ctx.answer('That button expired. Add the token again.', true)
-            if (bb.store.findConfig(ctx.chat.id, bb.near.ctx.network.id, payload.token)) return showMenu(ctx, bb, `${bold(payload.symbol)} is already followed here.`)
+            if (await bb.store.findConfig(ctx.chat.id, bb.near.ctx.network.id, payload.token)) return showMenu(ctx, bb, `${bold(payload.symbol)} is already followed here.`)
             try {
-              const c = bb.store.addConfig({ chatId: ctx.chat.id, chatTitle: ctx.chat.title ?? null, network: bb.near.ctx.network.id, ...payload, createdBy: ctx.user.id })
+              const c = await bb.store.addConfig({ chatId: ctx.chat.id, chatTitle: ctx.chat.title ?? null, network: bb.near.ctx.network.id, ...payload, createdBy: ctx.user.id })
               return showConfig(ctx, bb, c, `✅ Following ${bold(c.symbol)}. Buys from now on are posted here.`)
             } catch (e) {
               return ctx.answer(e instanceof Error ? e.message : 'Could not add the token', true)
             }
           }
         }
-        const c = configOf(ctx, bb, id)
+        const c = await configOf(ctx, bb, id)
         if (!c) return ctx.answer('That token isn’t followed here any more.', true)
-        const update = (patch: Parameters<typeof bb.store.updateConfig>[1]) => bb.store.updateConfig(c.id, patch) as BuybotConfig
+        const update = async (patch: Parameters<typeof bb.store.updateConfig>[1]) => (await bb.store.updateConfig(c.id, patch)) as BuybotConfig
         switch (action) {
           case 'cfg':
             return showConfig(ctx, bb, c)
           case 'toggle': {
             const on = !(c.enabled && !c.pausedReason)
-            return showConfig(ctx, bb, update({ enabled: on, pausedReason: null }))
+            return showConfig(ctx, bb, await update({ enabled: on, pausedReason: null }))
           }
           case 'minm':
             return showMinimum(ctx, c)
@@ -333,48 +334,48 @@ export function buybotModule(): BotModule {
             return showEmoji(ctx, c)
           case 'unit':
             if (value !== 'NEAR' && value !== 'USD') return
-            return showMinimum(ctx, update({ unit: value }))
+            return showMinimum(ctx, await update({ unit: value }))
           case 'min':
             if (!MIN_NEAR.includes(value as (typeof MIN_NEAR)[number])) return
-            return showMinimum(ctx, update({ unit: 'NEAR', minNear: yocto(value) }))
+            return showMinimum(ctx, await update({ unit: 'NEAR', minNear: yocto(value) }))
           case 'minusd': {
             const v = Number(value)
             if (!MIN_USD.includes(v as (typeof MIN_USD)[number])) return
-            return showMinimum(ctx, update({ unit: 'USD', minUsd: v }))
+            return showMinimum(ctx, await update({ unit: 'USD', minUsd: v }))
           }
           case 'step':
             if (!STEP_NEAR.includes(value as (typeof STEP_NEAR)[number])) return
-            return showEmoji(ctx, update({ stepNear: yocto(value) }))
+            return showEmoji(ctx, await update({ stepNear: yocto(value) }))
           case 'stepusd': {
             const v = Number(value)
             if (!STEP_USD.includes(v as (typeof STEP_USD)[number])) return
-            return showEmoji(ctx, update({ stepUsd: v }))
+            return showEmoji(ctx, await update({ stepUsd: v }))
           }
           case 'max': {
             const v = Number(value)
             if (!MAX_EMOJI.includes(v as (typeof MAX_EMOJI)[number])) return
-            return showEmoji(ctx, update({ maxEmoji: v }))
+            return showEmoji(ctx, await update({ maxEmoji: v }))
           }
           case 'emoji': {
             const e = EMOJIS[Number(value)]
             if (!e) return
-            return showEmoji(ctx, update({ emoji: e }))
+            return showEmoji(ctx, await update({ emoji: e }))
           }
           case 'sells':
-            return showConfig(ctx, bb, update({ sells: !c.sells }))
+            return showConfig(ctx, bb, await update({ sells: !c.sells }))
           case 'silent':
-            return showConfig(ctx, bb, update({ silent: !c.silent }))
+            return showConfig(ctx, bb, await update({ silent: !c.silent }))
           case 'media':
             await ctx.answer()
             return askMedia(ctx, c)
           case 'mediarm':
-            return showConfig(ctx, bb, update({ media: null }), `${bold(c.symbol)} alerts post text only now.`)
+            return showConfig(ctx, bb, await update({ media: null }), `${bold(c.symbol)} alerts post text only now.`)
           case 'test':
             return sendPreview(ctx, bb, c)
           case 'rm':
             return ctx.show(`Stop posting ${bold(c.symbol)} alerts here?`, keyboard([btn('🗑 Yes, remove', `bb:rmyes:${c.id}`), btn('Cancel', `bb:cfg:${c.id}`)]))
           case 'rmyes':
-            bb.store.removeConfig(c.id)
+            await bb.store.removeConfig(c.id)
             return showMenu(ctx, bb, `Removed ${bold(c.symbol)}.`)
         }
       },
@@ -384,27 +385,27 @@ export function buybotModule(): BotModule {
       'buybot.media': async (ctx, _text, data, message) => {
         const bb = ctx.deps.buybot
         if (!bb || ctx.isPrivate || !(await isAdmin(ctx))) return
-        const c = configOf(ctx, bb, String((data as { configId?: number }).configId ?? ''))
+        const c = await configOf(ctx, bb, String((data as { configId?: number }).configId ?? ''))
         if (!c) return
         const media = mediaOf(message)
         if (!media) {
           await ctx.reply('That isn’t a photo, GIF or video. Reply with one, or /cancel.', { force_reply: true, selective: true })
           return
         }
-        ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
-        await showConfig(ctx, bb, bb.store.updateConfig(c.id, { media }) as BuybotConfig, `✅ ${bold(c.symbol)} alerts now come with this ${MEDIA_NAME[media.kind]}.`)
+        await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        await showConfig(ctx, bb, (await bb.store.updateConfig(c.id, { media })) as BuybotConfig, `✅ ${bold(c.symbol)} alerts now come with this ${MEDIA_NAME[media.kind]}.`)
       },
     },
     async onMembership(deps: BotDeps, u: TgChatMemberUpdated) {
       if (!deps.buybot || u.new_chat_member.user.id !== deps.me.id) return
       const status = u.new_chat_member.status
       if (status === 'left' || status === 'kicked') {
-        deps.buybot.store.pauseChat(u.chat.id, 'NearKit was removed from the chat')
+        await deps.buybot.store.pauseChat(u.chat.id, 'NearKit was removed from the chat')
         deps.log.info('removed from chat; buy alerts paused', { chat: u.chat.id })
         return
       }
       if ((status === 'member' || status === 'administrator') && (u.old_chat_member.status === 'left' || u.old_chat_member.status === 'kicked')) {
-        deps.buybot.store.resumeChat(u.chat.id)
+        await deps.buybot.store.resumeChat(u.chat.id)
         if (u.chat.type === 'group' || u.chat.type === 'supergroup') {
           await deps.tg
             .sendMessage(u.chat.id, `Hi! I’m the NearKit bot. Admins can set up buy alerts for a NEAR token with /buybot or /add. I never ask for keys or seed phrases.`)
@@ -413,7 +414,7 @@ export function buybotModule(): BotModule {
       }
     },
     async onChatMigrated(deps, from, to) {
-      deps.buybot?.store.migrateChat(from, to)
+      await deps.buybot?.store.migrateChat(from, to)
     },
   }
 }
@@ -441,7 +442,7 @@ async function addFlow(ctx: BotCtx, text: string) {
     })
     return
   }
-  ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+  await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
   let listing
   try {
     listing = await bb.near.tokens.lookupToken(contract)
@@ -450,7 +451,12 @@ async function addFlow(ctx: BotCtx, text: string) {
     return
   }
   const supply = await bb.market.totalSupply(contract)
-  const id = ctx.deps.store.putCallback({ token: listing.id, symbol: listing.symbol, name: listing.name, decimals: listing.decimals }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  const id = await ctx.deps.store.putCallback(
+    { token: listing.id, symbol: listing.symbol, name: listing.name, decimals: listing.decimals },
+    ctx.user.id,
+    ctx.chat.id,
+    CALLBACK_TTL_MS,
+  )
   await ctx.reply(
     [
       bold(`Token found on ${network.label.toLowerCase()}`),

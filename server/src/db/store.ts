@@ -1,6 +1,6 @@
 import { DEFAULT_SLIPPAGE } from '@/lib/fees'
 import { randomToken } from '../ids'
-import type { Db } from './sqlite'
+import type { Database } from './database'
 
 /**
  * Everything the bot keeps, behind typed methods. Nothing secret is stored:
@@ -78,23 +78,23 @@ const json = <T>(text: string, fallback: T): T => {
 
 export class Store {
   constructor(
-    readonly db: Db,
+    readonly db: Database,
     private readonly now: () => number = Date.now,
   ) {}
 
   // ─── users ────────────────────────────────────────────────────────────────
 
-  upsertUser(u: TelegramUser): void {
+  async upsertUser(u: TelegramUser): Promise<void> {
     const t = this.now()
-    this.db.run(
+    await this.db.run(
       `INSERT INTO telegram_users (user_id, username, first_name, language_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, first_name = excluded.first_name, language_code = excluded.language_code, updated_at = excluded.updated_at, blocked_at = NULL`,
       [u.userId, u.username, u.firstName, u.languageCode, t, t],
     )
   }
 
-  getUser(userId: number): (TelegramUser & { blockedAt: number | null }) | null {
-    const r = this.db.get<{ user_id: number; username: string | null; first_name: string; language_code: string | null; blocked_at: number | null }>(
+  async getUser(userId: number): Promise<(TelegramUser & { blockedAt: number | null }) | null> {
+    const r = await this.db.get<{ user_id: number; username: string | null; first_name: string; language_code: string | null; blocked_at: number | null }>(
       'SELECT user_id, username, first_name, language_code, blocked_at FROM telegram_users WHERE user_id = ?',
       [userId],
     )
@@ -102,14 +102,14 @@ export class Store {
   }
 
   /** The user blocked the bot (Telegram answered 403): stop messaging them until they return. */
-  markBlocked(userId: number): void {
-    this.db.run('UPDATE telegram_users SET blocked_at = ? WHERE user_id = ?', [this.now(), userId])
+  async markBlocked(userId: number): Promise<void> {
+    await this.db.run('UPDATE telegram_users SET blocked_at = ? WHERE user_id = ?', [this.now(), userId])
   }
 
   // ─── settings ─────────────────────────────────────────────────────────────
 
-  getSettings(userId: number): Settings {
-    const r = this.db.get<{ slippage_pct: number; buy_presets: string; sell_presets: string; default_account: string | null; notify_trades: number }>(
+  async getSettings(userId: number): Promise<Settings> {
+    const r = await this.db.get<{ slippage_pct: number; buy_presets: string; sell_presets: string; default_account: string | null; notify_trades: number }>(
       'SELECT slippage_pct, buy_presets, sell_presets, default_account, notify_trades FROM user_settings WHERE user_id = ?',
       [userId],
     )
@@ -123,9 +123,9 @@ export class Store {
     }
   }
 
-  updateSettings(userId: number, patch: Partial<Settings>): Settings {
-    const next = { ...this.getSettings(userId), ...patch }
-    this.db.run(
+  async updateSettings(userId: number, patch: Partial<Settings>): Promise<Settings> {
+    const next = { ...(await this.getSettings(userId)), ...patch }
+    await this.db.run(
       `INSERT INTO user_settings (user_id, slippage_pct, buy_presets, sell_presets, default_account, notify_trades, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET slippage_pct = excluded.slippage_pct, buy_presets = excluded.buy_presets, sell_presets = excluded.sell_presets,
          default_account = excluded.default_account, notify_trades = excluded.notify_trades, updated_at = excluded.updated_at`,
@@ -136,9 +136,9 @@ export class Store {
 
   // ─── link requests ────────────────────────────────────────────────────────
 
-  createLinkRequest(r: { codeHash: string; userId: number; network: string; nonce: string; message: string; ttlMs: number }): LinkRequest {
+  async createLinkRequest(r: { codeHash: string; userId: number; network: string; nonce: string; message: string; ttlMs: number }): Promise<LinkRequest> {
     const t = this.now()
-    this.db.run('INSERT INTO link_requests (code_hash, user_id, network, nonce, message, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+    await this.db.run('INSERT INTO link_requests (code_hash, user_id, network, nonce, message, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [
       r.codeHash,
       r.userId,
       r.network,
@@ -147,11 +147,11 @@ export class Store {
       t,
       t + r.ttlMs,
     ])
-    return this.getLinkRequest(r.codeHash) as LinkRequest
+    return (await this.getLinkRequest(r.codeHash)) as LinkRequest
   }
 
-  getLinkRequest(codeHash: string): LinkRequest | null {
-    const r = this.db.get<{
+  async getLinkRequest(codeHash: string): Promise<LinkRequest | null> {
+    const r = await this.db.get<{
       code_hash: string
       user_id: number
       network: string
@@ -179,31 +179,31 @@ export class Store {
       : null
   }
 
-  bumpLinkAttempt(codeHash: string): number {
-    this.db.run('UPDATE link_requests SET attempts = attempts + 1 WHERE code_hash = ?', [codeHash])
-    return this.getLinkRequest(codeHash)?.attempts ?? 0
+  async bumpLinkAttempt(codeHash: string): Promise<number> {
+    await this.db.run('UPDATE link_requests SET attempts = attempts + 1 WHERE code_hash = ?', [codeHash])
+    return (await this.getLinkRequest(codeHash))?.attempts ?? 0
   }
 
-  countLinkRequestsSince(userId: number, since: number): number {
-    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM link_requests WHERE user_id = ? AND created_at >= ?', [userId, since])?.n ?? 0
+  async countLinkRequestsSince(userId: number, since: number): Promise<number> {
+    return (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM link_requests WHERE user_id = ? AND created_at >= ?', [userId, since]))?.n ?? 0
   }
 
   // ─── account links ────────────────────────────────────────────────────────
 
-  linksOf(userId: number, network: string): AccountLink[] {
-    return this.db
-      .all<{
+  async linksOf(userId: number, network: string): Promise<AccountLink[]> {
+    return (
+      await this.db.all<{
         network: string
         account_id: string
         user_id: number
         public_key: string
         linked_at: number
       }>('SELECT * FROM account_links WHERE user_id = ? AND network = ? ORDER BY linked_at', [userId, network])
-      .map((r) => ({ network: r.network, accountId: r.account_id, userId: r.user_id, publicKey: r.public_key, linkedAt: r.linked_at }))
+    ).map((r) => ({ network: r.network, accountId: r.account_id, userId: r.user_id, publicKey: r.public_key, linkedAt: r.linked_at }))
   }
 
-  linkOf(network: string, accountId: string): AccountLink | null {
-    const r = this.db.get<{ network: string; account_id: string; user_id: number; public_key: string; linked_at: number }>(
+  async linkOf(network: string, accountId: string): Promise<AccountLink | null> {
+    const r = await this.db.get<{ network: string; account_id: string; user_id: number; public_key: string; linked_at: number }>(
       'SELECT * FROM account_links WHERE network = ? AND account_id = ?',
       [network, accountId],
     )
@@ -215,20 +215,20 @@ export class Store {
    * account was linked to another Telegram user, that link ends here and the
    * caller is told whom to notify. Signature checks happen before this call.
    */
-  completeLink(r: { codeHash: string; network: string; accountId: string; userId: number; publicKey: string }): { previousUserId: number | null } {
-    return this.db.tx(() => {
-      const req = this.getLinkRequest(r.codeHash)
+  async completeLink(r: { codeHash: string; network: string; accountId: string; userId: number; publicKey: string }): Promise<{ previousUserId: number | null }> {
+    return this.db.tx(async () => {
+      const req = await this.getLinkRequest(r.codeHash)
       const t = this.now()
       if (!req) throw new LinkError('unknown', 'This link code is unknown')
       if (req.usedAt !== null) throw new LinkError('used', 'This link code was already used')
       if (t > req.expiresAt) throw new LinkError('expired', 'This link code expired')
       if (req.userId !== r.userId) throw new LinkError('owner', 'This link code belongs to another Telegram account')
       if (req.network !== r.network) throw new LinkError('network', `This link code is for the ${req.network} network`)
-      const previous = this.linkOf(r.network, r.accountId)
+      const previous = await this.linkOf(r.network, r.accountId)
       const previousUserId = previous && previous.userId !== r.userId ? previous.userId : null
-      this.db.run('UPDATE link_requests SET used_at = ?, linked_account = ? WHERE code_hash = ?', [t, r.accountId, r.codeHash])
+      await this.db.run('UPDATE link_requests SET used_at = ?, linked_account = ? WHERE code_hash = ?', [t, r.accountId, r.codeHash])
       if (previousUserId !== null) {
-        this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, ?, ?)', [
+        await this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, ?, ?)', [
           r.network,
           r.accountId,
           previousUserId,
@@ -236,14 +236,14 @@ export class Store {
           `to ${r.userId}`,
           t,
         ])
-        this.clearDefaultIf(previousUserId, r.accountId)
+        await this.clearDefaultIf(previousUserId, r.accountId)
       }
-      this.db.run(
+      await this.db.run(
         `INSERT INTO account_links (network, account_id, user_id, public_key, linked_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(network, account_id) DO UPDATE SET user_id = excluded.user_id, public_key = excluded.public_key, linked_at = excluded.linked_at`,
         [r.network, r.accountId, r.userId, r.publicKey, t],
       )
-      this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, ?, ?)', [
+      await this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, ?, ?)', [
         r.network,
         r.accountId,
         r.userId,
@@ -255,79 +255,93 @@ export class Store {
     })
   }
 
-  unlink(network: string, accountId: string, userId: number): boolean {
-    return this.db.tx(() => {
-      const changed = this.db.run('DELETE FROM account_links WHERE network = ? AND account_id = ? AND user_id = ?', [network, accountId, userId])
+  async unlink(network: string, accountId: string, userId: number): Promise<boolean> {
+    return this.db.tx(async () => {
+      const changed = await this.db.run('DELETE FROM account_links WHERE network = ? AND account_id = ? AND user_id = ?', [network, accountId, userId])
       if (changed === 0) return false
-      this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, NULL, ?)', [network, accountId, userId, 'unlinked', this.now()])
-      this.clearDefaultIf(userId, accountId)
+      await this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, NULL, ?)', [
+        network,
+        accountId,
+        userId,
+        'unlinked',
+        this.now(),
+      ])
+      await this.clearDefaultIf(userId, accountId)
       return true
     })
   }
 
-  private clearDefaultIf(userId: number, accountId: string) {
-    this.db.run('UPDATE user_settings SET default_account = NULL WHERE user_id = ? AND default_account = ?', [userId, accountId])
+  private async clearDefaultIf(userId: number, accountId: string) {
+    await this.db.run('UPDATE user_settings SET default_account = NULL WHERE user_id = ? AND default_account = ?', [userId, accountId])
   }
 
-  linkEvents(network: string, accountId: string): { kind: string; userId: number; at: number }[] {
-    return this.db
-      .all<{ kind: string; user_id: number; at: number }>('SELECT kind, user_id, at FROM link_events WHERE network = ? AND account_id = ? ORDER BY id', [network, accountId])
-      .map((r) => ({ kind: r.kind, userId: r.user_id, at: r.at }))
+  async linkEvents(network: string, accountId: string): Promise<{ kind: string; userId: number; at: number }[]> {
+    return (
+      await this.db.all<{ kind: string; user_id: number; at: number }>('SELECT kind, user_id, at FROM link_events WHERE network = ? AND account_id = ? ORDER BY id', [
+        network,
+        accountId,
+      ])
+    ).map((r) => ({ kind: r.kind, userId: r.user_id, at: r.at }))
   }
 
   // ─── conversation state ───────────────────────────────────────────────────
 
-  getSession<T = Record<string, unknown>>(chatId: number, userId: number): { flow: string; data: T; expiresAt: number } | null {
-    const r = this.db.get<{ flow: string; data: string; expires_at: number }>('SELECT flow, data, expires_at FROM sessions WHERE chat_id = ? AND user_id = ?', [chatId, userId])
+  async getSession<T = Record<string, unknown>>(chatId: number, userId: number): Promise<{ flow: string; data: T; expiresAt: number } | null> {
+    const r = await this.db.get<{ flow: string; data: string; expires_at: number }>('SELECT flow, data, expires_at FROM sessions WHERE chat_id = ? AND user_id = ?', [
+      chatId,
+      userId,
+    ])
     if (!r || r.expires_at < this.now()) return null
     return { flow: r.flow, data: json<T>(r.data, {} as T), expiresAt: r.expires_at }
   }
 
-  setSession(chatId: number, userId: number, flow: string, data: unknown, ttlMs: number): void {
-    this.db.run(
+  async setSession(chatId: number, userId: number, flow: string, data: unknown, ttlMs: number): Promise<void> {
+    await this.db.run(
       `INSERT INTO sessions (chat_id, user_id, flow, data, expires_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(chat_id, user_id) DO UPDATE SET flow = excluded.flow, data = excluded.data, expires_at = excluded.expires_at`,
       [chatId, userId, flow, JSON.stringify(data), this.now() + ttlMs],
     )
   }
 
-  clearSession(chatId: number, userId: number): void {
-    this.db.run('DELETE FROM sessions WHERE chat_id = ? AND user_id = ?', [chatId, userId])
+  async clearSession(chatId: number, userId: number): Promise<void> {
+    await this.db.run('DELETE FROM sessions WHERE chat_id = ? AND user_id = ?', [chatId, userId])
   }
 
   // ─── callback payloads ────────────────────────────────────────────────────
 
-  putCallback(payload: unknown, userId: number, chatId: number, ttlMs: number): string {
+  async putCallback(payload: unknown, userId: number, chatId: number, ttlMs: number): Promise<string> {
     const id = randomToken(12)
-    this.db.run('INSERT INTO callbacks (id, user_id, chat_id, payload, expires_at) VALUES (?, ?, ?, ?, ?)', [id, userId, chatId, JSON.stringify(payload), this.now() + ttlMs])
+    await this.db.run('INSERT INTO callbacks (id, user_id, chat_id, payload, expires_at) VALUES (?, ?, ?, ?, ?)', [id, userId, chatId, JSON.stringify(payload), this.now() + ttlMs])
     return id
   }
 
   /** Only the user the button was made for can use it. */
-  getCallback<T = unknown>(id: string, userId: number): T | null {
-    const r = this.db.get<{ payload: string; user_id: number; expires_at: number }>('SELECT payload, user_id, expires_at FROM callbacks WHERE id = ?', [id])
+  async getCallback<T = unknown>(id: string, userId: number): Promise<T | null> {
+    const r = await this.db.get<{ payload: string; user_id: number; expires_at: number }>('SELECT payload, user_id, expires_at FROM callbacks WHERE id = ?', [id])
     if (!r || r.user_id !== userId || r.expires_at < this.now()) return null
     return json<T | null>(r.payload, null)
   }
 
   // ─── user tokens ──────────────────────────────────────────────────────────
 
-  addUserToken(userId: number, network: string, contract: string): void {
-    this.db.run('INSERT OR IGNORE INTO user_tokens (user_id, network, contract, added_at) VALUES (?, ?, ?, ?)', [userId, network, contract, this.now()])
+  async addUserToken(userId: number, network: string, contract: string): Promise<void> {
+    await this.db.run('INSERT INTO user_tokens (user_id, network, contract, added_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', [userId, network, contract, this.now()])
   }
 
-  userTokens(userId: number, network: string): string[] {
-    return this.db.all<{ contract: string }>('SELECT contract FROM user_tokens WHERE user_id = ? AND network = ? ORDER BY added_at', [userId, network]).map((r) => r.contract)
+  async userTokens(userId: number, network: string): Promise<string[]> {
+    return (await this.db.all<{ contract: string }>('SELECT contract FROM user_tokens WHERE user_id = ? AND network = ? ORDER BY added_at', [userId, network])).map(
+      (r) => r.contract,
+    )
   }
 
   // ─── meta ─────────────────────────────────────────────────────────────────
 
-  getMeta(key: string): string | null {
-    return this.db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key])?.value ?? null
+  async getMeta(key: string): Promise<string | null> {
+    return (await this.db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? null
   }
 
-  setMeta(key: string, value: string): void {
-    this.db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value])
+  async setMeta(key: string, value: string): Promise<void> {
+    await this.db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value])
   }
 
   /**
@@ -335,12 +349,12 @@ export class Store {
    * that found the previous data; `since` is when the first one happened. After a
    * restart or redeploy, boot 1 again means the data did not survive.
    */
-  recordBoot(): { boot: number; since: number } {
-    return this.db.tx(() => {
-      const boot = Number(this.getMeta('boots') ?? '0') + 1
-      const since = Number(this.getMeta('first_boot_at') ?? String(this.now()))
-      this.setMeta('boots', String(boot))
-      this.setMeta('first_boot_at', String(since))
+  async recordBoot(): Promise<{ boot: number; since: number }> {
+    return this.db.tx(async () => {
+      const boot = Number((await this.getMeta('boots')) ?? '0') + 1
+      const since = Number((await this.getMeta('first_boot_at')) ?? String(this.now()))
+      await this.setMeta('boots', String(boot))
+      await this.setMeta('first_boot_at', String(since))
       return { boot, since }
     })
   }
@@ -348,17 +362,23 @@ export class Store {
   // ─── housekeeping ─────────────────────────────────────────────────────────
 
   /** Drops expired conversation state, callbacks and day-old link requests. */
-  prune(): void {
+  async prune(): Promise<void> {
     const t = this.now()
-    this.db.tx(() => {
-      this.db.run('DELETE FROM sessions WHERE expires_at < ?', [t])
-      this.db.run('DELETE FROM callbacks WHERE expires_at < ?', [t])
-      this.db.run('DELETE FROM link_requests WHERE expires_at < ?', [t - 86_400_000])
+    await this.db.tx(async () => {
+      await this.db.run('DELETE FROM sessions WHERE expires_at < ?', [t])
+      await this.db.run('DELETE FROM callbacks WHERE expires_at < ?', [t])
+      await this.db.run('DELETE FROM link_requests WHERE expires_at < ?', [t - 86_400_000])
     })
   }
 
-  counts(): Record<string, number> {
-    const n = (table: string) => this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)?.n ?? 0
-    return { users: n('telegram_users'), links: n('account_links'), sessions: n('sessions'), callbacks: n('callbacks'), linkRequests: n('link_requests') }
+  async counts(): Promise<Record<string, number>> {
+    const n = async (table: string) => (await this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`))?.n ?? 0
+    return {
+      users: await n('telegram_users'),
+      links: await n('account_links'),
+      sessions: await n('sessions'),
+      callbacks: await n('callbacks'),
+      linkRequests: await n('link_requests'),
+    }
   }
 }

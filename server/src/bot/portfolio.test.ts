@@ -35,9 +35,9 @@ async function bot(options: { link?: boolean; network?: 'mainnet' | 'testnet'; h
   h.chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/stats', () => ({ open: '5', last: '5' }))
   h.chain.route('https://api.rhea.finance/list-token-price', () => ({ [SING]: { price: '0.0001' } }))
   if (options.link !== false) {
-    h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
-    h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network, nonce: 'n', message: 'm', ttlMs: 60_000 })
-    h.store.completeLink({ codeHash: 'h', network, accountId: ACCOUNT, userId: ALICE.id, publicKey: 'ed25519:K' })
+    await h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
+    await h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network, nonce: 'n', message: 'm', ttlMs: 60_000 })
+    await h.store.completeLink({ codeHash: 'h', network, accountId: ACCOUNT, userId: ALICE.id, publicKey: 'ed25519:K' })
   }
   return h
 }

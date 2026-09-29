@@ -89,12 +89,13 @@ export function createEngine(deps: EngineDeps) {
   const running = new Set<string>()
 
   /** Moves an in-flight intent to failed. `moved` is false when something else settled it first (then nothing is logged or told twice). */
-  const failIntent = (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): { intent: Intent; moved: boolean } => {
-    const moved = store.setStatus(intent.id, ['confirmed', 'signing', 'submitted'], 'failed', { result: { ok: false, message, hashes, ...(facts ? { facts } : {}) } })
-    if (moved) store.audit({ userId: intent.userId, walletId: intent.walletId, action: 'intent-failed', detail: { intent: intent.id, message, hashes } })
-    return { intent: store.intent(intent.id) as Intent, moved }
+  const failIntent = async (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Promise<{ intent: Intent; moved: boolean }> => {
+    const moved = await store.setStatus(intent.id, ['confirmed', 'signing', 'submitted'], 'failed', { result: { ok: false, message, hashes, ...(facts ? { facts } : {}) } })
+    if (moved) await store.audit({ userId: intent.userId, walletId: intent.walletId, action: 'intent-failed', detail: { intent: intent.id, message, hashes } })
+    return { intent: (await store.intent(intent.id)) as Intent, moved }
   }
-  const fail = (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Intent => failIntent(intent, message, hashes, facts).intent
+  const fail = async (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Promise<Intent> =>
+    (await failIntent(intent, message, hashes, facts)).intent
 
   async function finalStatus(hash: string, signerId: string, waitMs: number): Promise<RpcTxResult | null> {
     const stop = now() + waitMs
@@ -118,15 +119,15 @@ export function createEngine(deps: EngineDeps) {
       log.warn('summarize failed', { intent: intent.id, error: e })
       result = { ok: confirmed.every((c) => succeeded(c.result)), message: 'Confirmed on chain. Open the transaction for the details.', hashes }
     }
-    const moved = store.setStatus(intent.id, ['signing', 'submitted'], result.ok ? 'done' : 'failed', { result })
+    const moved = await store.setStatus(intent.id, ['signing', 'submitted'], result.ok ? 'done' : 'failed', { result })
     if (moved)
-      store.audit({
+      await store.audit({
         userId: intent.userId,
         walletId: intent.walletId,
         action: result.ok ? 'intent-done' : 'intent-failed',
         detail: { intent: intent.id, hashes, facts: result.facts },
       })
-    return { intent: store.intent(intent.id) as Intent, moved }
+    return { intent: (await store.intent(intent.id)) as Intent, moved }
   }
 
   async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[]): Promise<ExecuteResult> {
@@ -144,7 +145,7 @@ export function createEngine(deps: EngineDeps) {
             step === 0 ? 'Your NearKit wallet isn’t on chain yet: deposit NEAR to it first. Nothing was sent.' : 'NearKit’s key is no longer on this wallet. Nothing more was sent.'
           return {
             kind: 'finished',
-            intent: fail(
+            intent: await fail(
               intent,
               msg,
               confirmed.map((c) => c.hash),
@@ -159,10 +160,10 @@ export function createEngine(deps: EngineDeps) {
         log.warn('signing refused', { intent: intent.id, step, error: e })
         const hashes = confirmed.map((c) => c.hash)
         const before = step > 0 ? ' Earlier steps went through; see the transactions.' : ' Nothing was sent.'
-        return { kind: 'finished', intent: fail(intent, `${explain(e)}${before}`, hashes) }
+        return { kind: 'finished', intent: await fail(intent, `${explain(e)}${before}`, hashes) }
       }
       // On disk before it leaves: after any crash, NearKit knows this hash and never signs the step again.
-      store.recordSigned({
+      await store.recordSigned({
         intentId: intent.id,
         step,
         hash: signed.hash,
@@ -173,7 +174,7 @@ export function createEngine(deps: EngineDeps) {
         signed: signed.base64,
         plan: { tx, total: plan.length } satisfies StoredStep,
       })
-      store.audit({
+      await store.audit({
         userId: intent.userId,
         walletId: wallet.id,
         action: 'tx-signed',
@@ -182,18 +183,18 @@ export function createEngine(deps: EngineDeps) {
       lastNonce = nonce
 
       const sent = await chain.send(signed.base64)
-      store.markTx(intent.id, step, 'submitted')
+      await store.markTx(intent.id, step, 'submitted')
       let result: RpcTxResult | null = null
       if (sent.kind === 'rejected') {
         // Refused by the node. Ask the chain once anyway before calling it failed.
         result = await chain.status(signed.hash, wallet.accountId).catch(() => null)
         if (!result) {
-          store.markTx(intent.id, step, 'failed', { reason: sent.reason })
+          await store.markTx(intent.id, step, 'failed', { reason: sent.reason })
           log.warn('transaction rejected', { intent: intent.id, step, hash: signed.hash, reason: sent.reason })
           const done = confirmed.length ? ' Earlier steps went through; see the transactions.' : ' Nothing was sent.'
           return {
             kind: 'finished',
-            intent: fail(
+            intent: await fail(
               intent,
               `The network refused the transaction.${done}`,
               confirmed.map((c) => c.hash),
@@ -205,18 +206,18 @@ export function createEngine(deps: EngineDeps) {
       }
       result = await finalStatus(signed.hash, wallet.accountId, deps.confirmMs ?? 60_000)
       if (!result) {
-        store.setStatus(intent.id, ['signing'], 'submitted')
-        store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-unclear', detail: { intent: intent.id, step, hash: signed.hash } })
-        return { kind: 'pending', intent: store.intent(intent.id) as Intent }
+        await store.setStatus(intent.id, ['signing'], 'submitted')
+        await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-unclear', detail: { intent: intent.id, step, hash: signed.hash } })
+        return { kind: 'pending', intent: (await store.intent(intent.id)) as Intent }
       }
       const ok = succeeded(result)
-      store.markTx(intent.id, step, ok ? 'success' : 'failed', { success: ok })
+      await store.markTx(intent.id, step, ok ? 'success' : 'failed', { success: ok })
       confirmed.push({ plan: tx, hash: signed.hash, result })
       // A registration that failed stops the plan; the last step is judged by its handler.
       if (!ok && step < plan.length - 1) {
         return {
           kind: 'finished',
-          intent: fail(
+          intent: await fail(
             intent,
             'A preparation step failed on chain, so the rest was not sent.',
             confirmed.map((c) => c.hash),
@@ -230,24 +231,24 @@ export function createEngine(deps: EngineDeps) {
   return {
     /** The Confirm button. Safe to call any number of times for the same intent. */
     async execute(intentId: string, userId: number): Promise<ExecuteResult> {
-      const c = store.confirmIntent(intentId, userId)
+      const c = await store.confirmIntent(intentId, userId)
       if (!c.ok) return { kind: 'refused', reason: c.reason, intent: c.intent }
       const intent = c.intent
       if (running.has(intent.walletId)) return { kind: 'refused', reason: 'busy', intent }
       running.add(intent.walletId)
       try {
-        const wallet = store.wallet(intent.walletId) as TradingWallet
+        const wallet = (await store.wallet(intent.walletId)) as TradingWallet
         const handler = deps.handlers[intent.kind]
-        if (!handler) return { kind: 'finished', intent: fail(intent, 'NearKit can’t do that here. Nothing was sent.') }
+        if (!handler) return { kind: 'finished', intent: await fail(intent, 'NearKit can’t do that here. Nothing was sent.') }
         let outcome: PlanOutcome
         try {
           outcome = await handler.plan(intent, wallet)
         } catch (e) {
           log.info('intent refused before signing', { intent: intent.id, kind: intent.kind, error: e })
-          return { kind: 'finished', intent: fail(intent, `${explain(e)} Nothing was sent.`) }
+          return { kind: 'finished', intent: await fail(intent, `${explain(e)} Nothing was sent.`) }
         }
         if (outcome.kind === 'requote') {
-          const next = store.createIntent({
+          const next = await store.createIntent({
             walletId: intent.walletId,
             userId: intent.userId,
             chatId: intent.chatId,
@@ -256,8 +257,11 @@ export function createEngine(deps: EngineDeps) {
             quote: outcome.quote,
             ttlMs: outcome.ttlMs,
           })
-          store.setStatus(intent.id, ['confirmed'], 'replaced', { replacedBy: next.id, result: { ok: false, message: 'The quote changed. Review the new price.', hashes: [] } })
-          return { kind: 'requoted', intent: store.intent(intent.id) as Intent, next }
+          await store.setStatus(intent.id, ['confirmed'], 'replaced', {
+            replacedBy: next.id,
+            result: { ok: false, message: 'The quote changed. Review the new price.', hashes: [] },
+          })
+          return { kind: 'requoted', intent: (await store.intent(intent.id)) as Intent, next }
         }
         return await run(intent, wallet, outcome.op, outcome.plan)
       } finally {
@@ -270,19 +274,19 @@ export function createEngine(deps: EngineDeps) {
      * waiting. Only reads the chain; never signs or sends.
      */
     async resolvePending(): Promise<Intent[]> {
-      store.expireQuotes()
+      await store.expireQuotes()
       const settled: Intent[] = []
-      for (const intent of store.allInFlight()) {
+      for (const intent of await store.allInFlight()) {
         if (running.has(intent.walletId)) continue
-        const wallet = store.wallet(intent.walletId)
+        const wallet = await store.wallet(intent.walletId)
         if (!wallet) continue
-        const txs = store.txsOf(intent.id)
+        const txs = await store.txsOf(intent.id)
         const keep = (r: { intent: Intent; moved: boolean }) => {
           if (r.moved) settled.push(r.intent)
         }
         if (!txs.length) {
           // Confirmed, then stopped before anything was signed: nothing can have been sent.
-          keep(failIntent(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
+          keep(await failIntent(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
           continue
         }
         let unresolved = false
@@ -299,7 +303,7 @@ export function createEngine(deps: EngineDeps) {
             continue
           }
           if (r) {
-            store.markTx(intent.id, t.step, succeeded(r) ? 'success' : 'failed', { success: succeeded(r) })
+            await store.markTx(intent.id, t.step, succeeded(r) ? 'success' : 'failed', { success: succeeded(r) })
             continue
           }
           if (seen) {
@@ -314,24 +318,24 @@ export function createEngine(deps: EngineDeps) {
           }
           if (nonce !== undefined && nonce !== null && nonce < t.nonce) {
             // Nonces only go up, so the key never used this one, and past expiry it never can: provably not executed.
-            store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NearKit’s key never used its nonce' })
+            await store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NearKit’s key never used its nonce' })
           } else if (nonce !== undefined && height > t.expiresHeight + AMBIGUOUS_GRACE_BLOCKS) {
             // The key's nonce moved (or the key is gone) but the chain returns no such transaction: nobody can tell.
-            store.markTx(intent.id, t.step, 'unconfirmed', { reason: 'the key’s nonce moved but the chain does not return this transaction' })
+            await store.markTx(intent.id, t.step, 'unconfirmed', { reason: 'the key’s nonce moved but the chain does not return this transaction' })
           } else {
             unresolved = true
           }
         }
         if (unresolved) continue
 
-        const all = store.txsOf(intent.id)
+        const all = await store.txsOf(intent.id)
         const landed = all.filter((t) => t.status === 'success' || t.status === 'failed')
         const total = stepOf(all[0] as WalletTx)?.total ?? all.length
         const unknown = all.find((t) => t.status === 'unconfirmed')
         if (unknown) {
           // Never "nothing was sent" here: it may have gone through.
           keep(
-            failIntent(
+            await failIntent(
               intent,
               'NearKit couldn’t confirm whether a transaction went through: the chain doesn’t return it, though the wallet’s key was used. Check the wallet’s balance and history before trying again.',
               [...landed.map((t) => t.hash), unknown.hash],
@@ -345,7 +349,7 @@ export function createEngine(deps: EngineDeps) {
             ? 'A transaction never reached the chain, so the rest was not sent. Earlier steps went through; see the transactions.'
             : 'The transaction never reached the chain. Nothing was sent.'
           keep(
-            failIntent(
+            await failIntent(
               intent,
               msg,
               landed.map((t) => t.hash),
@@ -368,7 +372,7 @@ export function createEngine(deps: EngineDeps) {
         const failedEarly = confirmed.slice(0, -1).some((c) => !succeeded(c.result))
         if (failedEarly)
           keep(
-            failIntent(
+            await failIntent(
               intent,
               'A preparation step failed on chain, so the rest was not sent.',
               confirmed.map((c) => c.hash),
@@ -376,7 +380,7 @@ export function createEngine(deps: EngineDeps) {
           )
         else if (confirmed.length < total)
           keep(
-            failIntent(
+            await failIntent(
               intent,
               'NearKit restarted between steps, so the rest was not sent. Nothing was traded; try again.',
               confirmed.map((c) => c.hash),

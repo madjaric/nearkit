@@ -47,7 +47,7 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     await h.press(confirm)
     await h.press(confirm)
     expect(h.chain.sent.length).toBe(sent)
-    const intent = h.custody.store.allInFlight()
+    const intent = await h.custody.store.allInFlight()
     expect(intent).toEqual([])
   })
 
@@ -167,7 +167,7 @@ describe('quote freshness', () => {
     expect(second).not.toBe(first)
     await h.press(first)
     expect(h.chain.sent).toHaveLength(0)
-    expect(h.custody.store.intent(first.slice('cx:ok:'.length))?.status).toBe('cancelled')
+    expect((await h.custody.store.intent(first.slice('cx:ok:'.length)))?.status).toBe('cancelled')
   })
 
   it('the quote carries NearKit’s canonical fee rate, charged only where a fee account runs (not on testnet)', async () => {
@@ -175,7 +175,7 @@ describe('quote freshness', () => {
     await h.funded(3n * ONE)
     await h.say('/buy USDT 1')
     const id = h.button('Confirm buy').slice('cx:ok:'.length)
-    const q = h.custody.store.intent(id)?.quote as unknown as SwapQuote
+    const q = (await h.custody.store.intent(id))?.quote as unknown as SwapQuote
     expect(q.fee).toMatchObject({ charged: false, bps: NEARKIT_FEE_BPS })
     expect(NEARKIT_FEE_BPS).toBe(50)
   })

@@ -1,15 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import initSqlJs, { type BindParams, type Database, type SqlJsStatic } from 'sql.js'
+import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from 'sql.js'
+import { BaseDatabase, Mutex, type Connection, type SqlParams } from './database'
 
 /**
  * SQLite through sql.js (WebAssembly: no native build, same engine everywhere).
- * The database lives in memory and is written to disk after every committed
- * write: to a temporary file first, then renamed over the old one, so a crash
- * leaves either the previous or the new state, never half of one. The process
- * is single-threaded and every statement is synchronous, so a transaction can
- * never interleave with another.
+ * Development, tests and the testnet beta. The database lives in memory and is
+ * written to disk after every committed write: to a temporary file first, then
+ * renamed over the old one, so a crash leaves either the previous or the new
+ * state, never half of one. One connection serves the whole process, so every
+ * statement and transaction takes its turn (a transaction holds the connection
+ * until it ends). Production uses PostgreSQL (postgres.ts).
  */
 
 let engine: Promise<SqlJsStatic> | null = null
@@ -22,101 +24,87 @@ function sqlEngine(): Promise<SqlJsStatic> {
   return engine
 }
 
-export type Params = BindParams
-
-export class Db {
-  private depth = 0
+export class SqliteDatabase extends BaseDatabase {
+  readonly dialect = 'sqlite' as const
+  private readonly lock = new Mutex()
   private dirty = false
+  private readonly conn: Connection
 
   private constructor(
-    private db: Database,
+    private db: SqlJsDatabase,
     private readonly path: string | null,
   ) {
+    super()
     this.pragmas()
+    this.conn = {
+      run: async (sql, params) => {
+        this.db.run(sql, params as (string | number | null)[])
+        const changes = this.db.getRowsModified()
+        this.dirty = true
+        return changes
+      },
+      all: async <T>(sql: string, params: SqlParams): Promise<T[]> => {
+        const stmt = this.db.prepare(sql)
+        try {
+          if (params.length) stmt.bind(params as (string | number | null)[])
+          const rows: T[] = []
+          while (stmt.step()) rows.push(stmt.getAsObject() as T)
+          return rows
+        } finally {
+          stmt.free()
+        }
+      },
+      exec: async (sql) => {
+        this.db.exec(sql)
+        this.dirty = true
+      },
+    }
   }
 
   /** `path` null keeps the database in memory only (tests). */
-  static async open(path: string | null): Promise<Db> {
+  static async open(path: string | null): Promise<SqliteDatabase> {
     const SQL = await sqlEngine()
     const bytes = path && existsSync(path) ? readFileSync(path) : null
-    return new Db(bytes ? new SQL.Database(bytes) : new SQL.Database(), path)
+    return new SqliteDatabase(bytes ? new SQL.Database(bytes) : new SQL.Database(), path)
   }
 
   private pragmas() {
     this.db.run('PRAGMA foreign_keys = ON')
   }
 
-  /** Runs one statement; returns the number of rows it changed. */
-  run(sql: string, params?: Params): number {
-    this.db.run(sql, params)
-    const changes = this.db.getRowsModified()
-    this.written()
-    return changes
-  }
-
-  /** Runs several statements (no parameters): schema changes. */
-  exec(sql: string): void {
-    this.db.exec(sql)
-    this.written()
-  }
-
-  all<T = Record<string, unknown>>(sql: string, params?: Params): T[] {
-    const stmt = this.db.prepare(sql)
-    try {
-      if (params) stmt.bind(params)
-      const rows: T[] = []
-      while (stmt.step()) rows.push(stmt.getAsObject() as T)
-      return rows
-    } finally {
-      stmt.free()
-    }
-  }
-
-  get<T = Record<string, unknown>>(sql: string, params?: Params): T | undefined {
-    return this.all<T>(sql, params)[0]
-  }
-
-  /**
-   * All-or-nothing: commits when `fn` returns, rolls back when it throws. Nested
-   * calls join the outer transaction. `fn` must be synchronous.
-   */
-  tx<T>(fn: () => T): T {
-    if (this.depth > 0) {
-      this.depth += 1
+  protected outside<T>(fn: (conn: Connection) => Promise<T>): Promise<T> {
+    return this.lock.run(async () => {
       try {
-        return fn()
+        return await fn(this.conn)
       } finally {
-        this.depth -= 1
+        this.flush()
       }
-    }
-    this.db.run('BEGIN IMMEDIATE')
-    this.depth = 1
-    try {
-      const result = fn()
-      if (result instanceof Promise) throw new Error('Db.tx callbacks must be synchronous')
-      this.db.run('COMMIT')
-      this.depth = 0
+    })
+  }
+
+  protected transaction<T>(fn: (conn: Connection) => Promise<T>): Promise<T> {
+    return this.lock.run(async () => {
+      this.db.run('BEGIN IMMEDIATE')
+      let result: T
+      try {
+        result = await fn(this.conn)
+        this.db.run('COMMIT')
+      } catch (e) {
+        this.dirty = false
+        try {
+          this.db.run('ROLLBACK')
+        } catch {
+          // SQLite already rolled back (e.g. a constraint aborted the transaction)
+        }
+        throw e
+      }
       this.flush()
       return result
-    } catch (e) {
-      this.depth = 0
-      this.dirty = false
-      try {
-        this.db.run('ROLLBACK')
-      } catch {
-        // SQLite already rolled back (e.g. a constraint aborted the transaction)
-      }
-      throw e
-    }
-  }
-
-  private written() {
-    this.dirty = true
-    if (this.depth === 0) this.flush()
+    })
   }
 
   /** Writes the database to disk if anything changed since the last save. */
-  flush(): void {
+  private flush(): void {
     if (!this.dirty || !this.path) {
       this.dirty = false
       return
@@ -131,8 +119,10 @@ export class Db {
     this.dirty = false
   }
 
-  close(): void {
-    this.flush()
-    this.db.close()
+  async close(): Promise<void> {
+    await this.lock.run(async () => {
+      this.flush()
+      this.db.close()
+    })
   }
 }

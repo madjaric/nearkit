@@ -1,4 +1,4 @@
-import type { Db } from '../db/sqlite'
+import type { Database } from '../db/database'
 
 /**
  * Buybot persistence. Idempotency lives in the keys: a transaction is a candidate
@@ -153,50 +153,58 @@ const toEvent = (r: {
 
 export class BuybotStore {
   constructor(
-    private readonly db: Db,
+    private readonly db: Database,
     private readonly now: () => number = Date.now,
   ) {}
 
   // ─── configurations ───────────────────────────────────────────────────────
 
-  addConfig(c: { chatId: number; chatTitle: string | null; network: string; token: string; symbol: string; name: string; decimals: number; createdBy: number }): BuybotConfig {
-    return this.db.tx(() => {
-      if (this.configsForChat(c.chatId).length >= MAX_CONFIGS_PER_CHAT) throw new Error(`A chat can follow at most ${MAX_CONFIGS_PER_CHAT} tokens`)
+  async addConfig(c: {
+    chatId: number
+    chatTitle: string | null
+    network: string
+    token: string
+    symbol: string
+    name: string
+    decimals: number
+    createdBy: number
+  }): Promise<BuybotConfig> {
+    return this.db.tx(async () => {
+      if ((await this.configsForChat(c.chatId)).length >= MAX_CONFIGS_PER_CHAT) throw new Error(`A chat can follow at most ${MAX_CONFIGS_PER_CHAT} tokens`)
       const t = this.now()
-      this.db.run(
+      const row = await this.db.get<{ id: number }>(
         `INSERT INTO buybot_configs (chat_id, chat_title, network, token, symbol, name, decimals, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [c.chatId, c.chatTitle, c.network, c.token, c.symbol, c.name, c.decimals, c.createdBy, t, t],
       )
-      const id = this.db.get<{ id: number }>('SELECT last_insert_rowid() AS id')?.id ?? 0
-      return this.config(id) as BuybotConfig
+      return (await this.config(row?.id ?? 0)) as BuybotConfig
     })
   }
 
-  config(id: number): BuybotConfig | null {
-    const r = this.db.get<ConfigRow>('SELECT * FROM buybot_configs WHERE id = ?', [id])
+  async config(id: number): Promise<BuybotConfig | null> {
+    const r = await this.db.get<ConfigRow>('SELECT * FROM buybot_configs WHERE id = ?', [id])
     return r ? toConfig(r) : null
   }
 
-  findConfig(chatId: number, network: string, token: string): BuybotConfig | null {
-    const r = this.db.get<ConfigRow>('SELECT * FROM buybot_configs WHERE chat_id = ? AND network = ? AND token = ?', [chatId, network, token])
+  async findConfig(chatId: number, network: string, token: string): Promise<BuybotConfig | null> {
+    const r = await this.db.get<ConfigRow>('SELECT * FROM buybot_configs WHERE chat_id = ? AND network = ? AND token = ?', [chatId, network, token])
     return r ? toConfig(r) : null
   }
 
-  configsForChat(chatId: number): BuybotConfig[] {
-    return this.db.all<ConfigRow>('SELECT * FROM buybot_configs WHERE chat_id = ? ORDER BY id', [chatId]).map(toConfig)
+  async configsForChat(chatId: number): Promise<BuybotConfig[]> {
+    return (await this.db.all<ConfigRow>('SELECT * FROM buybot_configs WHERE chat_id = ? ORDER BY id', [chatId])).map(toConfig)
   }
 
-  updateConfig(
+  async updateConfig(
     id: number,
     patch: Partial<
       Pick<BuybotConfig, 'enabled' | 'unit' | 'minNear' | 'minUsd' | 'emoji' | 'stepNear' | 'stepUsd' | 'maxEmoji' | 'media' | 'sells' | 'silent' | 'chatTitle' | 'pausedReason'>
     >,
-  ): BuybotConfig | null {
-    const cur = this.config(id)
+  ): Promise<BuybotConfig | null> {
+    const cur = await this.config(id)
     if (!cur) return null
     const next = { ...cur, ...patch }
-    this.db.run(
+    await this.db.run(
       `UPDATE buybot_configs SET enabled = ?, unit = ?, min_near = ?, min_usd = ?, emoji = ?, step_near = ?, step_usd = ?, max_emoji = ?, media_kind = ?, media_file_id = ?,
          sells = ?, silent = ?, chat_title = ?, paused_reason = ?, updated_at = ? WHERE id = ?`,
       [
@@ -222,64 +230,65 @@ export class BuybotStore {
   }
 
   /** Every token a chat follows: on (true) or off (false) at once. */
-  setChatEnabled(chatId: number, enabled: boolean): number {
+  async setChatEnabled(chatId: number, enabled: boolean): Promise<number> {
     return this.db.run('UPDATE buybot_configs SET enabled = ?, paused_reason = NULL, updated_at = ? WHERE chat_id = ?', [enabled ? 1 : 0, this.now(), chatId])
   }
 
-  removeConfig(id: number): void {
-    this.db.run('DELETE FROM buybot_configs WHERE id = ?', [id])
+  async removeConfig(id: number): Promise<void> {
+    await this.db.run('DELETE FROM buybot_configs WHERE id = ?', [id])
   }
 
   /** Tokens at least one chat wants posts for right now. */
-  activeTokens(network: string): string[] {
-    return this.db
-      .all<{ token: string }>('SELECT DISTINCT token FROM buybot_configs WHERE network = ? AND enabled = 1 AND paused_reason IS NULL ORDER BY token', [network])
-      .map((r) => r.token)
+  async activeTokens(network: string): Promise<string[]> {
+    return (
+      await this.db.all<{ token: string }>('SELECT DISTINCT token FROM buybot_configs WHERE network = ? AND enabled = 1 AND paused_reason IS NULL ORDER BY token', [network])
+    ).map((r) => r.token)
   }
 
-  activeConfigsFor(network: string, token: string): BuybotConfig[] {
-    return this.db
-      .all<ConfigRow>('SELECT * FROM buybot_configs WHERE network = ? AND token = ? AND enabled = 1 AND paused_reason IS NULL ORDER BY id', [network, token])
-      .map(toConfig)
+  async activeConfigsFor(network: string, token: string): Promise<BuybotConfig[]> {
+    return (
+      await this.db.all<ConfigRow>('SELECT * FROM buybot_configs WHERE network = ? AND token = ? AND enabled = 1 AND paused_reason IS NULL ORDER BY id', [network, token])
+    ).map(toConfig)
   }
 
   /** The bot can't post there any more (removed, blocked): stop until someone re-enables it. */
-  pauseChat(chatId: number, reason: string): void {
-    this.db.run('UPDATE buybot_configs SET paused_reason = ?, updated_at = ? WHERE chat_id = ?', [reason, this.now(), chatId])
+  async pauseChat(chatId: number, reason: string): Promise<void> {
+    await this.db.run('UPDATE buybot_configs SET paused_reason = ?, updated_at = ? WHERE chat_id = ?', [reason, this.now(), chatId])
   }
 
-  resumeChat(chatId: number): void {
-    this.db.run('UPDATE buybot_configs SET paused_reason = NULL, updated_at = ? WHERE chat_id = ?', [this.now(), chatId])
+  async resumeChat(chatId: number): Promise<void> {
+    await this.db.run('UPDATE buybot_configs SET paused_reason = NULL, updated_at = ? WHERE chat_id = ?', [this.now(), chatId])
   }
 
   /** A group became a supergroup and got a new ID. */
-  migrateChat(from: number, to: number): void {
-    this.db.run('UPDATE buybot_configs SET chat_id = ?, updated_at = ? WHERE chat_id = ?', [to, this.now(), from])
+  async migrateChat(from: number, to: number): Promise<void> {
+    await this.db.run('UPDATE buybot_configs SET chat_id = ?, updated_at = ? WHERE chat_id = ?', [to, this.now(), from])
   }
 
   // ─── cursors and candidates ───────────────────────────────────────────────
 
   /** Height up to which a token's history has been read. */
-  tokenCursor(network: string, token: string): number | null {
-    const v = this.db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', [`buybot_cursor_${network}_${token}`])?.value
+  async tokenCursor(network: string, token: string): Promise<number | null> {
+    const v = (await this.db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', [`buybot_cursor_${network}_${token}`]))?.value
     return v === undefined ? null : Number(v)
   }
 
-  tokenCursors(network: string): { token: string; height: number }[] {
+  async tokenCursors(network: string): Promise<{ token: string; height: number }[]> {
     const prefix = `buybot_cursor_${network}_`
-    return this.db
-      .all<{ key: string; value: string }>('SELECT key, value FROM meta WHERE substr(key, 1, ?) = ?', [prefix.length, prefix])
-      .map((r) => ({ token: r.key.slice(prefix.length), height: Number(r.value) }))
+    return (await this.db.all<{ key: string; value: string }>('SELECT key, value FROM meta WHERE substr(key, 1, ?) = ?', [prefix.length, prefix])).map((r) => ({
+      token: r.key.slice(prefix.length),
+      height: Number(r.value),
+    }))
   }
 
   /** Records a token's new transactions and moves its cursor, all at once. Known transactions are skipped. */
-  advanceToken(network: string, token: string, height: number, found: { txHash: string; blockHeight: number }[]): void {
-    this.db.tx(() => {
+  async advanceToken(network: string, token: string, height: number, found: { txHash: string; blockHeight: number }[]): Promise<void> {
+    await this.db.tx(async () => {
       const t = this.now()
       for (const c of found) {
-        const existing = this.db.get<{ tokens: string; done_at: number | null }>('SELECT tokens, done_at FROM buybot_candidates WHERE tx_hash = ?', [c.txHash])
+        const existing = await this.db.get<{ tokens: string; done_at: number | null }>('SELECT tokens, done_at FROM buybot_candidates WHERE tx_hash = ?', [c.txHash])
         if (!existing) {
-          this.db.run('INSERT INTO buybot_candidates (tx_hash, network, tokens, block_height, first_seen, next_at) VALUES (?, ?, ?, ?, ?, ?)', [
+          await this.db.run('INSERT INTO buybot_candidates (tx_hash, network, tokens, block_height, first_seen, next_at) VALUES (?, ?, ?, ?, ?, ?)', [
             c.txHash,
             network,
             JSON.stringify([token]),
@@ -289,16 +298,16 @@ export class BuybotStore {
           ])
         } else if (existing.done_at === null) {
           const tokens = JSON.parse(existing.tokens) as string[]
-          if (!tokens.includes(token)) this.db.run('UPDATE buybot_candidates SET tokens = ? WHERE tx_hash = ?', [JSON.stringify([...tokens, token]), c.txHash])
+          if (!tokens.includes(token)) await this.db.run('UPDATE buybot_candidates SET tokens = ? WHERE tx_hash = ?', [JSON.stringify([...tokens, token]), c.txHash])
         }
       }
-      this.db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`buybot_cursor_${network}_${token}`, String(height)])
+      await this.db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`buybot_cursor_${network}_${token}`, String(height)])
     })
   }
 
-  dueCandidates(network: string, limit = 10): Candidate[] {
-    return this.db
-      .all<{
+  async dueCandidates(network: string, limit = 10): Promise<Candidate[]> {
+    return (
+      await this.db.all<{
         tx_hash: string
         network: string
         tokens: string
@@ -306,24 +315,24 @@ export class BuybotStore {
         first_seen: number
         attempts: number
       }>('SELECT * FROM buybot_candidates WHERE network = ? AND done_at IS NULL AND next_at <= ? ORDER BY block_height, first_seen LIMIT ?', [network, this.now(), limit])
-      .map((r) => ({
-        txHash: r.tx_hash,
-        network: r.network,
-        tokens: JSON.parse(r.tokens) as string[],
-        blockHeight: r.block_height,
-        firstSeen: r.first_seen,
-        attempts: r.attempts,
-      }))
+    ).map((r) => ({
+      txHash: r.tx_hash,
+      network: r.network,
+      tokens: JSON.parse(r.tokens) as string[],
+      blockHeight: r.block_height,
+      firstSeen: r.first_seen,
+      attempts: r.attempts,
+    }))
   }
 
-  retryCandidate(txHash: string, delayMs: number): number {
-    this.db.run('UPDATE buybot_candidates SET attempts = attempts + 1, next_at = ? WHERE tx_hash = ?', [this.now() + delayMs, txHash])
-    return this.db.get<{ attempts: number }>('SELECT attempts FROM buybot_candidates WHERE tx_hash = ?', [txHash])?.attempts ?? 0
+  async retryCandidate(txHash: string, delayMs: number): Promise<number> {
+    await this.db.run('UPDATE buybot_candidates SET attempts = attempts + 1, next_at = ? WHERE tx_hash = ?', [this.now() + delayMs, txHash])
+    return (await this.db.get<{ attempts: number }>('SELECT attempts FROM buybot_candidates WHERE tx_hash = ?', [txHash]))?.attempts ?? 0
   }
 
   /** Read (or given up on): kept as a marker so the same transaction isn't read again. */
-  finishCandidate(txHash: string): void {
-    this.db.run('UPDATE buybot_candidates SET done_at = ? WHERE tx_hash = ?', [this.now(), txHash])
+  async finishCandidate(txHash: string): Promise<void> {
+    await this.db.run('UPDATE buybot_candidates SET done_at = ? WHERE tx_hash = ?', [this.now(), txHash])
   }
 
   // ─── buys and deliveries ──────────────────────────────────────────────────
@@ -332,11 +341,12 @@ export class BuybotStore {
    * Records a buy once and queues one delivery per chat that wants it. Returns
    * false when this buy was already recorded (a restart re-read the block).
    */
-  recordBuy(event: Omit<BuyEvent, 'detectedAt'>, configIds: number[]): boolean {
-    return this.db.tx(() => {
+  async recordBuy(event: Omit<BuyEvent, 'detectedAt'>, configIds: number[]): Promise<boolean> {
+    return this.db.tx(async () => {
       const t = this.now()
-      const inserted = this.db.run(
-        `INSERT OR IGNORE INTO buybot_events (event_key, network, token, side, tx_hash, buyer, amount, paid, block_height, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      const inserted = await this.db.run(
+        `INSERT INTO buybot_events (event_key, network, token, side, tx_hash, buyer, amount, paid, block_height, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT DO NOTHING`,
         [
           event.eventKey,
           event.network,
@@ -352,41 +362,38 @@ export class BuybotStore {
       )
       if (inserted === 0) return false
       for (const id of configIds) {
-        this.db.run(`INSERT OR IGNORE INTO buybot_deliveries (event_key, config_id, status, next_at, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, ?)`, [
-          event.eventKey,
-          id,
-          t,
-          t,
-          t,
-        ])
+        await this.db.run(
+          `INSERT INTO buybot_deliveries (event_key, config_id, status, next_at, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, ?) ON CONFLICT DO NOTHING`,
+          [event.eventKey, id, t, t, t],
+        )
       }
       return true
     })
   }
 
-  event(eventKey: string): BuyEvent | null {
-    const r = this.db.get<Parameters<typeof toEvent>[0]>('SELECT * FROM buybot_events WHERE event_key = ?', [eventKey])
+  async event(eventKey: string): Promise<BuyEvent | null> {
+    const r = await this.db.get<Parameters<typeof toEvent>[0]>('SELECT * FROM buybot_events WHERE event_key = ?', [eventKey])
     return r ? toEvent(r) : null
   }
 
-  dueDeliveries(limit = 20): { eventKey: string; configId: number; attempts: number }[] {
-    return this.db
-      .all<{ event_key: string; config_id: number; attempts: number }>(
+  async dueDeliveries(limit = 20): Promise<{ eventKey: string; configId: number; attempts: number }[]> {
+    return (
+      await this.db.all<{ event_key: string; config_id: number; attempts: number }>(
         `SELECT event_key, config_id, attempts FROM buybot_deliveries WHERE status = 'pending' AND next_at <= ? ORDER BY created_at LIMIT ?`,
         [this.now(), limit],
       )
-      .map((r) => ({ eventKey: r.event_key, configId: r.config_id, attempts: r.attempts }))
+    ).map((r) => ({ eventKey: r.event_key, configId: r.config_id, attempts: r.attempts }))
   }
 
-  markSent(eventKey: string, configId: number, messageId: number): void {
-    this.db.run(
+  async markSent(eventKey: string, configId: number, messageId: number): Promise<void> {
+    await this.db.run(
       `UPDATE buybot_deliveries SET status = 'sent', message_id = ?, attempts = attempts + 1, updated_at = ? WHERE event_key = ? AND config_id = ? AND status = 'pending'`,
       [messageId, this.now(), eventKey, configId],
     )
   }
 
-  markRetry(eventKey: string, configId: number, delayMs: number, error: string): void {
-    this.db.run(`UPDATE buybot_deliveries SET attempts = attempts + 1, next_at = ?, error = ?, updated_at = ? WHERE event_key = ? AND config_id = ? AND status = 'pending'`, [
+  async markRetry(eventKey: string, configId: number, delayMs: number, error: string): Promise<void> {
+    await this.db.run(`UPDATE buybot_deliveries SET attempts = attempts + 1, next_at = ?, error = ?, updated_at = ? WHERE event_key = ? AND config_id = ? AND status = 'pending'`, [
       this.now() + delayMs,
       error.slice(0, 300),
       this.now(),
@@ -395,8 +402,8 @@ export class BuybotStore {
     ])
   }
 
-  markDone(eventKey: string, configId: number, status: 'skipped' | 'failed', reason: string): void {
-    this.db.run(`UPDATE buybot_deliveries SET status = ?, error = ?, updated_at = ? WHERE event_key = ? AND config_id = ? AND status = 'pending'`, [
+  async markDone(eventKey: string, configId: number, status: 'skipped' | 'failed', reason: string): Promise<void> {
+    await this.db.run(`UPDATE buybot_deliveries SET status = ?, error = ?, updated_at = ? WHERE event_key = ? AND config_id = ? AND status = 'pending'`, [
       status,
       reason.slice(0, 300),
       this.now(),
@@ -405,8 +412,8 @@ export class BuybotStore {
     ])
   }
 
-  delivery(eventKey: string, configId: number): { status: DeliveryStatus; attempts: number; messageId: number | null; error: string | null } | null {
-    const r = this.db.get<{ status: DeliveryStatus; attempts: number; message_id: number | null; error: string | null }>(
+  async delivery(eventKey: string, configId: number): Promise<{ status: DeliveryStatus; attempts: number; messageId: number | null; error: string | null } | null> {
+    const r = await this.db.get<{ status: DeliveryStatus; attempts: number; message_id: number | null; error: string | null }>(
       'SELECT status, attempts, message_id, error FROM buybot_deliveries WHERE event_key = ? AND config_id = ?',
       [eventKey, configId],
     )
@@ -415,29 +422,31 @@ export class BuybotStore {
 
   // ─── status and housekeeping ──────────────────────────────────────────────
 
-  stats(network: string, configIds: number[]): { candidates: number; pending: number; sent: number; failed: number; lastBuyAt: number | null } {
+  async stats(network: string, configIds: number[]): Promise<{ candidates: number; pending: number; sent: number; failed: number; lastBuyAt: number | null }> {
     const ids = configIds.length ? configIds : [-1]
     const marks = ids.map(() => '?').join(',')
-    const count = (status: string) =>
-      this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM buybot_deliveries WHERE status = ? AND config_id IN (${marks})`, [status, ...ids])?.n ?? 0
+    const count = async (status: string) =>
+      (await this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM buybot_deliveries WHERE status = ? AND config_id IN (${marks})`, [status, ...ids]))?.n ?? 0
     return {
-      candidates: this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM buybot_candidates WHERE network = ? AND done_at IS NULL', [network])?.n ?? 0,
-      pending: count('pending'),
-      sent: count('sent'),
-      failed: count('failed'),
+      candidates: (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM buybot_candidates WHERE network = ? AND done_at IS NULL', [network]))?.n ?? 0,
+      pending: await count('pending'),
+      sent: await count('sent'),
+      failed: await count('failed'),
       lastBuyAt:
-        this.db.get<{ at: number | null }>(
-          `SELECT MAX(e.detected_at) AS at FROM buybot_events e JOIN buybot_deliveries d ON d.event_key = e.event_key WHERE d.config_id IN (${marks})`,
-          ids,
+        (
+          await this.db.get<{ at: number | null }>(
+            `SELECT MAX(e.detected_at) AS at FROM buybot_events e JOIN buybot_deliveries d ON d.event_key = e.event_key WHERE d.config_id IN (${marks})`,
+            ids,
+          )
         )?.at ?? null,
     }
   }
 
   /** Forgets buys (and their deliveries) older than `ageMs`, and done candidates after an hour. */
-  prune(ageMs: number): void {
-    this.db.tx(() => {
-      this.db.run('DELETE FROM buybot_events WHERE detected_at < ?', [this.now() - ageMs])
-      this.db.run('DELETE FROM buybot_candidates WHERE done_at IS NOT NULL AND done_at < ?', [this.now() - 3_600_000])
+  async prune(ageMs: number): Promise<void> {
+    await this.db.tx(async () => {
+      await this.db.run('DELETE FROM buybot_events WHERE detected_at < ?', [this.now() - ageMs])
+      await this.db.run('DELETE FROM buybot_candidates WHERE done_at IS NOT NULL AND done_at < ?', [this.now() - 3_600_000])
     })
   }
 }

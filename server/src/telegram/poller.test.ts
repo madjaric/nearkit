@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { migrate } from '../db/schema'
-import { Db } from '../db/sqlite'
+import { SqliteDatabase } from '../db/sqlite'
 import { Store } from '../db/store'
 import { silentLogger } from '../log'
 import { createTelegramApi } from './api'
@@ -11,8 +11,8 @@ import type { TgUpdate } from './types'
 async function setup() {
   const fake = createFakeTelegram()
   const tg = createTelegramApi({ token: fake.token, fetch: fake.fetch, sleep: async () => {} })
-  const db = await Db.open(null)
-  migrate(db)
+  const db = await SqliteDatabase.open(null)
+  await migrate(db)
   return { fake, tg, store: new Store(db) }
 }
 
@@ -41,7 +41,7 @@ describe('polling', () => {
     await poller.done
     expect(seen.filter((s) => s.startsWith('1:'))).toEqual(['1:a', '1:b'])
     expect(seen).toContain('2:x')
-    expect(Number(store.getMeta('telegram_offset'))).toBe(1003)
+    expect(Number(await store.getMeta('telegram_offset'))).toBe(1003)
   })
 
   it('keeps going when one update’s handler throws', async () => {

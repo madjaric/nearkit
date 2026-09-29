@@ -9,15 +9,15 @@ import { amountText, friendlyError, nearText } from './ui'
  * Wallet screen: what that account holds, read from chain.
  */
 
-export function linkedAccount(ctx: BotCtx): string | null {
+export async function linkedAccount(ctx: BotCtx): Promise<string | null> {
   const { store, config } = ctx.deps
-  const links = store.linksOf(ctx.user.id, config.network.id)
-  const def = store.getSettings(ctx.user.id).defaultAccount
+  const links = await store.linksOf(ctx.user.id, config.network.id)
+  const def = (await store.getSettings(ctx.user.id)).defaultAccount
   return links.find((l) => l.accountId === def)?.accountId ?? links[0]?.accountId ?? null
 }
 
 export async function needAccount(ctx: BotCtx): Promise<string | null> {
-  const account = linkedAccount(ctx)
+  const account = await linkedAccount(ctx)
   if (!account) {
     await ctx.reply('Link a NEAR account first: you sign a free message in your wallet, no keys involved.', keyboard([btn('🔗 Link wallet', 'acct:link')]))
     return null

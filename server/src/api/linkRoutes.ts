@@ -13,10 +13,10 @@ export function linkRoutes(deps: {
   onLinked: (r: { accountId: string; userId: number; previousUserId: number | null }) => Promise<void>
 }): Record<string, Route> {
   return {
-    '/api/link/describe': async (body) => deps.link.describe(field(body, 'code', 64)),
+    '/api/link/describe': async (body) => await deps.link.describe(field(body, 'code', 64)),
     '/api/link/confirm': async (body) => {
       const code = field(body, 'code', 64)
-      const described = deps.link.describe(code)
+      const described = await deps.link.describe(code)
       const result = await deps.link.confirm({
         code,
         accountId: field(body, 'accountId', 64),

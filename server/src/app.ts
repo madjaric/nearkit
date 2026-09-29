@@ -11,8 +11,8 @@ import { portfolioModule } from './bot/portfolio'
 import { settingsModule } from './bot/settings'
 import { tradeModule } from './bot/trade'
 import { loadConfig, type ServerConfig } from './config'
+import { databaseSecrets, describeDatabase, openDatabase } from './db/open'
 import { migrate } from './db/schema'
-import { Db } from './db/sqlite'
 import { Store } from './db/store'
 import { createLinkService } from './link/service'
 import { createLogger, type Logger } from './log'
@@ -82,7 +82,7 @@ export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
 
 export async function startServer(options: { env: Record<string, string | undefined>; fetch?: typeof fetch; log?: Logger; now?: () => number }): Promise<RunningServer> {
   const { config, issues } = loadConfig(options.env)
-  const secrets = [config.telegramToken, options.env.NEARKIT_WALLET_KEK?.trim()].filter((s): s is string => Boolean(s))
+  const secrets = [config.telegramToken, options.env.NEARKIT_WALLET_KEK?.trim(), ...databaseSecrets(config.database)].filter((s): s is string => Boolean(s))
   const log = options.log ?? createLogger({ level: config.logLevel, secrets })
   if (issues.length) {
     for (const i of issues) log.error('configuration problem', { key: i.key, problem: i.message })
@@ -91,11 +91,11 @@ export async function startServer(options: { env: Record<string, string | undefi
   const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis)
   const now = options.now ?? Date.now
 
-  const db = await Db.open(config.dbPath)
-  migrate(db)
+  const db = await openDatabase(config.database)
+  const schema = await migrate(db)
   const store = new Store(db, now)
-  const boot = store.recordBoot()
-  log.info('database ready', { path: config.dbPath, boot: boot.boot, since: new Date(boot.since).toISOString(), ...store.counts() })
+  const boot = await store.recordBoot()
+  log.info('database ready', { database: describeDatabase(config.database), schema, boot: boot.boot, since: new Date(boot.since).toISOString(), ...(await store.counts()) })
   const near = createServerNear(config, fetchImpl, now)
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   // Trade results reach the user through the bot once it is running; they respect /settings.
@@ -112,7 +112,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     },
     notify: (userId, html) => notifyUser(userId, html),
   })
-  log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: config.dbPath, bot: Boolean(config.telegramToken) })
+  log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: describeDatabase(config.database), bot: Boolean(config.telegramToken) })
 
   // NearKit trading wallets: testnet only, and only with a key-encryption key (config.ts).
   let custody: CustodyDeps | null = null
@@ -178,7 +178,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     const app = bot
     list = () => app.commands()
     notifyUser = async (userId, html) => {
-      if (store.getSettings(userId).notifyTrades) await app.notify(userId, html)
+      if ((await store.getSettings(userId)).notifyTrades) await app.notify(userId, html)
     }
     // Results the resolver settles in the background (after a timeout or a restart) always reach the user.
     onSettled = (intent) => notifySettled(deps, (userId, html, markup) => app.notify(userId, html, markup), intent)
@@ -246,12 +246,14 @@ export async function startServer(options: { env: Record<string, string | undefi
   resolver.unref()
 
   const housekeeping = setInterval(() => {
-    try {
-      store.prune()
-      buybot?.store.prune(7 * 86_400_000)
-    } catch (e) {
-      log.warn('prune failed', { error: e })
-    }
+    void (async () => {
+      try {
+        await store.prune()
+        await buybot?.store.prune(7 * 86_400_000)
+      } catch (e) {
+        log.warn('prune failed', { error: e })
+      }
+    })()
   }, 10 * 60_000)
   housekeeping.unref()
 
@@ -266,7 +268,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       await buybotRunner?.stop()
       await poller?.stop()
       await new Promise<void>((resolve) => api.close(() => resolve()))
-      db.close()
+      await db.close()
       log.info('NearKit server stopped')
     },
   }

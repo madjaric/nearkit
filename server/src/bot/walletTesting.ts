@@ -71,21 +71,21 @@ export async function walletBot(options: { link?: boolean; linkedKey?: string; e
     }
   })
   if (options.link !== false) {
-    h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
-    h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
-    h.store.completeLink({ codeHash: 'h', network: 'testnet', accountId: LINKED, userId: ALICE.id, publicKey: linkedKey })
-    h.store.updateSettings(ALICE.id, { defaultAccount: LINKED })
+    await h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
+    await h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+    await h.store.completeLink({ codeHash: 'h', network: 'testnet', accountId: LINKED, userId: ALICE.id, publicKey: linkedKey })
+    await h.store.updateSettings(ALICE.id, { defaultAccount: LINKED })
   }
   const custody = h.deps.custody as NonNullable<typeof h.deps.custody>
   return {
     ...h,
     market,
     custody,
-    wallet: (): TradingWallet | null => custody.store.activeWallet(ALICE.id, 'testnet'),
+    wallet: (): Promise<TradingWallet | null> => custody.store.activeWallet(ALICE.id, 'testnet'),
     /** Creates Alice's NearKit wallet through the bot and funds it from outside. */
     async funded(near = 3n * ONE, usdt = 0n) {
       await h.press('cw:create')
-      const w = custody.store.activeWallet(ALICE.id, 'testnet') as TradingWallet
+      const w = (await custody.store.activeWallet(ALICE.id, 'testnet')) as TradingWallet
       h.chain.fund(w.accountId, near)
       if (usdt > 0n) {
         const t = h.chain.tokens.get(USDT)

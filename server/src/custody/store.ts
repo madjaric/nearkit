@@ -1,4 +1,4 @@
-import type { Db } from '../db/sqlite'
+import type { Database } from '../db/database'
 import { randomToken } from '../ids'
 
 /**
@@ -215,7 +215,7 @@ const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(',
 
 export class CustodyStore {
   constructor(
-    readonly db: Db,
+    readonly db: Database,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -225,7 +225,7 @@ export class CustodyStore {
    * Saves a new wallet unless the user already has a live one on this network, in
    * which case that one is returned and the new key material is simply never stored.
    */
-  createWallet(w: {
+  async createWallet(w: {
     userId: number
     network: string
     accountId: string
@@ -233,78 +233,78 @@ export class CustodyStore {
     sealedKey: string
     keyRef: string
     owner?: { accountId: string; publicKey: string } | null
-  }): { wallet: TradingWallet; created: boolean } {
-    return this.db.tx(() => {
-      const existing = this.activeWallet(w.userId, w.network)
+  }): Promise<{ wallet: TradingWallet; created: boolean }> {
+    return this.db.tx(async () => {
+      const existing = await this.activeWallet(w.userId, w.network)
       if (existing) return { wallet: existing, created: false }
       const id = randomToken(12)
       const t = this.now()
-      this.db.run(
+      await this.db.run(
         `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, owner_account, owner_key, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
         [id, w.userId, w.network, w.accountId, w.publicKey, w.sealedKey, w.keyRef, w.owner?.accountId ?? null, w.owner?.publicKey ?? null, t, t],
       )
-      this.audit({
+      await this.audit({
         userId: w.userId,
         walletId: id,
         action: 'wallet-created',
         detail: { network: w.network, accountId: w.accountId, publicKey: w.publicKey, keyRef: w.keyRef, owner: w.owner?.accountId ?? null },
       })
-      return { wallet: this.wallet(id) as TradingWallet, created: true }
+      return { wallet: (await this.wallet(id)) as TradingWallet, created: true }
     })
   }
 
-  wallet(id: string): TradingWallet | null {
-    const r = this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE id = ?', [id])
+  async wallet(id: string): Promise<TradingWallet | null> {
+    const r = await this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE id = ?', [id])
     return r ? toWallet(r) : null
   }
 
-  activeWallet(userId: number, network: string): TradingWallet | null {
-    const r = this.db.get<WalletRow>("SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active'", [userId, network])
+  async activeWallet(userId: number, network: string): Promise<TradingWallet | null> {
+    const r = await this.db.get<WalletRow>("SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active'", [userId, network])
     return r ? toWallet(r) : null
   }
 
   /** Wallets a user created since `since`, closed ones included. */
-  countWalletsSince(userId: number, since: number): number {
-    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM trading_wallets WHERE user_id = ? AND created_at >= ?', [userId, since])?.n ?? 0
+  async countWalletsSince(userId: number, since: number): Promise<number> {
+    return (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM trading_wallets WHERE user_id = ? AND created_at >= ?', [userId, since]))?.n ?? 0
   }
 
-  walletByAccount(network: string, accountId: string): TradingWallet | null {
-    const r = this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE network = ? AND account_id = ?', [network, accountId])
+  async walletByAccount(network: string, accountId: string): Promise<TradingWallet | null> {
+    const r = await this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE network = ? AND account_id = ?', [network, accountId])
     return r ? toWallet(r) : null
   }
 
-  setBackupKey(walletId: string, publicKey: string | null): void {
-    this.db.run('UPDATE trading_wallets SET backup_key = ?, updated_at = ? WHERE id = ?', [publicKey, this.now(), walletId])
+  async setBackupKey(walletId: string, publicKey: string | null): Promise<void> {
+    await this.db.run('UPDATE trading_wallets SET backup_key = ?, updated_at = ? WHERE id = ?', [publicKey, this.now(), walletId])
   }
 
   /** Ends a wallet: NearKit's sealed key is erased for good (crypto-shredding). */
-  closeWallet(walletId: string, status: 'revoked' | 'deleted', detail: Record<string, unknown> = {}): boolean {
-    return this.db.tx(() => {
-      const w = this.wallet(walletId)
+  async closeWallet(walletId: string, status: 'revoked' | 'deleted', detail: Record<string, unknown> = {}): Promise<boolean> {
+    return this.db.tx(async () => {
+      const w = await this.wallet(walletId)
       if (!w || w.status !== 'active') return false
       const t = this.now()
-      this.db.run('UPDATE trading_wallets SET status = ?, sealed_key = NULL, closed_at = ?, updated_at = ? WHERE id = ?', [status, t, t, walletId])
-      this.audit({ userId: w.userId, walletId, action: status === 'revoked' ? 'wallet-revoked' : 'wallet-deleted', detail: { accountId: w.accountId, ...detail } })
+      await this.db.run('UPDATE trading_wallets SET status = ?, sealed_key = NULL, closed_at = ?, updated_at = ? WHERE id = ?', [status, t, t, walletId])
+      await this.audit({ userId: w.userId, walletId, action: status === 'revoked' ? 'wallet-revoked' : 'wallet-deleted', detail: { accountId: w.accountId, ...detail } })
       return true
     })
   }
 
   // ─── intents ──────────────────────────────────────────────────────────────
 
-  createIntent(i: { walletId: string; userId: number; chatId: number; kind: IntentKind; params: unknown; quote?: unknown; ttlMs: number }): Intent {
+  async createIntent(i: { walletId: string; userId: number; chatId: number; kind: IntentKind; params: unknown; quote?: unknown; ttlMs: number }): Promise<Intent> {
     const id = randomToken(12)
     const t = this.now()
-    this.db.run(
+    await this.db.run(
       `INSERT INTO wallet_intents (id, wallet_id, user_id, chat_id, kind, params, quote, status, expires_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'quoted', ?, ?, ?)`,
       [id, i.walletId, i.userId, i.chatId, i.kind, JSON.stringify(i.params), i.quote === undefined ? null : JSON.stringify(i.quote), t + i.ttlMs, t, t],
     )
-    return this.intent(id) as Intent
+    return (await this.intent(id)) as Intent
   }
 
-  intent(id: string): Intent | null {
-    const r = this.db.get<IntentRow>('SELECT * FROM wallet_intents WHERE id = ?', [id])
+  async intent(id: string): Promise<Intent | null> {
+    const r = await this.db.get<IntentRow>('SELECT * FROM wallet_intents WHERE id = ?', [id])
     return r ? toIntent(r) : null
   }
 
@@ -313,27 +313,27 @@ export class CustodyStore {
    * and unexpired, only while nothing else of this wallet is in flight. A second
    * press finds it no longer quoted and changes nothing.
    */
-  confirmIntent(id: string, userId: number): { ok: true; intent: Intent } | { ok: false; reason: ConfirmRefusal; intent: Intent | null } {
-    return this.db.tx(() => {
-      const intent = this.intent(id)
+  async confirmIntent(id: string, userId: number): Promise<{ ok: true; intent: Intent } | { ok: false; reason: ConfirmRefusal; intent: Intent | null }> {
+    return this.db.tx(async () => {
+      const intent = await this.intent(id)
       if (!intent) return { ok: false, reason: 'unknown', intent: null }
       if (intent.userId !== userId) return { ok: false, reason: 'not-yours', intent: null }
       if (intent.status !== 'quoted') return { ok: false, reason: 'not-open', intent }
       if (this.now() > intent.expiresAt) {
-        this.setStatus(id, ['quoted'], 'expired')
-        return { ok: false, reason: 'expired', intent: this.intent(id) }
+        await this.setStatus(id, ['quoted'], 'expired')
+        return { ok: false, reason: 'expired', intent: await this.intent(id) }
       }
-      const wallet = this.wallet(intent.walletId)
+      const wallet = await this.wallet(intent.walletId)
       if (!wallet || wallet.status !== 'active') return { ok: false, reason: 'wallet', intent }
-      if (this.inFlight(intent.walletId).length) return { ok: false, reason: 'busy', intent }
-      this.setStatus(id, ['quoted'], 'confirmed')
-      this.audit({ userId, walletId: intent.walletId, action: 'intent-confirmed', detail: { intent: id, kind: intent.kind, params: intent.params } })
-      return { ok: true, intent: this.intent(id) as Intent }
+      if ((await this.inFlight(intent.walletId)).length) return { ok: false, reason: 'busy', intent }
+      await this.setStatus(id, ['quoted'], 'confirmed')
+      await this.audit({ userId, walletId: intent.walletId, action: 'intent-confirmed', detail: { intent: id, kind: intent.kind, params: intent.params } })
+      return { ok: true, intent: (await this.intent(id)) as Intent }
     })
   }
 
   /** Moves an intent forward only from one of `from`. True when it moved. */
-  setStatus(id: string, from: readonly IntentStatus[], to: IntentStatus, patch: { result?: IntentResult; replacedBy?: string } = {}): boolean {
+  async setStatus(id: string, from: readonly IntentStatus[], to: IntentStatus, patch: { result?: IntentResult; replacedBy?: string } = {}): Promise<boolean> {
     const sets = ['status = ?', 'updated_at = ?']
     const params: (string | number | null)[] = [to, this.now()]
     if (patch.result) {
@@ -344,25 +344,28 @@ export class CustodyStore {
       sets.push('replaced_by = ?')
       params.push(patch.replacedBy)
     }
-    return this.db.run(`UPDATE wallet_intents SET ${sets.join(', ')} WHERE id = ? AND status IN (${placeholders(from.length)})`, [...params, id, ...from]) === 1
+    return (await this.db.run(`UPDATE wallet_intents SET ${sets.join(', ')} WHERE id = ? AND status IN (${placeholders(from.length)})`, [...params, id, ...from])) === 1
   }
 
-  inFlight(walletId: string): Intent[] {
-    return this.db
-      .all<IntentRow>(`SELECT * FROM wallet_intents WHERE wallet_id = ? AND status IN (${placeholders(IN_FLIGHT.length)}) ORDER BY created_at`, [walletId, ...IN_FLIGHT])
-      .map(toIntent)
+  async inFlight(walletId: string): Promise<Intent[]> {
+    return (
+      await this.db.all<IntentRow>(`SELECT * FROM wallet_intents WHERE wallet_id = ? AND status IN (${placeholders(IN_FLIGHT.length)}) ORDER BY created_at`, [
+        walletId,
+        ...IN_FLIGHT,
+      ])
+    ).map(toIntent)
   }
 
   /** Every intent that may have something on its way to the chain, for the resolver. */
-  allInFlight(): Intent[] {
-    return this.db.all<IntentRow>(`SELECT * FROM wallet_intents WHERE status IN (${placeholders(IN_FLIGHT.length)}) ORDER BY created_at`, [...IN_FLIGHT]).map(toIntent)
+  async allInFlight(): Promise<Intent[]> {
+    return (await this.db.all<IntentRow>(`SELECT * FROM wallet_intents WHERE status IN (${placeholders(IN_FLIGHT.length)}) ORDER BY created_at`, [...IN_FLIGHT])).map(toIntent)
   }
 
   /**
    * A new quote replaces the wallet's older open ones of the same kinds, so two
    * Confirm buttons on screen can never both trade.
    */
-  cancelQuoted(walletId: string, kinds: readonly IntentKind[]): number {
+  async cancelQuoted(walletId: string, kinds: readonly IntentKind[]): Promise<number> {
     return this.db.run(`UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE wallet_id = ? AND status = 'quoted' AND kind IN (${placeholders(kinds.length)})`, [
       this.now(),
       walletId,
@@ -371,14 +374,14 @@ export class CustodyStore {
   }
 
   /** Quotes nobody confirmed in time. */
-  expireQuotes(): number {
+  async expireQuotes(): Promise<number> {
     return this.db.run("UPDATE wallet_intents SET status = 'expired', updated_at = ? WHERE status = 'quoted' AND expires_at < ?", [this.now(), this.now()])
   }
 
   // ─── signed transactions ──────────────────────────────────────────────────
 
   /** Saves a signed transaction before it is sent, and marks the intent as signing, in one write. */
-  recordSigned(t: {
+  async recordSigned(t: {
     intentId: string
     step: number
     hash: string
@@ -388,20 +391,20 @@ export class CustodyStore {
     expiresHeight: number
     signed: string
     plan: unknown
-  }): void {
-    this.db.tx(() => {
+  }): Promise<void> {
+    await this.db.tx(async () => {
       const at = this.now()
-      this.db.run(
+      await this.db.run(
         `INSERT INTO wallet_txs (intent_id, step, hash, signer_id, receiver_id, nonce, expires_height, signed, plan, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'signed', ?, ?)`,
         [t.intentId, t.step, t.hash, t.signerId, t.receiverId, t.nonce.toString(), t.expiresHeight, t.signed, JSON.stringify(t.plan), at, at],
       )
-      this.setStatus(t.intentId, ['confirmed', 'signing'], 'signing')
+      await this.setStatus(t.intentId, ['confirmed', 'signing'], 'signing')
     })
   }
 
-  markTx(intentId: string, step: number, status: TxStatus, outcome?: Record<string, unknown>): void {
-    this.db.run('UPDATE wallet_txs SET status = ?, outcome = COALESCE(?, outcome), updated_at = ? WHERE intent_id = ? AND step = ?', [
+  async markTx(intentId: string, step: number, status: TxStatus, outcome?: Record<string, unknown>): Promise<void> {
+    await this.db.run('UPDATE wallet_txs SET status = ?, outcome = COALESCE(?, outcome), updated_at = ? WHERE intent_id = ? AND step = ?', [
       status,
       outcome ? JSON.stringify(outcome) : null,
       this.now(),
@@ -410,14 +413,14 @@ export class CustodyStore {
     ])
   }
 
-  txsOf(intentId: string): WalletTx[] {
-    return this.db.all<TxRow>('SELECT * FROM wallet_txs WHERE intent_id = ? ORDER BY step', [intentId]).map(toTx)
+  async txsOf(intentId: string): Promise<WalletTx[]> {
+    return (await this.db.all<TxRow>('SELECT * FROM wallet_txs WHERE intent_id = ? ORDER BY step', [intentId])).map(toTx)
   }
 
   // ─── audit ────────────────────────────────────────────────────────────────
 
-  audit(e: { userId?: number | null; walletId?: string | null; action: string; detail?: Record<string, unknown> }): void {
-    this.db.run('INSERT INTO custody_audit (at, user_id, wallet_id, action, detail) VALUES (?, ?, ?, ?, ?)', [
+  async audit(e: { userId?: number | null; walletId?: string | null; action: string; detail?: Record<string, unknown> }): Promise<void> {
+    await this.db.run('INSERT INTO custody_audit (at, user_id, wallet_id, action, detail) VALUES (?, ?, ?, ?, ?)', [
       this.now(),
       e.userId ?? null,
       e.walletId ?? null,
@@ -426,17 +429,17 @@ export class CustodyStore {
     ])
   }
 
-  auditOf(walletId: string): { action: string; at: number; detail: Record<string, unknown> | null }[] {
-    return this.db
-      .all<{ action: string; at: number; detail: string | null }>('SELECT action, at, detail FROM custody_audit WHERE wallet_id = ? ORDER BY id', [walletId])
-      .map((r) => ({ action: r.action, at: r.at, detail: parse<Record<string, unknown>>(r.detail) }))
+  async auditOf(walletId: string): Promise<{ action: string; at: number; detail: Record<string, unknown> | null }[]> {
+    return (
+      await this.db.all<{ action: string; at: number; detail: string | null }>('SELECT action, at, detail FROM custody_audit WHERE wallet_id = ? ORDER BY id', [walletId])
+    ).map((r) => ({ action: r.action, at: r.at, detail: parse<Record<string, unknown>>(r.detail) }))
   }
 
   // ─── key export requests ──────────────────────────────────────────────────
 
-  createRecovery(r: { codeHash: string; userId: number; walletId: string; network: string; nonce: string; message: string; ttlMs: number }): RecoveryRequest {
+  async createRecovery(r: { codeHash: string; userId: number; walletId: string; network: string; nonce: string; message: string; ttlMs: number }): Promise<RecoveryRequest> {
     const t = this.now()
-    this.db.run('INSERT INTO recovery_requests (code_hash, user_id, wallet_id, network, nonce, message, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+    await this.db.run('INSERT INTO recovery_requests (code_hash, user_id, wallet_id, network, nonce, message, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
       r.codeHash,
       r.userId,
       r.walletId,
@@ -446,11 +449,11 @@ export class CustodyStore {
       t,
       t + r.ttlMs,
     ])
-    return this.recovery(r.codeHash) as RecoveryRequest
+    return (await this.recovery(r.codeHash)) as RecoveryRequest
   }
 
-  recovery(codeHash: string): RecoveryRequest | null {
-    const r = this.db.get<{
+  async recovery(codeHash: string): Promise<RecoveryRequest | null> {
+    const r = await this.db.get<{
       code_hash: string
       user_id: number
       wallet_id: string
@@ -482,21 +485,23 @@ export class CustodyStore {
       : null
   }
 
-  bumpRecoveryAttempt(codeHash: string): void {
-    this.db.run('UPDATE recovery_requests SET attempts = attempts + 1 WHERE code_hash = ?', [codeHash])
+  async bumpRecoveryAttempt(codeHash: string): Promise<void> {
+    await this.db.run('UPDATE recovery_requests SET attempts = attempts + 1 WHERE code_hash = ?', [codeHash])
   }
 
   /** Records the verified owner signature; true only the first time. */
-  markRecoveryVerified(codeHash: string, accountId: string): boolean {
-    return this.db.run('UPDATE recovery_requests SET verified_at = ?, verified_account = ? WHERE code_hash = ? AND verified_at IS NULL', [this.now(), accountId, codeHash]) === 1
+  async markRecoveryVerified(codeHash: string, accountId: string): Promise<boolean> {
+    return (
+      (await this.db.run('UPDATE recovery_requests SET verified_at = ?, verified_account = ? WHERE code_hash = ? AND verified_at IS NULL', [this.now(), accountId, codeHash])) === 1
+    )
   }
 
   /** The key leaves the signer once per request: true only the first time. */
-  markExported(codeHash: string): boolean {
-    return this.db.run('UPDATE recovery_requests SET exported_at = ? WHERE code_hash = ? AND verified_at IS NOT NULL AND exported_at IS NULL', [this.now(), codeHash]) === 1
+  async markExported(codeHash: string): Promise<boolean> {
+    return (await this.db.run('UPDATE recovery_requests SET exported_at = ? WHERE code_hash = ? AND verified_at IS NOT NULL AND exported_at IS NULL', [this.now(), codeHash])) === 1
   }
 
-  countRecoveriesSince(userId: number, since: number): number {
-    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM recovery_requests WHERE user_id = ? AND created_at >= ?', [userId, since])?.n ?? 0
+  async countRecoveriesSince(userId: number, since: number): Promise<number> {
+    return (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM recovery_requests WHERE user_id = ? AND created_at >= ?', [userId, since]))?.n ?? 0
   }
 }

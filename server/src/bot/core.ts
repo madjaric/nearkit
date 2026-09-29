@@ -9,9 +9,9 @@ import { linkedAccount, nearAvailable, showWallet } from './wallet'
  * /help lists exactly the commands the running bot has, nothing more.
  */
 
-export function mainMenu(ctx: BotCtx) {
+export async function mainMenu(ctx: BotCtx) {
   const has = (name: string) => ctx.deps.features.has(name)
-  const linked = linkedAccount(ctx) !== null || tradingWallet(ctx.deps, ctx.user.id) !== null
+  const linked = (await linkedAccount(ctx)) !== null || (await tradingWallet(ctx.deps, ctx.user.id)) !== null
   return keyboard(
     linked ? [] : [btn('🔗 Link wallet', 'acct:link')],
     [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
@@ -23,11 +23,11 @@ export function mainMenu(ctx: BotCtx) {
 
 /** The first screen: who is trading, with how much NEAR, and every action one tap away. */
 async function home(ctx: BotCtx, edit: boolean) {
-  const nearkit = tradingWallet(ctx.deps, ctx.user.id)?.accountId ?? null
-  const account = nearkit ?? linkedAccount(ctx)
+  const nearkit = (await tradingWallet(ctx.deps, ctx.user.id))?.accountId ?? null
+  const account = nearkit ?? (await linkedAccount(ctx))
   const text = [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account), nearkit: nearkit !== null } : null), SAFETY].join('\n')
-  if (edit) await ctx.show(text, mainMenu(ctx))
-  else await ctx.reply(text, mainMenu(ctx))
+  if (edit) await ctx.show(text, await mainMenu(ctx))
+  else await ctx.reply(text, await mainMenu(ctx))
 }
 
 async function buybotInfo(ctx: BotCtx) {
@@ -68,7 +68,7 @@ export function coreModule(commandList: () => { name: string; command: Command }
         ...documented('cancel'),
         run: async (ctx) => {
           // The router already cleared any waiting step before running a command.
-          await ctx.reply('Cancelled. Nothing is waiting any more.', ctx.isPrivate ? mainMenu(ctx) : undefined)
+          await ctx.reply('Cancelled. Nothing is waiting any more.', ctx.isPrivate ? await mainMenu(ctx) : undefined)
         },
       },
       menu: { scope: 'private', run: (ctx) => home(ctx, false) },

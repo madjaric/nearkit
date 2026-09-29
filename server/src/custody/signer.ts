@@ -139,7 +139,7 @@ export function createLocalSigner(deps: { wrapper: KeyWrapper; network: NetworkC
         if (!planned) throw new PolicyViolation('there is no such transaction in the plan')
         checkPlan(op, plan, { accountId: wallet.accountId, publicKey: wallet.publicKey, network: wallet.network }, network)
       } catch (e) {
-        if (e instanceof PolicyViolation) store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'policy-refused', detail: { op: op.kind, reason: e.message } })
+        if (e instanceof PolicyViolation) await store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'policy-refused', detail: { op: op.kind, reason: e.message } })
         throw e
       }
       const tx: NearTransaction = {
@@ -160,12 +160,12 @@ export function createLocalSigner(deps: { wrapper: KeyWrapper; network: NetworkC
     },
 
     async exportSecret(wallet, codeHash) {
-      const req = store.recovery(codeHash)
+      const req = await store.recovery(codeHash)
       const fresh = req?.verifiedAt !== null && req?.verifiedAt !== undefined && now() - req.verifiedAt <= EXPORT_WINDOW_MS
       // Verified by the owner wallet itself: the recovery service checked its signature and key.
       const byOwner = wallet.ownerAccount !== null && req?.verifiedAccount === wallet.ownerAccount
       if (!req || req.walletId !== wallet.id || req.userId !== wallet.userId || !fresh || !byOwner) {
-        store.audit({
+        await store.audit({
           userId: wallet.userId,
           walletId: wallet.id,
           action: 'export-refused',
@@ -173,9 +173,9 @@ export function createLocalSigner(deps: { wrapper: KeyWrapper; network: NetworkC
         })
         throw new KeyUnavailableError('Export needs a fresh request verified with your owner wallet')
       }
-      if (!store.markExported(codeHash)) throw new KeyUnavailableError('This export request was already used')
+      if (!(await store.markExported(codeHash))) throw new KeyUnavailableError('This export request was already used')
       const secret = await withSeed(wallet, (seed) => secretKeyText(seed))
-      store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'key-exported', detail: { verifiedBy: req.verifiedAccount } })
+      await store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'key-exported', detail: { verifiedBy: req.verifiedAccount } })
       return secret
     },
   }

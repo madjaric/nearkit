@@ -42,20 +42,20 @@ export function passesMinimum(cfg: Pick<BuybotConfig, 'unit' | 'minNear' | 'minU
 
 export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; finalHeight: () => Promise<number>; store: BuybotStore; market: BuyMarket; log: Logger }) {
   return async function processCandidates(limit = 20): Promise<number> {
-    const due = deps.store.dueCandidates(deps.network.id, limit)
+    const due = await deps.store.dueCandidates(deps.network.id, limit)
     if (!due.length) return 0
     const head = await deps.finalHeight()
     const ready = due.filter((c) => head - c.blockHeight >= FINAL_MARGIN)
-    for (const c of due) if (!ready.includes(c)) deps.store.retryCandidate(c.txHash, 2_000)
+    for (const c of due) if (!ready.includes(c)) await deps.store.retryCandidate(c.txHash, 2_000)
     const raw = ready.length ? await deps.index.transactions(ready.map((c) => c.txHash)) : new Map<string, unknown>()
     for (const c of ready) {
       const entry = raw.get(c.txHash) as { execution_outcome?: { outcome?: { receipt_ids?: string[] } } } | undefined
       const tx = entry ? fromFastnear({ ...entry, block_height: c.blockHeight }) : null
       if (!tx || !isComplete(tx, entry?.execution_outcome?.outcome?.receipt_ids ?? [])) {
         // Not indexed yet, or receipts still executing: look again shortly, then give up.
-        const attempts = deps.store.retryCandidate(c.txHash, Math.min(30_000, 2_000 * 2 ** c.attempts))
+        const attempts = await deps.store.retryCandidate(c.txHash, Math.min(30_000, 2_000 * 2 ** c.attempts))
         if (attempts >= MAX_CANDIDATE_ATTEMPTS) {
-          deps.store.finishCandidate(c.txHash)
+          await deps.store.finishCandidate(c.txHash)
           deps.log.warn('buybot gave up on a transaction it could not read in full', { tx: c.txHash })
         }
         continue
@@ -63,7 +63,7 @@ export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; 
       // Found while catching up after downtime: recorded, but too old to post.
       const stale = head - c.blockHeight > STALE_BLOCKS
       for (const token of c.tokens) {
-        const configs = deps.store.activeConfigsFor(deps.network.id, token)
+        const configs = await deps.store.activeConfigsFor(deps.network.id, token)
         if (!configs.length) continue
         for (const trade of detectTrades(tx, token, { wrapContract: deps.network.wrapContract })) {
           const wants = configs.filter((cfg) => trade.side === 'buy' || cfg.sells)
@@ -72,7 +72,7 @@ export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; 
           const other = trade.side === 'buy' ? trade.paid : trade.received
           const [valueNear, valueUsd] = await Promise.all([deps.market.valueInNear(other), deps.market.usdOf(other)])
           const eligible = stale ? [] : wants.filter((cfg) => passesMinimum(cfg, valueNear, valueUsd))
-          const recorded = deps.store.recordBuy(
+          const recorded = await deps.store.recordBuy(
             {
               eventKey: `${tx.hash}:${token}:${trade.account}`,
               network: deps.network.id,
@@ -89,7 +89,7 @@ export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; 
           if (recorded) deps.log.info(`${trade.side} detected`, { token, tx: tx.hash, account: trade.account, chats: eligible.length })
         }
       }
-      deps.store.finishCandidate(c.txHash)
+      await deps.store.finishCandidate(c.txHash)
     }
     return ready.length
   }
@@ -151,20 +151,20 @@ export function createDeliverer(deps: {
 }) {
   const now = deps.now ?? Date.now
   return async function deliver(limit = 20): Promise<number> {
-    const due = deps.store.dueDeliveries(limit)
+    const due = await deps.store.dueDeliveries(limit)
     for (const d of due) {
-      const cfg = deps.store.config(d.configId)
-      const event = deps.store.event(d.eventKey)
+      const cfg = await deps.store.config(d.configId)
+      const event = await deps.store.event(d.eventKey)
       if (!cfg || !event) {
-        deps.store.markDone(d.eventKey, d.configId, 'skipped', 'configuration or buy no longer exists')
+        await deps.store.markDone(d.eventKey, d.configId, 'skipped', 'configuration or buy no longer exists')
         continue
       }
       if (!cfg.enabled || cfg.pausedReason) {
-        deps.store.markDone(d.eventKey, d.configId, 'skipped', 'alerts are off for this chat')
+        await deps.store.markDone(d.eventKey, d.configId, 'skipped', 'alerts are off for this chat')
         continue
       }
       if (now() - event.detectedAt > STALE_MS) {
-        deps.store.markDone(d.eventKey, d.configId, 'skipped', 'too old to post')
+        await deps.store.markDone(d.eventKey, d.configId, 'skipped', 'too old to post')
         continue
       }
       const html = renderBuy(await buyView(event, cfg, deps.market, deps.network))
@@ -178,32 +178,32 @@ export function createDeliverer(deps: {
           } catch (e) {
             // A media file Telegram no longer knows must not silence the alerts: post text, drop the media.
             if (!(e instanceof TelegramError) || e.code !== 400 || !/file|photo|animation|video|media/i.test(e.description)) throw e
-            deps.store.updateConfig(cfg.id, { media: null })
+            await deps.store.updateConfig(cfg.id, { media: null })
             deps.log.warn('buybot media refused; alerts continue as text', { chat: cfg.chatId, reason: e.description })
             msg = await deps.tg.sendMessage(cfg.chatId, html, { ...opts, disable_link_preview: true })
           }
         } else {
           msg = await deps.tg.sendMessage(cfg.chatId, html, { ...opts, disable_link_preview: true })
         }
-        deps.store.markSent(d.eventKey, d.configId, msg.message_id)
+        await deps.store.markSent(d.eventKey, d.configId, msg.message_id)
       } catch (e) {
         if (!(e instanceof TelegramError)) {
-          deps.store.markRetry(d.eventKey, d.configId, 5_000 * 2 ** d.attempts, e instanceof Error ? e.message : 'send failed')
+          await deps.store.markRetry(d.eventKey, d.configId, 5_000 * 2 ** d.attempts, e instanceof Error ? e.message : 'send failed')
           continue
         }
         if (e.migrateTo !== null) {
-          deps.store.migrateChat(cfg.chatId, e.migrateTo)
-          deps.store.markRetry(d.eventKey, d.configId, 0, 'group moved to a supergroup')
+          await deps.store.migrateChat(cfg.chatId, e.migrateTo)
+          await deps.store.markRetry(d.eventKey, d.configId, 0, 'group moved to a supergroup')
         } else if (e.code === 429) {
-          deps.store.markRetry(d.eventKey, d.configId, (e.retryAfter ?? 5) * 1000, e.description)
+          await deps.store.markRetry(d.eventKey, d.configId, (e.retryAfter ?? 5) * 1000, e.description)
         } else if (e.code === 403 || (e.code === 400 && /chat not found|not enough rights|have no rights|CHAT_WRITE_FORBIDDEN|kicked|not a member/i.test(e.description))) {
-          deps.store.pauseChat(cfg.chatId, e.description)
-          deps.store.markDone(d.eventKey, d.configId, 'failed', e.description)
+          await deps.store.pauseChat(cfg.chatId, e.description)
+          await deps.store.markDone(d.eventKey, d.configId, 'failed', e.description)
           deps.log.warn('buybot paused a chat it can’t post to', { chat: cfg.chatId, reason: e.description })
         } else if (d.attempts + 1 >= MAX_DELIVERY_ATTEMPTS) {
-          deps.store.markDone(d.eventKey, d.configId, 'failed', e.description)
+          await deps.store.markDone(d.eventKey, d.configId, 'failed', e.description)
         } else {
-          deps.store.markRetry(d.eventKey, d.configId, 5_000 * 2 ** d.attempts, e.description)
+          await deps.store.markRetry(d.eventKey, d.configId, 5_000 * 2 ** d.attempts, e.description)
         }
       }
     }

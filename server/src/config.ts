@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { parseEnv, type AppEnv, type EnvIssue } from '@/config/env'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
 import { CUSTODY_NETWORKS } from './custody/networks'
+import type { DatabaseConfig } from './db/open'
 import { parseKek } from './custody/vault'
 import type { LogLevel } from './log'
 
@@ -25,7 +26,13 @@ export interface ServerConfig {
   /** NEP-413 `recipient` a link signature must name: the web app's host. */
   linkRecipient: string
   api: { host: string; port: number; publicUrl: string; allowedOrigins: string[] }
+  /** SQLite file path (kept for the SQLite engine and logs). */
   dbPath: string
+  /**
+   * The database: PostgreSQL when NEARKIT_DATABASE_URL is set (production; its URL is a
+   * secret and never logged), else the SQLite file at dbPath.
+   */
+  database: DatabaseConfig
   /**
    * Buy alerts. They only read the chain, so they may follow another network than
    * the bot's trading (e.g. mainnet buys while trading is the testnet beta).
@@ -148,6 +155,21 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
     kek: custodyNetwork ? kek : null,
   }
 
+  const dbPath = resolve(blank(raw.NEARKIT_DB_PATH) ? `server/data/nearkit-${network.id}.sqlite` : raw.NEARKIT_DB_PATH.trim())
+  // SECRET: the Postgres URL carries the database password. Never shown, not even in an issue.
+  let database: DatabaseConfig = { kind: 'sqlite', path: dbPath }
+  if (!blank(raw.NEARKIT_DATABASE_URL)) {
+    const url = raw.NEARKIT_DATABASE_URL.trim()
+    let protocol = ''
+    try {
+      protocol = new URL(url).protocol
+    } catch {
+      // refused below
+    }
+    if (protocol !== 'postgres:' && protocol !== 'postgresql:') issue('NEARKIT_DATABASE_URL', 'Must be a postgres:// connection URL (value not shown)')
+    else database = { kind: 'postgres', url }
+  }
+
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'
   const logLevel: LogLevel = levelRaw === 'debug' || levelRaw === 'warn' || levelRaw === 'error' ? levelRaw : 'info'
 
@@ -165,7 +187,8 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         publicUrl: publicApi ? publicApi.origin + publicApi.pathname.replace(/\/$/, '') : `http://localhost:${Number.isInteger(port) ? port : 8787}`,
         allowedOrigins,
       },
-      dbPath: resolve(blank(raw.NEARKIT_DB_PATH) ? `server/data/nearkit-${network.id}.sqlite` : raw.NEARKIT_DB_PATH.trim()),
+      dbPath,
+      database,
       buybot: { enabled: buybotRaw !== 'false', network: bbNetwork, dataUrl: dataUrl ?? NETWORKS[bbId].discovery.fastnearTxUrl },
       custody,
       logLevel,

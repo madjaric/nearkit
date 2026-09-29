@@ -59,10 +59,10 @@ async function bot(options: { noRoute?: boolean; link?: boolean } = {}) {
     }
   })
   if (options.link !== false) {
-    h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
-    h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
-    h.store.completeLink({ codeHash: 'h', network: 'testnet', accountId: 'alice.testnet', userId: ALICE.id, publicKey: 'ed25519:K' })
-    h.store.updateSettings(ALICE.id, { defaultAccount: 'alice.testnet' })
+    await h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
+    await h.store.createLinkRequest({ codeHash: 'h', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+    await h.store.completeLink({ codeHash: 'h', network: 'testnet', accountId: 'alice.testnet', userId: ALICE.id, publicKey: 'ed25519:K' })
+    await h.store.updateSettings(ALICE.id, { defaultAccount: 'alice.testnet' })
   }
   return h
 }
@@ -98,12 +98,12 @@ describe('trading from Telegram', () => {
     const sign = h.buttons().find((b) => b.text.startsWith('✍️'))
     expect(sign?.url).toMatch(new RegExp(`^https://nearkit\\.vercel\\.app/swap\\?from=near&to=${USDT.replace(/\./g, '\\.')}&amount=1&slippage=1&tg=[A-Za-z0-9_-]{22}$`))
     const id = new URL(sign?.url ?? 'x:').searchParams.get('tg') as string
-    expect(h.deps.handoffs.get(id)).toMatchObject({ accountId: 'alice.testnet', side: 'buy', tokenIn: 'near', tokenOut: USDT, amountIn: '1', status: 'open' })
+    expect(await h.deps.handoffs.get(id)).toMatchObject({ accountId: 'alice.testnet', side: 'buy', tokenIn: 'near', tokenOut: USDT, amountIn: '1', status: 'open' })
   })
 
   it('quotes directly from one line and uses the saved slippage', async () => {
     const h = await bot()
-    h.store.updateSettings(ALICE.id, { slippagePct: 3 })
+    await h.store.updateSettings(ALICE.id, { slippagePct: 3 })
     await h.say(`/buy ${USDT} 0.5`)
     expect(h.last()?.text).toContain('You pay <b>0.5 NEAR</b>')
     expect(h.last()?.text).toContain('· 3% slippage')
@@ -131,7 +131,7 @@ describe('trading from Telegram', () => {
     await h.say(`/buy ${USDT} 1`)
     expect(h.last()?.text).toContain('No route is available for this pair right now.')
     expect(h.last()?.text).toContain('Nothing was prepared')
-    expect(h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+    expect(await h.store.db.all('SELECT * FROM handoffs')).toEqual([])
   })
 
   it('finds a brand-new token by its exact contract, as the web app does', async () => {
@@ -139,7 +139,7 @@ describe('trading from Telegram', () => {
     await h.say(`/buy ${FRESH}`)
     expect(h.last()?.text).toContain('FRESH')
     expect(h.last()?.text).toContain('How much NEAR?')
-    expect(h.store.userTokens(ALICE.id, 'testnet')).toEqual([FRESH])
+    expect(await h.store.userTokens(ALICE.id, 'testnet')).toEqual([FRESH])
   })
 
   it('refuses amounts that are not numbers', async () => {
@@ -214,7 +214,7 @@ describe('trading from Telegram', () => {
     const one = h.buttons().find((b) => b.text === '1 NEAR')?.data ?? ''
     await h.press(one)
     await h.press(one)
-    expect(h.store.db.all('SELECT * FROM handoffs')).toHaveLength(1)
+    expect(await h.store.db.all('SELECT * FROM handoffs')).toHaveLength(1)
     const toast = h.fake.calls.filter((c) => c.method === 'answerCallbackQuery').at(-1)?.params as { text?: string }
     expect(toast.text).toContain('Already on it')
   })
@@ -224,7 +224,7 @@ describe('trading from Telegram', () => {
     await h.press('tr:amt:nosuchbutton')
     const toast = h.fake.calls.filter((c) => c.method === 'answerCallbackQuery').at(-1)?.params as { text?: string; show_alert?: boolean }
     expect(toast.text).toContain('That button expired')
-    expect(h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+    expect(await h.store.db.all('SELECT * FROM handoffs')).toEqual([])
   })
 
   it('Cancel stops the trade and says nothing was prepared', async () => {
@@ -234,7 +234,7 @@ describe('trading from Telegram', () => {
     expect(h.last()?.text).toContain('Cancelled. Nothing was prepared or signed.')
     await h.say('0.5')
     // The amount step is gone: typing a number no longer starts a quote.
-    expect(h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+    expect(await h.store.db.all('SELECT * FROM handoffs')).toEqual([])
   })
 
   it('a mainnet contract on testnet is refused in plain words', async () => {

@@ -8,7 +8,7 @@ import { field } from './linkRoutes'
  */
 export function handoffRoutes(handoffs: Handoffs): Record<string, Route> {
   return {
-    '/api/handoff/describe': async (body) => handoffs.describe(field(body, 'id', 64)),
+    '/api/handoff/describe': async (body) => await handoffs.describe(field(body, 'id', 64)),
     '/api/handoff/result': async (body) => {
       const hashes = typeof body === 'object' && body !== null ? (body as { txHashes?: unknown }).txHashes : undefined
       return handoffs.report(field(body, 'id', 64), hashes)

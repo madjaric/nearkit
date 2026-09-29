@@ -15,11 +15,11 @@ import { showWalletHome, tradingWallet } from './tradingWallet'
 const back = [btn('« Wallet', 'cw:home')]
 
 async function showRecovery(ctx: BotCtx) {
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   const view = await readWallet(ctx.deps.near, w)
   const owner = w.ownerAccount
-  const mine = ownerKeyNow(ctx.deps.store, w)
+  const mine = await ownerKeyNow(ctx.deps.store, w)
   const backup = view.keys === null ? null : mine !== null && view.keys.includes(mine)
   // Any other full-access key can move the funds too: say so, it may not be the user's.
   const known = [w.publicKey, w.ownerKey, w.backupKey, mine]
@@ -64,8 +64,8 @@ function backupReview(intent: Intent): string {
   ].join('\n')
 }
 
-function revokeReview(deps: BotCtx['deps'], intent: Intent): string {
-  const w = deps.custody?.store.wallet(intent.walletId)
+async function revokeReview(deps: BotCtx['deps'], intent: Intent): Promise<string> {
+  const w = await deps.custody?.store.wallet(intent.walletId)
   return [
     `🧹 ${bold('Remove NearKit’s access')}`,
     '',
@@ -91,9 +91,9 @@ registerIntentScreens('backup-key', {
 })
 
 registerIntentScreens('revoke', {
-  review: (deps, intent) => ({ text: revokeReview(deps, intent), confirm: '✅ Remove NearKit’s key' }),
-  result: (deps, intent) => {
-    const w = deps.custody?.store.wallet(intent.walletId)
+  review: async (deps, intent) => ({ text: await revokeReview(deps, intent), confirm: '✅ Remove NearKit’s key' }),
+  result: async (deps, intent) => {
+    const w = await deps.custody?.store.wallet(intent.walletId)
     const r = intent.result
     const links = r?.hashes.length ? txLinks(deps, r.hashes) : null
     const text = r?.ok
@@ -109,32 +109,32 @@ registerIntentScreens('revoke', {
 
 async function offerBackup(ctx: BotCtx) {
   const custody = ctx.deps.custody
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   // Always the owner's key, whichever wallet is linked now.
-  const key = w ? ownerKeyNow(ctx.deps.store, w) : null
+  const key = w ? await ownerKeyNow(ctx.deps.store, w) : null
   if (!custody || !w || !w.ownerAccount || !key) return showRecovery(ctx)
-  custody.store.cancelQuoted(w.id, ['backup-key', 'revoke'])
+  await custody.store.cancelQuoted(w.id, ['backup-key', 'revoke'])
   const params: BackupKeyParams = { linkedAccount: w.ownerAccount, publicKey: key }
-  const intent = custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'backup-key', params, ttlMs: RECOVERY_INTENT_TTL_MS })
+  const intent = await custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'backup-key', params, ttlMs: RECOVERY_INTENT_TTL_MS })
   await ctx.show(backupReview(intent), intentKeyboard(intent, '✅ Add backup key'))
 }
 
 async function offerRevoke(ctx: BotCtx) {
   const custody = ctx.deps.custody
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!custody || !w) return showWalletHome(ctx)
-  custody.store.cancelQuoted(w.id, ['backup-key', 'revoke'])
-  const intent = custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'revoke', params: {}, ttlMs: RECOVERY_INTENT_TTL_MS })
-  await ctx.show(revokeReview(ctx.deps, intent), intentKeyboard(intent, '✅ Remove NearKit’s key'))
+  await custody.store.cancelQuoted(w.id, ['backup-key', 'revoke'])
+  const intent = await custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'revoke', params: {}, ttlMs: RECOVERY_INTENT_TTL_MS })
+  await ctx.show(await revokeReview(ctx.deps, intent), intentKeyboard(intent, '✅ Remove NearKit’s key'))
 }
 
 async function exportLink(ctx: BotCtx) {
   const custody = ctx.deps.custody
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!custody || !w) return showWalletHome(ctx)
   let issued
   try {
-    issued = custody.recovery.createRequest(ctx.user.id)
+    issued = await custody.recovery.createRequest(ctx.user.id)
   } catch (e) {
     if (e instanceof RecoveryApiError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard(back))
     throw e
@@ -155,7 +155,7 @@ async function exportLink(ctx: BotCtx) {
 }
 
 async function offerDelete(ctx: BotCtx) {
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   const view = await readWallet(ctx.deps.near, w)
   if (view.exists !== false)
@@ -171,12 +171,12 @@ async function offerDelete(ctx: BotCtx) {
 
 async function deleteEmpty(ctx: BotCtx) {
   const custody = ctx.deps.custody
-  const w = tradingWallet(ctx.deps, ctx.user.id)
+  const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!custody || !w) return showWalletHome(ctx)
   // Re-read now: a deposit may have arrived since the question.
   const view = await readWallet(ctx.deps.near, w)
   if (view.exists !== false) return offerDelete(ctx)
-  custody.store.closeWallet(w.id, 'deleted', { reason: 'never funded' })
+  await custody.store.closeWallet(w.id, 'deleted', { reason: 'never funded' })
   await ctx.show('🗑 Deleted. It was never funded, so nothing was lost.', keyboard([btn('✨ New NearKit wallet', 'cw:create'), btn('« Menu', 'menu:home')]))
 }
 

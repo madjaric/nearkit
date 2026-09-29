@@ -3,8 +3,7 @@ import type { Follower, TxIndex } from '../buybot/follower'
 import { createBuyMarket } from '../buybot/market'
 import { BuybotStore } from '../buybot/store'
 import { loadConfig } from '../config'
-import { migrate } from '../db/schema'
-import { Db } from '../db/sqlite'
+import { openTestDatabase, type TestEngine } from '../db/testing'
 import { Store } from '../db/store'
 import { createLinkService } from '../link/service'
 import { createHandoffs } from '../trade/handoff'
@@ -56,8 +55,8 @@ export async function botHarness(
   const now = () => clock
   const fake = createFakeTelegram()
   const tg = createTelegramApi({ token: fake.token, fetch: fake.fetch, sleep: async () => {}, now })
-  const db = await Db.open(null)
-  migrate(db)
+  // SQLite by default; NEARKIT_TEST_BOT_DB=pglite runs the whole bot on the production dialect.
+  const db = await openTestDatabase((process.env.NEARKIT_TEST_BOT_DB as TestEngine | undefined) ?? 'sqlite')
   const store = new Store(db, now)
   const { config } = loadConfig({ NEAR_NETWORK: 'testnet', ...(options.custody ? { NEARKIT_WALLET_KEK: TEST_KEK } : {}), ...options.env })
   const chain = createFakeChain(options.chain ?? {})

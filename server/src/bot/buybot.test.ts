@@ -30,7 +30,7 @@ async function addToken(h: Awaited<ReturnType<typeof bot>>) {
   await h.say(TOKEN, ALICE, GROUP)
   const confirm = h.buttons().find((b) => b.text.includes('Post its buys here'))
   await h.press(confirm?.data ?? '', ALICE, GROUP)
-  return h.deps.buybot?.store.configsForChat(GROUP.id)[0]
+  return (await h.deps.buybot?.store.configsForChat(GROUP.id))?.[0]
 }
 
 describe('/buybot', () => {
@@ -58,7 +58,7 @@ describe('/buybot', () => {
     expect(card).toContain('Decimals: 18')
     expect(card).toContain('Total supply: 1,000,000,000')
     expect(card).toContain('not that it trades')
-    expect(h.deps.buybot?.store.configsForChat(GROUP.id)).toEqual([])
+    expect(await h.deps.buybot?.store.configsForChat(GROUP.id)).toEqual([])
     const cfg = await addToken(h)
     expect(cfg).toMatchObject({ token: TOKEN, symbol: 'FRESH', decimals: 18, enabled: true, network: 'testnet' })
     expect(h.last()?.text).toContain('Following')
@@ -84,9 +84,9 @@ describe('/buybot', () => {
     await h.press(`bb:step:${id}:0.5`, ALICE, GROUP)
     await h.press(`bb:silent:${id}`, ALICE, GROUP)
     await h.press(`bb:toggle:${id}`, ALICE, GROUP)
-    expect(h.deps.buybot?.store.config(id)).toMatchObject({ minNear: 10n ** 24n, emoji: '🚀', stepNear: 5n * 10n ** 23n, silent: true, enabled: false })
+    expect(await h.deps.buybot?.store.config(id)).toMatchObject({ minNear: 10n ** 24n, emoji: '🚀', stepNear: 5n * 10n ** 23n, silent: true, enabled: false })
     await h.press(`bb:toggle:${id}`, BOB, GROUP)
-    expect(h.deps.buybot?.store.config(id)?.enabled).toBe(false)
+    expect((await h.deps.buybot?.store.config(id))?.enabled).toBe(false)
     expect(h.fake.calls.at(-1)).toMatchObject({ method: 'answerCallbackQuery', params: { show_alert: true } })
   })
 
@@ -105,7 +105,7 @@ describe('/buybot', () => {
     const cfg = await addToken(h)
     await h.press(`bb:rm:${cfg?.id}`, ALICE, GROUP)
     await h.press(`bb:rmyes:${cfg?.id}`, ALICE, GROUP)
-    expect(h.deps.buybot?.store.configsForChat(GROUP.id)).toEqual([])
+    expect(await h.deps.buybot?.store.configsForChat(GROUP.id)).toEqual([])
   })
 
   it('pauses alerts when removed from the group and greets when added back', async () => {
@@ -116,12 +116,12 @@ describe('/buybot', () => {
       update_id: 1,
       my_chat_member: { chat: GROUP, from: ALICE, date: 0, old_chat_member: { status: 'member', user: me }, new_chat_member: { status: 'kicked', user: me } },
     })
-    expect(h.deps.buybot?.store.config(cfg?.id as number)?.pausedReason).toMatch(/removed/)
+    expect((await h.deps.buybot?.store.config(cfg?.id as number))?.pausedReason).toMatch(/removed/)
     await h.app.handle({
       update_id: 2,
       my_chat_member: { chat: GROUP, from: ALICE, date: 0, old_chat_member: { status: 'left', user: me }, new_chat_member: { status: 'member', user: me } },
     })
-    expect(h.deps.buybot?.store.config(cfg?.id as number)?.pausedReason).toBeNull()
+    expect((await h.deps.buybot?.store.config(cfg?.id as number))?.pausedReason).toBeNull()
     expect(h.last()?.text).toContain('/buybot')
   })
 
@@ -129,7 +129,7 @@ describe('/buybot', () => {
     const h = await bot()
     const cfg = await addToken(h)
     await h.app.handle({ update_id: 3, message: { message_id: 1, date: 0, chat: GROUP, migrate_to_chat_id: -1009999 } })
-    expect(h.deps.buybot?.store.config(cfg?.id as number)?.chatId).toBe(-1009999)
+    expect((await h.deps.buybot?.store.config(cfg?.id as number))?.chatId).toBe(-1009999)
   })
 
   it('shows status with the follower’s progress', async () => {
@@ -156,9 +156,9 @@ describe('buybot V2: group commands and per-token settings', () => {
     const cfg = await addToken(h)
     await h.say('/pause', ALICE, GROUP)
     expect(h.last()?.text).toContain('Paused alerts for 1 token')
-    expect(h.deps.buybot?.store.config(cfg?.id as number)?.enabled).toBe(false)
+    expect((await h.deps.buybot?.store.config(cfg?.id as number))?.enabled).toBe(false)
     await h.say('/resume', ALICE, GROUP)
-    expect(h.deps.buybot?.store.config(cfg?.id as number)?.enabled).toBe(true)
+    expect((await h.deps.buybot?.store.config(cfg?.id as number))?.enabled).toBe(true)
     await h.say('/remove', ALICE, GROUP)
     expect(h.buttons().map((b) => b.text)).toEqual(['🗑 FRESH', 'Keep them all'])
   })
@@ -183,19 +183,19 @@ describe('buybot V2: group commands and per-token settings', () => {
     await h.press(`bb:emom:${id}`, ALICE, GROUP)
     await h.press(`bb:stepusd:${id}:10`, ALICE, GROUP)
     await h.press(`bb:max:${id}:50`, ALICE, GROUP)
-    expect(h.deps.buybot?.store.config(id)).toMatchObject({ unit: 'USD', minUsd: 50, stepUsd: 10, maxEmoji: 50 })
+    expect(await h.deps.buybot?.store.config(id)).toMatchObject({ unit: 'USD', minUsd: 50, stepUsd: 10, maxEmoji: 50 })
     // Values outside the offered choices are ignored.
     await h.press(`bb:minusd:${id}:7`, ALICE, GROUP)
     await h.press(`bb:max:${id}:999`, ALICE, GROUP)
-    expect(h.deps.buybot?.store.config(id)).toMatchObject({ minUsd: 50, maxEmoji: 50 })
+    expect(await h.deps.buybot?.store.config(id)).toMatchObject({ minUsd: 50, maxEmoji: 50 })
   })
 
   it('sells are off until turned on', async () => {
     const h = await bot()
     const id = (await addToken(h))?.id as number
-    expect(h.deps.buybot?.store.config(id)?.sells).toBe(false)
+    expect((await h.deps.buybot?.store.config(id))?.sells).toBe(false)
     await h.press(`bb:sells:${id}`, ALICE, GROUP)
-    expect(h.deps.buybot?.store.config(id)?.sells).toBe(true)
+    expect((await h.deps.buybot?.store.config(id))?.sells).toBe(true)
     expect(h.last()?.text).toContain('Sells on')
   })
 
@@ -219,7 +219,7 @@ describe('buybot V2: group commands and per-token settings', () => {
         ],
       },
     })
-    expect(h.deps.buybot?.store.config(id)?.media).toEqual({ kind: 'photo', fileId: 'large' })
+    expect((await h.deps.buybot?.store.config(id))?.media).toEqual({ kind: 'photo', fileId: 'large' })
     // Previews are spaced 30 s apart per group.
     h.advance(60_000)
     await h.press(`bb:test:${id}`, ALICE, GROUP)
@@ -227,7 +227,7 @@ describe('buybot V2: group commands and per-token settings', () => {
     expect(preview).toMatchObject({ method: 'sendPhoto', params: { photo: 'large', parse_mode: 'HTML' } })
     expect(String(preview?.params.caption)).toContain('not a real buy')
     await h.press(`bb:mediarm:${id}`, ALICE, GROUP)
-    expect(h.deps.buybot?.store.config(id)?.media).toBeNull()
+    expect((await h.deps.buybot?.store.config(id))?.media).toBeNull()
   })
 })
 

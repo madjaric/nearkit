@@ -5,7 +5,7 @@ import { nep413Digest } from '@/services/near/nep413'
 import { createFakeChain } from '@/services/real/testing/fakeChain'
 import { loadConfig } from '../config'
 import { migrate } from '../db/schema'
-import { Db } from '../db/sqlite'
+import { SqliteDatabase } from '../db/sqlite'
 import { Store } from '../db/store'
 import { createLinkService } from '../link/service'
 import { silentLogger } from '../log'
@@ -25,10 +25,10 @@ let link: ReturnType<typeof createLinkService>
 beforeEach(async () => {
   key = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
   publicKey = `ed25519:${base58Encode(new Uint8Array(await crypto.subtle.exportKey('raw', key.publicKey)))}`
-  const db = await Db.open(null)
-  migrate(db)
+  const db = await SqliteDatabase.open(null)
+  await migrate(db)
   store = new Store(db)
-  store.upsertUser({ userId: 7, username: 'alice', firstName: 'Alice', languageCode: null })
+  await store.upsertUser({ userId: 7, username: 'alice', firstName: 'Alice', languageCode: null })
   const { config } = loadConfig({ NEAR_NETWORK: 'testnet' })
   const chain = createFakeChain({ accounts: { 'alice.testnet': { amount: 1n, keys: { [publicKey]: 'full' } } } })
   link = createLinkService({ store, config, rpc: createServerNear(config, chain.fetch).ctx.rpc })
@@ -43,14 +43,14 @@ beforeEach(async () => {
   base = `http://127.0.0.1:${await listen(server, 0, '127.0.0.1')}`
 })
 
-afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())))
+afterEach(async () => new Promise<void>((resolve) => server.close(() => resolve())))
 
 const post = (path: string, body: unknown, origin = ORIGIN) =>
   fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: typeof body === 'string' ? body : JSON.stringify(body) })
 
 describe('API', () => {
   it('links end to end: describe, sign as a wallet would, confirm, and tell the bot', async () => {
-    const { code } = link.createRequest(7)
+    const { code } = await link.createRequest(7)
     const described = (await (await post('/api/link/describe', { code })).json()) as { message: string; nonce: string; recipient: string }
     const digest = await nep413Digest({ message: described.message, nonce: base64Decode(described.nonce) as Uint8Array, recipient: described.recipient })
     const signature = base64Encode(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key.privateKey, digest)))

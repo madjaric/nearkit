@@ -71,11 +71,11 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
   const now = deps.now ?? Date.now
   const network = config.network.id
 
-  function liveRequest(code: string) {
+  async function liveRequest(code: string) {
     if (typeof code !== 'string' || code.length < 16 || code.length > 64 || !/^[A-Za-z0-9_-]+$/.test(code)) {
       throw new LinkApiError(400, 'bad-code', 'This link code is not valid. Ask the NearKit bot for a new one with /link.')
     }
-    const req = store.getLinkRequest(sha256Hex(code))
+    const req = await store.getLinkRequest(sha256Hex(code))
     if (!req) throw new LinkApiError(404, 'unknown', 'This link code is unknown. Ask the NearKit bot for a new one with /link.')
     if (req.usedAt !== null) throw new LinkApiError(409, 'used', 'This link code was already used. Ask the NearKit bot for a new one with /link.')
     if (now() > req.expiresAt) throw new LinkApiError(410, 'expired', 'This link code expired. Ask the NearKit bot for a new one with /link.')
@@ -85,14 +85,14 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
 
   return {
     /** Called by /link. Throws when the user asked for too many codes this hour. */
-    createRequest(userId: number): { code: string; url: string; expiresAt: number } {
-      if (store.countLinkRequestsSince(userId, now() - 3_600_000) >= MAX_LINK_REQUESTS_PER_HOUR) {
+    async createRequest(userId: number): Promise<{ code: string; url: string; expiresAt: number }> {
+      if ((await store.countLinkRequestsSince(userId, now() - 3_600_000)) >= MAX_LINK_REQUESTS_PER_HOUR) {
         throw new LinkApiError(429, 'too-many', 'Too many link requests this hour. Use the last link I sent, or try again later.')
       }
-      const user = store.getUser(userId)
+      const user = await store.getUser(userId)
       if (!user) throw new LinkApiError(404, 'unknown-user', 'Send /start first.')
       const code = randomToken(16)
-      const req = store.createLinkRequest({
+      const req = await store.createLinkRequest({
         codeHash: sha256Hex(code),
         userId,
         network,
@@ -104,9 +104,9 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
     },
 
     /** What the web page shows before the wallet signs, and exactly what it must sign. */
-    describe(code: string): LinkDescription {
-      const req = liveRequest(code)
-      const user = store.getUser(req.userId)
+    async describe(code: string): Promise<LinkDescription> {
+      const req = await liveRequest(code)
+      const user = await store.getUser(req.userId)
       return {
         telegram: { name: user?.firstName ?? 'Telegram user', username: user?.username ?? null },
         network,
@@ -118,9 +118,9 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
     },
 
     async confirm(input: LinkConfirmation): Promise<{ accountId: string; userId: number; previousUserId: number | null }> {
-      const req = liveRequest(input.code)
+      const req = await liveRequest(input.code)
       if (req.attempts >= MAX_CONFIRM_ATTEMPTS) throw new LinkApiError(429, 'locked', 'Too many attempts with this code. Ask the NearKit bot for a new one with /link.')
-      store.bumpLinkAttempt(req.codeHash)
+      await store.bumpLinkAttempt(req.codeHash)
 
       const accountId = typeof input.accountId === 'string' ? input.accountId.trim() : ''
       const accountError = accountIdError(accountId)
@@ -144,12 +144,12 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
 
       let result
       try {
-        result = store.completeLink({ codeHash: req.codeHash, network, accountId, userId: req.userId, publicKey: input.publicKey })
+        result = await store.completeLink({ codeHash: req.codeHash, network, accountId, userId: req.userId, publicKey: input.publicKey })
       } catch (e) {
         if (e instanceof LinkError) throw new LinkApiError(e.code === 'expired' ? 410 : e.code === 'used' ? 409 : 400, e.code, e.message)
         throw e
       }
-      if (!store.getSettings(req.userId).defaultAccount) store.updateSettings(req.userId, { defaultAccount: accountId })
+      if (!(await store.getSettings(req.userId)).defaultAccount) await store.updateSettings(req.userId, { defaultAccount: accountId })
       return { accountId, userId: req.userId, previousUserId: result.previousUserId }
     },
   }

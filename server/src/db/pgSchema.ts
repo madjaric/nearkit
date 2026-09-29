@@ -1,0 +1,254 @@
+/**
+ * PostgreSQL schema (production). It describes the same tables, columns, keys and
+ * unique indexes as the SQLite migrations in schema.ts; schema.test.ts compares
+ * the two after migrating both, so they can't drift apart.
+ *
+ * Types: IDs and big amounts are TEXT (yoctoNEAR does not fit in 64 bits);
+ * timestamps (ms) and Telegram IDs are BIGINT; flags are INTEGER 0/1 like SQLite.
+ *
+ * No production database exists before the first mainnet deployment, so version
+ * 1 is a baseline. After that, never edit a shipped migration: add the next one,
+ * together with its SQLite twin.
+ */
+
+export const PG_MIGRATIONS: readonly { version: number; name: string; sql: string }[] = [
+  {
+    version: 1,
+    name: 'baseline: users, links, conversation state, buybot, handoffs, trading wallets, intents, audit, recovery',
+    sql: `
+      CREATE TABLE telegram_users (
+        user_id BIGINT PRIMARY KEY,
+        username TEXT,
+        first_name TEXT NOT NULL,
+        language_code TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        blocked_at BIGINT
+      );
+      CREATE TABLE user_settings (
+        user_id BIGINT PRIMARY KEY REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        slippage_pct DOUBLE PRECISION NOT NULL,
+        buy_presets TEXT NOT NULL,
+        sell_presets TEXT NOT NULL,
+        default_account TEXT,
+        notify_trades INTEGER NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE TABLE link_requests (
+        code_hash TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        used_at BIGINT,
+        linked_account TEXT
+      );
+      CREATE INDEX link_requests_user ON link_requests(user_id, created_at);
+      CREATE TABLE account_links (
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        public_key TEXT NOT NULL,
+        linked_at BIGINT NOT NULL,
+        PRIMARY KEY (network, account_id)
+      );
+      CREATE INDEX account_links_user ON account_links(user_id);
+      CREATE TABLE link_events (
+        id BIGSERIAL PRIMARY KEY,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        user_id BIGINT NOT NULL,
+        kind TEXT NOT NULL,
+        detail TEXT,
+        at BIGINT NOT NULL
+      );
+      CREATE TABLE sessions (
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        flow TEXT NOT NULL,
+        data TEXT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        PRIMARY KEY (chat_id, user_id)
+      );
+      CREATE TABLE callbacks (
+        id TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        chat_id BIGINT NOT NULL,
+        payload TEXT NOT NULL,
+        expires_at BIGINT NOT NULL
+      );
+      CREATE TABLE user_tokens (
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        contract TEXT NOT NULL,
+        added_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, network, contract)
+      );
+
+      CREATE TABLE buybot_configs (
+        id BIGSERIAL PRIMARY KEY,
+        chat_id BIGINT NOT NULL,
+        chat_title TEXT,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        name TEXT NOT NULL,
+        decimals INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        min_near TEXT NOT NULL DEFAULT '0',
+        emoji TEXT NOT NULL DEFAULT '🟢',
+        step_near TEXT NOT NULL DEFAULT '1000000000000000000000000',
+        silent INTEGER NOT NULL DEFAULT 0,
+        paused_reason TEXT,
+        created_by BIGINT NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        unit TEXT NOT NULL DEFAULT 'NEAR',
+        min_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+        step_usd DOUBLE PRECISION NOT NULL DEFAULT 10,
+        max_emoji INTEGER NOT NULL DEFAULT 30,
+        media_kind TEXT,
+        media_file_id TEXT,
+        sells INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (chat_id, network, token)
+      );
+      CREATE INDEX buybot_configs_token ON buybot_configs(network, token);
+      CREATE TABLE buybot_candidates (
+        tx_hash TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        tokens TEXT NOT NULL,
+        block_height BIGINT NOT NULL,
+        first_seen BIGINT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_at BIGINT NOT NULL,
+        done_at BIGINT
+      );
+      CREATE INDEX buybot_candidates_due ON buybot_candidates(network, done_at, next_at);
+      CREATE TABLE buybot_events (
+        event_key TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        tx_hash TEXT NOT NULL,
+        buyer TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        paid TEXT NOT NULL,
+        block_height BIGINT NOT NULL,
+        detected_at BIGINT NOT NULL,
+        side TEXT NOT NULL DEFAULT 'buy'
+      );
+      CREATE TABLE buybot_deliveries (
+        event_key TEXT NOT NULL REFERENCES buybot_events(event_key) ON DELETE CASCADE,
+        config_id BIGINT NOT NULL REFERENCES buybot_configs(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_at BIGINT NOT NULL,
+        message_id BIGINT,
+        error TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (event_key, config_id)
+      );
+      CREATE INDEX buybot_deliveries_due ON buybot_deliveries(status, next_at);
+
+      CREATE TABLE handoffs (
+        id TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        chat_id BIGINT NOT NULL,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        side TEXT NOT NULL,
+        token_in TEXT NOT NULL,
+        token_out TEXT NOT NULL,
+        amount_in TEXT NOT NULL,
+        slippage_pct DOUBLE PRECISION NOT NULL,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        status TEXT NOT NULL,
+        tx_hashes TEXT,
+        result TEXT,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX handoffs_user ON handoffs(user_id, created_at);
+
+      CREATE TABLE trading_wallets (
+        id TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id),
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        public_key TEXT NOT NULL,
+        sealed_key TEXT,
+        key_ref TEXT NOT NULL,
+        status TEXT NOT NULL,
+        backup_key TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        closed_at BIGINT,
+        owner_account TEXT,
+        owner_key TEXT
+      );
+      CREATE UNIQUE INDEX trading_wallets_live ON trading_wallets(user_id, network) WHERE status = 'active';
+      CREATE UNIQUE INDEX trading_wallets_account ON trading_wallets(network, account_id);
+      CREATE TABLE wallet_intents (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT NOT NULL REFERENCES trading_wallets(id),
+        user_id BIGINT NOT NULL,
+        chat_id BIGINT NOT NULL,
+        kind TEXT NOT NULL,
+        params TEXT NOT NULL,
+        quote TEXT,
+        status TEXT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        result TEXT,
+        replaced_by TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX wallet_intents_wallet ON wallet_intents(wallet_id, status);
+      CREATE INDEX wallet_intents_open ON wallet_intents(status, updated_at);
+      CREATE TABLE wallet_txs (
+        intent_id TEXT NOT NULL REFERENCES wallet_intents(id),
+        step INTEGER NOT NULL,
+        hash TEXT NOT NULL UNIQUE,
+        signer_id TEXT NOT NULL,
+        receiver_id TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        expires_height BIGINT NOT NULL,
+        signed TEXT NOT NULL,
+        plan TEXT NOT NULL,
+        status TEXT NOT NULL,
+        outcome TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (intent_id, step)
+      );
+      CREATE INDEX wallet_txs_status ON wallet_txs(status);
+      CREATE TABLE custody_audit (
+        id BIGSERIAL PRIMARY KEY,
+        at BIGINT NOT NULL,
+        user_id BIGINT,
+        wallet_id TEXT,
+        action TEXT NOT NULL,
+        detail TEXT
+      );
+      CREATE INDEX custody_audit_wallet ON custody_audit(wallet_id, id);
+      CREATE TABLE recovery_requests (
+        code_hash TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        wallet_id TEXT NOT NULL REFERENCES trading_wallets(id),
+        network TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        verified_at BIGINT,
+        verified_account TEXT,
+        exported_at BIGINT
+      );
+      CREATE INDEX recovery_requests_user ON recovery_requests(user_id, created_at);
+    `,
+  },
+]

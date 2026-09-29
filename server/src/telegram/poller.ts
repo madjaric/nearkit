@@ -25,7 +25,7 @@ export function startPolling(opts: {
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const controller = new AbortController()
   let stopped = false
-  let offset = Number(opts.store.getMeta(OFFSET_KEY) ?? '0')
+  let offset = 0
 
   const chatOf = (u: TgUpdate) => u.message?.chat.id ?? u.callback_query?.message?.chat.id ?? u.my_chat_member?.chat.id ?? 0
 
@@ -46,6 +46,7 @@ export function startPolling(opts: {
   }
 
   const done = (async () => {
+    offset = Number((await opts.store.getMeta(OFFSET_KEY).catch(() => null)) ?? '0')
     let backoff = 1000
     while (!stopped) {
       let updates: TgUpdate[]
@@ -72,7 +73,7 @@ export function startPolling(opts: {
       if (!updates.length) continue
       await runBatch(updates)
       offset = Math.max(...updates.map((u) => u.update_id)) + 1
-      opts.store.setMeta(OFFSET_KEY, String(offset))
+      await opts.store.setMeta(OFFSET_KEY, String(offset))
     }
   })()
 

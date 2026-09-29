@@ -21,13 +21,13 @@ import { friendlyError, nearText, UNKNOWN } from './ui'
 const CALLBACK_TTL_MS = 30 * 60_000
 const fmt = (raw: bigint, decimals: number, maxFraction = 6) => formatUnits(raw, decimals, { maxFraction, group: true })
 
-export function nativeQuoteText(deps: BotDeps, intent: Intent): string {
+export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<string> {
   const p = intent.params as unknown as SwapParams
   const q = intent.quote as unknown as SwapQuote
   const buy = p.side === 'buy'
   const outDecimals = buy ? p.decimals : NEAR_DECIMALS
   const outSymbol = buy ? p.symbol : 'NEAR'
-  const wallet = deps.custody?.store.wallet(intent.walletId)
+  const wallet = await deps.custody?.store.wallet(intent.walletId)
   const fee = q.fee.charged && q.fee.amountRaw !== null ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `none on ${deps.config.network.id}`
   const registration = BigInt(q.registration)
   const seconds = Math.max(0, Math.round((intent.expiresAt - deps.now()) / 1000))
@@ -54,7 +54,7 @@ const confirmLabel = (p: SwapParams) => (p.side === 'buy' ? `✅ Confirm buy` : 
 /** Creates the intent for this quote (replacing older open quotes) and shows it with Confirm. */
 export async function sendNativeQuote(ctx: BotCtx, params: SwapParams, againData: string): Promise<void> {
   const custody = ctx.deps.custody
-  const wallet = tradingWallet(ctx.deps, ctx.user.id)
+  const wallet = await tradingWallet(ctx.deps, ctx.user.id)
   if (!custody || !wallet) return
   let quote: SwapQuote
   try {
@@ -67,19 +67,19 @@ export async function sendNativeQuote(ctx: BotCtx, params: SwapParams, againData
     return
   }
   // One live quote per wallet: an older Confirm button can't trade any more.
-  custody.store.cancelQuoted(wallet.id, ['buy', 'sell'])
-  const intent = custody.store.createIntent({ walletId: wallet.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: params.side, params, quote, ttlMs: SWAP_QUOTE_TTL_MS })
+  await custody.store.cancelQuoted(wallet.id, ['buy', 'sell'])
+  const intent = await custody.store.createIntent({ walletId: wallet.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: params.side, params, quote, ttlMs: SWAP_QUOTE_TTL_MS })
   await ctx.reply(
-    nativeQuoteText(ctx.deps, intent),
+    await nativeQuoteText(ctx.deps, intent),
     keyboard([btn(confirmLabel(params), `cx:ok:${intent.id}`)], [btn('🔄 Refresh', againData), btn('✖ Cancel', `cx:no:${intent.id}`)]),
   )
 }
 
-function tradeResult(deps: BotDeps, intent: Intent) {
+async function tradeResult(deps: BotDeps, intent: Intent) {
   const p = intent.params as unknown as SwapParams
   const r = intent.result
   const facts = (r?.facts ?? {}) as { tokenAmount?: string; nearAmount?: string | null; fee?: { token: string; raw: string } | null }
-  const wallet = deps.custody?.store.wallet(intent.walletId)
+  const wallet = await deps.custody?.store.wallet(intent.walletId)
   if (wallet) refreshPortfolio(deps, wallet.accountId)
   const links = r?.hashes.length ? txLinks(deps, r.hashes) : null
   const token = facts.tokenAmount ? `${fmt(BigInt(facts.tokenAmount), p.decimals)} ${p.symbol}` : UNKNOWN
@@ -92,7 +92,7 @@ function tradeResult(deps: BotDeps, intent: Intent) {
         ? `${fmt(BigInt(facts.fee.raw), NEAR_DECIMALS)} NEAR`
         : `${facts.fee.raw} raw units of ${feeToken}`
     : `none on ${deps.config.network.id}`
-  const again = deps.store.putCallback({ side: p.side, token: p.token, account: wallet?.accountId ?? '', native: true }, intent.userId, intent.chatId, CALLBACK_TTL_MS)
+  const again = await deps.store.putCallback({ side: p.side, token: p.token, account: wallet?.accountId ?? '', native: true }, intent.userId, intent.chatId, CALLBACK_TTL_MS)
   const text = r?.ok
     ? [
         `✅ ${bold(p.side === 'buy' ? 'Buy confirmed' : 'Sell confirmed')}`,
@@ -114,7 +114,7 @@ function tradeResult(deps: BotDeps, intent: Intent) {
 
 for (const side of ['buy', 'sell'] as const) {
   registerIntentScreens(side, {
-    review: (deps, intent) => ({ text: nativeQuoteText(deps, intent), confirm: confirmLabel(intent.params as unknown as SwapParams) }),
+    review: async (deps, intent) => ({ text: await nativeQuoteText(deps, intent), confirm: confirmLabel(intent.params as unknown as SwapParams) }),
     result: tradeResult,
   })
 }
@@ -148,11 +148,11 @@ registerIntentScreens('unwrap', {
 /** Offers to unwrap the wallet's whole wNEAR balance. */
 async function startUnwrap(ctx: BotCtx) {
   const custody = ctx.deps.custody
-  const wallet = tradingWallet(ctx.deps, ctx.user.id)
+  const wallet = await tradingWallet(ctx.deps, ctx.user.id)
   const raw = wallet ? await ctx.deps.near.ctx.reader.balanceOf(ctx.deps.config.network.wrapContract, wallet.accountId).catch(() => 0n) : 0n
   if (!custody || !wallet || raw <= 0n) return ctx.show('No wNEAR to unwrap.', keyboard([btn('👛 Wallet', 'cw:home')]))
-  custody.store.cancelQuoted(wallet.id, ['unwrap'])
-  const intent = custody.store.createIntent({
+  await custody.store.cancelQuoted(wallet.id, ['unwrap'])
+  const intent = await custody.store.createIntent({
     walletId: wallet.id,
     userId: ctx.user.id,
     chatId: ctx.chat.id,

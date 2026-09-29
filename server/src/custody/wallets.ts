@@ -42,9 +42,9 @@ export async function createTradingWallet(
   now: number,
   owner: { accountId: string; publicKey: string },
 ): Promise<{ wallet: TradingWallet; created: boolean }> {
-  const existing = c.store.activeWallet(userId, network)
+  const existing = await c.store.activeWallet(userId, network)
   if (existing) return { wallet: existing, created: false }
-  if (c.store.countWalletsSince(userId, now - 86_400_000) >= MAX_WALLETS_PER_DAY) throw new WalletLimitError()
+  if ((await c.store.countWalletsSince(userId, now - 86_400_000)) >= MAX_WALLETS_PER_DAY) throw new WalletLimitError()
   // Two presses at once each make a key; the store keeps one wallet and the other key is never saved.
   const key = await c.signer.createKey(network)
   return c.store.createWallet({ userId, network, ...key, keyRef: c.signer.keyRef, owner })

@@ -31,7 +31,7 @@ describe('onboarding', () => {
     expect(m?.buttons.map((b) => b.text)).toEqual(expect.arrayContaining(['⚙️ Settings', '❓ Help']))
     // Features that don't exist in this bot are not offered.
     expect(m?.buttons.map((b) => b.text)).not.toContain('🟢 Buy')
-    expect(h.store.getUser(ALICE.id)?.firstName).toBe('Alice')
+    expect((await h.store.getUser(ALICE.id))?.firstName).toBe('Alice')
   })
 
   it('never echoes the user’s name, so nothing a name carries reaches the chat', async () => {
@@ -66,7 +66,7 @@ describe('onboarding', () => {
     expect(m?.chatId).toBe(GROUP.id)
     expect(m?.text).toContain('works in a private chat')
     expect(m?.buttons[0]?.url).toBe('https://t.me/NearKitBot?start=link')
-    expect(h.store.counts().linkRequests).toBe(0)
+    expect((await h.store.counts()).linkRequests).toBe(0)
   })
 })
 
@@ -80,26 +80,26 @@ describe('linking', () => {
     const code = url.split('#link=')[1] as string
     expect(m?.text).not.toContain(code)
     expect(m?.text).toContain('expires in 10 minutes')
-    expect(h.store.counts().linkRequests).toBe(1)
+    expect((await h.store.counts()).linkRequests).toBe(1)
   })
 
   it('shows linked accounts, switches the default and unlinks after a confirmation', async () => {
     const h = await bot()
-    h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
+    await h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
     for (const [code, account] of [
       ['h1', 'alice.testnet'],
       ['h2', 'alice2.testnet'],
     ] as const) {
-      h.store.createLinkRequest({ codeHash: code, userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
-      h.store.completeLink({ codeHash: code, network: 'testnet', accountId: account, userId: ALICE.id, publicKey: 'ed25519:K' })
+      await h.store.createLinkRequest({ codeHash: code, userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+      await h.store.completeLink({ codeHash: code, network: 'testnet', accountId: account, userId: ALICE.id, publicKey: 'ed25519:K' })
     }
-    h.store.updateSettings(ALICE.id, { defaultAccount: 'alice.testnet' })
+    await h.store.updateSettings(ALICE.id, { defaultAccount: 'alice.testnet' })
 
     await h.say('/accounts')
     expect(h.last()?.text).toContain('⭐ ')
     const makeDefault = h.buttons().find((b) => b.text.startsWith('⭐ Make'))
     await h.press(makeDefault?.data ?? '')
-    expect(h.store.getSettings(ALICE.id).defaultAccount).toBe('alice2.testnet')
+    expect((await h.store.getSettings(ALICE.id)).defaultAccount).toBe('alice2.testnet')
 
     await h.say('/unlink')
     const pick = h.buttons().find((b) => b.text.includes('alice.testnet'))
@@ -107,20 +107,20 @@ describe('linking', () => {
     expect(h.last()?.text).toContain('Unlink <code>alice.testnet</code>')
     const yes = h.buttons().find((b) => b.text.includes('Yes, unlink'))
     await h.press(yes?.data ?? '')
-    expect(h.store.linksOf(ALICE.id, 'testnet').map((l) => l.accountId)).toEqual(['alice2.testnet'])
+    expect((await h.store.linksOf(ALICE.id, 'testnet')).map((l) => l.accountId)).toEqual(['alice2.testnet'])
   })
 
   it('refuses another user’s buttons', async () => {
     const h = await bot()
-    h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
-    h.store.createLinkRequest({ codeHash: 'h1', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
-    h.store.completeLink({ codeHash: 'h1', network: 'testnet', accountId: 'alice.testnet', userId: ALICE.id, publicKey: 'ed25519:K' })
+    await h.store.upsertUser({ userId: ALICE.id, username: 'alice', firstName: 'Alice', languageCode: null })
+    await h.store.createLinkRequest({ codeHash: 'h1', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+    await h.store.completeLink({ codeHash: 'h1', network: 'testnet', accountId: 'alice.testnet', userId: ALICE.id, publicKey: 'ed25519:K' })
     await h.say('/unlink')
     const pick = h.buttons().find((b) => b.text.includes('alice.testnet'))
     // Bob replays Alice's button data in his own chat.
     const confirm = pick?.data?.replace('acct:ask:', 'acct:do:') ?? ''
     await h.press(confirm, BOB, privateChat(BOB))
-    expect(h.store.linksOf(ALICE.id, 'testnet')).toHaveLength(1)
+    expect(await h.store.linksOf(ALICE.id, 'testnet')).toHaveLength(1)
   })
 })
 
@@ -129,12 +129,12 @@ describe('settings', () => {
     const h = await bot()
     await h.say('/settings')
     await h.press('set:slip:3')
-    expect(h.store.getSettings(ALICE.id).slippagePct).toBe(3)
+    expect((await h.store.getSettings(ALICE.id)).slippagePct).toBe(3)
     await h.press('set:slip:custom')
     await h.say('abc')
     expect(h.last()?.text).toContain('is not a slippage')
     await h.say('0.8%')
-    expect(h.store.getSettings(ALICE.id).slippagePct).toBe(0.8)
+    expect((await h.store.getSettings(ALICE.id)).slippagePct).toBe(0.8)
     expect(h.last()?.text).toContain('Slippage set to 0.8%')
   })
 
@@ -143,10 +143,10 @@ describe('settings', () => {
     await h.press('set:presets:buy')
     await h.say('/cancel')
     await h.say('0.3')
-    expect(h.store.getSettings(ALICE.id).buyPresets).toEqual(['0.1', '0.5', '1', '5'])
+    expect((await h.store.getSettings(ALICE.id)).buyPresets).toEqual(['0.1', '0.5', '1', '5'])
     await h.press('set:presets:buy')
     await h.say('0.25 2 10')
-    expect(h.store.getSettings(ALICE.id).buyPresets).toEqual(['0.25', '2', '10'])
+    expect((await h.store.getSettings(ALICE.id)).buyPresets).toEqual(['0.25', '2', '10'])
   })
 
   it('shows trading and wallet settings in one place', async () => {
@@ -167,14 +167,14 @@ describe('settings', () => {
     await h.say('150')
     expect(h.last()?.text).toContain('is not a whole percentage')
     await h.say('100 10 33')
-    expect(h.store.getSettings(ALICE.id).sellPresets).toEqual([10, 33, 100])
+    expect((await h.store.getSettings(ALICE.id)).sellPresets).toEqual([10, 33, 100])
     expect(h.last()?.text).toContain('Sell buttons saved')
   })
 
   it('toggles notifications', async () => {
     const h = await bot()
     await h.press('set:notify:toggle')
-    expect(h.store.getSettings(ALICE.id).notifyTrades).toBe(false)
+    expect((await h.store.getSettings(ALICE.id)).notifyTrades).toBe(false)
   })
 
   it('parses slippage and buy amounts strictly', () => {
@@ -228,7 +228,7 @@ describe('robustness', () => {
     await h.say('/start')
     h.fake.failNext('sendMessage', { code: 403, description: 'Forbidden: bot was blocked by the user' })
     await h.say('/help')
-    expect(h.store.getUser(ALICE.id)?.blockedAt).not.toBeNull()
+    expect((await h.store.getUser(ALICE.id))?.blockedAt).not.toBeNull()
     expect(await h.app.notify(ALICE.id, 'hello')).toBe(false)
   })
 })

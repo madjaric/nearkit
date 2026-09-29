@@ -15,7 +15,7 @@ const MAX_PRESET_NEAR = 100_000n * 10n ** 24n
 const MAX_SELL_PRESETS = 4
 
 async function showSettings(ctx: BotCtx, note?: string) {
-  const s = ctx.deps.store.getSettings(ctx.user.id)
+  const s = await ctx.deps.store.getSettings(ctx.user.id)
   const slip = (p: number) => btn(`${p === s.slippagePct ? '● ' : ''}${p}%`, `set:slip:${p}`)
   await ctx.show(
     [
@@ -91,7 +91,7 @@ export function settingsModule(): BotModule {
         const { store } = ctx.deps
         if (action === 'show') return showSettings(ctx)
         if (action === 'slip' && arg === 'custom') {
-          store.setSession(ctx.chat.id, ctx.user.id, 'settings.slippage', {}, FLOW_TTL_MS)
+          await store.setSession(ctx.chat.id, ctx.user.id, 'settings.slippage', {}, FLOW_TTL_MS)
           await ctx.answer()
           await ctx.reply(`Send the slippage in percent, e.g. ${code('0.8')}. At most ${MAX_SLIPPAGE}%. /cancel to keep the current one.`)
           return
@@ -99,23 +99,23 @@ export function settingsModule(): BotModule {
         if (action === 'slip') {
           const v = parseSlippage(arg)
           if (v === null) return
-          store.updateSettings(ctx.user.id, { slippagePct: v })
+          await store.updateSettings(ctx.user.id, { slippagePct: v })
           await ctx.answer(`Slippage ${v}%`)
           return showSettings(ctx)
         }
         if (action === 'notify') {
-          const s = store.getSettings(ctx.user.id)
-          store.updateSettings(ctx.user.id, { notifyTrades: !s.notifyTrades })
+          const s = await store.getSettings(ctx.user.id)
+          await store.updateSettings(ctx.user.id, { notifyTrades: !s.notifyTrades })
           return showSettings(ctx)
         }
         if (action === 'presets' && arg === 'sell') {
-          store.setSession(ctx.chat.id, ctx.user.id, 'settings.sellPresets', {}, FLOW_TTL_MS)
+          await store.setSession(ctx.chat.id, ctx.user.id, 'settings.sellPresets', {}, FLOW_TTL_MS)
           await ctx.answer()
           await ctx.reply(`Send up to ${MAX_SELL_PRESETS} percentages for the sell buttons, e.g. ${code('25 50 75 100')}. /cancel to keep them.`)
           return
         }
         if (action === 'presets') {
-          store.setSession(ctx.chat.id, ctx.user.id, 'settings.buyPresets', {}, FLOW_TTL_MS)
+          await store.setSession(ctx.chat.id, ctx.user.id, 'settings.buyPresets', {}, FLOW_TTL_MS)
           await ctx.answer()
           await ctx.reply(`Send up to ${MAX_PRESETS} NEAR amounts for the buy buttons, separated by spaces, e.g. ${code('0.1 0.5 1 5')}. /cancel to keep them.`)
         }
@@ -128,8 +128,8 @@ export function settingsModule(): BotModule {
           await ctx.reply(`⚠️ ${esc(plainText(text, 16))} is not a slippage between 0 and ${MAX_SLIPPAGE}%. Try again, or /cancel.`)
           return
         }
-        ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
-        ctx.deps.store.updateSettings(ctx.user.id, { slippagePct: v })
+        await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        await ctx.deps.store.updateSettings(ctx.user.id, { slippagePct: v })
         await showSettings(ctx, `✅ Slippage set to ${v}%.${v >= HIGH_SLIPPAGE ? ' That is high: a trade may fill far below the quote.' : ''}`)
       },
       'settings.buyPresets': async (ctx, text) => {
@@ -138,8 +138,8 @@ export function settingsModule(): BotModule {
           await ctx.reply(`⚠️ ${esc(parsed.error)}. Try again, or /cancel.`)
           return
         }
-        ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
-        ctx.deps.store.updateSettings(ctx.user.id, { buyPresets: parsed.value })
+        await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        await ctx.deps.store.updateSettings(ctx.user.id, { buyPresets: parsed.value })
         await showSettings(ctx, '✅ Buy buttons saved.')
       },
       'settings.sellPresets': async (ctx, text) => {
@@ -148,8 +148,8 @@ export function settingsModule(): BotModule {
           await ctx.reply(`⚠️ ${esc(parsed.error)}. Try again, or /cancel.`)
           return
         }
-        ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
-        ctx.deps.store.updateSettings(ctx.user.id, { sellPresets: parsed.value })
+        await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        await ctx.deps.store.updateSettings(ctx.user.id, { sellPresets: parsed.value })
         await showSettings(ctx, '✅ Sell buttons saved.')
       },
     },

@@ -89,15 +89,15 @@ export function createRecoveryService(deps: {
   const now = deps.now ?? Date.now
   const network = config.network.id
 
-  function live(code: string) {
+  async function live(code: string) {
     if (typeof code !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(code))
       throw new RecoveryApiError(400, 'bad-code', 'This export link is not valid. Ask the NearKit bot for a new one in 🔐 Recovery.')
-    const req = custody.recovery(sha256Hex(code))
+    const req = await custody.recovery(sha256Hex(code))
     if (!req) throw new RecoveryApiError(404, 'unknown', 'This export link is unknown. Ask the NearKit bot for a new one in 🔐 Recovery.')
     if (req.exportedAt !== null || req.verifiedAt !== null) throw new RecoveryApiError(409, 'used', 'This export link was already used. Ask the NearKit bot for a new one.')
     if (now() > req.expiresAt) throw new RecoveryApiError(410, 'expired', 'This export link expired. Ask the NearKit bot for a new one.')
     if (req.network !== network) throw new RecoveryApiError(400, 'network', `This export link is for ${req.network}.`)
-    const wallet = custody.wallet(req.walletId)
+    const wallet = await custody.wallet(req.walletId)
     if (!wallet || wallet.status !== 'active' || wallet.userId !== req.userId)
       throw new RecoveryApiError(410, 'wallet', 'This NearKit wallet is closed; NearKit no longer holds its key.')
     if (!wallet.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NearKit wallet has no recorded owner wallet, so its key can’t be exported.')
@@ -106,16 +106,16 @@ export function createRecoveryService(deps: {
 
   return {
     /** From Telegram's Recovery screen: a one-time link to the export page. */
-    createRequest(userId: number): { url: string; expiresAt: number } {
-      const wallet = custody.activeWallet(userId, network)
+    async createRequest(userId: number): Promise<{ url: string; expiresAt: number }> {
+      const wallet = await custody.activeWallet(userId, network)
       if (!wallet) throw new RecoveryApiError(404, 'no-wallet', 'You have no NearKit wallet.')
       if (!wallet.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NearKit wallet has no recorded owner wallet, so its key can’t be exported.')
-      if (custody.countRecoveriesSince(userId, now() - 3_600_000) >= MAX_RECOVERY_REQUESTS_PER_HOUR)
+      if ((await custody.countRecoveriesSince(userId, now() - 3_600_000)) >= MAX_RECOVERY_REQUESTS_PER_HOUR)
         throw new RecoveryApiError(429, 'too-many', 'Too many export links this hour. Use the last one, or try again later.')
-      const user = store.getUser(userId)
+      const user = await store.getUser(userId)
       if (!user) throw new RecoveryApiError(404, 'unknown-user', 'Send /start first.')
       const code = randomToken(16)
-      const req = custody.createRecovery({
+      const req = await custody.createRecovery({
         codeHash: sha256Hex(code),
         userId,
         walletId: wallet.id,
@@ -124,14 +124,14 @@ export function createRecoveryService(deps: {
         message: recoveryMessage(user, wallet.accountId, network),
         ttlMs: RECOVERY_TTL_MS,
       })
-      custody.audit({ userId, walletId: wallet.id, action: 'export-requested', detail: { expiresAt: req.expiresAt } })
+      await custody.audit({ userId, walletId: wallet.id, action: 'export-requested', detail: { expiresAt: req.expiresAt } })
       // In the fragment: it never reaches a server log.
       return { url: `${config.webUrl}/telegram#recover=${code}`, expiresAt: req.expiresAt }
     },
 
-    describe(code: string): RecoveryDescription {
-      const { req, wallet, owner } = live(code)
-      const user = store.getUser(req.userId)
+    async describe(code: string): Promise<RecoveryDescription> {
+      const { req, wallet, owner } = await live(code)
+      const user = await store.getUser(req.userId)
       return {
         telegram: { name: user?.firstName ?? 'Telegram user', username: user?.username ?? null },
         network,
@@ -145,19 +145,19 @@ export function createRecoveryService(deps: {
     },
 
     async export(input: { code: string; accountId: string; publicKey: string; signature: string }): Promise<RecoveryExport & { userId: number; signedBy: string }> {
-      const { req, wallet, owner } = live(input.code)
+      const { req, wallet, owner } = await live(input.code)
       if (req.attempts >= MAX_EXPORT_ATTEMPTS) throw new RecoveryApiError(429, 'locked', 'Too many attempts with this link. Ask the NearKit bot for a new one.')
-      custody.bumpRecoveryAttempt(req.codeHash)
+      await custody.bumpRecoveryAttempt(req.codeHash)
       const accountId = typeof input.accountId === 'string' ? input.accountId.trim() : ''
       // The owner alone: a wallet linked later (e.g. by someone holding the Telegram session) can't authorize this.
       if (accountId !== owner) {
-        custody.audit({ userId: req.userId, walletId: wallet.id, action: 'export-refused', detail: { reason: 'not the owner', account: accountId } })
+        await custody.audit({ userId: req.userId, walletId: wallet.id, action: 'export-refused', detail: { reason: 'not the owner', account: accountId } })
         throw new RecoveryApiError(403, 'not-owner', `Sign with ${owner}, the wallet this NearKit wallet was created with. Nothing was exported.`)
       }
       const nonce = base64Decode(req.nonce)
       const signed = nonce !== null && (await verifyNep413({ message: req.message, nonce, recipient: config.linkRecipient }, input.publicKey, input.signature))
       if (!signed) {
-        custody.audit({ userId: req.userId, walletId: wallet.id, action: 'export-refused', detail: { reason: 'bad signature', account: accountId } })
+        await custody.audit({ userId: req.userId, walletId: wallet.id, action: 'export-refused', detail: { reason: 'bad signature', account: accountId } })
         throw new RecoveryApiError(401, 'bad-signature', 'The signature does not match this export request. Nothing was exported.')
       }
       let permission
@@ -167,7 +167,7 @@ export function createRecoveryService(deps: {
         throw new RecoveryApiError(503, 'rpc', 'Couldn’t reach NEAR to check the key. Try again in a moment.')
       }
       if (permission !== 'full') throw new RecoveryApiError(403, 'not-full-access', `Sign with a full-access key of ${accountId}. Nothing was exported.`)
-      if (!custody.markRecoveryVerified(req.codeHash, accountId)) throw new RecoveryApiError(409, 'used', 'This export link was already used.')
+      if (!(await custody.markRecoveryVerified(req.codeHash, accountId))) throw new RecoveryApiError(409, 'used', 'This export link was already used.')
       const secretKey = await signer.exportSecret(wallet, req.codeHash)
       return { accountId: wallet.accountId, publicKey: wallet.publicKey, secretKey, userId: req.userId, signedBy: accountId }
     },
@@ -189,9 +189,9 @@ export const RECOVERY_INTENT_TTL_MS = 5 * 60_000
  * was linked here (a re-link after a key change updates it), else the one the NearKit
  * wallet was created with.
  */
-export function ownerKeyNow(links: Pick<Store, 'linkOf'>, wallet: TradingWallet): string | null {
+export async function ownerKeyNow(links: Pick<Store, 'linkOf'>, wallet: TradingWallet): Promise<string | null> {
   if (!wallet.ownerAccount) return null
-  const link = links.linkOf(wallet.network, wallet.ownerAccount)
+  const link = await links.linkOf(wallet.network, wallet.ownerAccount)
   return link && link.userId === wallet.userId ? link.publicKey : wallet.ownerKey
 }
 
@@ -219,8 +219,8 @@ export function backupKeyHandler(deps: { near: ServerNear; custody: CustodyStore
       const status = confirmed.at(-1)?.result.status as Record<string, unknown> | undefined
       const ok = Boolean(status && 'SuccessValue' in status)
       if (ok) {
-        deps.custody.setBackupKey(wallet.id, p.publicKey)
-        deps.custody.audit({ userId: wallet.userId, walletId: wallet.id, action: 'backup-key-added', detail: { publicKey: p.publicKey, linkedAccount: p.linkedAccount } })
+        await deps.custody.setBackupKey(wallet.id, p.publicKey)
+        await deps.custody.audit({ userId: wallet.userId, walletId: wallet.id, action: 'backup-key-added', detail: { publicKey: p.publicKey, linkedAccount: p.linkedAccount } })
       }
       return { ok, message: ok ? 'Backup key added.' : 'Adding the backup key failed on chain.', hashes: confirmed.map((c) => c.hash), facts: { ...p } }
     },
@@ -255,7 +255,7 @@ export function revokeHandler(deps: { near: ServerNear; custody: CustodyStore })
     async summarize(_intent, wallet, confirmed) {
       const status = confirmed.at(-1)?.result.status as Record<string, unknown> | undefined
       const ok = Boolean(status && 'SuccessValue' in status)
-      if (ok) deps.custody.closeWallet(wallet.id, 'revoked', { tx: confirmed.at(-1)?.hash })
+      if (ok) await deps.custody.closeWallet(wallet.id, 'revoked', { tx: confirmed.at(-1)?.hash })
       return {
         ok,
         message: ok ? 'NearKit’s key was removed.' : 'Removing NearKit’s key failed on chain. Nothing changed.',

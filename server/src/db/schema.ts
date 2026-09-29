@@ -1,4 +1,5 @@
-import type { Db } from './sqlite'
+import type { Database } from './database'
+import { PG_MIGRATIONS } from './pgSchema'
 
 /**
  * Versioned schema. Each migration runs once, in a transaction, and the version
@@ -322,18 +323,37 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
   },
 ]
 
-/** Brings the database up to the newest version (or to `target`, for tests of a migration). */
-export function migrate(db: Db, target = Number.POSITIVE_INFINITY): number {
-  db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-  const current = Number(db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")?.value ?? '0')
-  let version = current
-  for (const m of MIGRATIONS) {
-    if (m.version <= version || m.version > target) continue
-    db.tx(() => {
-      db.exec(m.sql)
-      db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(m.version)])
-    })
-    version = m.version
+/**
+ * Brings the database up to the newest version (or to `target`, for tests of a
+ * migration), with the migrations of its engine: SQLite's below, Postgres's in
+ * pgSchema.ts. Each migration and its version record commit together. On
+ * Postgres an advisory lock makes instances that start at once take turns, so a
+ * migration never runs twice.
+ */
+export async function migrate(db: Database, target = Number.POSITIVE_INFINITY): Promise<number> {
+  const list = db.dialect === 'postgres' ? PG_MIGRATIONS : MIGRATIONS
+  const versionOf = async () => Number((await db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'"))?.value ?? '0')
+  const lock = async () => {
+    if (db.dialect === 'postgres') await db.get("SELECT pg_advisory_xact_lock(hashtext('nearkit:migrate'))")
   }
-  return version
+  await db.tx(async () => {
+    await lock()
+    await db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+  })
+  let version = 0
+  for (const m of list) {
+    if (m.version > target) break
+    version = await db.tx(async () => {
+      await lock()
+      const current = await versionOf()
+      if (m.version <= current) return current
+      await db.exec(m.sql)
+      await db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(m.version)])
+      return m.version
+    })
+  }
+  return Math.max(version, await versionOf())
 }
+
+/** The newest schema version of each engine. */
+export const LATEST_SCHEMA = { sqlite: MIGRATIONS.at(-1)?.version ?? 0, postgres: PG_MIGRATIONS.at(-1)?.version ?? 0 }

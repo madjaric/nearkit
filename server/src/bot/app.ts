@@ -68,8 +68,8 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     return ctx
   }
 
-  function recordUser(user: TgUser) {
-    deps.store.upsertUser({ userId: user.id, username: user.username ?? null, firstName: user.first_name || 'there', languageCode: user.language_code ?? null })
+  async function recordUser(user: TgUser) {
+    await deps.store.upsertUser({ userId: user.id, username: user.username ?? null, firstName: user.first_name || 'there', languageCode: user.language_code ?? null })
   }
 
   async function guarded(ctx: BotCtx, what: string, run: () => Promise<void>) {
@@ -78,7 +78,7 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     } catch (e) {
       const known = userMessage(e)
       if (e instanceof TelegramError && e.blocked) {
-        deps.store.markBlocked(ctx.user.id)
+        await deps.store.markBlocked(ctx.user.id)
         return
       }
       if (!known) deps.log.error('handler failed', { what, error: e })
@@ -119,7 +119,7 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     // Text, or media a waiting step may want (e.g. a buybot's photo); nothing else.
     const hasMedia = Boolean(message.photo?.length || message.animation || message.video)
     if (!user || user.is_bot || (!message.text && !hasMedia)) return
-    recordUser(user)
+    await recordUser(user)
     const ctx = makeCtx(message.chat, user, null, null)
     if (!allowed(user)) return onFlood(ctx)
     const cmd = message.text?.startsWith('/') ? parseCommand(message.text) : null
@@ -141,11 +141,11 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
         return
       }
       // A new command abandons whatever step was waiting for text.
-      deps.store.clearSession(ctx.chat.id, user.id)
+      await deps.store.clearSession(ctx.chat.id, user.id)
       await guarded(ctx, `/${cmd.name}`, () => command.run(ctx, cmd.args))
       return
     }
-    const session = deps.store.getSession(ctx.chat.id, user.id)
+    const session = await deps.store.getSession(ctx.chat.id, user.id)
     const flow = session ? flows.get(session.flow) : undefined
     if (session && flow) {
       await guarded(ctx, `flow ${session.flow}`, () => flow(ctx, message.text ?? message.caption ?? '', session.data, message))
@@ -158,7 +158,7 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     const user = query.from
     const message = query.message
     if (!message) return deps.tg.answerCallbackQuery(query.id).then(() => undefined)
-    recordUser(user)
+    await recordUser(user)
     const ctx = makeCtx(message.chat, user, message, query)
     if (!allowed(user)) return onFlood(ctx)
     const data = query.data ?? ''
@@ -181,13 +181,13 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     },
     commands: () => [...commands.entries()].map(([name, command]) => ({ name, command })),
     async notify(userId, html, markup) {
-      const user = deps.store.getUser(userId)
+      const user = await deps.store.getUser(userId)
       if (!user || user.blockedAt !== null) return false
       try {
         await deps.tg.sendMessage(userId, html, markup ? { reply_markup: markup } : {})
         return true
       } catch (e) {
-        if (e instanceof TelegramError && e.blocked) deps.store.markBlocked(userId)
+        if (e instanceof TelegramError && e.blocked) await deps.store.markBlocked(userId)
         else deps.log.warn('notify failed', { error: e })
         return false
       }

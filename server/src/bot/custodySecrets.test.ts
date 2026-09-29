@@ -3,7 +3,7 @@ import { base58Decode, base58Encode, base64Decode, base64Encode } from '@/lib/en
 import { nep413Digest } from '@/services/near/nep413'
 import { recoveryRoutes } from '../api/recoveryRoutes'
 import type { RecoveryDescription } from '../custody/recovery'
-import type { Db } from '../db/sqlite'
+import type { Database } from '../db/database'
 import type { Logger } from '../log'
 import { exportedText } from './recovery'
 import { LINKED, ONE, walletBot } from './walletTesting'
@@ -14,7 +14,13 @@ const json = (v: unknown) =>
     typeof x === 'bigint' ? x.toString() : x instanceof Uint8Array ? hex(x) : x instanceof Error ? `${x.name}: ${x.message}\n${x.stack ?? ''}` : x,
   )
 /** Every row of every table, as text. */
-const dump = (db: Db) => json(db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").map((t) => [t.name, db.all(`SELECT * FROM "${t.name}"`)]))
+const dump = async (db: Database) => {
+  const tables =
+    db.dialect === 'postgres'
+      ? 'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema()'
+      : "SELECT name FROM sqlite_master WHERE type = 'table'"
+  return json(await Promise.all((await db.all<{ name: string }>(tables)).map(async (t) => [t.name, await db.all(`SELECT * FROM "${t.name}"`)])))
+}
 
 describe('the NearKit wallet key over a whole lifecycle', () => {
   it('reaches neither Telegram, the logs nor the database in plain form; only the one export response carries it', async () => {
@@ -69,7 +75,7 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
     const digest = await nep413Digest({ message: d.message, nonce: base64Decode(d.nonce) as Uint8Array, recipient: d.recipient })
     const signature = base64Encode(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, pair.privateKey, digest)))
     const out = (await routes['/api/recovery/export']?.({ code, accountId: LINKED, publicKey: ownerKey, signature }, {} as never)) as { secretKey: string }
-    const heldDb = dump(h.db)
+    const heldDb = await dump(h.db)
 
     h.advance(60_000)
     await h.press('cr:show')
@@ -86,7 +92,7 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
     expect(telegram).toContain('was just exported in NearKit web')
     expect(json(logs)).toContain('intent refused before signing')
     expect(json(logs)).toContain('send unclear')
-    const places = { telegram, logs: json(logs), heldDb, finalDb: dump(h.db), describe: json(d) }
+    const places = { telegram, logs: json(logs), heldDb, finalDb: await dump(h.db), describe: json(d) }
     for (const [place, text] of Object.entries(places)) for (const form of forms) expect(text.includes(form), `${place} holds the key`).toBe(false)
   })
 })

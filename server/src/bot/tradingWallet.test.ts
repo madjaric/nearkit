@@ -20,19 +20,19 @@ describe('NearKit wallet: create, deposit, balance', () => {
     const h = await walletBot()
     await Promise.all([h.press('cw:create'), h.press('cw:create')])
     await h.press('cw:create')
-    const w = h.wallet()
+    const w = await h.wallet()
     expect(w?.accountId).toMatch(/^[0-9a-f]{64}$/)
-    expect(h.custody.store.countWalletsSince(ALICE.id, 0)).toBe(1)
+    expect(await h.custody.store.countWalletsSince(ALICE.id, 0)).toBe(1)
     expect(h.last()?.text).toContain(w?.accountId)
     // The key is stored sealed, never in the clear.
     expect(w?.sealedKey).toMatch(/"ct":/)
-    expect(h.custody.store.auditOf(w?.id as string).map((a) => a.action)).toEqual(['wallet-created'])
+    expect((await h.custody.store.auditOf(w?.id as string)).map((a) => a.action)).toEqual(['wallet-created'])
   })
 
   it('shows the exact deposit address and network, and balances read from chain', async () => {
     const h = await walletBot()
     await h.press('cw:create')
-    const w = h.wallet()
+    const w = await h.wallet()
     await h.press('cw:dep')
     expect(h.last()?.text).toContain(w?.accountId)
     expect(h.last()?.text).toContain('NEAR Testnet')
@@ -90,7 +90,7 @@ describe('NearKit wallet: withdraw', () => {
     for (const [input, why] of [
       ['Bob.Testnet', 'lowercase'],
       ['bob.near', 'is a NEAR mainnet account'],
-      [h.wallet()?.accountId as string, 'this NearKit wallet itself'],
+      [(await h.wallet())?.accountId as string, 'this NearKit wallet itself'],
       ['nobody-here.testnet', 'There is no account nobody-here.testnet'],
     ] as const) {
       await h.say(input)
@@ -179,7 +179,7 @@ describe('NearKit wallet: withdraw', () => {
     await h.press(h.button('(linked)'))
     await h.press(h.button('Confirm withdraw'))
     expect(h.last()?.text).toContain('Withdrawal confirmed')
-    const left = h.chain.accounts.get(h.wallet()?.accountId as string)?.amount ?? 0n
+    const left = h.chain.accounts.get((await h.wallet())?.accountId as string)?.amount ?? 0n
     expect(left).toBeGreaterThanOrEqual(0n)
     expect(left).toBeLessThan(10n ** 22n)
   })

@@ -3,7 +3,7 @@ import { formatUnits } from '@/lib/amounts'
 import { explorerTxUrl } from '@/services/near/explorer'
 import { detectTrades, fromRpc, type Trade } from '@/services/near/flows'
 import { RpcError, type RpcClient, type RpcTxResult } from '@/services/near/rpc'
-import type { Db } from '../db/sqlite'
+import type { Database } from '../db/database'
 import { randomToken } from '../ids'
 import { bold, esc, link } from '../telegram/html'
 
@@ -103,7 +103,7 @@ export function handoffUrl(webUrl: string, h: Pick<Handoff, 'id' | 'tokenIn' | '
 }
 
 export function createHandoffs(deps: {
-  db: Db
+  db: Database
   network: NetworkConfig
   rpc: RpcClient
   webUrl: string
@@ -112,8 +112,8 @@ export function createHandoffs(deps: {
   notify: (userId: number, html: string) => Promise<void>
 }) {
   const now = deps.now ?? Date.now
-  const get = (id: string): Handoff | null => {
-    const r = deps.db.get<Row>('SELECT * FROM handoffs WHERE id = ?', [id])
+  const get = async (id: string): Promise<Handoff | null> => {
+    const r = await deps.db.get<Row>('SELECT * FROM handoffs WHERE id = ?', [id])
     return r ? toHandoff(r) : null
   }
 
@@ -135,28 +135,28 @@ export function createHandoffs(deps: {
   return {
     get,
 
-    create(input: Omit<Handoff, 'id' | 'createdAt' | 'expiresAt' | 'status' | 'txHashes' | 'result' | 'network'>): { handoff: Handoff; url: string } {
+    async create(input: Omit<Handoff, 'id' | 'createdAt' | 'expiresAt' | 'status' | 'txHashes' | 'result' | 'network'>): Promise<{ handoff: Handoff; url: string }> {
       const id = randomToken(16)
       const t = now()
-      deps.db.run(
+      await deps.db.run(
         `INSERT INTO handoffs (id, user_id, chat_id, network, account_id, side, token_in, token_out, amount_in, slippage_pct, created_at, expires_at, status, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
         [id, input.userId, input.chatId, deps.network.id, input.accountId, input.side, input.tokenIn, input.tokenOut, input.amountIn, input.slippagePct, t, t + HANDOFF_TTL_MS, t],
       )
-      const handoff = get(id) as Handoff
+      const handoff = (await get(id)) as Handoff
       return { handoff, url: handoffUrl(deps.webUrl, handoff) }
     },
 
     /** What the web app shows about a handoff: who it's for. Nothing else is needed from here. */
-    describe(id: string): { accountId: string; network: string; status: HandoffStatus; expiresAt: number } {
-      const h = get(id)
+    async describe(id: string): Promise<{ accountId: string; network: string; status: HandoffStatus; expiresAt: number }> {
+      const h = await get(id)
       if (!h) throw new HandoffError(404, 'unknown', 'This Telegram trade link is unknown.')
       return { accountId: h.accountId, network: h.network, status: h.status, expiresAt: h.expiresAt }
     },
 
     /** The web app reports what the wallet signed. Idempotent: a settled handoff answers with its outcome. */
     async report(id: string, hashes: unknown): Promise<{ status: HandoffStatus; outcome: HandoffResult['outcome'] | null }> {
-      const h = get(id)
+      const h = await get(id)
       if (!h) throw new HandoffError(404, 'unknown', 'This Telegram trade link is unknown.')
       if (h.status !== 'open') return { status: h.status, outcome: h.result?.outcome ?? null }
       if (now() - h.createdAt > REPORT_WINDOW_MS) throw new HandoffError(410, 'expired', 'This Telegram trade link is too old to report on.')
@@ -187,7 +187,7 @@ export function createHandoffs(deps: {
           : null,
       }
       const status: HandoffStatus = outcome === 'traded' ? 'confirmed' : 'failed'
-      const changed = deps.db.run(`UPDATE handoffs SET status = ?, tx_hashes = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'open'`, [
+      const changed = await deps.db.run(`UPDATE handoffs SET status = ?, tx_hashes = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'open'`, [
         status,
         JSON.stringify(hashes),
         JSON.stringify(result),
@@ -196,7 +196,7 @@ export function createHandoffs(deps: {
       ])
       // Another report settled it first: don't message twice.
       if (changed === 0) {
-        const settled = get(id) as Handoff
+        const settled = (await get(id)) as Handoff
         return { status: settled.status, outcome: settled.result?.outcome ?? null }
       }
 
