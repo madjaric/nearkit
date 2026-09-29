@@ -5,7 +5,7 @@ import { ENV, PRODUCTION_BUILD, type AppEnv } from './env'
  * code and tests; in the beta the sidebar tags them and their pages are
  * read-only. Remove a route here to ship it.
  */
-export const BETA_COMING_SOON: readonly string[] = ['/multi-trade', '/limit-orders', '/dca', '/copy-trade', '/sniper']
+export const BETA_COMING_SOON: readonly string[] = ['/limit-orders', '/dca', '/copy-trade', '/sniper']
 
 /**
  * Held back in every production build of the real services, on either network,

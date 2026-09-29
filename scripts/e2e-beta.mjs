@@ -2,7 +2,7 @@
 //   npm run e2e:beta [-- --shots <dir>] [-- --width 390]
 // Builds dist/e2e-beta in e2e mode (a production build, so the gate is on, that
 // also carries the scripted test wallet), serves it on port 5204 and checks that
-// Multi Trade, Limit Orders, DCA, Copy Trade and Sniper are tagged and read-only
+// Limit Orders, DCA, Copy Trade and Sniper are tagged and read-only
 // while the live tools keep working. A fake NEAR network answers every request.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -70,20 +70,19 @@ const near = createFakeNear({
 
 // form: the page body has fields and keys.
 const SOON = [
-  { route: '/multi-trade', label: 'Multi Trade', form: true },
   { route: '/limit-orders', label: 'Limit Orders', form: true },
   { route: '/dca', label: 'DCA', form: true },
   { route: '/copy-trade', label: 'Copy Trade', form: true },
   { route: '/sniper', label: 'Sniper', form: true },
 ]
-const LIVE = ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/pnl', '/scanner']
+const LIVE = ['/swap', '/multi-trade', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/pnl', '/scanner']
 /** The sidebar, top to bottom: live features first, everything held back in COMING SOON. */
 const SIDEBAR = [
-  ['Trade', ['Swap', 'Quick Trade']],
+  ['Trade', ['Swap', 'Quick Trade', 'Multi Trade']],
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
   ['Portfolio', ['Positions', 'PnL']],
   ['Intelligence', ['Scanner']],
-  ['Coming soon', ['Multi Trade', 'Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'Telegram', '$KIT'].map((l) => `${l} SOON`)],
+  ['Coming soon', ['Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'Telegram', '$KIT'].map((l) => `${l} SOON`)],
 ]
 /** Group names and entries of a navigation body, as rendered. */
 const navGroups = (nav) =>
@@ -160,22 +159,21 @@ if (WIDTH >= 1024) {
 }
 
 await step('without a wallet, a held-back page says it is coming soon', async () => {
-  await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
-  await visible('Multi Trade is not part of the public beta yet')
-  await visible('Multi Trade is coming soon')
+  await page.goto(BASE + '/limit-orders', { waitUntil: 'networkidle' })
+  await visible('Limit Orders is not part of the public beta yet')
+  await visible('Limit Orders is coming soon')
   if ((await hasSoonTag()) !== 1) throw new Error('No COMING SOON tag beside the title')
   await shot('beta-01-no-wallet')
 })
 
-await step('Dashboard: the Multi buy and limit-order shortcuts are tagged SOON', async () => {
+await step('Dashboard: the limit-order shortcuts are tagged SOON; Multi buy is live', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   const main = page.locator('main')
-  // Multi buy and Place a limit order are actions the beta can't do: shown, tagged, not clickable.
-  for (const name of [/multi buy/i, /place a limit order/i]) {
-    const key = main.locator('[aria-disabled="true"]', { hasText: name })
-    if (!/soon/i.test(await key.innerText())) throw new Error(`${name} has no SOON tag`)
-  }
-  if ((await main.locator('a[href="/multi-trade"]').count()) !== 0) throw new Error('Multi buy still links to Multi Trade')
+  // Place a limit order is an action the beta can't do: shown, tagged, not clickable.
+  const key = main.locator('[aria-disabled="true"]', { hasText: /place a limit order/i })
+  if (!/soon/i.test(await key.innerText())) throw new Error('Place a limit order has no SOON tag')
+  const multi = main.locator('a[href="/multi-trade"]', { hasText: /multi buy/i })
+  if ((await multi.count()) !== 1 || /soon/i.test(await multi.innerText())) throw new Error('Multi buy is not a live link')
   // Manage only opens the orders page, which says COMING SOON itself.
   const manage = main.locator('a[href="/limit-orders"]', { hasText: /manage/i })
   if (!/soon/i.test(await manage.innerText())) throw new Error('Manage has no SOON tag')
@@ -188,10 +186,10 @@ await step('Dashboard: the Multi buy and limit-order shortcuts are tagged SOON',
 })
 
 if (WIDTH < 1024) {
-  await step('phone: Multi (SOON) comes after the live tabs, and the menu matches the sidebar', async () => {
+  await step('phone: the tabs are all live, and the menu matches the sidebar', async () => {
     const tabs = page.locator('nav[aria-label="Quick navigation"]')
     const order = (await tabs.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim().replace(/soon$/i, 'SOON'))
-    if (order.join('|') !== 'Home|Trade|Positions|Multi SOON|Menu') throw new Error(`Tabs are ${order.join(', ')}`)
+    if (order.join('|') !== 'Home|Trade|Multi|Positions|Menu') throw new Error(`Tabs are ${order.join(', ')}`)
     await tabs.locator('a[href="/multi-trade"]').waitFor()
     await page.getByRole('button', { name: 'Open navigation' }).first().click()
     const drawer = page.getByRole('dialog', { name: 'Navigation' })
@@ -207,8 +205,10 @@ if (WIDTH >= 1024) {
   await step('search tags held-back pages and commands SOON, and only those', async () => {
     const search = page.getByLabel('Search token, contract or command')
     const option = (name) => page.getByRole('option', { name }).first()
+    await search.fill('limit')
+    if (!/soon/i.test(await option(/Limit Orders/).innerText())) throw new Error('Limit Orders result has no SOON tag')
     await search.fill('multi')
-    if (!/soon/i.test(await option(/Multi Trade/).innerText())) throw new Error('Multi Trade result has no SOON tag')
+    if (/soon/i.test(await option(/Multi Trade/).innerText())) throw new Error('Multi Trade is tagged SOON')
     await search.fill('/snipe')
     if (!/soon/i.test(await option(/\/snipe/).innerText())) throw new Error('/snipe has no SOON tag')
     await search.fill('/split')
@@ -227,7 +227,7 @@ await step('connects through the wallet adapter', async () => {
   await visible('Wallet connected')
 })
 
-await step('Wallets: a preset’s Use (Multi Trade) is disabled and tagged SOON; presets still work', async () => {
+await step('Wallets: a preset’s Use opens Multi Trade with that preset', async () => {
   await page.goto(BASE + '/wallets', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Create preset' }).first().click()
   const modal = page.getByRole('dialog', { name: 'Create preset' })
@@ -236,9 +236,15 @@ await step('Wallets: a preset’s Use (Multi Trade) is disabled and tagged SOON;
   await modal.getByRole('button', { name: 'Create preset' }).click()
   await visible('Preset BETA created')
   const use = page.locator('main').getByRole('button', { name: 'Use', exact: true }).visible().first()
-  if (await use.isEnabled()) throw new Error('Use is still enabled')
-  if (!/soon/i.test(await use.locator('..').innerText())) throw new Error('Use has no SOON tag beside it')
+  if (!(await use.isEnabled())) throw new Error('Use is disabled')
+  if (/soon/i.test(await use.locator('..').innerText())) throw new Error('Use is tagged SOON')
   await shot('beta-03-preset')
+  await use.click()
+  await page.waitForURL(/\/multi-trade\?preset=/)
+  await page
+    .getByRole('button', { name: /Execute multi buy/i })
+    .first()
+    .waitFor()
 })
 
 for (const { route, label, form } of SOON) {
@@ -276,7 +282,18 @@ await step('the live tools stay live: a testnet swap quotes and can be reviewed'
   await page.keyboard.press('Escape')
 })
 
-await step('Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner are not held back', async () => {
+await step('Multi Trade is live: a multi buy quotes and can be reviewed', async () => {
+  await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
+  if ((await hasSoonTag()) !== 0) throw new Error('Multi Trade is tagged COMING SOON')
+  await page.getByLabel('Total', { exact: true }).fill('1')
+  await page.getByRole('button', { name: /Execute multi buy/i }).click()
+  const modal = page.getByRole('dialog', { name: /Review multi buy/i })
+  await modal.getByText(/no all-or-nothing execution/).waitFor({ timeout: 15000 })
+  await shot('beta-multi-review')
+  await page.keyboard.press('Escape')
+})
+
+await step('Multi Trade, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner are not held back', async () => {
   for (const route of LIVE.slice(1)) {
     await page.goto(BASE + route, { waitUntil: 'networkidle' })
     await page.locator('main h1').first().waitFor()

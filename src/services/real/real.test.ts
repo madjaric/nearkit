@@ -456,6 +456,16 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     expect(services.capabilities.execution).toMatchObject({ enabled: false, simulated: false })
   })
 
+  it('a multi sell of USDt quotes the NearKit fee in USDt, the token it is taken in, not as 0 NEAR', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => DEADLINE - 120_000 })
+    withQuote(chain)
+    await services.wallets.getSession()
+    const q = await services.trading.quoteMulti({ side: 'sell', tokenId: USDT_MAIN, slippagePct: 0.5, legs: [{ walletId: 'example.near', amountIn: '5.000013' }] })
+    expect(q.feeTokenId).toBe(USDT_MAIN)
+    expect(q.nearkitFeeTotal).toBeCloseTo(0.005, 9)
+    expect(q.legs[0]?.nearkitFee).toBeCloseTo(0.005, 9)
+  })
+
   it('never executes a stale quote', async () => {
     let clock = DEADLINE - 120_000
     const { services, chain, run, wallet } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => clock })
@@ -543,6 +553,149 @@ describe('real swaps (testnet classic router, fake chain)', () => {
       actions: [{ pool_id: 1352, token_in: 'wrap.testnet', token_out: 'usdt.itachicara.testnet', amount_in: NEAR(1).toString(), min_amount_out: '4018917753285859662296638' }],
     })
     expect(plan.warnings.join(' ')).toMatch(/wNEAR/)
+  })
+})
+
+// ─── multi trade on testnet ─────────────────────────────────────────────────
+
+describe('multi trade (testnet classic router, fake chain)', () => {
+  const OUT = 'usdt.itachicara.testnet'
+  const T0 = Date.UTC(2026, 8, 29, 4, 0, 0)
+  const chainOpts = (bobNear = 5): FakeChainOptions => ({
+    accounts: { 'alice.testnet': { amount: NEAR(5) }, 'bob.testnet': { amount: NEAR(bobNear) } },
+    tokens: {
+      'wrap.testnet': { symbol: 'wNEAR', decimals: 24, registered: ['ref-finance-101.testnet'], boundsMin: MIN_STORAGE },
+      [OUT]: { symbol: 'USDT', decimals: 24, registered: ['ref-finance-101.testnet', 'alice.testnet', 'bob.testnet'], boundsMin: MIN_STORAGE },
+    },
+  })
+  // A pool paying 4 USDT per NEAR for whatever amount is asked.
+  const withRouter = (chain: FakeChain) =>
+    chain.route('https://smartroutertest.refburrow.top/findPath', (url) => {
+      const amountIn = url.searchParams.get('amountIn') ?? '0'
+      const out = (BigInt(amountIn) * 4n).toString()
+      const min = ((BigInt(amountIn) * 4n * 995n) / 1000n).toString()
+      const pool = {
+        pool_id: '1352',
+        token_in: url.searchParams.get('tokenIn'),
+        token_out: url.searchParams.get('tokenOut'),
+        amount_in: amountIn,
+        amount_out: '0',
+        min_amount_out: min,
+      }
+      return { result_code: 0, result_data: { routes: [{ pools: [pool], amount_in: amountIn, min_amount_out: min, amount_out: '0' }], amount_out: out } }
+    })
+  const request = {
+    side: 'buy' as const,
+    tokenId: OUT,
+    slippagePct: 0.5,
+    legs: [
+      { walletId: 'alice.testnet', amountIn: '1' },
+      { walletId: 'bob.testnet', amountIn: '2' },
+    ],
+  }
+  // The router used the whole amount it was sent: ft_transfer_call returns it.
+  const used: Record<string, bigint> = { 'alice.testnet': NEAR(1), 'bob.testnet': NEAR(2) }
+  const swapped = (hash: string, signer: string) => successOutcome(hash, signer, 'wrap.testnet', btoa(`"${used[signer] ?? 0n}"`))
+  const failed = (hash: string, signer: string, receiver: string): RpcTxResult => ({
+    ...successOutcome(hash, signer, receiver),
+    status: { Failure: { ActionError: { index: 2, kind: { FunctionCallError: { ExecutionError: 'Smart contract panicked: E68: slippage error' } } } } },
+  })
+
+  it('plans one route per wallet, each signed by that wallet in its own approval, with no fee on testnet', async () => {
+    const { services, chain } = setup({ chain: chainOpts(), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    withRouter(chain)
+    const plan = await services.trading.prepareMulti(request)
+    expect(plan.kind).toBe('multi-trade')
+    expect(plan.signers).toEqual(['alice.testnet', 'bob.testnet'])
+    expect(plan.fee).toMatchObject({ charged: false })
+    // Each approval holds one signer's transactions only.
+    for (const group of plan.groups) expect(new Set(group.map((i) => plan.transactions[i]?.signerId)).size).toBe(1)
+    const swaps = plan.transactions.filter((t) => t.actions.some((a) => a.kind === 'call' && a.method === 'ft_transfer_call'))
+    expect(swaps.map((t) => [t.signerId, t.actions.find((a) => a.kind === 'call' && a.method === 'near_deposit')?.deposit])).toEqual([
+      ['alice.testnet', NEAR(1).toString()],
+      ['bob.testnet', NEAR(2).toString()],
+    ])
+    expect(plan.lines.map((l) => [l.accountId, l.amount.display])).toEqual([
+      ['alice.testnet', '1'],
+      ['bob.testnet', '2'],
+    ])
+    expect(plan.warnings.join(' ')).toMatch(/no all-or-nothing/)
+  })
+
+  it('quotes every wallet, marks the one that cannot afford its share, and leaves it out of the totals', async () => {
+    const { services, chain } = setup({ chain: chainOpts(0.5), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    withRouter(chain)
+    const q = await services.trading.quoteMulti(request)
+    const [alice, bob] = q.legs
+    expect(alice?.shortfall).toBe(0)
+    expect(bob?.shortfall).toBeGreaterThan(1.4)
+    expect(q.totalIn).toBe(1)
+    expect(q.totalOut).toBeCloseTo(4, 6)
+  })
+
+  it('refuses to prepare when a wallet cannot afford its share, naming it, before anything is signed', async () => {
+    const { services, chain, wallet } = setup({ chain: chainOpts(0.5), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    withRouter(chain)
+    await expect(services.trading.prepareMulti(request)).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE', message: expect.stringMatching(/^bob has 0\.5 NEAR available/) })
+    expect(wallet.signed).toEqual([])
+  })
+
+  it('leaves out a wallet allocated nothing, as the quote does', async () => {
+    const { services, chain } = setup({ chain: chainOpts(), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    withRouter(chain)
+    const plan = await services.trading.prepareMulti({ ...request, legs: [request.legs[0] as (typeof request.legs)[number], { walletId: 'bob.testnet', amountIn: '0' }] })
+    expect(plan.signers).toEqual(['alice.testnet'])
+  })
+
+  it('refuses NEAR as the token and an allocation with no amounts', async () => {
+    const { services } = setup({ chain: chainOpts(), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    await expect(services.trading.prepareMulti({ ...request, tokenId: 'near' })).rejects.toMatchObject({ code: 'INVALID_TOKEN' })
+    await expect(services.trading.prepareMulti({ ...request, legs: [{ walletId: 'alice.testnet', amountIn: '' }] })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' })
+    await expect(services.trading.quoteMulti({ ...request, legs: [{ walletId: 'alice.testnet', amountIn: '0' }] })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' })
+  })
+
+  it('executes wallet by wallet: when the first wallet’s swap fails, it stops before the next wallet signs', async () => {
+    const { services, chain, outcomes, run, wallet } = setup({ chain: chainOpts(), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    withRouter(chain)
+    outcomes.set('wrap.testnet', (hash, signer) => (signer === 'alice.testnet' ? failed(hash, signer, 'wrap.testnet') : swapped(hash, signer)))
+    const plan = await services.trading.prepareMulti(request)
+    const progress = await run(plan)
+    expect(progress.phase).toBe('paused')
+    expect(progress.pause).toMatchObject({ reason: 'failure' })
+    expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet'])
+    const bobTxs = plan.transactions.filter((t) => t.signerId === 'bob.testnet').map((t) => progress.txs[t.index]?.phase)
+    expect(bobTxs.every((p) => p === 'queued')).toBe(true)
+  })
+
+  it('when the quote expires between wallets, the rest is not sent and it asks for a fresh quote', async () => {
+    let t = T0
+    const { services, chain, outcomes, run, wallet } = setup({ chain: chainOpts(), session: session(['alice.testnet', 'bob.testnet']), now: () => t })
+    withRouter(chain)
+    outcomes.set('wrap.testnet', (hash, signer) => {
+      if (signer === 'alice.testnet') t += 10 * 60_000
+      return swapped(hash, signer)
+    })
+    const plan = await services.trading.prepareMulti(request)
+    const progress = await run(plan)
+    expect(progress.phase).toBe('paused')
+    expect(progress.pause).toMatchObject({ reason: 'requote' })
+    expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet'])
+  })
+
+  it('pauses for a wallet that is not connected, then continues once it is', async () => {
+    const { services, chain, outcomes, run, wallet } = setup({ chain: chainOpts(), session: session(['alice.testnet']), now: () => T0 })
+    withRouter(chain)
+    outcomes.set('wrap.testnet', swapped)
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    const plan = await services.trading.prepareMulti(request)
+    expect(plan.warnings.join(' ')).toMatch(/connect bob\.testnet/)
+    const first = await run(plan)
+    expect(first.pause).toMatchObject({ reason: 'switch-account', signerId: 'bob.testnet' })
+    wallet.setSession(session(['bob.testnet']))
+    const done = await run(plan, first)
+    expect(done.phase).toBe('success')
+    expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet', 'bob.testnet'])
   })
 })
 

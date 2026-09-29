@@ -246,6 +246,31 @@ await step('multi buy across two accounts: sequential, one approval per wallet, 
   await page.keyboard.press('Escape')
 })
 
+await step('multi buy: a wallet that cannot cover its share is skipped, and only the others are signed', async () => {
+  await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
+  await page
+    .getByRole('checkbox', { name: /e2e-two/ })
+    .visible()
+    .first()
+    .check({ force: true })
+  await page.getByRole('radiogroup', { name: 'Allocation mode' }).getByRole('radio', { name: 'Custom' }).click()
+  const shares = page.getByLabel('NEAR for this wallet').visible()
+  await shares.nth(0).fill('1')
+  // e2e-two holds 5 NEAR.
+  await shares.nth(1).fill('50')
+  await visible(/1 wallet can't cover its allocation and will be skipped/)
+  const before = (await signedLog()).length
+  await page.getByRole('button', { name: /Execute multi buy/i }).click()
+  const modal = page.getByRole('dialog', { name: /Review multi buy/i })
+  await modal.getByText(/no all-or-nothing execution/).waitFor({ timeout: 15000 })
+  if (/e2e-two/.test(await modal.innerText())) throw new Error('The review includes the wallet that was to be skipped')
+  await modal.getByRole('button', { name: /Execute multi buy/i }).click()
+  await page.getByRole('dialog', { name: /transactions confirmed|Confirmed/ }).waitFor({ timeout: 20000 })
+  const signers = (await signedLog()).slice(before).map((s) => s.signerId)
+  if (signers.join() !== USER) throw new Error(`Signed by ${signers}`)
+  await page.keyboard.press('Escape')
+})
+
 await step('scanner: facts carry provenance, and there is no verdict', async () => {
   await page.goto(BASE + `/scanner?q=${USDT}`, { waitUntil: 'networkidle' })
   await visible('Total supply')

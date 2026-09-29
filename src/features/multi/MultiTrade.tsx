@@ -422,7 +422,11 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
                 </>
               }
             >
-              {!q ? '—' : caps.mode === 'near' && !caps.execution.trading.feeCharged ? 'Not charged on testnet' : `${formatNumber(q.nearkitFeeTotal, 2, 4)} NEAR`}
+              {!q
+                ? '—'
+                : caps.mode === 'near' && !caps.execution.trading.feeCharged
+                  ? 'Not charged on testnet'
+                  : `${formatNumber(q.nearkitFeeTotal, 2, 6)} ${q.feeTokenId === NATIVE_TOKEN_ID ? 'NEAR' : symbol}`}
             </Line>
             <Line label={<Term term="networkFee">Network fee (est.)</Term>}>{q ? `${formatNumber(q.networkFeeNear, 4, 4)} NEAR · ${liveLegs} tx` : '—'}</Line>
           </Lines>
@@ -435,7 +439,13 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Button size="lg" block variant={side === 'buy' ? 'primary' : 'sell'} disabled={blocker !== null || !q} onClick={() => q && request && setConfirm(request)}>
+          <Button
+            size="lg"
+            block
+            variant={side === 'buy' ? 'primary' : 'sell'}
+            disabled={blocker !== null || !q}
+            onClick={() => q && request && setConfirm({ ...request, legs: request.legs.filter((l) => (parseAmount(l.amountIn) ?? 0) > 0 && shortOf(l.walletId) <= 1e-9) })}
+          >
             Execute {verb.toLowerCase()}
           </Button>
           {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}

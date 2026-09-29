@@ -18,9 +18,9 @@ Mainnet execution is **off by default**. Prove the testnet checklist below befor
 
 Nothing else is set, and none of it is secret. The network chip reads TESTNET BETA. Testnet tokens have no value, and mainnet value-moving execution is off.
 
-The beta ships Swap and Quick Trade, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner.
+The beta ships Swap and Quick Trade, Multi Trade, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner.
 
-**Coming soon:** Multi Trade, Limit Orders, DCA, Copy Trade and Sniper (plus Telegram, live only in a build that names a running NearKit server, and $KIT, which has not launched).
+**Coming soon:** Limit Orders, DCA, Copy Trade and Sniper (plus Telegram, live only in a build that names a running NearKit server, and $KIT, which has not launched).
 - Their pages, code and tests stay. In the beta the sidebar lists them last, in a COMING SOON group with SOON tags, and their pages show COMING SOON with every field and key disabled.
 - The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it.
 - The hold applies to every production build of the real services, on testnet and mainnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
@@ -73,7 +73,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | Token metadata, import by contract | Real, validated (`ft_metadata`, `ft_total_supply`) |
 | Batch Send, Split, Consolidate | Real: exact amounts, recipient checks, NEP-145 registration, chunking, per-transaction status |
 | Swap, Quick Trade | Real: Rhea aggregator on mainnet (0.10% app fee), Rhea classic router on testnet (no fee) |
-| Multi Trade | Real: one verified route per wallet, one approval per wallet, no all-or-nothing. COMING SOON in the public testnet beta |
+| Multi Trade | Real: one verified route per wallet, signed wallet by wallet. No all-or-nothing: it stops at a failed step or an expired quote, wallets already done keep their swaps, and wallets that can't cover their share are left out |
 | Transaction history | Real for operations sent from this browser, reconciled with the chain |
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
 | Positions, PnL | Real: balances from chain, Rhea prices, average-cost PnL from each account's on-chain history (see "Positions and PnL") |
@@ -86,7 +86,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 ```bash
 npm test              # unit + integration (real services against a fake chain), no network
 npm run e2e           # Phase 1 suite, 28 steps, against the demo server (5198)
-npm run e2e:real      # real-mode suite, 14 steps, against dev:e2e (5202); fake network, no live calls
+npm run e2e:real      # real-mode suite, 15 steps, against dev:e2e (5202); fake network, no live calls
 npm run e2e:real -- --width 390   # the same suite at phone width (also run at 768)
 npm run e2e:beta      # the public beta's COMING SOON features in a production build (port 5204)
 npm run e2e:telegram  # the built server + web app with Telegram and NEAR faked over HTTP

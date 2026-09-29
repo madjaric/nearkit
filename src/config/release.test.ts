@@ -5,13 +5,13 @@ import { BETA_COMING_SOON, comingSoonRoutes, isComingSoon } from './release'
 const publicBeta = { services: 'near', network: 'testnet', production: true } as const
 
 describe('comingSoonRoutes: what the public testnet beta marks COMING SOON', () => {
-  it('holds back Multi Trade, Limit Orders, DCA, Copy Trade and Sniper in the public beta build', () => {
-    expect(comingSoonRoutes(publicBeta)).toEqual(['/multi-trade', '/limit-orders', '/dca', '/copy-trade', '/sniper'])
+  it('holds back Limit Orders, DCA, Copy Trade and Sniper in the public beta build', () => {
+    expect(comingSoonRoutes(publicBeta)).toEqual(['/limit-orders', '/dca', '/copy-trade', '/sniper'])
   })
 
-  it('keeps Swap, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner live', () => {
+  it('keeps Swap, Multi Trade, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner live', () => {
     const soon = comingSoonRoutes(publicBeta)
-    for (const route of ['/swap', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/pnl', '/scanner']) expect(soon, route).not.toContain(route)
+    for (const route of ['/swap', '/multi-trade', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/pnl', '/scanner']) expect(soon, route).not.toContain(route)
   })
 
   it('holds back the same features in a mainnet production build', () => {
@@ -33,6 +33,6 @@ describe('comingSoonRoutes: what the public testnet beta marks COMING SOON', () 
   })
 
   it('does not gate this (test) build', () => {
-    expect(isComingSoon('/multi-trade')).toBe(false)
+    expect(isComingSoon('/dca')).toBe(false)
   })
 })

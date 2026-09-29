@@ -347,6 +347,9 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
             {progress.pause && (
               <p className={cn('rounded-sm border px-3 py-2 text-sm', progress.pause.reason === 'failure' ? 'border-warn/40 bg-warn/[0.06] text-warn' : 'border-line text-fg-2')}>
                 <Figures>{progress.pause.message}</Figures>
+                {plan.kind === 'multi-trade' && progress.pause.reason !== 'switch-account' && (
+                  <> Wallets already done keep their swaps. To trade with the others, start a new Multi Trade for them.</>
+                )}
               </p>
             )}
             <ol className="max-h-80 divide-y divide-line-soft overflow-y-auto rounded-sm border border-line-soft" aria-label="Transactions">

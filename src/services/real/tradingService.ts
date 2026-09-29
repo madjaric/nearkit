@@ -33,6 +33,9 @@ const EXPIRY_MS: Record<OrderExpiry, number | null> = { '1h': 3_600_000, '24h': 
 
 const display = (raw: bigint, decimals: number) => Number(formatUnits(raw, decimals))
 
+/** A Multi Trade leg with something to trade; wallets allocated nothing are left out. */
+const allocated = (leg: { amountIn: string }) => leg.amountIn.trim() !== '' && Number(leg.amountIn) > 0
+
 export function createTradingService(ctx: NearContext, market: Market, wallets: Pick<WalletService, 'getSession' | 'listWallets'>): TradingService {
   const router = createSwapRouter(ctx)
   const orders = ctx.stores.drafts.orders
@@ -337,7 +340,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
 
     async quoteMulti(request) {
       if (request.tokenId === NATIVE_TOKEN_ID) throw new NearKitError('INVALID_TOKEN', 'Choose a token other than NEAR')
-      const legs = request.legs.filter((l) => l.amountIn.trim() !== '' && Number(l.amountIn) > 0)
+      const legs = request.legs.filter(allocated)
       if (legs.length === 0) throw new NearKitError('INVALID_AMOUNT', 'Allocate an amount to at least one wallet')
       const pair = request.side === 'buy' ? { tokenIn: NATIVE_TOKEN_ID, tokenOut: request.tokenId } : { tokenIn: request.tokenId, tokenOut: NATIVE_TOKEN_ID }
       const user = ctx.session.current?.issue ? null : (ctx.session.current?.accountId ?? null)
@@ -352,17 +355,20 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         const b = holdings[i]
         const have = r.tokenIn.contract === null ? (b?.state?.availableYocto ?? 0n) : (b?.fts.find((f) => f.contract === r.tokenIn.contract)?.raw ?? 0n)
         const fee = feeSplit(r)
-        const feeNear = fee ? (fee.token.contract === null || fee.token.contract === ctx.network.wrapContract ? display(fee.split.app, NEAR_DECIMALS) : 0) : 0
         return {
           ...leg,
           amountInValue: display(r.amountIn, r.tokenIn.decimals),
           amountOut: display(r.amountOut, r.tokenOut.decimals),
           minAmountOut: display(r.minOut, r.tokenOut.decimals),
-          nearkitFee: feeNear,
+          nearkitFee: fee ? display(fee.split.app, fee.token.decimals) : 0,
           shortfall: have >= r.amountIn ? 0 : display(r.amountIn - have, r.tokenIn.decimals),
         }
       })
       const live = quoted.filter((l) => l.shortfall === 0)
+      // The fee is taken in one token for the pair (the input when Rhea whitelists it, else
+      // the output), so every leg's fee is in the same token.
+      const feeToken = feeSplit(routed.values().next().value as RoutedSwap)?.token ?? null
+      const feeTokenId = feeToken === null || feeToken.contract === null || feeToken.contract === ctx.network.wrapContract ? NATIVE_TOKEN_ID : feeToken.id
       const impacts = await Promise.all([...routed.values()].map(impactOf))
       const now = ctx.now()
       return {
@@ -372,7 +378,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         totalOut: live.reduce((s, l) => s + l.amountOut, 0),
         totalMinOut: live.reduce((s, l) => s + l.minAmountOut, 0),
         nearkitFeeTotal: live.reduce((s, l) => s + l.nearkitFee, 0),
-        feeTokenId: NATIVE_TOKEN_ID,
+        feeTokenId,
         networkFeeNear: display(SWAP_BURN_YOCTO, NEAR_DECIMALS) * live.length,
         // The worst leg's impact; unknown if any leg can't be estimated.
         priceImpactPct: impacts.some((x) => x === null) ? null : Math.max(0, ...impacts.map((x) => x ?? 0)),
@@ -385,7 +391,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       requireSession(await wallets.getSession(), ctx.network.label)
       if (request.tokenId === NATIVE_TOKEN_ID) throw new NearKitError('INVALID_TOKEN', 'Choose a token other than NEAR')
       const list = await wallets.listWallets()
-      const legs = request.legs.filter((l) => l.amountIn.trim() !== '')
+      const legs = request.legs.filter(allocated)
       if (legs.length === 0) throw new NearKitError('INVALID_AMOUNT', 'Allocate an amount to at least one wallet')
       const pair = request.side === 'buy' ? { tokenIn: NATIVE_TOKEN_ID, tokenOut: request.tokenId } : { tokenIn: request.tokenId, tokenOut: NATIVE_TOKEN_ID }
       // Sequential: each wallet gets its own route, bound to it and verified.
@@ -462,7 +468,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
           : base
       const elsewhere = planned.map((p) => p.wallet.accountId).filter((id) => !signing.has(id))
       const warnings = [
-        'Each wallet’s swap is separate. If one fails or its quote expires, the others are not affected; there is no all-or-nothing execution.',
+        'Each wallet’s swap is separate, signed one wallet after another. There is no all-or-nothing execution: if one fails or the quote expires, NearKit stops there. Wallets already done keep their swaps; the rest are not sent.',
         ...warningsFor(first),
         ...(await lookalikeWarnings([first.tokenIn, first.tokenOut])),
         ...new Set(planned.flatMap((p) => feeAccountWarning(p.route, p.txs))),
