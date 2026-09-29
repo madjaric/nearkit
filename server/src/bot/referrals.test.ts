@@ -79,6 +79,10 @@ describe('invites in Telegram', () => {
     await h.say('/referral')
     expect(h.last()?.text).toContain('Available 0.8 USDT')
     expect(h.last()?.text).toContain('Earned 0.8 USDT')
+    // A wallet linked moments ago can't receive payouts yet (someone in the Telegram account could have linked it).
+    await h.press('ref:claim')
+    expect(h.last()?.text).toContain('Payouts go to a wallet linked at least 48 hours ago')
+    h.advance(48 * 3_600_000)
     await h.press('ref:claim')
     await h.press(h.button('💸'))
     expect(h.last()?.text).toContain(`To your linked wallet <code>${LINKED}</code>`)

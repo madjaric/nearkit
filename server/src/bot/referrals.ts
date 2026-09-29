@@ -12,6 +12,11 @@ import { linkedAccount } from './wallet'
  */
 
 const CALLBACK_TTL_MS = 30 * 60_000
+/**
+ * Payouts go to a wallet linked at least this long ago: someone who gets into the Telegram
+ * account can't link their own wallet and claim the earnings to it at once.
+ */
+export const PAYOUT_LINK_AGE_MS = 48 * 3_600_000
 
 async function tokenLabel(ctx: BotCtx, token: string): Promise<{ symbol: string; decimals: number | null }> {
   if (token === ctx.deps.config.network.wrapContract) return { symbol: 'wNEAR', decimals: 24 }
@@ -66,6 +71,14 @@ async function chooseClaim(ctx: BotCtx) {
   if (!open.length) return ctx.show('Nothing to claim yet.', keyboard([btn('🎁 Invites', 'ref:show')]))
   const to = await linkedAccount(ctx)
   if (!to) return ctx.show('Link a wallet first: payouts go to your linked wallet.', keyboard([btn('🔗 Link wallet', 'acct:link')], [btn('🎁 Invites', 'ref:show')]))
+  const link = await ctx.deps.store.linkOf(ctx.deps.config.network.id, to)
+  if (!link || ctx.deps.now() - link.linkedAt < PAYOUT_LINK_AGE_MS) {
+    const hours = link ? Math.ceil((PAYOUT_LINK_AGE_MS - (ctx.deps.now() - link.linkedAt)) / 3_600_000) : 48
+    return ctx.show(
+      `Payouts go to a wallet linked at least 48 hours ago, to protect your earnings. ${code(to)} can receive them in about ${hours} hours.`,
+      keyboard([btn('🎁 Invites', 'ref:show')]),
+    )
+  }
   const rows = []
   for (const t of open) {
     const id = await ctx.deps.store.putCallback({ token: t.token, to }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)

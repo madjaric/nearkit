@@ -65,6 +65,19 @@ describe('withdrawal destinations the owner approves', () => {
     expect((await h.custody.signer.destinations(w.accountId)).destinations).toEqual([])
   })
 
+  it('a new NearKit wallet answers to the same owner as the others, not to a wallet linked later', async () => {
+    const { h, w, mallory } = await world()
+    await h.store.createLinkRequest({ codeHash: 'm2', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+    await h.store.completeLink({ codeHash: 'm2', network: 'testnet', accountId: MALLORY, userId: ALICE.id, publicKey: mallory.publicKey })
+    await h.store.updateSettings(ALICE.id, { defaultAccount: MALLORY })
+    await h.press('cw:list')
+    await h.press(h.button('New wallet'))
+    const created = (await h.wallet()) as TradingWallet
+    expect(created.id).not.toBe(w.id)
+    expect(created.ownerAccount).toBe(LINKED)
+    expect((await h.signerVault?.key('testnet', created.accountId))?.ownerAccount).toBe(LINKED)
+  })
+
   it('a compromised app that skips every check still can’t withdraw: the signer refuses an unapproved destination', async () => {
     const { h, w, forgedWithdraw } = await world()
     const r = await forgedWithdraw('evil.testnet')

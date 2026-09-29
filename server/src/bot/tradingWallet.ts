@@ -192,17 +192,19 @@ async function create(ctx: BotCtx, createKey: string) {
   const link = linked ? await ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
   if (!link) return
   await ctx.answer()
+  // All of a user's NearKit wallets answer to one owner: the wallet the first was created
+  // with. A wallet linked later (perhaps by someone holding this Telegram account) never
+  // becomes the owner of a new one; the first wallet's owner does.
+  const existing = (await custody.store.activeWallets(ctx.user.id, ctx.deps.config.network.id)).find((w) => w.ownerAccount)
+  let owner = { accountId: link.accountId, publicKey: link.publicKey }
+  if (existing?.ownerAccount && existing.ownerAccount !== link.accountId) {
+    const ownerLink = await ctx.deps.store.linkOf(ctx.deps.config.network.id, existing.ownerAccount)
+    owner = { accountId: existing.ownerAccount, publicKey: ownerLink?.userId === ctx.user.id ? ownerLink.publicKey : (existing.ownerKey ?? link.publicKey) }
+  }
   let result
   try {
-    // The linked wallet it is created with becomes its owner: export, backup key and revoke answer to it alone.
-    result = await createTradingWallet(
-      custody,
-      ctx.user.id,
-      ctx.deps.config.network.id,
-      ctx.deps.now(),
-      { accountId: link.accountId, publicKey: link.publicKey },
-      createKey || null,
-    )
+    // Export, the backup key, revoking and withdrawal destinations answer to that owner alone.
+    result = await createTradingWallet(custody, ctx.user.id, ctx.deps.config.network.id, ctx.deps.now(), owner, createKey || null)
   } catch (e) {
     if (e instanceof WalletLimitError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard([btn('👛 My wallets', 'cw:list')], walletRow))
     throw e
