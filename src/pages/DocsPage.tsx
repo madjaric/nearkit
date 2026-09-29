@@ -4,6 +4,7 @@ import { ComingSoon, Kbd, Led, Tag } from '@/components/ui/Indicators'
 import { Panel } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
+import { TELEGRAM_BOT_LIVE } from '@/config/release'
 import { GLOSSARY } from '@/lib/glossary'
 import { useCapabilities } from '@/services/queries'
 
@@ -11,13 +12,14 @@ const SECTIONS = [
   { id: 'status', title: 'What works' },
   { id: 'fees', title: 'Fees' },
   { id: 'wallet-tools', title: 'Multi-wallet tools' },
+  { id: 'pnl', title: 'Positions and PnL' },
   { id: 'automation', title: 'Automation' },
   { id: 'scanner', title: 'Scanner indicators' },
   { id: 'keyboard', title: 'Keyboard' },
   { id: 'glossary', title: 'Glossary' },
 ]
 
-type AreaState = 'live' | 'local' | 'drafts' | 'untracked' | 'soon'
+type AreaState = 'live' | 'local' | 'drafts' | 'soon' | 'unlaunched'
 
 /** Feature status in real mode; the demo simulates every live flow. */
 const STATUS: [string, AreaState][] = [
@@ -29,12 +31,12 @@ const STATUS: [string, AreaState][] = [
   ['Transaction history', 'live'],
   ['Scanner', 'live'],
   ['Positions', 'live'],
-  ['PnL and cost basis', 'untracked'],
+  ['PnL and cost basis', 'live'],
   ['Wallet presets, watch accounts', 'local'],
   ['Limit, take-profit and stop-loss orders', 'drafts'],
   ['DCA, Copy trade, Sniper', 'drafts'],
-  ['Telegram bot', 'soon'],
-  ['$KIT', 'soon'],
+  ['Telegram bot', TELEGRAM_BOT_LIVE ? 'live' : 'soon'],
+  ['$KIT', 'unlaunched'],
 ]
 
 function statusCopy(state: AreaState, demo: boolean, network: string) {
@@ -45,10 +47,10 @@ function statusCopy(state: AreaState, demo: boolean, network: string) {
       return { lamp: 'idle' as const, text: demo ? 'Demo data' : 'Saved in this browser' }
     case 'drafts':
       return { lamp: 'idle' as const, text: demo ? 'Saved in standby, nothing runs' : 'Drafts saved, nothing runs' }
-    case 'untracked':
-      return demo ? { lamp: 'idle' as const, text: 'Demo history' } : { lamp: 'off' as const, text: 'Not tracked yet' }
+    case 'unlaunched':
+      return { lamp: 'off' as const, text: 'Not launched' }
     default:
-      return { lamp: 'off' as const, text: 'Not built yet' }
+      return { lamp: 'off' as const, text: 'Not live on this site yet' }
   }
 }
 
@@ -108,7 +110,7 @@ export default function DocsPage() {
                     return (
                       <Tr key={area}>
                         <Td className="whitespace-normal text-fg">{area}</Td>
-                        <Td>{state === 'soon' ? <ComingSoon /> : <Tag tone="neutral">Ready</Tag>}</Td>
+                        <Td>{state === 'soon' || state === 'unlaunched' ? <ComingSoon /> : <Tag tone="neutral">Ready</Tag>}</Td>
                         <Td className="whitespace-normal">
                           <span className="flex items-center gap-2 text-fg-2">
                             <Led tone={s.lamp} />
@@ -150,6 +152,18 @@ export default function DocsPage() {
               </p>
               <p>
                 <span className="text-fg">Presets</span> are saved wallet groups (MAIN, TRADING, SNIPERS, TEST) that any multi-wallet tool can load in one click.
+              </p>
+            </Section>
+
+            <Section id="pnl" title="Positions and PnL">
+              <p>
+                PnL comes from each account’s own history on chain: every buy and sell NearKit can read, whether or not it was made in NearKit. Cost is the{' '}
+                <span className="text-fg">average cost</span> per token and account. NEAR figures are exact; USD figures use NEAR’s price in the hour of each trade. Fees and gas
+                are inside each trade’s value.
+              </p>
+              <p>
+                NearKit never guesses a cost. Tokens that arrived by transfer, or through a swap from another token, have no known cost and are left out of cost and PnL. When the
+                history NearKit can read doesn’t explain a balance, the figures are marked <span className="text-fg">partial</span> and say why.
               </p>
             </Section>
 
