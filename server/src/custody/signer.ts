@@ -106,13 +106,13 @@ export function createLocalSigner(deps: { wrapper: KeyWrapper; network: NetworkC
   const { wrapper, network, store } = deps
   const now = deps.now ?? Date.now
 
-  async function withSeed<T>(wallet: TradingWallet, use: (seed: Buffer) => T): Promise<T> {
+  async function withSeed<T>(wallet: TradingWallet, act: (seed: Buffer) => T): Promise<T> {
     if (wallet.status !== 'active' || !wallet.sealedKey) throw new KeyUnavailableError('This NearKit wallet is closed; NearKit no longer holds its key')
     const seed = await openSecret(wrapper, parseSealed(wallet.sealedKey), walletAad(wallet.network, wallet.accountId))
     try {
       // The stored key must be the one on record for this wallet.
       if (nearPublicKey(publicKeyOf(seed)) !== wallet.publicKey) throw new KeyUnavailableError('The stored key does not match this wallet')
-      return use(seed)
+      return act(seed)
     } finally {
       seed.fill(0)
     }

@@ -1,5 +1,8 @@
 import type { WalletAdapter, WalletSession } from '@/services/near/wallet'
 import type { RpcTxResult } from '@/services/near/rpc'
+import { base58Decode } from '@/lib/encoding'
+import { deserializeSignedTransaction, transactionHash, type NearTransaction } from '@/services/near/transaction'
+import { blockHashOf, createRuntime, heightOfBlock, implicitKeyOf, TxRejection, type FakeAccount, type RuntimeState } from './fakeRuntime'
 
 /**
  * Test double for everything NearKit reads over HTTP: NEAR JSON-RPC (accounts,
@@ -26,7 +29,20 @@ export interface FakeChainOptions {
   accounts?: Record<string, { amount: bigint; storageUsage?: number; code?: boolean; global?: string; keys?: Record<string, 'full' | 'function-call'> }>
   tokens?: Record<string, Omit<FakeToken, 'balances' | 'registered'> & { balances?: Record<string, bigint>; registered?: string[] }>
   aggregator?: { contract: string; whitelist: string[]; protocolPpm: number; registered?: Record<string, string[]> }
+  /** Rhea's classic exchange for signed swaps (fakeRuntime.ts): output per input at this rate. */
+  exchange?: { contract: string; rate: (tokenIn: string, tokenOut: string, amountIn: bigint) => bigint }
+  wrapContract?: string
+  /** Blocks a transaction stays valid after its anchor block (86,400 on NEAR). */
+  validity?: number
+  height?: number
 }
+
+/**
+ * How a sent transaction behaves: 'apply' (normal), 'timeout' (it lands, but the RPC
+ * answers TIMEOUT_ERROR), 'drop' (it never lands and the RPC answers TIMEOUT_ERROR),
+ * 'transport' (it never lands and the node can't be reached).
+ */
+export type SendMode = 'apply' | 'timeout' | 'drop' | 'transport'
 
 const NO_CODE = '11111111111111111111111111111111'
 
@@ -37,7 +53,7 @@ export interface Recorded {
 }
 
 export function createFakeChain(options: FakeChainOptions = {}) {
-  const accounts = new Map(Object.entries(options.accounts ?? {}))
+  const accounts = new Map<string, FakeAccount>(Object.entries(options.accounts ?? {}).map(([id, a]) => [id, { ...a, keys: a.keys ? { ...a.keys } : undefined }]))
   const tokens = new Map<string, FakeToken>(
     Object.entries(options.tokens ?? {}).map(([id, t]) => [id, { ...t, balances: new Map(Object.entries(t.balances ?? {})), registered: new Set(t.registered ?? []) }]),
   )
@@ -45,6 +61,46 @@ export function createFakeChain(options: FakeChainOptions = {}) {
   const txs = new Map<string, RpcTxResult>()
   const requests: Recorded[] = []
   const http = new Map<string, (url: URL, body: unknown) => unknown>()
+  const nonces = new Map<string, bigint>()
+  for (const [id, a] of accounts) for (const key of Object.keys(a.keys ?? {})) nonces.set(`${id}\u0000${key}`, 1n)
+  const state: RuntimeState = {
+    accounts,
+    tokens,
+    nonces,
+    txs,
+    height: { value: options.height ?? 200_000 },
+    validity: options.validity ?? 86_400,
+    wrapContract: options.wrapContract ?? 'wrap.testnet',
+    exchange: options.exchange ?? null,
+  }
+  const runtime = createRuntime(state)
+  let sendMode: (tx: NearTransaction) => SendMode = () => 'apply'
+  const sent: { hash: string; mode: SendMode; tx: NearTransaction }[] = []
+  const header = (height: number) => ({ height, hash: blockHashOf(height), prev_hash: blockHashOf(height - 1), timestamp: height * 1_000_000_000 })
+
+  async function sendTx(id: unknown, signedBase64: string): Promise<Response> {
+    let decoded: NearTransaction | null = null
+    try {
+      decoded = deserializeSignedTransaction(Uint8Array.from(atob(signedBase64), (c) => c.charCodeAt(0))).transaction
+    } catch {
+      return rpcError(id, 'INVALID_TRANSACTION', 'malformed transaction')
+    }
+    const mode = sendMode(decoded)
+    if (mode === 'drop' || mode === 'transport') {
+      sent.push({ hash: await transactionHash(decoded), mode, tx: decoded })
+      if (mode === 'transport') return json({ error: 'bad gateway' }, 502)
+      return rpcError(id, 'TIMEOUT_ERROR', 'Timeout')
+    }
+    try {
+      const { hash, result, tx } = await runtime.execute(signedBase64)
+      sent.push({ hash, mode, tx })
+      if (mode === 'timeout') return rpcError(id, 'TIMEOUT_ERROR', 'Timeout')
+      return json({ jsonrpc: '2.0', id, result })
+    } catch (e) {
+      if (e instanceof TxRejection) return rpcError(id, 'INVALID_TRANSACTION', e.kind)
+      throw e
+    }
+  }
 
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   const rpcError = (id: unknown, name: string, message: string) =>
@@ -119,15 +175,31 @@ export function createFakeChain(options: FakeChainOptions = {}) {
       const kind = a.keys?.[String(params.public_key)]
       if (!kind) return rpcError(id, 'UNKNOWN_ACCESS_KEY', `access key ${String(params.public_key)} does not exist while viewing`)
       const permission = kind === 'full' ? 'FullAccess' : { FunctionCall: { allowance: null, receiver_id: 'app.near', method_names: [] } }
-      return json({ jsonrpc: '2.0', id, result: { nonce: 1, permission, block_height: 1, block_hash: 'h' } })
+      const nonce = Number(nonces.get(`${String(params.account_id)}\u0000${String(params.public_key)}`) ?? 1n)
+      return json({ jsonrpc: '2.0', id, result: { nonce, permission, block_height: state.height.value, block_hash: blockHashOf(state.height.value) } })
     }
     if (method === 'query' && params.request_type === 'view_access_key_list') {
-      return json({ jsonrpc: '2.0', id, result: { keys: [], block_height: 1, block_hash: 'h' } })
+      const a = accounts.get(String(params.account_id))
+      const keys = Object.entries(a?.keys ?? {}).map(([public_key, kind]) => ({
+        public_key,
+        access_key: { nonce: Number(nonces.get(`${String(params.account_id)}\u0000${public_key}`) ?? 1n), permission: kind === 'full' ? 'FullAccess' : { FunctionCall: {} } },
+      }))
+      return json({ jsonrpc: '2.0', id, result: { keys, block_height: state.height.value, block_hash: blockHashOf(state.height.value) } })
     }
-    if (method === 'EXPERIMENTAL_tx_status') {
+    if (method === 'EXPERIMENTAL_tx_status' || method === 'tx') {
       const tx = txs.get(String(params.tx_hash))
       return tx ? json({ jsonrpc: '2.0', id, result: tx }) : rpcError(id, 'UNKNOWN_TRANSACTION', 'Transaction not found')
     }
+    if (method === 'block') {
+      const want = params.block_id
+      if (want === undefined) return json({ jsonrpc: '2.0', id, result: { header: header(state.height.value) } })
+      const height = typeof want === 'number' ? want : typeof want === 'string' ? heightOfBlock(base58Decode(want) ?? new Uint8Array()) : null
+      if (typeof height !== 'number' || height < 1 || height > state.height.value) return rpcError(id, 'UNKNOWN_BLOCK', 'Block not found')
+      return json({ jsonrpc: '2.0', id, result: { header: header(height) } })
+    }
+    if (method === 'EXPERIMENTAL_genesis_config') return json({ jsonrpc: '2.0', id, result: { transaction_validity_period: state.validity } })
+    if (method === 'send_tx') return sendTx(id, String(params.signed_tx_base64 ?? ''))
+    if (method === 'broadcast_tx_commit' && Array.isArray(body.params)) return sendTx(id, String(body.params[0] ?? ''))
     return rpcError(id, 'UNSUPPORTED', `fake chain has no ${String(method)}`)
   }
 
@@ -169,6 +241,28 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     settle(hash: string, result: RpcTxResult) {
       txs.set(hash, result)
     },
+    /** Every signed transaction received, with how it was handled. */
+    sent,
+    /** How the next sends behave (see SendMode). */
+    onSend(mode: SendMode | ((tx: NearTransaction) => SendMode)) {
+      sendMode = typeof mode === 'function' ? mode : () => mode
+    },
+    height: () => state.height.value,
+    advance(blocks: number) {
+      state.height.value += blocks
+    },
+    /** NEAR arrives from outside (a deposit); creates an implicit account like the chain does. */
+    fund(accountId: string, yocto: bigint) {
+      const a = accounts.get(accountId)
+      if (a) {
+        a.amount += yocto
+        return
+      }
+      const key = implicitKeyOf(accountId)
+      accounts.set(accountId, { amount: yocto, keys: key ? { [key]: 'full' } : {} })
+      if (key) nonces.set(`${accountId}\u0000${key}`, BigInt(state.height.value) * 1_000_000n)
+    },
+    keysOf: (accountId: string) => Object.keys(accounts.get(accountId)?.keys ?? {}),
     rpcCalls: (method?: string) => requests.filter((r) => r.method && (!method || r.method === method)),
   }
 }
