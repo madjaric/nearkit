@@ -184,6 +184,18 @@ await step('a failed transaction is reported as failed, never as confirmed', asy
   await page.keyboard.press('Escape')
 })
 
+await step('the top-bar search finds a token in no list by its exact contract and opens the swap with it', async () => {
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  await page.getByLabel('Search token, contract or command').fill(FRESH)
+  const row = page.getByRole('option', { name: /Fresh Launch Token/ })
+  await row.getByText('Fresh Launch Token · 18 decimals · not listed').waitFor()
+  await row.click()
+  await page.waitForURL(/\/swap\?to=fresh\.nearlytrade\.testnet/)
+  // The swap reads it from chain and offers to add it; nothing is imported until asked.
+  await page.getByText('FRESH isn’t in your token list yet').waitFor()
+  await page.getByRole('button', { name: 'Add FRESH' }).waitFor()
+})
+
 await step('a token in no list is found by its exact contract, shown with its metadata, and imported on request', async () => {
   await page.goto(BASE + '/swap', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: /^To token:/ }).click()

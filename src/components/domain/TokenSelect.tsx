@@ -4,7 +4,7 @@ import { Popover } from '@/components/ui/Floating'
 import { Tag } from '@/components/ui/Indicators'
 import { Amount, Pct, Price } from '@/components/ui/Num'
 import { cn } from '@/lib/cn'
-import { isValidAccountId } from '@/lib/validation'
+import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import { useCapabilities, useHoldings, useImportToken, useTokenLookup, useTokens } from '@/services/queries'
 import type { TokenId, TokenListing } from '@/types/domain'
@@ -48,7 +48,7 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
   // chain and offer to import it. Reading it proves it is a token, not that it trades.
   const caps = useCapabilities()
   const exact = query.trim().toLowerCase()
-  const lookupId = isValidAccountId(exact) && (exact.includes('.') || exact.length === 64 || exact.startsWith('0x')) && !tokens.some((t) => t.contract === exact) ? exact : null
+  const lookupId = looksLikeContract(exact) && !tokens.some((t) => t.contract === exact) ? exact : null
   const lookup = useTokenLookup(open ? lookupId : null)
   const importer = useImportToken()
 

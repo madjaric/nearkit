@@ -1,67 +1,14 @@
-import { CornerDownLeft, ScanSearch, Search, SquareSlash, type LucideIcon } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { CornerDownLeft, Search } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Popover } from '@/components/ui/Floating'
 import { Kbd, Tag } from '@/components/ui/Indicators'
-import { isComingSoon } from '@/config/release'
 import { cn } from '@/lib/cn'
-import { isValidAccountId } from '@/lib/validation'
-import { useTokens } from '@/services/queries'
-import type { TokenListing } from '@/types/domain'
-import { ALL_NAV, COMMANDS } from './nav'
-
-interface Result {
-  id: string
-  group: 'Tokens' | 'Scan' | 'Commands' | 'Go to'
-  label: ReactNode
-  detail?: ReactNode
-  to: string
-  icon?: LucideIcon
-  token?: TokenListing
-  /** Leads to a feature the public beta holds back. */
-  soon?: boolean
-}
-
-/**
- * The search box reads what you type: a symbol finds the token, a contract offers
- * a scan, and a leading "/" lists the same commands the Telegram bot will take.
- */
-function buildResults(raw: string, tokens: TokenListing[]): Result[] {
-  const q = raw.trim().toLowerCase()
-  if (!q) {
-    return tokens
-      .filter((t) => !t.isNative)
-      .slice(0, 4)
-      .map((t) => ({ id: `t-${t.id}`, group: 'Tokens' as const, label: t.symbol, detail: t.name, to: `/swap?to=${encodeURIComponent(t.id)}`, token: t }))
-  }
-  if (q.startsWith('/')) {
-    return COMMANDS.filter((c) => c.command.startsWith(q) || c.label.toLowerCase().includes(q.slice(1))).map((c) => ({
-      id: `c-${c.command}`,
-      group: 'Commands' as const,
-      label: <span className="num">{c.command}</span>,
-      detail: c.label,
-      to: c.to,
-      icon: SquareSlash,
-      soon: isComingSoon(c.to.split('?')[0] ?? c.to),
-    }))
-  }
-  const results: Result[] = []
-  for (const t of tokens) {
-    if (t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || (t.contract ?? '').toLowerCase().includes(q)) {
-      results.push({ id: `t-${t.id}`, group: 'Tokens', label: t.symbol, detail: t.name, to: t.isNative ? '/swap' : `/swap?to=${encodeURIComponent(t.id)}`, token: t })
-    }
-  }
-  if (isValidAccountId(q) && (q.includes('.') || q.length === 64 || q.startsWith('0x'))) {
-    results.push({ id: `s-${q}`, group: 'Scan', label: `Scan ${q}`, detail: 'Contract indicators and risk flags', to: `/scanner?q=${encodeURIComponent(q)}`, icon: ScanSearch })
-  }
-  for (const item of ALL_NAV) {
-    if (item.label.toLowerCase().includes(q) || item.keywords?.some((k) => k.includes(q))) {
-      results.push({ id: `p-${item.to}`, group: 'Go to', label: item.label, to: item.to, icon: item.icon, soon: isComingSoon(item.to) })
-    }
-  }
-  return results.slice(0, 9)
-}
+import { looksLikeContract } from '@/lib/validation'
+import { describeError } from '@/services/errors'
+import { useCapabilities, useTokenLookup, useTokens } from '@/services/queries'
+import { buildResults, type Result } from './searchResults'
 
 export function GlobalSearch({ className, autoFocus = false, onDone }: { className?: string; autoFocus?: boolean; onDone?: () => void }) {
   const navigate = useNavigate()
@@ -72,7 +19,13 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
   const [active, setActive] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const results = useMemo(() => buildResults(query, tokens), [query, tokens])
+  const caps = useCapabilities()
+  // A pasted contract in no list yet is read from chain (the same checks as the swap selector).
+  const exact = query.trim().toLowerCase()
+  const lookupId = open && looksLikeContract(exact) && !tokens.some((t) => t.contract === exact) ? exact : null
+  const lookup = useTokenLookup(lookupId)
+  const lookupNote = !lookupId ? null : lookup.isError ? describeError(lookup.error).message : lookup.isPending ? `Checking it on ${caps.networkLabel.toLowerCase()}…` : null
+  const results = useMemo(() => buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote } : null), [query, tokens, lookupId, lookup.data, lookupNote])
 
   // "/" focuses search from anywhere that isn't already a text field.
   useEffect(() => {
@@ -184,7 +137,7 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
         </ul>
         {!query && (
           <p className="mt-1 border-t border-line-soft px-3 pt-2 text-xs text-fg-3">
-            Type a symbol, paste a <span className="num text-fg-2">.near</span> contract to scan it, or start with <span className="num text-fg-2">/</span> for commands.
+            Type a symbol, paste a <span className="num text-fg-2">.near</span> contract to find or scan it, or start with <span className="num text-fg-2">/</span> for commands.
           </p>
         )}
       </Popover>

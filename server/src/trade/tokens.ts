@@ -1,5 +1,5 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
-import { isValidAccountId } from '@/lib/validation'
+import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import type { TokenListing } from '@/types/domain'
 import type { ServerNear } from '../near'
@@ -13,7 +13,7 @@ import type { ServerNear } from '../near'
 
 export type TokenMatch = { kind: 'one'; token: TokenListing } | { kind: 'many'; tokens: TokenListing[] } | { kind: 'none'; message: string; error?: unknown }
 
-export const looksLikeContract = (q: string) => isValidAccountId(q) && (q.includes('.') || /^[0-9a-f]{64}$/.test(q) || q.startsWith('0x'))
+export { looksLikeContract }
 
 export async function resolveToken(near: ServerNear, query: string, extra: readonly string[]): Promise<TokenMatch> {
   const q = query.trim().toLowerCase()

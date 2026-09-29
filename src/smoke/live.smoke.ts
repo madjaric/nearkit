@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { parseEnv } from '@/config/env'
 import { NETWORKS } from '@/config/networks'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountState } from '@/services/near/account'
+import { NearKitError } from '@/services/near/errors'
 import { discoverFtHoldings } from '@/services/near/discovery'
 import { fetchNearUsd, fetchTokenPrices } from '@/services/near/prices'
 import { createRpcClient } from '@/services/near/rpc'
@@ -9,6 +11,10 @@ import { storageBoundsMin } from '@/services/near/storage'
 import { createTokenReader } from '@/services/near/tokens'
 import { createFindPathClient } from '@/services/rhea/classic'
 import { checkSmartxRoute, createSmartxClient, decodeSmartxMsg, verifySmartxSignature } from '@/services/rhea/smartx'
+import { createNearContext } from '@/services/real/context'
+import { createMarket } from '@/services/real/market'
+import { memoryStorage } from '@/services/real/stores'
+import { createTokenService } from '@/services/real/tokenService'
 
 /**
  * Live, read-only checks that every external dependency still behaves the way
@@ -126,6 +132,34 @@ describe('mainnet (live, read-only)', () => {
       Date.now(),
     )
     expect(route.appFeePpm).toBe(NEARKIT_FEE_BPS * 100)
+  })
+
+  it('a token in no list is found by its exact contract, and Rhea alone decides whether it trades', async () => {
+    // A nearlytrade launch (NEP-591 global contract) that no NearKit list carries: new tokens such as $KIT start this way.
+    const contract = 'singularty.nearlytrade.near'
+    expect(net.knownTokens).not.toContain(contract)
+    const env = parseEnv({ VITE_NEARKIT_SERVICES: 'near', VITE_NEAR_NETWORK: 'mainnet', VITE_ENABLE_MAINNET_EXECUTION: 'false' }).env
+    const ctx = createNearContext({ env, network: net, kv: memoryStorage(), wallet: () => Promise.reject(new Error('smoke tests have no wallet')) })
+    ctx.session.restored = true
+    const token = await createTokenService(ctx, createMarket(ctx)).lookupToken(contract)
+    expect(token).toMatchObject({ id: contract, contract, symbol: 'SINGULARTY', name: 'Singularity is NEAR', decimals: 18 })
+    // A route, or Rhea's plain "no route": both are answers. Anything else would be NearKit's error.
+    const answer = await createSmartxClient({ baseUrl: agg.quoteUrl, spacingMs: 0 })
+      .quote({
+        tokenIn: net.wrapContract,
+        tokenOut: contract,
+        amountIn: ONE / 10n,
+        slippage: 0.01,
+        user: null,
+        skipUnwrapNativeToken: true,
+        appFeeRate: NEARKIT_FEE_BPS,
+        appFeeRecipient: 'fees.example.near',
+      })
+      .then(
+        (q) => `route ${q.amountOut}`,
+        (e: unknown) => (e instanceof NearKitError ? e.code : String(e)),
+      )
+    expect(answer === 'QUOTE_UNAVAILABLE' || answer.startsWith('route ')).toBe(true)
   })
 
   it('prices: Rhea lists wNEAR and Coinbase or CoinGecko quote NEAR/USD', async () => {

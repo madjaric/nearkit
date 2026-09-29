@@ -42,6 +42,15 @@ export function isValidAccountId(id: string): boolean {
   return accountKind(id) !== null
 }
 
+/**
+ * Text that reads as a token contract rather than a symbol: a valid account ID with a
+ * dot (`token.near`, `x.nearlytrade.near`), or an implicit/ETH-implicit address. Such
+ * a query is read from chain directly (lookupToken), never only matched against lists.
+ */
+export function looksLikeContract(q: string): boolean {
+  return isValidAccountId(q) && (q.includes('.') || /^[0-9a-f]{64}$/.test(q) || q.startsWith('0x'))
+}
+
 /** Human explanation of why an account ID is invalid, or null when it is valid. */
 export function accountIdError(raw: string): string | null {
   const id = raw.trim()
