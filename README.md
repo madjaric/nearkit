@@ -78,7 +78,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
 | Positions, PnL | Real: balances from chain, Rhea prices, average-cost PnL from each account's on-chain history (see "Positions and PnL") |
 | Limit/TP/SL, DCA, Copy Trade, Sniper | Drafts saved in this browser; nothing executes them. COMING SOON in the public testnet beta |
-| Telegram bot | Real, in `server/` (see `server/README.md`): linking, buy/sell signed in the wallet, buybot, /positions and /pnl. Needs a hosted server; until then the web page stays COMING SOON |
+| Telegram bot | Real, in `server/` (see `server/README.md`): linking, a NearKit trading wallet with Buy/Sell and withdrawals right in Telegram (testnet only), buy/sell signed in the linked wallet, buybot, /positions and /pnl. Needs a hosted server; until then the web page stays COMING SOON |
 | $KIT | Not launched |
 
 ## Tests
@@ -220,7 +220,7 @@ These are known and accepted for now. Each needs a decision or infrastructure be
 - **Testnet routes** come unsigned from a third-party server. NearKit checks them against the request, and testnet carries no fee.
 - **Rhea's DEX contracts** may honour route fields NearKit hasn't audited. The exact-field allowlists refuse any field they don't know, and single-use plans stop a route from being replayed from NearKit.
 
-See `PHASE2_IMPLEMENTATION.md` for the full design, research and decisions, [NEARKIT_TELEGRAM_V2_ARCHITECTURE.md](NEARKIT_TELEGRAM_V2_ARCHITECTURE.md) for Telegram-native trading (custody options, threat model, open decisions), `DESIGN.md` for the visual system and `PRODUCT.md` for product truth.
+See `PHASE2_IMPLEMENTATION.md` for the full design, research and decisions, [NEARKIT_TELEGRAM_V2_ARCHITECTURE.md](NEARKIT_TELEGRAM_V2_ARCHITECTURE.md) for Telegram-native trading (what is implemented, the signer policy, idempotency, recovery, threat model, what mainnet requires), `DESIGN.md` for the visual system and `PRODUCT.md` for product truth.
 
 ## Architecture
 

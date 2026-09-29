@@ -15,14 +15,29 @@ That builds `dist-server/main.js` and starts it. Settings come from the environm
 from `server/.env.local` (git-ignored; see `server/.env.example`). Only the names of
 loaded variables are logged, never values.
 
+NearKit trading wallets (testnet only) need a key-encryption key. Create it once:
+
+```bash
+npm run server:wallet-key
+```
+
+It writes `NEARKIT_WALLET_KEK` to `server/.env.wallet.local` (git-ignored) without printing
+it. Back that file up: without it the stored wallet keys can't be opened. Without the key,
+or on mainnet, trading wallets are simply off (`/health` says `"wallets": "off"`).
+
 The web app finds the server through two public build variables:
 `VITE_NEARKIT_API_URL` (e.g. `http://localhost:8787`) and `VITE_TELEGRAM_BOT`
 (the bot's username). Without them, the Telegram page stays COMING SOON and says why.
 
 ## Security model
 
-- **No custody.** The server holds no keys and cannot sign. Anything that moves funds is
-  signed in the user's own wallet in the NearKit web app, after the usual review.
+- **Custody only in NearKit wallets, testnet only.** A user's NearKit wallet is a separate
+  implicit account whose key NearKit holds, envelope-encrypted (the key-encryption key never
+  touches the database). A policy signer signs only NearKit's own operations: verified
+  Rhea swaps, withdrawals exactly as confirmed, unwrap, the backup key and revoking its own
+  key. Everything else, including every linked wallet, is signed by the user in the web
+  app. Mainnet custody is hard-blocked in code (`src/custody/networks.ts`). The full design,
+  threat model and mainnet requirements: `NEARKIT_TELEGRAM_V2_ARCHITECTURE.md`.
 - **Account linking** (`src/link/service.ts`): `/link` issues a one-time code (128 bits,
   10 minutes, single use, bound to that Telegram user; only its SHA-256 is stored). The
   web page (`/telegram#link=…`, a URL fragment, so it never reaches server logs) shows
@@ -32,25 +47,51 @@ The web app finds the server through two public build variables:
   refused: any app can hold one.
 - **No silent hijack.** A NEAR account links to one Telegram account per network. Moving
   it needs the owner's signature again, and the previous Telegram account is told.
-- **Secrets.** The bot token lives only in the environment or `server/.env.local`. Every
-  log line passes through redaction, which also removes anything shaped like a bot token.
+- **Secrets.** The bot token lives only in the environment or `server/.env.local`, the
+  wallet key-encryption key in the environment or `server/.env.wallet.local`. Every log
+  line passes through redaction, which also removes anything shaped like a bot token or a
+  NEAR secret key.
 - **Abuse limits.** Per-user event limits in the bot, per-IP and per-route limits on the
   API, 16 KB request bodies, a CORS allow-list, and `no-store` responses.
 - **Input.** Everything from outside (token names from chain metadata, user text) is
   HTML-escaped and stripped of control and bidi characters before it reaches Telegram.
 
+## NearKit wallet (testnet)
+
+`/wallet` (the menu's 👛 Wallet), `/deposit`, `/withdraw` and 🔐 Recovery:
+
+- **Create** once (a linked wallet is required: it proves ownership and becomes the
+  backup key). Deposit shows the exact address and network; balances are read from chain.
+- **Withdraw** NEAR or any token it holds to the linked wallet or **any valid address**.
+  The review shows asset, amount, destination, network, fees and any registration the
+  destination needs; everything is re-checked right before signing.
+- **Recovery:** add the linked wallet's key as a backup key (then the user's own wallet
+  controls this one without NearKit), export the key in NearKit web after a wallet
+  signature (never in Telegram), remove NearKit's key, or delete a wallet that was
+  never funded.
+- **One Confirm, at most one transaction.** Every Confirm is a persisted intent; each
+  transaction is saved before it is sent and never signed twice; an unclear send is
+  resolved from the chain (transactions are anchored to expire ~10 minutes after
+  signing), also after a restart. Run a single instance.
+
 ## Trading from Telegram
 
-`/buy`, `/sell`, `/quote`, `/token` and `/balance`, in a private chat, on the linked
-default account. Tokens are found by symbol or by exact contract (the same `lookupToken`
+`/buy`, `/sell`, `/quote`, `/token` and `/balance`, in a private chat. With a NearKit
+wallet, trades run right here (below); without one, on the linked default account through
+the web app. Tokens are found by symbol or by exact contract (the same `lookupToken`
 as the web app's exact-contract import, so a token launched minutes ago works).
+
+**From the NearKit wallet:** a compact quote (you pay, you receive, minimum and slippage,
+NearKit fee, network fee, registrations, route), then Confirm. Right before signing,
+NearKit fetches a fresh route bound to the wallet and sends it only if its minimum is at
+least the one confirmed; otherwise the new quote is shown and nothing is sent. The result
+(spent, received, fee, transaction) is read from the chain.
 
 The quote comes from NearKit's own trading service: Rhea's router with every route
 check the web app runs, the same NearKit fee on mainnet (`NEARKIT_FEE`, 0.50%), and "Rhea found no route" said
 plainly when there is none. Nothing is ever faked or estimated into a trade.
 
-**Signing stays in the wallet.** NearKit has no custody and the bot holds no keys, so a
-trade can't be signed in Telegram itself. "Review & sign in NearKit" opens the web app's
+**From a linked wallet (no NearKit wallet): signing stays in the wallet.** "Confirm & sign in NearKit" opens the web app's
 swap page with the trade filled in and a random handoff ID (`src/trade/handoff.ts`).
 There the route is quoted again, the usual review shows the exact transactions, and the
 user's wallet signs (HOT Wallet signs inside Telegram; other wallets open as usual).
@@ -116,22 +157,28 @@ Channels aren't supported yet: add the bot to a group.
 SQLite through sql.js (WebAssembly, no native build). The database is written after every
 committed change: to a temporary file first, then renamed over the old one. Stored: Telegram
 user IDs and names, linked NEAR account IDs and public keys, preferences, short-lived
-conversation state. Nothing secret.
+conversation state, and for NearKit wallets: sealed (encrypted) keys, intents, the signed
+transactions (public once sent) and a security log. No plain secret.
 
 ## Tests
 
 - `npm test` includes `server/src/**/*.test.ts`: config, redaction, database, Telegram
   client (rate limits, 429), polling, linking (real ed25519 signatures), API, and bot flows
   against a fake Telegram.
+- `server/src/custody/*.test.ts` and `server/src/bot/{tradingWallet,nativeTrade,recovery}.test.ts`
+  cover keys, encryption, the signer policy, intents and idempotency, withdrawals, native
+  trading and recovery against a fake NEAR runtime that verifies signatures and nonces.
 - `npm run e2e:telegram` runs the built server and the web app together, with Telegram and
-  NEAR faked over HTTP, and links an account end to end.
+  NEAR faked over HTTP, links an account end to end, and creates a NearKit wallet.
 
 ## Deploying
 
 The server needs a long-running host with a persistent disk for the database; Vercel's
 static hosting can't run it. `server/Dockerfile` builds it for any Docker host (build
 context: the repository root). Nothing secret goes into the image, and `.dockerignore`
-keeps every local `.env` file out of the build.
+keeps every local `.env` file out of the build. Run exactly one instance, always on (polling
+and the wallet resolver), with the database on a persistent volume and `TELEGRAM_BOT_TOKEN`
+and `NEARKIT_WALLET_KEK` as host secrets, not on the volume.
 
 ### Railway
 

@@ -85,7 +85,8 @@ It also carries the highest risk of loss. It should stay COMING SOON until the s
 
 The bot and its API are built and tested in `server/` (see `server/README.md`):
 - account linking;
-- buy and sell, signed in the wallet;
+- a NearKit trading wallet with Buy/Sell, withdrawals and recovery right in Telegram (testnet only);
+- buy and sell from a linked wallet, signed in the wallet;
 - the buybot;
 - `/positions` and `/pnl`.
 
