@@ -1,5 +1,7 @@
-import { btn, documented, keyboard, type BotCtx, type BotModule, type Command } from './context'
-import { help, welcome } from './texts'
+import { bold } from '../telegram/html'
+import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule, type Command } from './context'
+import { help, SAFETY, welcome } from './texts'
+import { linkedAccount, nearAvailable, showWallet } from './wallet'
 
 /**
  * /start, /help, /cancel and the main menu. `commandList` is resolved lazily so
@@ -8,11 +10,30 @@ import { help, welcome } from './texts'
 
 export function mainMenu(ctx: BotCtx) {
   const has = (name: string) => ctx.deps.features.has(name)
+  const linked = linkedAccount(ctx) !== null
   return keyboard(
-    [btn('🔗 Link wallet', 'acct:link'), btn('👛 Accounts', 'acct:list')],
-    [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null, has('balance') ? btn('💰 Balance', 'menu:balance') : null],
+    linked ? [] : [btn('🔗 Link wallet', 'acct:link')],
+    [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
     [has('positions') ? btn('📊 Positions', 'pf:positions') : null, has('pnl') ? btn('📈 PnL', 'pf:pnl') : null],
-    [btn('⚙️ Settings', 'set:show'), btn('❓ Help', 'menu:help')],
+    [has('balance') ? btn('👛 Wallet', 'menu:wallet') : null, btn('⚙️ Settings', 'set:show')],
+    [has('buybot') ? btn('📣 Buybot', 'menu:buybot') : null, btn('❓ Help', 'menu:help')],
+  )
+}
+
+/** The first screen: who is trading, with how much NEAR, and every action one tap away. */
+async function home(ctx: BotCtx, edit: boolean) {
+  const account = linkedAccount(ctx)
+  const text = [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account) } : null), SAFETY].join('\n')
+  if (edit) await ctx.show(text, mainMenu(ctx))
+  else await ctx.reply(text, mainMenu(ctx))
+}
+
+async function buybotInfo(ctx: BotCtx) {
+  await ctx.show(
+    [bold('📣 Buy alerts for your group'), '', 'Add me to your token’s group. Then a group admin sends /buybot there to choose the token, the minimum buy and the style.'].join(
+      '\n',
+    ),
+    keyboard([urlBtn('➕ Add NearKit to a group', `https://t.me/${ctx.deps.me.username}?startgroup=buybot`)], [btn('« Menu', 'menu:home')]),
   )
 }
 
@@ -27,20 +48,20 @@ export function coreModule(commandList: () => { name: string; command: Command }
 
   const start = async (ctx: BotCtx, payload: string) => {
     if (!ctx.isPrivate) {
-      await ctx.reply(`Hi! I’m the NearKit bot. Group admins can set up buy alerts with /buybot. For trading and your account, open a private chat with me.`, {
+      await ctx.reply(`Hi! I’m the NearKit bot. A group admin can set up buy alerts with /buybot. For trading, open a private chat with me.`, {
         inline_keyboard: [[{ text: 'Open a private chat', url: `https://t.me/${ctx.deps.me.username}` }]],
       })
       return
     }
     const deep = payload && startPayloads[payload]
     if (deep) return deep(ctx)
-    await ctx.reply(welcome(ctx.deps.config, ctx.user.first_name || 'there'), mainMenu(ctx))
+    await home(ctx, false)
   }
 
   return {
     commands: {
       start: { scope: 'any', run: (ctx, args) => start(ctx, args.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)) },
-      help: { ...documented('help'), run: async (ctx) => void (await ctx.reply(helpText(ctx))) },
+      help: { ...documented('help'), run: async (ctx) => void (await ctx.reply(helpText(ctx), keyboard([btn('« Menu', 'menu:home')]))) },
       cancel: {
         ...documented('cancel'),
         run: async (ctx) => {
@@ -48,22 +69,23 @@ export function coreModule(commandList: () => { name: string; command: Command }
           await ctx.reply('Cancelled. Nothing is waiting any more.', ctx.isPrivate ? mainMenu(ctx) : undefined)
         },
       },
-      menu: { scope: 'private', run: async (ctx) => void (await ctx.reply('What would you like to do?', mainMenu(ctx))) },
+      menu: { scope: 'private', run: (ctx) => home(ctx, false) },
     },
     callbacks: {
       menu: async (ctx, action) => {
-        if (action === 'help') {
-          await ctx.answer()
-          await ctx.reply(helpText(ctx))
-          return
+        await ctx.answer()
+        switch (action) {
+          case 'help':
+            return ctx.show(helpText(ctx), keyboard([btn('« Menu', 'menu:home')]))
+          case 'wallet':
+            return showWallet(ctx)
+          case 'walletdetails':
+            return showWallet(ctx, { details: true })
+          case 'buybot':
+            return buybotInfo(ctx)
+          default:
+            return home(ctx, true)
         }
-        if (action === 'balance') {
-          await ctx.answer()
-          const command = commandList().find((c) => c.name === 'balance')?.command
-          if (command) await command.run(ctx, '')
-          return
-        }
-        await ctx.show('What would you like to do?', mainMenu(ctx))
       },
     },
   }

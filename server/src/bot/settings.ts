@@ -4,10 +4,15 @@ import { HIGH_SLIPPAGE, MAX_SLIPPAGE, SLIPPAGE_PRESETS } from '@/lib/fees'
 import { bold, code, esc, plainText } from '../telegram/html'
 import { btn, documented, FLOW_TTL_MS, keyboard, type BotCtx, type BotModule } from './context'
 
-/** /settings: slippage, the buy buttons' NEAR amounts, and trade notifications. Saved per Telegram user. */
+/**
+ * /settings, in one place: trading (slippage, the Buy and Sell buttons, trade alerts)
+ * and the wallet used for trades. Buy alerts are set per group, with /buybot there.
+ * Saved per Telegram user.
+ */
 
 const MAX_PRESETS = 6
 const MAX_PRESET_NEAR = 100_000n * 10n ** 24n
+const MAX_SELL_PRESETS = 4
 
 async function showSettings(ctx: BotCtx, note?: string) {
   const s = ctx.deps.store.getSettings(ctx.user.id)
@@ -15,19 +20,24 @@ async function showSettings(ctx: BotCtx, note?: string) {
   await ctx.show(
     [
       ...(note ? [note, ''] : []),
-      bold('Settings'),
+      `⚙️ ${bold('Settings')}`,
       '',
-      `Slippage: ${code(`${s.slippagePct}%`)}${s.slippagePct >= HIGH_SLIPPAGE ? ' ⚠️ high' : ''}`,
-      `Buy buttons: ${s.buyPresets.map((p) => code(`${p} NEAR`)).join(' ')}`,
-      `Sell buttons: ${s.sellPresets.map((p) => code(`${p}%`)).join(' ')}`,
-      `Default account: ${s.defaultAccount ? code(s.defaultAccount) : 'none (link one with /link)'}`,
-      `Trade notifications: ${s.notifyTrades ? 'on' : 'off'}`,
+      bold('Trading'),
+      `Slippage ${code(`${s.slippagePct}%`)}${s.slippagePct >= HIGH_SLIPPAGE ? ' ⚠️ high' : ''}`,
+      `Buy buttons ${s.buyPresets.map((p) => code(p)).join(' ')} NEAR`,
+      `Sell buttons ${s.sellPresets.map((p) => code(`${p}%`)).join(' ')}`,
+      `Trade alerts ${s.notifyTrades ? 'on' : 'off'}`,
+      '',
+      bold('Wallet'),
+      `Trades use ${s.defaultAccount ? code(s.defaultAccount) : 'your first linked account (link one with /link)'}`,
+      '',
+      'Buy alerts for a group: add me there and send /buybot.',
     ].join('\n'),
     keyboard(
       [...SLIPPAGE_PRESETS.map(slip), btn('Custom %', 'set:slip:custom')],
-      [btn('✏️ Buy amounts', 'set:presets:buy')],
-      [btn(s.notifyTrades ? '🔕 Turn notifications off' : '🔔 Turn notifications on', 'set:notify:toggle')],
-      [btn('👛 Default account', 'acct:list'), btn('« Menu', 'menu:home')],
+      [btn('✏️ Buy buttons', 'set:presets:buy'), btn('✏️ Sell buttons', 'set:presets:sell')],
+      [btn(s.notifyTrades ? '🔔 Trade alerts: on' : '🔕 Trade alerts: off', 'set:notify:toggle')],
+      [btn('👛 Wallets', 'acct:list'), btn('« Menu', 'menu:home')],
     ),
   )
 }
@@ -57,6 +67,20 @@ export function parseBuyPresets(text: string): { ok: true; value: string[] } | {
   return { ok: true, value: out }
 }
 
+/** "25 50 100" → whole percentages 1–100 for the sell buttons, ascending, or an error to show. */
+export function parseSellPresets(text: string): { ok: true; value: number[] } | { ok: false; error: string } {
+  const parts = plainText(text, 100)
+    .split(/[\s,;%]+/)
+    .filter(Boolean)
+  if (parts.length === 0 || parts.length > MAX_SELL_PRESETS) return { ok: false, error: `Send 1 to ${MAX_SELL_PRESETS} percentages separated by spaces, like: 25 50 75 100` }
+  const out = new Set<number>()
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p) || Number(p) < 1 || Number(p) > 100) return { ok: false, error: `${p} is not a whole percentage from 1 to 100` }
+    out.add(Number(p))
+  }
+  return { ok: true, value: [...out].sort((a, b) => a - b) }
+}
+
 export function settingsModule(): BotModule {
   return {
     commands: {
@@ -84,6 +108,12 @@ export function settingsModule(): BotModule {
           store.updateSettings(ctx.user.id, { notifyTrades: !s.notifyTrades })
           return showSettings(ctx)
         }
+        if (action === 'presets' && arg === 'sell') {
+          store.setSession(ctx.chat.id, ctx.user.id, 'settings.sellPresets', {}, FLOW_TTL_MS)
+          await ctx.answer()
+          await ctx.reply(`Send up to ${MAX_SELL_PRESETS} percentages for the sell buttons, e.g. ${code('25 50 75 100')}. /cancel to keep them.`)
+          return
+        }
         if (action === 'presets') {
           store.setSession(ctx.chat.id, ctx.user.id, 'settings.buyPresets', {}, FLOW_TTL_MS)
           await ctx.answer()
@@ -110,7 +140,17 @@ export function settingsModule(): BotModule {
         }
         ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
         ctx.deps.store.updateSettings(ctx.user.id, { buyPresets: parsed.value })
-        await showSettings(ctx, '✅ Buy amounts saved.')
+        await showSettings(ctx, '✅ Buy buttons saved.')
+      },
+      'settings.sellPresets': async (ctx, text) => {
+        const parsed = parseSellPresets(text)
+        if (!parsed.ok) {
+          await ctx.reply(`⚠️ ${esc(parsed.error)}. Try again, or /cancel.`)
+          return
+        }
+        ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        ctx.deps.store.updateSettings(ctx.user.id, { sellPresets: parsed.value })
+        await showSettings(ctx, '✅ Sell buttons saved.')
       },
     },
   }

@@ -53,11 +53,17 @@ describe('/positions and /pnl in Telegram', () => {
     const h = await bot()
     await h.say('/positions')
     const text = h.last()?.text ?? ''
-    expect(text).toContain(`Positions · ${ACCOUNT}`)
-    expect(text).toContain('<b>SINGULARTY</b> 69.1K ≈ $6.91')
+    expect(text).toContain(`<b>Positions</b> · <code>${ACCOUNT}</code>`)
+    expect(text).toContain('<b>SINGULARTY</b> · 69.1K ≈ $6.91')
     // Cost: ~1.0024 NEAR × $4.80 ≈ $4.81; value $6.91 → about +$2.10.
-    expect(text).toMatch(/unrealized \+\$2\.\d\d \(\+4\d\.\d%\)/)
+    expect(text).toMatch(/PnL \+\$2\.\d\d \(\+4\d\.\d%\)/)
     expect(text).not.toContain('partial')
+    // The method and sources wait behind Details.
+    expect(text).not.toContain('Average cost')
+    await h.press('pf:posdetails')
+    const details = h.last()?.text ?? ''
+    expect(details).toMatch(/Cost \$4\.8\d · avg entry/)
+    expect(details).toContain('Average cost from your on-chain history')
     expect(h.buttons().find((b) => b.url)?.url).toBe('https://nearkit.vercel.app/positions')
   })
 
@@ -65,20 +71,22 @@ describe('/positions and /pnl in Telegram', () => {
     const h = await bot()
     await h.say('/pnl')
     const text = h.last()?.text ?? ''
-    expect(text).toContain('PnL · all time')
-    expect(text).toContain('Realized: <b>$0.00</b> over 0 sales')
-    expect(text).toMatch(/Unrealized now: <b>\+\$2\.\d\d<\/b>/)
-    expect(text).toMatch(/Gas paid \(whole history, 1 transaction\): 0\.00\d+ NEAR/)
+    expect(text).toContain('<b>PnL</b> · all time')
+    expect(text).toContain('Realized <b>$0.00</b> · 0 sales')
+    expect(text).toMatch(/Unrealized <b>\+\$2\.\d\d<\/b>/)
+    expect(text).toMatch(/Gas 0\.00\d+ NEAR/)
     await h.press('pf:pnl7d')
-    expect(h.last()?.text).toContain('PnL · last 7d')
+    expect(h.last()?.text).toContain('<b>PnL</b> · last 7d')
+    await h.press('pf:pnlalld')
+    expect(h.last()?.text).toContain('Gas counted over the whole history, 1 transaction.')
   })
 
   it('a holding the history does not explain makes /pnl say it is partial', async () => {
     const h = await bot({ history: false })
-    await h.say('/pnl')
+    await h.say('/pnl details')
     const text = h.last()?.text ?? ''
     expect(text).toContain('doesn’t explain the whole balance')
-    expect(text).toContain('Gas paid (whole history, 0 transactions)')
+    expect(text).toContain('Gas counted over the whole history, 0 transactions.')
   })
 
   it('an unknown figure reads as unknown, never as 0', async () => {
@@ -86,13 +94,13 @@ describe('/positions and /pnl in Telegram', () => {
     h.chain.route('https://api.rhea.finance/list-token-price', () => ({}))
     await h.say('/pnl')
     const text = h.last()?.text ?? ''
-    expect(text).toContain('Unrealized now: <b>—</b>')
-    expect(text).not.toMatch(/Unrealized now: <b>[+−-]?\$0\.00<\/b>/)
+    expect(text).toContain('Unrealized <b>—</b> · no price')
+    expect(text).not.toMatch(/Unrealized <b>[+−-]?\$0\.00<\/b>/)
   })
 
   it('on testnet, without USD prices, speaks NEAR', async () => {
     const h = await bot({ network: 'testnet' })
-    await h.say('/pnl')
+    await h.say('/pnl details')
     expect(h.last()?.text).toContain('in NEAR (no USD prices on this network)')
   })
 })

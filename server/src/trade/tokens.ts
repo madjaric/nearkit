@@ -11,7 +11,7 @@ import type { ServerNear } from '../near'
  * by symbol, then name, against NearKit's list plus the user's own tokens.
  */
 
-export type TokenMatch = { kind: 'one'; token: TokenListing } | { kind: 'many'; tokens: TokenListing[] } | { kind: 'none'; message: string }
+export type TokenMatch = { kind: 'one'; token: TokenListing } | { kind: 'many'; tokens: TokenListing[] } | { kind: 'none'; message: string; error?: unknown }
 
 export const looksLikeContract = (q: string) => isValidAccountId(q) && (q.includes('.') || /^[0-9a-f]{64}$/.test(q) || q.startsWith('0x'))
 
@@ -26,7 +26,7 @@ export async function resolveToken(near: ServerNear, query: string, extra: reado
     try {
       return { kind: 'one', token: await near.tokens.lookupToken(q) }
     } catch (e) {
-      return { kind: 'none', message: describeError(e).message }
+      return { kind: 'none', message: describeError(e).message, error: e }
     }
   }
   const exact = list.filter((t) => t.symbol.toLowerCase() === q)

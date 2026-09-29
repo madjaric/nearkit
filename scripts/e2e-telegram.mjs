@@ -209,7 +209,7 @@ let linkUrl = ''
 await step('the bot greets a new user and never asks for keys', async () => {
   const from = tg.sent.length
   say(TG_USER, '/start')
-  const m = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Welcome to NearKit'), { from })
+  const m = await tg.waitFor(TG_USER.id, (x) => x.text.includes('<b>NearKit</b> · NEAR trading'), { from })
   if (!/never asks for your seed phrase/.test(m.text)) throw new Error('safety line missing')
 })
 
@@ -275,7 +275,7 @@ await step('a buy prepared in Telegram is signed in NearKit, checked on chain an
   let from = tg.sent.length
   say(TG_USER, `/buy ${USDT} 1`)
   const quote = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.url?.includes('/swap?')), { from })
-  if (!quote.text.includes('No NearKit fee on testnet') || !quote.text.includes('Route: NEAR')) throw new Error(`unexpected quote: ${quote.text.slice(0, 200)}`)
+  if (!quote.text.includes('NearKit fee none on testnet') || !quote.text.includes('Route NEAR')) throw new Error(`unexpected quote: ${quote.text.slice(0, 200)}`)
   const url = quote.buttons.find((b) => b.url?.includes('/swap?')).url
   // A properly formed transaction hash (32 bytes, base58): the server refuses anything else.
   const TX_HASH = b58(crypto.getRandomValues(new Uint8Array(32)))

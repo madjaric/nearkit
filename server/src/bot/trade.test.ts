@@ -81,18 +81,20 @@ describe('trading from Telegram', () => {
     expect(h.last()?.text).toContain('which token?')
     await h.say('usdt')
     const ask = h.last()
-    expect(ask?.text).toContain('USDT')
+    expect(ask?.text).toContain('<b>Buy USDT</b>')
     expect(ask?.text).toContain(USDT)
-    expect(ask?.text).toContain('alice.testnet')
-    expect(ask?.text).toMatch(/5(\.\d+)? NEAR available|NEAR available/)
+    expect(ask?.text).toContain('Wallet <code>alice.testnet</code>')
+    expect(ask?.text).toContain('Balance <b>5 NEAR</b>')
+    expect(h.buttons().map((b) => b.text)).toEqual(['0.1 NEAR', '0.5 NEAR', '1 NEAR', 'MAX · 4.95', '✏️ Custom', '✖ Cancel'])
     const one = h.buttons().find((b) => b.text === '1 NEAR')
     await h.press(one?.data ?? '')
     const quote = h.last()
-    expect(quote?.text).toContain('Buy USDT with 1 NEAR')
-    expect(quote?.text).toContain('You get ≈')
-    expect(quote?.text).toContain('Route: NEAR → USDT')
-    expect(quote?.text).toContain('No NearKit fee on testnet')
-    expect(quote?.text).toContain('This is a quote, not a trade')
+    expect(quote?.text).toContain('You pay <b>1 NEAR</b>')
+    expect(quote?.text).toContain('You receive <b>≈')
+    expect(quote?.text).toContain('Minimum ')
+    expect(quote?.text).toContain('Route NEAR → USDT')
+    expect(quote?.text).toContain('NearKit fee none on testnet')
+    expect(quote?.text).toMatch(/⏱ Quote for \d+s/)
     const sign = h.buttons().find((b) => b.text.startsWith('✍️'))
     expect(sign?.url).toMatch(new RegExp(`^https://nearkit\\.vercel\\.app/swap\\?from=near&to=${USDT.replace(/\./g, '\\.')}&amount=1&slippage=1&tg=[A-Za-z0-9_-]{22}$`))
     const id = new URL(sign?.url ?? 'x:').searchParams.get('tg') as string
@@ -103,14 +105,15 @@ describe('trading from Telegram', () => {
     const h = await bot()
     h.store.updateSettings(ALICE.id, { slippagePct: 3 })
     await h.say(`/buy ${USDT} 0.5`)
-    expect(h.last()?.text).toContain('Buy USDT with 0.5 NEAR')
-    expect(h.last()?.text).toContain('with 3% slippage')
+    expect(h.last()?.text).toContain('You pay <b>0.5 NEAR</b>')
+    expect(h.last()?.text).toContain('· 3% slippage')
   })
 
   it('sells a share of the balance', async () => {
     const h = await bot()
     await h.say('/sell USDT 50%')
-    expect(h.last()?.text).toContain('Sell USDT · 50 USDT')
+    expect(h.last()?.text).toContain('<b>Sell USDT</b>')
+    expect(h.last()?.text).toContain('You pay <b>50 USDT</b>')
     const sign = h.buttons().find((b) => b.text.startsWith('✍️'))
     expect(sign?.url).toContain(`from=${USDT}&to=near&amount=50&`)
   })
@@ -118,6 +121,7 @@ describe('trading from Telegram', () => {
   it('refuses more than the account has', async () => {
     const h = await bot()
     await h.say(`/buy ${USDT} 50`)
+    expect(h.last()?.text).toContain('Not enough NEAR for this trade plus gas')
     expect(h.last()?.text).toContain('less than 50 NEAR')
     expect(h.buttons().find((b) => b.text.startsWith('✍️'))).toBeUndefined()
   })
@@ -125,7 +129,7 @@ describe('trading from Telegram', () => {
   it('says so plainly when Rhea has no route, and prepares nothing', async () => {
     const h = await bot({ noRoute: true })
     await h.say(`/buy ${USDT} 1`)
-    expect(h.last()?.text).toContain('Rhea found no route')
+    expect(h.last()?.text).toContain('No route is available for this pair right now.')
     expect(h.last()?.text).toContain('Nothing was prepared')
     expect(h.store.db.all('SELECT * FROM handoffs')).toEqual([])
   })
@@ -150,11 +154,93 @@ describe('trading from Telegram', () => {
     await h.say(`/token ${USDT}`)
     const card = h.last()?.text ?? ''
     expect(card).toContain('Tether USD')
-    expect(card).toContain('Decimals: 24')
-    expect(card).toContain('You hold: 100 USDT')
+    expect(card).toContain('24 decimals')
+    expect(card).toContain('You hold <b>100 USDT</b>')
+    expect(h.buttons().find((b) => b.text === '🔗 Explorer')?.url).toContain(USDT)
     await h.say('/balance')
-    expect(h.last()?.text).toContain('Balances · alice.testnet')
-    expect(h.last()?.text).toContain('100 <b>USDT</b>')
+    const wallet = h.last()?.text ?? ''
+    expect(wallet).toContain('<b>Wallet</b>\n<code>alice.testnet</code>')
+    expect(wallet).toContain('<b>5.00</b> NEAR')
+    expect(wallet).toContain('100 <b>USDT</b>')
+    // Where a balance was read from is a detail, not the first screen.
+    expect(wallet).not.toContain('indexer')
+    await h.say('/balance details')
+    expect(h.last()?.text).toContain(`<code>${USDT}</code>`)
+  })
+
+  it('/start shows the linked wallet and its NEAR, and the full menu', async () => {
+    const h = await bot()
+    await h.say('/start')
+    const m = h.last()
+    expect(m?.text).toContain('👛 <code>alice.testnet</code> · 5.00 NEAR')
+    expect(m?.buttons.map((b) => b.text)).toEqual(['🟢 Buy', '🔴 Sell', '👛 Wallet', '⚙️ Settings', '❓ Help'])
+  })
+
+  it('MAX spends the balance minus a reserve for gas', async () => {
+    const h = await bot()
+    await h.say('/buy usdt')
+    await h.press(h.buttons().find((b) => b.text.startsWith('MAX'))?.data ?? '')
+    expect(h.last()?.text).toContain('You pay <b>4.95 NEAR</b>')
+  })
+
+  it('Custom asks for an amount, and a typed amount is quoted', async () => {
+    const h = await bot()
+    await h.say('/buy usdt')
+    await h.press('tr:custom')
+    expect(h.last()?.text).toContain('Send the amount')
+    await h.say('0.25')
+    expect(h.last()?.text).toContain('You pay <b>0.25 NEAR</b>')
+  })
+
+  it('sells by share of the balance: 25, 50, 75 or 100%', async () => {
+    const h = await bot()
+    await h.say('/sell usdt')
+    expect(h.last()?.text).toContain('Balance <b>100 USDT</b>')
+    expect(h.buttons().map((b) => b.text)).toEqual(['25%', '50%', '75%', '100%', '✏️ Custom', '✖ Cancel'])
+    await h.press(h.buttons().find((b) => b.text === '75%')?.data ?? '')
+    expect(h.last()?.text).toContain('You pay <b>75 USDT</b>')
+  })
+
+  it('selling a token the wallet does not hold says so, with nothing to press', async () => {
+    const h = await bot()
+    await h.say(`/sell ${FRESH}`)
+    expect(h.last()?.text).toContain('You don’t hold any FRESH in this wallet.')
+    expect(h.buttons().map((b) => b.text)).toEqual(['« Menu'])
+  })
+
+  it('a double tap on an amount prepares one trade, not two', async () => {
+    const h = await bot()
+    await h.say('/buy usdt')
+    const one = h.buttons().find((b) => b.text === '1 NEAR')?.data ?? ''
+    await h.press(one)
+    await h.press(one)
+    expect(h.store.db.all('SELECT * FROM handoffs')).toHaveLength(1)
+    const toast = h.fake.calls.filter((c) => c.method === 'answerCallbackQuery').at(-1)?.params as { text?: string }
+    expect(toast.text).toContain('Already on it')
+  })
+
+  it('an expired or unknown button says so instead of acting', async () => {
+    const h = await bot()
+    await h.press('tr:amt:nosuchbutton')
+    const toast = h.fake.calls.filter((c) => c.method === 'answerCallbackQuery').at(-1)?.params as { text?: string; show_alert?: boolean }
+    expect(toast.text).toContain('That button expired')
+    expect(h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+  })
+
+  it('Cancel stops the trade and says nothing was prepared', async () => {
+    const h = await bot()
+    await h.say('/buy usdt')
+    await h.press('tr:cancel')
+    expect(h.last()?.text).toContain('Cancelled. Nothing was prepared or signed.')
+    await h.say('0.5')
+    // The amount step is gone: typing a number no longer starts a quote.
+    expect(h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+  })
+
+  it('a mainnet contract on testnet is refused in plain words', async () => {
+    const h = await bot()
+    await h.say('/buy singularty.nearlytrade.near')
+    expect(h.last()?.text).toContain('This belongs to NEAR mainnet while NearKit is using testnet.')
   })
 
   it('limits how often one user can ask Rhea for quotes', async () => {

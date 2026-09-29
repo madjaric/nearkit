@@ -1,17 +1,17 @@
 import { LIMITATION_TEXT } from '@/features/portfolio/pnlText'
 import { formatCompact, formatPct, NEAR_FORMAT, USD_FORMAT } from '@/lib/format'
-import { describeError } from '@/services/errors'
 import { createPnlTracker, type PnlTracker } from '@/services/real/pnlTracker'
 import { buildPnlReport } from '@/services/real/pnlReport'
 import { historyOf, reportTokenIds, reportTokens, tokenPnl } from '@/services/real/positionsPnl'
 import type { PnlLimitation, PnlRange } from '@/types/domain'
-import { bold, esc } from '../telegram/html'
+import { bold, code, esc } from '../telegram/html'
 import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
+import { friendlyError, LIMITATION_TAG, nearText, UNKNOWN } from './ui'
 
 /**
  * /positions and /pnl: the same engine (src/lib/pnl.ts), tracker and report as the
- * web app, over the user's linked accounts. Figures that history can't support are
- * marked partial, with the reason, never filled in.
+ * web app, over the user's linked accounts. The first screen is compact; Details has
+ * the full figures and every reason a figure is partial. Unknown is shown as —.
  */
 
 const trackers = new WeakMap<object, PnlTracker>()
@@ -37,58 +37,78 @@ async function needAccounts(ctx: BotCtx): Promise<string[] | null> {
   return list
 }
 
+const who = (list: string[]) => (list.length === 1 ? code(list[0] as string) : `${list.length} accounts`)
+/** The first reason a figure is unknown or partial, in a few words. */
+const tag = (limits: readonly PnlLimitation[]) => (limits.length ? ` · ${LIMITATION_TAG[limits[0] as PnlLimitation]}` : '')
+const num = (v: number | bigint | null) => (v === null ? null : typeof v === 'bigint' ? Number(v) / 1e24 : v)
+
 function limitationsNote(limits: Set<PnlLimitation>): string[] {
   return limits.size ? ['', ...[...limits].map((l) => `⚠️ ${esc(LIMITATION_TEXT[l])}`)] : []
 }
 
-async function showPositions(ctx: BotCtx) {
+async function showPositions(ctx: BotCtx, details: boolean) {
   const list = await needAccounts(ctx)
   if (!list) return
-  await ctx.reply('📊 Reading your on-chain history…')
+  if (!ctx.message) await ctx.reply('📊 Reading your on-chain history…')
   const near = ctx.deps.near
+  const usd = near.ctx.capabilities.prices
+  const money = usd ? USD_FORMAT : NEAR_FORMAT
   try {
     const [ledgers, balances] = await Promise.all([Promise.all(list.map((a) => tracker(ctx).ledger(a))), Promise.all(list.map((a) => near.ctx.balances.get(a)))])
     const held = [...new Set(balances.flatMap((b) => b.fts.map((f) => f.contract)))]
     const tokens = (await near.market.listTokens(held)).filter((t) => t.contract && held.includes(t.id))
-    const usd = near.ctx.capabilities.prices
-    const money = usd ? USD_FORMAT : NEAR_FORMAT
     const limits = new Set<PnlLimitation>()
-    const lines = tokens.map((t) => {
+    const blocks = tokens.map((t) => {
       const perAccount = new Map(balances.map((b) => [b.accountId, b.fts.find((f) => f.contract === t.id)?.raw ?? 0n]))
       const { combined } = tokenPnl(t, ledgers, perAccount)
       for (const l of combined.limitations) limits.add(l)
       const qty = Number([...perAccount.values()].reduce((s, v) => s + v, 0n)) / 10 ** t.decimals
-      const value = usd ? (t.market ? qty * t.market.priceUsd : null) : t.market ? qty * t.market.priceNear : null
-      const unrealized = usd ? combined.usd.unrealized : combined.near.unrealized === null ? null : Number(combined.near.unrealized) / 1e24
-      const cost = usd ? combined.usd.costBasis : Number(combined.near.costBasis) / 1e24
-      const pct = unrealized !== null && cost > 0 ? (unrealized / cost) * 100 : null
-      return `• ${bold(t.symbol)} ${esc(formatCompact(qty, 2))}${value !== null ? ` ≈ ${esc(money.full(value))}` : ''}${
-        unrealized !== null ? ` · unrealized ${esc(money.full(unrealized, { signed: true }))}${pct !== null ? ` (${esc(formatPct(pct, { signed: true, decimals: 1 }))})` : ''}` : ''
-      }${combined.complete ? '' : ' · partial'}`
+      const value = t.market ? (usd ? qty * t.market.priceUsd : qty * t.market.priceNear) : null
+      const f = usd ? combined.usd : combined.near
+      const unrealized = num(f.unrealized)
+      const cost = num(f.costBasis)
+      const pct = unrealized !== null && cost !== null && cost > 0 ? (unrealized / cost) * 100 : null
+      const pnl =
+        unrealized === null
+          ? `${UNKNOWN}${tag(combined.limitations)}`
+          : `${money.full(unrealized, { signed: true })}${pct !== null ? ` (${formatPct(pct, { signed: true, decimals: 1 })})` : ''}${combined.complete ? '' : ' · partial'}`
+      const head = `${bold(t.symbol)} · ${esc(formatCompact(qty, 2))}${value !== null ? ` ≈ ${esc(money.full(value))}` : ''}`
+      if (!details) return [head, `PnL ${esc(pnl)}`].join('\n')
+      const costKnown = f.avgEntry !== null || combined.quantity === 0n
+      return [
+        head,
+        `PnL ${esc(pnl)}`,
+        `Cost ${costKnown && cost !== null ? esc(money.full(cost)) : UNKNOWN} · avg entry ${f.avgEntry === null ? UNKNOWN : esc(money.full(f.avgEntry))}`,
+        `Realized ${esc(money.full(num(f.realized) ?? 0, { signed: true }))} · ${combined.trades} ${combined.trades === 1 ? 'trade' : 'trades'}`,
+      ].join('\n')
     })
-    const nearAvailable = balances.reduce((s, b) => s + (b.state?.availableYocto ?? 0n), 0n)
-    await ctx.reply(
+    const nearNow = balances.reduce((s, b) => s + (b.state?.availableYocto ?? 0n), 0n)
+    await ctx.show(
       [
-        bold(`Positions · ${list.length === 1 ? list[0] : `${list.length} accounts`}`),
+        `📊 ${bold('Positions')} · ${who(list)}`,
         '',
-        ...(lines.length ? lines : ['No tokens held.']),
+        ...(blocks.length ? [blocks.join('\n\n')] : ['No tokens held.']),
         '',
-        `NEAR available: ${esc(NEAR_FORMAT.full(Number(nearAvailable) / 1e24))}`,
-        ...limitationsNote(limits),
-        '',
-        `Average cost from your on-chain history${usd ? '; USD at each trade’s hour' : ', in NEAR (no USD prices on this network)'}.`,
+        `NEAR ${bold(nearText(nearNow))}`,
+        ...(details
+          ? [...limitationsNote(limits), '', `Average cost from your on-chain history${usd ? '; USD at each trade’s hour' : ', in NEAR (no USD prices on this network)'}.`]
+          : []),
       ].join('\n'),
-      keyboard([urlBtn('Open Positions in NearKit', `${ctx.deps.config.webUrl}/positions`)], [btn('📈 PnL', 'pf:pnl')]),
+      keyboard(
+        [btn(details ? '🔎 Less' : '🔎 Details', details ? 'pf:positions' : 'pf:posdetails'), btn('📈 PnL', 'pf:pnl')],
+        ...(details ? [[urlBtn('Open in NearKit', `${ctx.deps.config.webUrl}/positions`)]] : []),
+        [btn('🔄 Refresh', details ? 'pf:posdetails' : 'pf:positions'), btn('« Menu', 'menu:home')],
+      ),
     )
   } catch (e) {
-    await ctx.reply(`⚠️ Couldn’t read positions right now: ${esc(describeError(e).message)}`)
+    await ctx.reply(`⚠️ Couldn’t read positions: ${esc(friendlyError(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'positions failed' }))}`)
   }
 }
 
-async function showPnl(ctx: BotCtx, range: PnlRange) {
+async function showPnl(ctx: BotCtx, range: PnlRange, details: boolean) {
   const list = await needAccounts(ctx)
   if (!list) return
-  await ctx.reply('📈 Reading your on-chain history…')
+  if (!ctx.message) await ctx.reply('📈 Reading your on-chain history…')
   const near = ctx.deps.near
   try {
     const ledgers = await Promise.all(list.map((a) => tracker(ctx).ledger(a)))
@@ -105,49 +125,63 @@ async function showPnl(ctx: BotCtx, range: PnlRange) {
     const r = buildPnlReport({ range, now: ctx.deps.now(), currency, tokens, gasNear, history, walletOf: (a) => a })
     const scope = history.complete ? `whole history, ${history.txs} ${history.txs === 1 ? 'transaction' : 'transactions'}` : `latest ${history.txs} transactions only`
     // Unknown reads as —, never 0.
-    const fig = (v: number | null) => (v === null ? '—' : money.full(v, { signed: true }))
-    const top = r.byToken.slice(0, 5).map((t) => `• ${bold(t.token.symbol)} realized ${esc(fig(t.realizedUsd))} · open ${esc(fig(t.unrealizedUsd))}`)
-    await ctx.reply(
-      [
-        bold(`PnL · ${range === 'all' ? 'all time' : `last ${range}`} · ${list.length === 1 ? list[0] : `${list.length} accounts`}`),
-        '',
-        `Realized: ${bold(fig(r.realizedUsd))} over ${r.trades} ${r.trades === 1 ? 'sale' : 'sales'}${r.wins + r.losses ? ` (${r.wins} won, ${r.losses} lost)` : ''}`,
-        `Unrealized now: ${bold(fig(r.unrealizedUsd))}`,
-        `Gas paid (${scope}): ${esc(NEAR_FORMAT.full(r.gasNear ?? 0))}`,
+    const fig = (v: number | null) => (v === null ? UNKNOWN : money.full(v, { signed: true }))
+    const limits = r.limitations ?? []
+    const unknownWhy = r.unrealizedUsd === null ? tag(limits.includes('no-current-price') ? ['no-current-price'] : limits) : ''
+    const lines = [
+      `📈 ${bold('PnL')} · ${range === 'all' ? 'all time' : `last ${range}`} · ${who(list)}`,
+      '',
+      `Realized ${bold(fig(r.realizedUsd))} · ${r.trades} ${r.trades === 1 ? 'sale' : 'sales'}${r.wins + r.losses ? ` (${r.wins} won, ${r.losses} lost)` : ''}`,
+      `Unrealized ${bold(fig(r.unrealizedUsd))}${esc(unknownWhy)}${r.complete === false && r.unrealizedUsd !== null ? ' · partial' : ''}`,
+      `Gas ${esc(NEAR_FORMAT.full(r.gasNear ?? 0))}`,
+    ]
+    if (details) {
+      const top = r.byToken.slice(0, 8).map((t) => `• ${bold(t.token.symbol)} realized ${esc(fig(t.realizedUsd))} · open ${esc(fig(t.unrealizedUsd))}`)
+      lines.push(
         ...(top.length ? ['', ...top] : []),
-        ...limitationsNote(new Set(r.limitations ?? [])),
+        ...limitationsNote(new Set(limits)),
         '',
-        `Average cost, ${currency === 'USD' ? 'USD at each trade’s hour' : 'in NEAR (no USD prices on this network)'}. Swap fees are inside trade values.`,
-      ].join('\n'),
+        `Gas counted over the ${esc(scope)}. Average cost, ${currency === 'USD' ? 'USD at each trade’s hour' : 'in NEAR (no USD prices on this network)'}. Swap fees are inside trade values.`,
+      )
+    }
+    const d = details ? 'd' : ''
+    await ctx.show(
+      lines.join('\n'),
       keyboard(
-        [btn('7D', 'pf:pnl7d'), btn('30D', 'pf:pnl30d'), btn('90D', 'pf:pnl90d'), btn('All', 'pf:pnlall')],
-        [urlBtn('Open PnL in NearKit', `${ctx.deps.config.webUrl}/pnl`)],
+        [btn('7D', `pf:pnl7d${d}`), btn('30D', `pf:pnl30d${d}`), btn('90D', `pf:pnl90d${d}`), btn('All', `pf:pnlall${d}`)],
+        [btn(details ? '🔎 Less' : '🔎 Details', `pf:pnl${range}${details ? '' : 'd'}`), btn('📊 Positions', 'pf:positions')],
+        ...(details ? [[urlBtn('Open in NearKit', `${ctx.deps.config.webUrl}/pnl`)]] : []),
+        [btn('« Menu', 'menu:home')],
       ),
     )
   } catch (e) {
-    await ctx.reply(`⚠️ Couldn’t compute PnL right now: ${esc(describeError(e).message)}`)
+    await ctx.reply(`⚠️ Couldn’t compute PnL: ${esc(friendlyError(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'pnl failed' }))}`)
   }
 }
+
+/** pnl, pnl7d, pnl7dd (details), pnlall, pnlalld… */
+const PNL_ACTION = /^pnl(7d|30d|90d|all)?(d)?$/
 
 export function portfolioModule(): BotModule {
   return {
     commands: {
-      positions: { ...documented('positions'), run: (ctx) => showPositions(ctx) },
+      positions: { ...documented('positions'), run: (ctx, args) => showPositions(ctx, /details/i.test(args)) },
       pnl: {
         ...documented('pnl'),
         run: (ctx, args) => {
           const a = args.trim().toLowerCase()
-          const range: PnlRange = a === '7d' || a === '30d' || a === '90d' ? a : 'all'
-          return showPnl(ctx, range)
+          const range: PnlRange = /\b7d\b/.test(a) ? '7d' : /\b30d\b/.test(a) ? '30d' : /\b90d\b/.test(a) ? '90d' : 'all'
+          return showPnl(ctx, range, /details/.test(a))
         },
       },
     },
     callbacks: {
       pf: async (ctx, action) => {
         await ctx.answer()
-        if (action === 'positions') return showPositions(ctx)
-        const range = action.replace('pnl', '')
-        return showPnl(ctx, range === '7d' || range === '30d' || range === '90d' ? range : 'all')
+        if (action === 'positions') return showPositions(ctx, false)
+        if (action === 'posdetails') return showPositions(ctx, true)
+        const m = PNL_ACTION.exec(action)
+        return showPnl(ctx, (m?.[1] as PnlRange | undefined) ?? 'all', m?.[2] === 'd')
       },
     },
   }

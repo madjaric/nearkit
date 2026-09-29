@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { accountsModule } from './accounts'
 import { coreModule } from './core'
-import { settingsModule, parseBuyPresets, parseSlippage } from './settings'
+import { settingsModule, parseBuyPresets, parseSellPresets, parseSlippage } from './settings'
 import { ALICE, botHarness, GROUP, privateChat } from './testing'
 import type { BotModule } from './context'
 
@@ -17,24 +17,27 @@ async function bot(extra: BotModule[] = []) {
 }
 
 describe('onboarding', () => {
-  it('/start greets by name, states the network and the no-seed-phrase rule, and offers the menu', async () => {
+  it('/start is short: NearKit, the wallet (none yet), the network and the no-seed-phrase rule, then the menu', async () => {
     const h = await bot()
     await h.say('/start')
     const m = h.last()
     expect(m?.chatId).toBe(ALICE.id)
-    expect(m?.text).toContain('Welcome to NearKit, Alice')
+    expect(m?.text).toContain('<b>NearKit</b> · NEAR trading')
+    expect(m?.text).toContain('No wallet linked yet')
     expect(m?.text).toContain('Testnet beta')
     expect(m?.text).toMatch(/never asks for your seed phrase/)
-    expect(m?.buttons.map((b) => b.text)).toEqual(expect.arrayContaining(['🔗 Link wallet', '⚙️ Settings', '❓ Help']))
+    expect(m?.text.split('\n').length).toBeLessThanOrEqual(5)
+    expect(m?.buttons[0]?.text).toBe('🔗 Link wallet')
+    expect(m?.buttons.map((b) => b.text)).toEqual(expect.arrayContaining(['⚙️ Settings', '❓ Help']))
     // Features that don't exist in this bot are not offered.
     expect(m?.buttons.map((b) => b.text)).not.toContain('🟢 Buy')
     expect(h.store.getUser(ALICE.id)?.firstName).toBe('Alice')
   })
 
-  it('escapes a name that carries HTML', async () => {
+  it('never echoes the user’s name, so nothing a name carries reaches the chat', async () => {
     const h = await bot()
     await h.say('/start', { ...ALICE, first_name: '<b>Eve</b>' })
-    expect(h.last()?.text).toContain('&lt;b&gt;Eve&lt;/b&gt;')
+    expect(h.last()?.text).not.toContain('Eve')
   })
 
   it('/help lists the commands this bot really has', async () => {
@@ -44,7 +47,8 @@ describe('onboarding', () => {
     expect(text).toContain('/link')
     expect(text).toContain('/settings')
     expect(text).not.toContain('/buy')
-    expect(text).toContain('no NearKit fee is charged')
+    expect(text).toContain('No NearKit fee on testnet')
+    expect(text).toMatch(/never asks for your seed phrase/)
   })
 
   it('ignores commands meant for another bot and answers unknown ones', async () => {
@@ -145,6 +149,28 @@ describe('settings', () => {
     expect(h.store.getSettings(ALICE.id).buyPresets).toEqual(['0.25', '2', '10'])
   })
 
+  it('shows trading and wallet settings in one place', async () => {
+    const h = await bot()
+    await h.say('/settings')
+    const text = h.last()?.text ?? ''
+    expect(text).toContain('<b>Trading</b>')
+    expect(text).toContain('Slippage <code>1%</code>')
+    expect(text).toContain('Buy buttons <code>0.1</code> <code>0.5</code> <code>1</code> <code>5</code> NEAR')
+    expect(text).toContain('Sell buttons <code>25%</code> <code>50%</code> <code>75%</code> <code>100%</code>')
+    expect(text).toContain('<b>Wallet</b>')
+    expect(text).toContain('/buybot')
+  })
+
+  it('saves sell buttons, sorted, and refuses what is not a percentage', async () => {
+    const h = await bot()
+    await h.press('set:presets:sell')
+    await h.say('150')
+    expect(h.last()?.text).toContain('is not a whole percentage')
+    await h.say('100 10 33')
+    expect(h.store.getSettings(ALICE.id).sellPresets).toEqual([10, 33, 100])
+    expect(h.last()?.text).toContain('Sell buttons saved')
+  })
+
   it('toggles notifications', async () => {
     const h = await bot()
     await h.press('set:notify:toggle')
@@ -161,6 +187,10 @@ describe('settings', () => {
     expect(parseBuyPresets('0').ok).toBe(false)
     expect(parseBuyPresets('1 2 3 4 5 6 7').ok).toBe(false)
     expect(parseBuyPresets('0.0000000000000000000000001').ok).toBe(false)
+    expect(parseSellPresets('50%, 25')).toEqual({ ok: true, value: [25, 50] })
+    expect(parseSellPresets('0').ok).toBe(false)
+    expect(parseSellPresets('1 2 3 4 5').ok).toBe(false)
+    expect(parseSellPresets('12.5').ok).toBe(false)
   })
 })
 
@@ -190,7 +220,7 @@ describe('robustness', () => {
     expect(h.last()?.text).toContain('Something went wrong on NearKit’s side')
     expect(h.last()?.text).not.toContain('database exploded')
     await h.say('/help')
-    expect(h.last()?.text).toContain('NearKit bot')
+    expect(h.last()?.text).toContain('NearKit · help')
   })
 
   it('stops messaging a user who blocked the bot', async () => {
