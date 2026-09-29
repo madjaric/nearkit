@@ -15,6 +15,7 @@ import { formatCompact } from '@/lib/format'
 import { useWallets } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 import type { Position } from '@/types/domain'
+import { PositionPnlDetail } from './PositionPnlDetail'
 
 type SortKey = 'token' | 'balance' | 'avg' | 'price' | 'value' | 'pnl' | 'pnlPct'
 
@@ -37,8 +38,15 @@ const SORT_LABEL: Record<SortKey, string> = {
   avg: 'Average entry',
   price: 'Price',
   value: 'Value',
-  pnl: 'PnL',
-  pnlPct: 'PnL %',
+  pnl: 'Unrealized PnL',
+  pnlPct: 'Unrealized %',
+}
+
+/** A position's PnL state next to its figures: still reading history, or partial. */
+function PnlState({ position }: { position: Position }) {
+  if (position.pnlStatus === 'loading') return <div className="text-[11px] text-fg-4">calculating…</div>
+  if (position.pnl && !position.pnl.complete) return <div className="text-[11px] text-warn">partial</div>
+  return null
 }
 
 interface PositionsTableProps {
@@ -144,11 +152,11 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                 Value
               </Th>
               <Th align="right" sort={thSort('pnl')}>
-                PnL
+                Unrealized
               </Th>
               {!compact && (
                 <Th align="right" sort={thSort('pnlPct')}>
-                  PnL %
+                  Unrealized %
                 </Th>
               )}
               <Th align="right">Actions</Th>
@@ -207,6 +215,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                           <Pct value={p.pnlPct} className="text-[11px]" />
                         </div>
                       )}
+                      <PnlState position={p} />
                     </Td>
                     {!compact && (
                       <Td align="right">
@@ -220,6 +229,9 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                   {expandable && isOpen && (
                     <tr className="border-b border-line-soft bg-well/60">
                       <td colSpan={colCount} className="px-4 py-2">
+                        <div className="pb-2 pl-10">
+                          <PositionPnlDetail position={p} />
+                        </div>
                         <ul className="grid grid-cols-1 gap-x-8 gap-y-1 pl-10 sm:grid-cols-2 xl:grid-cols-3" aria-label={`${p.token.symbol} by wallet`}>
                           {p.wallets.map((w) => {
                             const wallet = walletLabel.get(w.walletId)

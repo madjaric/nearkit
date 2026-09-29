@@ -1,6 +1,6 @@
 import { useState, type PointerEvent } from 'react'
 import { cn } from '@/lib/cn'
-import { formatDate, formatUsd, formatUsdCompact } from '@/lib/format'
+import { formatDate, USD_FORMAT, type MoneyFormat } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
 import type { PnlPoint } from '@/types/domain'
 import { pct, xFrac, yScale } from './geometry'
@@ -14,7 +14,19 @@ const PAD = { top: 8, right: 60, bottom: 8, left: 4 }
  * color reinforces it. Columns are HTML so their width caps at 24px with a
  * 2px gap at any container size, sharing x positions with the scope above.
  */
-export function DailyBars({ points, height = 110, window, dim = false }: { points: PnlPoint[]; height?: number; window?: [number, number]; dim?: boolean }) {
+export function DailyBars({
+  points,
+  height = 110,
+  window,
+  dim = false,
+  money = USD_FORMAT,
+}: {
+  points: PnlPoint[]
+  height?: number
+  window?: [number, number]
+  dim?: boolean
+  money?: MoneyFormat
+}) {
   const [hover, setHover] = useState<number | null>(null)
   const n = points.length
   const plotH = height - PAD.top - PAD.bottom
@@ -72,13 +84,13 @@ export function DailyBars({ points, height = 110, window, dim = false }: { point
           <>
             <VLine frac={xFrac(hover, n)} className="bg-fg-4" />
             <HoverReadout frac={xFrac(hover, n)}>
-              <div className={cn('num text-sm', toneOf(hp.daily))}>{hp.daily === 0 ? 'No closed trades' : formatUsd(hp.daily, { signed: true })}</div>
+              <div className={cn('num text-sm', toneOf(hp.daily))}>{hp.daily === 0 ? 'No closed trades' : money.full(hp.daily, { signed: true })}</div>
               <div className="text-[11px] text-fg-3">{formatDate(hp.t)}</div>
             </HoverReadout>
           </>
         )}
         <div aria-hidden="true">
-          <YLabels ticks={ticks} y={y} format={(t) => (t === 0 ? '0' : formatUsdCompact(t, 1))} strong={0} />
+          <YLabels ticks={ticks} y={y} format={(t) => (t === 0 ? '0' : money.compact(t, 1))} strong={0} />
         </div>
       </div>
     </div>

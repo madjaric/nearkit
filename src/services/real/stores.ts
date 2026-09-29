@@ -159,6 +159,11 @@ export function createStores(kv: KeyValue, network: NetworkId) {
       },
     },
     drafts: { dca, copy, sniper, orders },
+    /** Per-account PnL ledger cache (public chain data, JSON). */
+    ledger: {
+      read: (accountId: string): string | null => kv.get(key(`ledger:${accountId}`)),
+      write: (accountId: string, text: string): void => kv.set(key(`ledger:${accountId}`), text),
+    },
   }
 }
 

@@ -106,7 +106,8 @@ export function createNearContext(options: NearContextOptions): NearContext {
     explorerUrl: network.explorerUrl,
     rpcUrls: network.rpcUrls,
     prices: network.nearUsd !== null,
-    pnl: false,
+    // From on-chain history: exact in NEAR, USD where the hour's NEAR price is known.
+    pnl: true,
     automation: 'drafts',
     execution: {
       enabled: executionEnabled,

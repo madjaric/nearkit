@@ -15,12 +15,18 @@ import { useCapabilities, usePositions, useWallets } from '@/services/queries'
 import { useSettings } from '@/state/contexts'
 import type { Position } from '@/types/domain'
 
-/** Re-cut positions to one wallet's share, valued at the same prices and entries. Unknown stays unknown. */
+/**
+ * Re-cut positions to one wallet's share, valued at the same prices. Real PnL is
+ * computed per account from its own history, so a position held by several
+ * accounts has no single entry to re-cut: its PnL figures become unknown here.
+ */
 function forWallet(positions: Position[], walletId: string): Position[] {
   return positions.flatMap((p) => {
     const share = p.wallets.find((w) => w.walletId === walletId)
     if (!share) return []
+    if (p.pnl !== undefined && p.wallets.length === 1) return [p]
     const valueUsd = p.priceUsd === null ? null : share.amount * p.priceUsd
+    if (p.pnl !== undefined) return [{ ...p, balance: share.amount, valueUsd, avgEntryUsd: null, costUsd: null, pnlUsd: null, pnlPct: null, pnl: undefined, wallets: [share] }]
     const costUsd = p.avgEntryUsd === null ? null : share.amount * p.avgEntryUsd
     const pnlUsd = valueUsd !== null && costUsd !== null ? valueUsd - costUsd : null
     const pnlPct = pnlUsd !== null && costUsd ? (pnlUsd / costUsd) * 100 : null
@@ -79,10 +85,16 @@ function Positions() {
           sub={
             unrealized === null ? (
               caps.pnl ? (
-                '—'
+                rows.some((p) => p.pnlStatus === 'loading') ? (
+                  'reading history…'
+                ) : (
+                  '—'
+                )
               ) : (
                 'cost basis not tracked yet'
               )
+            ) : rows.some((p) => p.pnl && !p.pnl.complete) ? (
+              'partial: see each row'
             ) : value !== null && value - unrealized > 0 ? (
               <>
                 <Pct value={(unrealized / (value - unrealized)) * 100} /> on cost
@@ -120,7 +132,7 @@ function Positions() {
       </div>
 
       <Panel>
-        <PanelHeader title="Positions" meta={rows.length} actions={<span className="text-[11px] text-fg-3">Expand a row for its wallets</span>} />
+        <PanelHeader title="Positions" meta={rows.length} actions={<span className="text-[11px] text-fg-3">Expand a row for its PnL, history and wallets</span>} />
         {!loading && rows.length === 0 ? (
           <EmptyState
             title={filtered ? 'No positions match these filters' : 'No positions yet'}
@@ -155,8 +167,8 @@ export default function PositionsPage() {
     caps.mode === 'demo'
       ? 'Every token held across your NearKit wallets, valued at demo prices against your average entry.'
       : caps.prices
-        ? 'Every token held across your NearKit wallets, valued at Rhea prices. Entry prices are not tracked yet.'
-        : `Every token held across your NearKit wallets on ${caps.networkLabel.toLowerCase()}. Testnet tokens have no USD price.`
+        ? 'Every token held across your NearKit wallets, valued at Rhea prices, with cost basis and PnL from your on-chain history (average cost).'
+        : `Every token held across your NearKit wallets on ${caps.networkLabel.toLowerCase()}. Testnet tokens have no USD price: each row’s details show PnL in NEAR.`
   return (
     <Page>
       <PageHeader title="Positions" description={description} />

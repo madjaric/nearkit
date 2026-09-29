@@ -63,6 +63,11 @@ export interface NetworkConfig {
   knownTokens: readonly string[]
   /** Token the trade tickets open on. */
   defaultTradeToken: string
+  /**
+   * USD stablecoins, valued at face value in PnL (a trade paid in one has a known USD
+   * value). Empty on testnet, where no token has a price.
+   */
+  stableTokens: readonly { contract: string; decimals: number }[]
 }
 
 export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freeze({
@@ -103,6 +108,10 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
       'token.0xshitzu.near',
     ]),
     defaultTradeToken: 'blackdragon.tkn.near',
+    stableTokens: Object.freeze([
+      Object.freeze({ contract: '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1', decimals: 6 }),
+      Object.freeze({ contract: 'usdt.tether-token.near', decimals: 6 }),
+    ]),
   }),
   testnet: Object.freeze({
     id: 'testnet',
@@ -126,6 +135,7 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
     // Testnet tokens with the deepest wrap.testnet pools on ref-finance-101.testnet (verified 2026-09-28).
     knownTokens: Object.freeze(['wrap.testnet', 'usdt.itachicara.testnet', 'usdc.itachicara.testnet', 'ref.fakes.testnet']),
     defaultTradeToken: 'usdt.itachicara.testnet',
+    stableTokens: Object.freeze([]),
   }),
 })
 

@@ -100,6 +100,26 @@ export function formatUsdCompact(value: number, decimals = 1): string {
   return value < 0 ? `${MINUS}${text}` : text
 }
 
+/** How a chart or report writes money: USD, or NEAR where no USD value exists (testnet). */
+export interface MoneyFormat {
+  full(value: number, opts?: { signed?: boolean }): string
+  compact(value: number, decimals?: number): string
+}
+
+export const USD_FORMAT: MoneyFormat = { full: (v, o) => formatUsd(v, o), compact: (v, d) => formatUsdCompact(v, d) }
+
+export const NEAR_FORMAT: MoneyFormat = {
+  full(value, opts = {}) {
+    if (!Number.isFinite(value)) return '—'
+    return withSign(`${nf(0, Math.abs(value) < 1 ? 5 : 3).format(Math.abs(value))} NEAR`, value, opts.signed ?? false)
+  },
+  compact(value, decimals = 1) {
+    if (!Number.isFinite(value)) return '—'
+    const text = `${formatCompact(Math.abs(value), decimals)} NEAR`
+    return value < 0 ? `${MINUS}${text}` : text
+  },
+}
+
 /**
  * Token amount: large balances drop decimals, small ones keep enough to be exact.
  * minDecimals keeps a steady column (e.g. NEAR always shows 2).

@@ -4,18 +4,26 @@ import type { PortfolioService, WalletService } from '../types'
 import { reconcile } from './activity'
 import type { NearContext } from './context'
 import type { Market } from './market'
+import type { PnlTracker } from './pnlTracker'
+import { buildPnlReport } from './pnlReport'
+import { tokenPnl, withPnl } from './positionsPnl'
 
 /**
  * Portfolio from real balances. Values need a price; where there is none
- * (testnet, unlisted tokens) the figure is null, never zero. Cost basis and
- * PnL are not tracked in Phase 2: they would have to be inferred, and an
- * inferred PnL is worse than none.
+ * (testnet, unlisted tokens) the figure is null, never zero. Cost basis and PnL
+ * come from each account's on-chain history (src/lib/pnl.ts): exact in NEAR,
+ * in USD at each trade's hour, and flagged wherever history can't tell.
  */
+
+/** How long a positions read waits for history before answering without PnL. */
+const PNL_WAIT_MS = 6_000
+
 export function createPortfolioService(
   ctx: NearContext,
   market: Market,
   wallets: Pick<WalletService, 'getSession' | 'listSnapshots'>,
   active: ReadonlySet<string>,
+  tracker: PnlTracker,
 ): PortfolioService {
   async function positions(): Promise<Position[]> {
     const snapshots = await wallets.listSnapshots()
@@ -48,7 +56,8 @@ export function createPortfolioService(
       })
     }
     // Priced positions by value first, then unpriced ones by balance.
-    return list.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1) || b.balance - a.balance)
+    const sorted = list.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1) || b.balance - a.balance)
+    return withPnl(sorted, snapshots, tracker, PNL_WAIT_MS)
   }
 
   return {
@@ -93,8 +102,30 @@ export function createPortfolioService(
       return []
     },
 
-    async getPnl() {
-      return null
+    async getPnl(range) {
+      const snapshots = await wallets.listSnapshots()
+      const accounts = [...new Set(snapshots.map((s) => s.accountId))]
+      if (!accounts.length) return null
+      const ledgers = await Promise.all(accounts.map((a) => tracker.ledger(a)))
+      const ids = [...new Set(ledgers.flatMap((l) => [...l.byToken.keys()]))]
+      const listings = new Map((await market.listTokens(ids)).map((t) => [t.id, t]))
+      const currency = ctx.capabilities.prices ? 'USD' : 'NEAR'
+      const tokens = ids.flatMap((id) => {
+        const token = listings.get(id)
+        if (!token || !token.contract) return []
+        const balances = new Map<string, bigint>()
+        for (const s of snapshots) {
+          const raw = s.holdings.find((h) => h.tokenId === id)?.raw
+          if (raw) balances.set(s.accountId, BigInt(raw))
+        }
+        const { combined, sales, events } = tokenPnl(token, ledgers, balances)
+        const trades = events.flatMap(({ event: e }) =>
+          e.kind === 'buy' || e.kind === 'sell' ? [{ at: e.at, value: currency === 'USD' ? e.value.usd : e.value.near === null ? null : Number(e.value.near) / 1e24 }] : [],
+        )
+        return [{ token, combined, sales, trades }]
+      })
+      const gasNear = ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0)
+      return buildPnlReport({ range, now: ctx.now(), currency, tokens, gasNear, walletOf: (a) => snapshots.find((s) => s.accountId === a)?.id ?? a })
     },
 
     async listActivity(limit = 50) {

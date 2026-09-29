@@ -195,6 +195,10 @@ const press = (user, data) =>
 try {
   await up(`http://127.0.0.1:${API_PORT}/health`)
   await up(WEB)
+  // Warm the dev server: the first visit to a page compiles it, which can outlast a step's timeout.
+  const warm = await newPage({ accounts: [USER] })
+  for (const path of ['/telegram', '/swap']) await warm.goto(WEB + path, { waitUntil: 'networkidle' })
+  await warm.context().close()
 } catch (e) {
   console.log(String(e.message))
   console.log(serverLog.join(''))

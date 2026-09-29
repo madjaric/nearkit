@@ -3,6 +3,7 @@ import { createAutomationService } from './automationService'
 import { createNearContext, type NearContextOptions } from './context'
 import { createExecutionService } from './executionService'
 import { createMarket } from './market'
+import { createPnlTracker } from './pnlTracker'
 import { createPortfolioService } from './portfolioService'
 import { createTokenService } from './tokenService'
 import { createTradingService } from './tradingService'
@@ -29,6 +30,6 @@ export function createNearServices(options: NearContextOptions): NearKitServices
     trading: createTradingService(ctx, market, wallets),
     execution: createExecutionService(ctx, active),
     automation: createAutomationService(ctx, wallets),
-    portfolio: createPortfolioService(ctx, market, wallets, active),
+    portfolio: createPortfolioService(ctx, market, wallets, active, createPnlTracker(ctx)),
   }
 }

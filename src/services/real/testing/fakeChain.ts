@@ -44,7 +44,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
   const agg = options.aggregator ? { ...options.aggregator, registered: new Map(Object.entries(options.aggregator.registered ?? {}).map(([u, ts]) => [u, new Set(ts)])) } : null
   const txs = new Map<string, RpcTxResult>()
   const requests: Recorded[] = []
-  const http = new Map<string, (url: URL) => unknown>()
+  const http = new Map<string, (url: URL, body: unknown) => unknown>()
 
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   const rpcError = (id: unknown, name: string, message: string) =>
@@ -133,13 +133,18 @@ export function createFakeChain(options: FakeChainOptions = {}) {
 
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    // Routes first (GET or POST, e.g. FastNEAR's transaction index), then JSON-RPC.
+    for (const [prefix, handler] of http) {
+      if (!url.href.startsWith(prefix)) continue
+      requests.push({ url: url.href })
+      return json(handler(url, init?.body ? (JSON.parse(String(init.body)) as unknown) : null))
+    }
     if (init?.method === 'POST' && init.body) {
       const body = JSON.parse(String(init.body)) as { method?: string; params?: unknown }
       requests.push({ url: url.href, method: body.method, params: body.params })
       return handleRpc(body as { id?: unknown; method?: string; params?: Record<string, unknown> })
     }
     requests.push({ url: url.href })
-    for (const [prefix, handler] of http) if (url.href.startsWith(prefix)) return json(handler(url))
     if (url.pathname.endsWith('/ft') && url.pathname.startsWith('/v1/account/')) {
       const account = decodeURIComponent(url.pathname.split('/')[3] ?? '')
       const held = [...tokens.entries()].flatMap(([contract, t]) =>
@@ -156,8 +161,8 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     accounts,
     tokens,
     aggregator: agg,
-    /** Answer GETs that start with this prefix. */
-    route(prefix: string, handler: (url: URL) => unknown) {
+    /** Answer requests (GET or POST) whose URL starts with this prefix. */
+    route(prefix: string, handler: (url: URL, body: unknown) => unknown) {
       http.set(prefix, handler)
     },
     /** Make a transaction's final status available. */

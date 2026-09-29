@@ -8,7 +8,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Segmented } from '@/components/ui/Form'
 import { InfoTip, Term } from '@/components/ui/Help'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
-import { Pct, Price, Usd } from '@/components/ui/Num'
+import { Pct, Price } from '@/components/ui/Num'
 import { toneOf } from '@/lib/tone'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
@@ -16,8 +16,9 @@ import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { useSort } from '@/components/ui/useSort'
 import { cn } from '@/lib/cn'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
-import { formatCompact, formatDate, formatDateTime, formatNumber, formatUsd, formatUsdCompact } from '@/lib/format'
+import { formatCompact, formatDate, formatDateTime, formatNumber, formatPrice, NEAR_FORMAT, USD_FORMAT, type MoneyFormat } from '@/lib/format'
 import { useCapabilities, usePnl, useWallets } from '@/services/queries'
+import { LIMITATION_TEXT } from '@/features/portfolio/pnlText'
 import type { PnlRange, TokenPnl } from '@/types/domain'
 
 const RANGES: { value: PnlRange; label: string }[] = [
@@ -37,7 +38,25 @@ const TOKEN_GETTERS: Record<TokenKey, (t: TokenPnl) => number | string> = {
   win: (t) => t.winRatePct,
 }
 
-function ByToken({ rows }: { rows: TokenPnl[] }) {
+/** A money figure in the report's currency. */
+function Money({
+  value,
+  money,
+  signed = false,
+  colored = false,
+  className,
+}: {
+  value: number | null
+  money: MoneyFormat
+  signed?: boolean
+  colored?: boolean
+  className?: string
+}) {
+  if (value === null) return <span className={cn('num text-fg-4', className)}>—</span>
+  return <span className={cn('num', colored && toneOf(value), className)}>{money.full(value, { signed })}</span>
+}
+
+function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
   const { sorted, thSort } = useSort(rows, TOKEN_GETTERS, { key: 'realized', dir: 'desc' })
   return (
     <>
@@ -59,11 +78,11 @@ function ByToken({ rows }: { rows: TokenPnl[] }) {
             <span className="text-right text-xs">
               <span className="block">
                 <span className="text-fg-3">real </span>
-                <Usd value={t.realizedUsd} signed colored />
+                <Money money={money} value={t.realizedUsd} signed colored />
               </span>
               <span className="block">
                 <span className="text-fg-3">open </span>
-                <Usd value={t.unrealizedUsd} signed colored />
+                <Money money={money} value={t.unrealizedUsd} signed colored />
               </span>
             </span>
           </li>
@@ -107,13 +126,13 @@ function ByToken({ rows }: { rows: TokenPnl[] }) {
                   {t.trades}
                 </Td>
                 <Td align="right" mono className="text-fg-2">
-                  {formatUsdCompact(t.volumeUsd)}
+                  {money.compact(t.volumeUsd)}
                 </Td>
                 <Td align="right">
-                  <Usd value={t.realizedUsd} signed colored />
+                  <Money money={money} value={t.realizedUsd} signed colored />
                 </Td>
                 <Td align="right">
-                  <Usd value={t.unrealizedUsd} signed colored />
+                  <Money money={money} value={t.unrealizedUsd} signed colored />
                 </Td>
                 <Td align="right" mono className={t.trades ? 'text-fg-2' : 'text-fg-4'}>
                   {t.trades ? `${formatNumber(t.winRatePct, 0, 1)}%` : '—'}
@@ -135,14 +154,22 @@ function Pnl() {
   const r = pnl.data
   const loading = pnl.isPending
   const dim = pnl.isPlaceholderData
+  const chain = r?.source === 'chain'
+  const money = r?.currency === 'NEAR' ? NEAR_FORMAT : USD_FORMAT
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented label="Date range" value={range} onChange={setRange} options={RANGES} />
-        <span className="flex items-center gap-2 text-xs text-fg-3">
-          <Tag tone="neutral">Demo history</Tag> Closed trades generated for the preview
-        </span>
+        {chain ? (
+          <span className="flex items-center gap-2 text-xs text-fg-3">
+            <Tag tone="neutral">On-chain history</Tag> Average cost · {r?.currency === 'NEAR' ? 'in NEAR: no USD prices on this network' : 'USD at each trade’s hour'}
+          </span>
+        ) : (
+          <span className="flex items-center gap-2 text-xs text-fg-3">
+            <Tag tone="neutral">Demo history</Tag> Closed trades generated for the preview
+          </span>
+        )}
       </div>
 
       <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-5" className={dim ? 'opacity-60 transition-opacity' : undefined}>
@@ -151,26 +178,39 @@ function Pnl() {
           size="lg"
           legend={<Term term="realizedPnl" />}
           loading={loading}
-          value={r ? <span className={toneOf(r.realizedUsd)}>{formatUsd(r.realizedUsd, { signed: true })}</span> : '—'}
+          value={r ? <span className={toneOf(r.realizedUsd)}>{money.full(r.realizedUsd, { signed: true })}</span> : '—'}
           sub={r ? `${r.trades} closed trades` : ''}
         />
         <ReadoutSlot
           legend={<Term term="unrealizedPnl" />}
           loading={loading}
-          value={r ? <span className={toneOf(r.unrealizedUsd)}>{formatUsd(r.unrealizedUsd, { signed: true })}</span> : '—'}
+          value={r ? <span className={toneOf(r.unrealizedUsd)}>{money.full(r.unrealizedUsd, { signed: true })}</span> : '—'}
           sub="open positions, now"
         />
-        <ReadoutSlot legend="Trading volume" loading={loading} value={r ? formatUsdCompact(r.volumeUsd, 2) : '—'} sub="entries + exits" />
-        <ReadoutSlot
-          legend={
-            <>
-              Fees paid <InfoTip>Estimated at {NEARKIT_FEE_LABEL} of volume. The demo charges no fee.</InfoTip>
-            </>
-          }
-          loading={loading}
-          value={r ? formatUsd(r.feesUsd) : '—'}
-          sub={`${NEARKIT_FEE_LABEL} of volume`}
-        />
+        <ReadoutSlot legend="Trading volume" loading={loading} value={r ? money.compact(r.volumeUsd, 2) : '—'} sub="entries + exits" />
+        {chain ? (
+          <ReadoutSlot
+            legend={
+              <>
+                Gas paid <InfoTip>NEAR these accounts paid as gas across their history. Swap fees (NearKit’s {NEARKIT_FEE_LABEL}, Rhea’s) are inside each trade’s value.</InfoTip>
+              </>
+            }
+            loading={loading}
+            value={r?.gasNear !== undefined ? NEAR_FORMAT.full(r.gasNear) : '—'}
+            sub="all history"
+          />
+        ) : (
+          <ReadoutSlot
+            legend={
+              <>
+                Fees paid <InfoTip>Estimated at {NEARKIT_FEE_LABEL} of volume. The demo charges no fee.</InfoTip>
+              </>
+            }
+            loading={loading}
+            value={r ? money.full(r.feesUsd) : '—'}
+            sub={`${NEARKIT_FEE_LABEL} of volume`}
+          />
+        )}
         <ReadoutSlot
           className="md:col-span-2 xl:col-span-1"
           legend={<Term term="winRate" />}
@@ -180,10 +220,21 @@ function Pnl() {
         />
       </ReadoutStrip>
 
+      {chain && r?.limitations && r.limitations.length > 0 && (
+        <Panel className="px-4 py-3">
+          <p className="text-xs text-fg-2">Partial figures:</p>
+          <ul className="mt-1 flex flex-col gap-0.5 text-xs text-warn">
+            {r.limitations.map((l) => (
+              <li key={l}>{LIMITATION_TEXT[l]}</li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+
       <Panel>
         <PanelHeader
           title="Cumulative realized PnL"
-          meta={r ? <span className={cn('num', toneOf(r.realizedUsd))}>{formatUsdCompact(r.realizedUsd)}</span> : undefined}
+          meta={r ? <span className={cn('num', toneOf(r.realizedUsd))}>{money.compact(r.realizedUsd)}</span> : undefined}
           actions={
             <Segmented
               label="View"
@@ -203,7 +254,7 @@ function Pnl() {
           ) : view === 'chart' ? (
             <>
               <p className="mb-3 text-xs text-fg-3">Drag cursor A or B, or focus a cursor handle and use the arrow keys (Shift for a week), to measure any window.</p>
-              <PnlScope key={`${range}-${r.points.length}`} points={r.points} dim={dim} />
+              <PnlScope key={`${range}-${r.points.length}`} points={r.points} dim={dim} money={money} />
             </>
           ) : (
             <div className="max-h-[420px] overflow-y-auto">
@@ -219,9 +270,9 @@ function Pnl() {
                   {[...r.points].reverse().map((p) => (
                     <Tr key={p.t}>
                       <Td className="text-fg-2">{formatDate(p.t, true)}</Td>
-                      <Td align="right">{p.daily === 0 ? <span className="num text-fg-4">0.00</span> : <Usd value={p.daily} signed colored />}</Td>
+                      <Td align="right">{p.daily === 0 ? <span className="num text-fg-4">0.00</span> : <Money money={money} value={p.daily} signed colored />}</Td>
                       <Td align="right">
-                        <Usd value={p.cumulative} signed colored />
+                        <Money money={money} value={p.cumulative} signed colored />
                       </Td>
                     </Tr>
                   ))}
@@ -235,7 +286,7 @@ function Pnl() {
       <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-2">
         <Panel>
           <PanelHeader title="By token" meta={r?.byToken.length} />
-          {r ? <ByToken rows={r.byToken} /> : <Skeleton className="m-4 h-40" />}
+          {r ? <ByToken rows={r.byToken} money={money} /> : <Skeleton className="m-4 h-40" />}
         </Panel>
         <Panel>
           <PanelHeader title="Recent closed trades" meta={r?.recentTrades.length} />
@@ -259,7 +310,7 @@ function Pnl() {
                         </span>
                       </span>
                       <span className="text-right">
-                        <Usd value={t.pnlUsd} signed colored className="text-sm" />
+                        <Money money={money} value={t.pnlUsd} signed colored className="text-sm" />
                         <span className="block">
                           <Pct value={cost ? (t.pnlUsd / cost) * 100 : 0} className="text-[11px]" />
                         </span>
@@ -299,10 +350,10 @@ function Pnl() {
                             {formatCompact(t.amount, 2)}
                           </Td>
                           <Td align="right">
-                            <Price value={t.priceUsd} className="text-fg-2" />
+                            {r.currency === 'NEAR' ? <span className="num text-fg-2">{formatPrice(t.priceUsd)} NEAR</span> : <Price value={t.priceUsd} className="text-fg-2" />}
                           </Td>
                           <Td align="right">
-                            <Usd value={t.pnlUsd} signed colored />
+                            <Money money={money} value={t.pnlUsd} signed colored />
                             <div>
                               <Pct value={cost ? (t.pnlUsd / cost) * 100 : 0} className="text-[11px]" />
                             </div>

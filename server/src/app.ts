@@ -7,6 +7,7 @@ import { createBotApp, type BotApp } from './bot/app'
 import { buybotModule } from './bot/buybot'
 import type { BotDeps, BotModule, BuybotDeps, Command } from './bot/context'
 import { coreModule } from './bot/core'
+import { portfolioModule } from './bot/portfolio'
 import { settingsModule } from './bot/settings'
 import { tradeModule } from './bot/trade'
 import { loadConfig, type ServerConfig } from './config'
@@ -40,7 +41,7 @@ export interface RunningServer {
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
   // `/start link` (from the "open a private chat" button) goes straight to linking.
-  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), tradeModule(), buybotModule()]
+  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), tradeModule(), portfolioModule(), buybotModule()]
 }
 
 /** Commands for Telegram's menu, per chat type. */

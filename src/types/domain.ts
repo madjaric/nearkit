@@ -132,10 +132,65 @@ export interface Position {
   priceUsd: number | null
   change24hPct: number | null
   valueUsd: number | null
+  /** Cost basis of the units whose cost is known (see `pnl` for what that covers). */
   costUsd: number | null
+  /** Unrealized PnL of those units. */
   pnlUsd: number | null
+  /** Unrealized PnL ÷ their cost basis. */
   pnlPct: number | null
   wallets: PositionWalletShare[]
+  /** Real mode: PnL from the accounts' on-chain history (src/lib/pnl.ts). Undefined where not tracked. */
+  pnl?: PositionPnl | null
+  /** `loading`: history is still being read; figures arrive on a later refresh. */
+  pnlStatus?: 'ready' | 'loading' | 'unavailable'
+}
+
+/** Why a PnL figure is partial (see src/lib/pnl.ts). */
+export type PnlLimitation = 'unknown-cost-units' | 'unknown-proceeds' | 'history-incomplete' | 'no-current-price'
+
+/** One currency's figures, in whole units (NEAR or USD). */
+export interface PnlFiguresView {
+  costBasis: number
+  /** Per whole token. */
+  avgEntry: number | null
+  realized: number
+  unrealized: number | null
+  total: number | null
+  invested: number
+  /** Total PnL ÷ everything invested. */
+  pnlPct: number | null
+  /** Proceeds from selling units whose cost was unknown (not counted as profit). */
+  unmatchedProceeds: number
+  complete: boolean
+}
+
+export interface PositionEvent {
+  at: Timestamp
+  tx: string
+  kind: 'buy' | 'sell' | 'transfer-in' | 'transfer-out'
+  accountId: string
+  amount: number
+  valueNear: number | null
+  valueUsd: number | null
+  counterparty: string | null
+}
+
+export interface PositionPnl {
+  method: 'average-cost'
+  /** Exact: from on-chain amounts. */
+  near: PnlFiguresView
+  /** NEAR amounts at the hour's NEAR/USD (Coinbase), stablecoins at face. */
+  usd: PnlFiguresView
+  /** Units held whose cost is unknown (arrived by transfer, or paid in an unpriced token). */
+  unknownCostAmount: number
+  bought: { amount: number; near: number | null; usd: number | null }
+  sold: { amount: number; near: number | null; usd: number | null }
+  trades: number
+  /** Every unit and trade is accounted for in NEAR. */
+  complete: boolean
+  limitations: PnlLimitation[]
+  /** Newest first, at most 50. */
+  history: PositionEvent[]
 }
 
 export interface ValuePoint {
@@ -178,6 +233,18 @@ export interface ClosedTrade {
 
 export interface PnlReport {
   range: PnlRange
+  /**
+   * Unit of every money field below (named …Usd for the demo's sake). Real mode uses
+   * NEAR where no USD price exists (testnet). Absent means USD.
+   */
+  currency?: 'USD' | 'NEAR'
+  /** `chain`: computed from the accounts' on-chain history. Absent: demo data. */
+  source?: 'demo' | 'chain'
+  /** Every trade and unit was valued; false lists why in `limitations`. */
+  complete?: boolean
+  limitations?: PnlLimitation[]
+  /** Real mode: NEAR paid as gas by these accounts across their history (swap fees are inside trade values). */
+  gasNear?: number
   points: PnlPoint[]
   realizedUsd: number
   unrealizedUsd: number

@@ -1,7 +1,7 @@
 import { useRef, useState, type PointerEvent } from 'react'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { cn } from '@/lib/cn'
-import { formatDate, formatPct, formatUsd, formatUsdCompact } from '@/lib/format'
+import { formatDate, formatPct, USD_FORMAT, type MoneyFormat } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
 import type { PnlPoint } from '@/types/domain'
 import { DailyBars } from './DailyBars'
@@ -16,6 +16,8 @@ interface PnlScopeProps {
   points: PnlPoint[]
   height?: number
   dim?: boolean
+  /** Units of the figures (USD unless the report is in NEAR). */
+  money?: MoneyFormat
 }
 
 /**
@@ -23,7 +25,7 @@ interface PnlScopeProps {
  * a scope measures between two points: drag A and B (or focus a handle and use
  * the arrow keys) to read ΔPnL, return on volume, Δt and the best day between.
  */
-export function PnlScope({ points, height = 260, dim = false }: PnlScopeProps) {
+export function PnlScope({ points, height = 260, dim = false, money = USD_FORMAT }: PnlScopeProps) {
   const n = points.length
   const plotRef = useRef<HTMLDivElement>(null)
   const cursors = useCursors(n, [Math.floor((n - 1) * 0.25), n - 1], plotRef)
@@ -65,14 +67,14 @@ export function PnlScope({ points, height = 260, dim = false }: PnlScopeProps) {
   return (
     <div className={cn('flex flex-col gap-3', dim && 'opacity-50 transition-opacity')}>
       <p className="num -mb-1 text-right text-[11px] text-fg-4" title="Graticule scale: value and time per major division">
-        {formatUsdCompact((ticks[1] ?? 0) - (ticks[0] ?? 0), 1)}/div · {formatDivision(((points[n - 1]?.t ?? 0) - (points[0]?.t ?? 0)) / 10)}/div
+        {money.compact((ticks[1] ?? 0) - (ticks[0] ?? 0), 1)}/div · {formatDivision(((points[n - 1]?.t ?? 0) - (points[0]?.t ?? 0)) / 10)}/div
       </p>
       <div className="relative select-none" style={{ height }}>
         <div
           ref={plotRef}
           data-plot
           role="img"
-          aria-label={`Cumulative realized PnL over ${n} days, from ${formatUsd(points[0]?.cumulative ?? 0, { signed: true })} to ${formatUsd(points[n - 1]?.cumulative ?? 0, { signed: true })}.`}
+          aria-label={`Cumulative realized PnL over ${n} days, from ${money.full(points[0]?.cumulative ?? 0, { signed: true })} to ${money.full(points[n - 1]?.cumulative ?? 0, { signed: true })}.`}
           className="absolute cursor-crosshair touch-none"
           style={inset}
           onPointerDown={cursors.plotHandlers.onPointerDown}
@@ -93,9 +95,9 @@ export function PnlScope({ points, height = 260, dim = false }: PnlScopeProps) {
                   <VLine frac={xFrac(hover, n)} className="bg-fg-4" />
                   <Dot frac={xFrac(hover, n)} y={y(hp.cumulative)} />
                   <HoverReadout frac={xFrac(hover, n)}>
-                    <div className={cn('num text-sm', toneOf(hp.cumulative))}>{formatUsd(hp.cumulative, { signed: true })}</div>
+                    <div className={cn('num text-sm', toneOf(hp.cumulative))}>{money.full(hp.cumulative, { signed: true })}</div>
                     <div className="text-[11px] text-fg-3">
-                      {formatDate(hp.t)} · day <span className={cn('num', toneOf(hp.daily))}>{formatUsd(hp.daily, { signed: true })}</span>
+                      {formatDate(hp.t)} · day <span className={cn('num', toneOf(hp.daily))}>{money.full(hp.daily, { signed: true })}</span>
                     </div>
                   </HoverReadout>
                 </>
@@ -108,7 +110,7 @@ export function PnlScope({ points, height = 260, dim = false }: PnlScopeProps) {
           {n > 1 && (
             <>
               <div aria-hidden="true">
-                <YLabels ticks={ticks} y={y} format={(t) => (t === 0 ? '0' : formatUsdCompact(t, 1))} strong={0} />
+                <YLabels ticks={ticks} y={y} format={(t) => (t === 0 ? '0' : money.compact(t, 1))} strong={0} />
                 <XLabels items={axis.map((i) => ({ frac: xFrac(i, n), text: formatDate(points[i]?.t ?? 0) }))} />
               </div>
               {(['a', 'b'] as const).map((id) => {
@@ -125,7 +127,7 @@ export function PnlScope({ points, height = 260, dim = false }: PnlScopeProps) {
                         frac={xFrac(index, n)}
                         index={index}
                         max={n - 1}
-                        valueText={`${formatDate(p.t)}: ${formatUsd(p.cumulative, { signed: true })}`}
+                        valueText={`${formatDate(p.t)}: ${money.full(p.cumulative, { signed: true })}`}
                         onKeyDown={cursors.handleKeys(id)}
                         onPointerDown={cursors.grab(id)}
                       />
@@ -144,22 +146,22 @@ export function PnlScope({ points, height = 260, dim = false }: PnlScopeProps) {
           <span aria-hidden="true" className="h-px min-w-8 flex-1 bg-line-soft" />
           <span className="text-[11px] text-fg-3">Bars outside the A–B window are dimmed</span>
         </div>
-        <DailyBars points={points} window={[a, b]} />
+        <DailyBars points={points} window={[a, b]} money={money} />
       </div>
 
       <ReadoutStrip cols="grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6" className="bg-line-soft">
-        <ReadoutSlot legend="Cursor A" value={pa ? formatUsd(pa.cumulative, { signed: true }) : '—'} sub={pa ? formatDate(pa.t) : ''} />
-        <ReadoutSlot legend="Cursor B" value={pb ? formatUsd(pb.cumulative, { signed: true }) : '—'} sub={pb ? formatDate(pb.t) : ''} />
-        <ReadoutSlot legend="Δ PnL (B − A)" value={<span className={toneOf(delta)}>{formatUsd(delta, { signed: true })}</span>} sub="realized between cursors" />
+        <ReadoutSlot legend="Cursor A" value={pa ? money.full(pa.cumulative, { signed: true }) : '—'} sub={pa ? formatDate(pa.t) : ''} />
+        <ReadoutSlot legend="Cursor B" value={pb ? money.full(pb.cumulative, { signed: true }) : '—'} sub={pb ? formatDate(pb.t) : ''} />
+        <ReadoutSlot legend="Δ PnL (B − A)" value={<span className={toneOf(delta)}>{money.full(delta, { signed: true })}</span>} sub="realized between cursors" />
         <ReadoutSlot
           legend="Δ % of volume"
           value={<span className={toneOf(returnOnVolume ?? 0)}>{returnOnVolume === null ? '—' : formatPct(returnOnVolume)}</span>}
-          sub={volume > 0 ? `on ${formatUsdCompact(volume, 1)} traded` : 'no trades in window'}
+          sub={volume > 0 ? `on ${money.compact(volume, 1)} traded` : 'no trades in window'}
         />
-        <ReadoutSlot legend="Δ time" value={`${days}d`} sub={days ? `${formatUsd(delta / days, { signed: true })} per day` : 'same day'} />
+        <ReadoutSlot legend="Δ time" value={`${days}d`} sub={days ? `${money.full(delta / days, { signed: true })} per day` : 'same day'} />
         <ReadoutSlot
           legend="Best day"
-          value={best && best.daily > 0 ? <span className="text-pos">{formatUsd(best.daily, { signed: true })}</span> : '—'}
+          value={best && best.daily > 0 ? <span className="text-pos">{money.full(best.daily, { signed: true })}</span> : '—'}
           sub={best && best.daily > 0 ? formatDate(best.t) : 'no winning day in window'}
         />
       </ReadoutStrip>
