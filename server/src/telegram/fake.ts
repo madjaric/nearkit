@@ -63,7 +63,9 @@ export function createFakeTelegram(options: { token?: string; username?: string 
         return ok(queue.slice(0, Number(params.limit ?? 100)))
       }
       case 'sendMessage':
-      case 'sendPhoto': {
+      case 'sendPhoto':
+      case 'sendAnimation':
+      case 'sendVideo': {
         const id = messageId++
         return ok({ message_id: id, date: 0, chat: { id: params.chat_id, type: 'private' }, text: params.text ?? params.caption })
       }
@@ -87,7 +89,7 @@ export function createFakeTelegram(options: { token?: string; username?: string 
     members,
     messages() {
       return calls
-        .filter((c) => !c.failed && (c.method === 'sendMessage' || c.method === 'editMessageText' || c.method === 'sendPhoto'))
+        .filter((c) => !c.failed && ['sendMessage', 'editMessageText', 'sendPhoto', 'sendAnimation', 'sendVideo'].includes(c.method))
         .map((c) => {
           const markup = c.params.reply_markup as { inline_keyboard?: { text: string; callback_data?: string; url?: string }[][] } | undefined
           return {

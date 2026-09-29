@@ -116,11 +116,13 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
       return
     }
     const user = message.from
-    if (!user || user.is_bot || !message.text) return
+    // Text, or media a waiting step may want (e.g. a buybot's photo); nothing else.
+    const hasMedia = Boolean(message.photo?.length || message.animation || message.video)
+    if (!user || user.is_bot || (!message.text && !hasMedia)) return
     recordUser(user)
     const ctx = makeCtx(message.chat, user, null, null)
     if (!allowed(user)) return onFlood(ctx)
-    const cmd = message.text.startsWith('/') ? parseCommand(message.text) : null
+    const cmd = message.text?.startsWith('/') ? parseCommand(message.text) : null
     if (cmd) {
       if (cmd.addressedElsewhere) return
       const command = commands.get(cmd.name)
@@ -146,10 +148,10 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     const session = deps.store.getSession(ctx.chat.id, user.id)
     const flow = session ? flows.get(session.flow) : undefined
     if (session && flow) {
-      await guarded(ctx, `flow ${session.flow}`, () => flow(ctx, message.text as string, session.data))
+      await guarded(ctx, `flow ${session.flow}`, () => flow(ctx, message.text ?? message.caption ?? '', session.data, message))
       return
     }
-    if (ctx.isPrivate) await ctx.reply('Send /help to see what I can do, or /start for the menu.')
+    if (ctx.isPrivate && message.text) await ctx.reply('Send /help to see what I can do, or /start for the menu.')
   }
 
   async function onCallback(query: TgCallbackQuery) {

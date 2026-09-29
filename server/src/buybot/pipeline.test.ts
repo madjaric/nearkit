@@ -202,7 +202,7 @@ describe('buybot pipeline on the transaction index', () => {
 
     const other = w.store.addConfig({ chatId: -100888, chatTitle: 'Gone', network: 'mainnet', token: SING, symbol: 'SINGULARTY', name: 'S', decimals: 18, createdBy: 1 })
     w.store.recordBuy(
-      { eventKey: 'x:y:z', network: 'mainnet', token: SING, txHash: 'x', buyer: 'z.near', amount: 1n, paid: [{ asset: 'near', amount: 10n ** 24n }], blockHeight: 1 },
+      { eventKey: 'x:y:z', network: 'mainnet', token: SING, side: 'buy', txHash: 'x', buyer: 'z.near', amount: 1n, paid: [{ asset: 'near', amount: 10n ** 24n }], blockHeight: 1 },
       [other.id],
     )
     w.tgFake.failNext('sendMessage', { code: 403, description: 'Forbidden: bot was kicked from the supergroup chat' })
@@ -239,5 +239,75 @@ describe('buybot pipeline on the transaction index', () => {
     w.setHead(start + TRAIL + MAX_BACKLOG * 5)
     await w.follower.step()
     expect(w.store.tokenCursor('mainnet', SING)).toBe(start + MAX_BACKLOG * 5)
+  })
+})
+
+describe('buybot V2 in the pipeline', () => {
+  let w: Awaited<ReturnType<typeof world>>
+  beforeEach(async () => {
+    w = await world()
+  })
+
+  async function bothTrades() {
+    await w.follower.step()
+    w.publish(BUY)
+    w.publish(SELL)
+    w.setHead(SELL.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    await w.process()
+    await w.deliver()
+    return w.tgFake.messages()
+  }
+
+  it('posts sells only where sells are on, marked as sells with what the seller got', async () => {
+    w.store.updateConfig(w.config.id, { sells: true })
+    const posts = await bothTrades()
+    expect(posts).toHaveLength(2)
+    const sell = posts.find((p) => p.text.includes('SINGULARTY sell'))?.text ?? ''
+    expect(sell.startsWith('🔴')).toBe(true)
+    expect(sell).toContain('NEAR')
+    expect(sell).toContain('(this sale)')
+  })
+
+  it('a USD minimum compares the trade’s USD value; an unknown USD value passes only Any', async () => {
+    // 1 NEAR at $5.00: below a $10 minimum, above $1.
+    w.store.updateConfig(w.config.id, { unit: 'USD', minUsd: 10 })
+    expect(await bothTrades()).toHaveLength(0)
+    const next = await world()
+    next.store.updateConfig(next.config.id, { unit: 'USD', minUsd: 1 })
+    await next.follower.step()
+    next.publish(BUY)
+    next.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await next.follower.step()
+    await next.process()
+    await next.deliver()
+    expect(next.tgFake.messages()).toHaveLength(1)
+  })
+
+  it('caps the emoji at the chat’s maximum', async () => {
+    // 1 NEAR at 0.1 NEAR per emoji would be 10; the cap is 4.
+    w.store.updateConfig(w.config.id, { stepNear: 10n ** 23n, maxEmoji: 4 })
+    const posts = await bothTrades()
+    expect(posts[0]?.text.split('\n')[0]).toBe('🟢'.repeat(4))
+  })
+
+  it('posts with the chat’s photo, the alert as its caption; a file Telegram refuses falls back to text and drops the media', async () => {
+    w.store.updateConfig(w.config.id, { media: { kind: 'animation', fileId: 'gif-1' } })
+    await bothTrades()
+    const post = w.tgFake.calls.find((c) => c.method === 'sendAnimation')
+    expect(post?.params).toMatchObject({ chat_id: -100777, animation: 'gif-1', parse_mode: 'HTML' })
+    expect(String(post?.params.caption)).toContain('SINGULARTY buy')
+
+    const next = await world()
+    next.store.updateConfig(next.config.id, { media: { kind: 'photo', fileId: 'gone' } })
+    next.tgFake.failNext('sendPhoto', { code: 400, description: 'Bad Request: wrong file identifier/HTTP URL specified' })
+    await next.follower.step()
+    next.publish(BUY)
+    next.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await next.follower.step()
+    await next.process()
+    await next.deliver()
+    expect(next.tgFake.messages().filter((m) => m.method === 'sendMessage')).toHaveLength(1)
+    expect(next.store.config(next.config.id)?.media).toBeNull()
   })
 })

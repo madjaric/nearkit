@@ -68,9 +68,25 @@ partial, with the reason. Gas is reported for the history actually read.
 
 ## Buybot
 
-Group admins send `/buybot` in their group, add a token by its exact contract (NearKit
-reads its metadata from chain and shows it before anything is saved), and choose a
-minimum buy size, emoji scale and sound. From then on every buy is posted in the group.
+Group admins send `/buybot` (or `/add <contract>`) in their group. They add a token by its
+exact contract; NearKit reads its metadata from chain and shows it before anything is saved.
+From then on every buy is posted in the group.
+
+Per token, admins choose:
+
+- the minimum trade, in NEAR or in USD;
+- the emoji, and how much value each one stands for;
+- a cap on emoji;
+- a photo, GIF or video posted with every alert;
+- whether sells are posted too;
+- whether alerts make a sound.
+
+`/list` shows the group's tokens, `/remove` drops one, and `/pause` and `/resume` switch
+every alert in the group. Only group admins can do any of this.
+
+A USD minimum is never checked against a guess. A trade whose USD value isn't known is
+posted only when the minimum is "Any". If Telegram no longer knows the media file, alerts
+fall back to text and the media is dropped, so the group isn't left silent.
 
 - **Detection** (`src/buybot/follower.ts`, `pipeline.ts`): each followed token's contract
   history is read from FastNEAR's transaction index (about two blocks behind the chain).

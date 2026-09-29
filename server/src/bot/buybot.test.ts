@@ -141,6 +141,96 @@ describe('/buybot', () => {
   })
 })
 
+describe('buybot V2: group commands and per-token settings', () => {
+  it('/add with a contract skips the prompt; /list shows what the group follows', async () => {
+    const h = await bot()
+    await h.say(`/add ${TOKEN}`, ALICE, GROUP)
+    expect(h.last()?.text).toContain('Token found on testnet')
+    await h.press(h.buttons().find((b) => b.text.includes('Post its buys here'))?.data ?? '', ALICE, GROUP)
+    await h.say('/list', ALICE, GROUP)
+    expect(h.last()?.text).toContain('<b>FRESH</b> · on · min any size · 🟢 per 1 NEAR')
+  })
+
+  it('/pause and /resume switch every alert in the group; /remove offers each token', async () => {
+    const h = await bot()
+    const cfg = await addToken(h)
+    await h.say('/pause', ALICE, GROUP)
+    expect(h.last()?.text).toContain('Paused alerts for 1 token')
+    expect(h.deps.buybot?.store.config(cfg?.id as number)?.enabled).toBe(false)
+    await h.say('/resume', ALICE, GROUP)
+    expect(h.deps.buybot?.store.config(cfg?.id as number)?.enabled).toBe(true)
+    await h.say('/remove', ALICE, GROUP)
+    expect(h.buttons().map((b) => b.text)).toEqual(['🗑 FRESH', 'Keep them all'])
+  })
+
+  it('refuses group commands from members who are not admins', async () => {
+    const h = await bot()
+    await addToken(h)
+    await h.say('/pause', BOB, GROUP)
+    expect(h.last()?.text).toContain('Only admins')
+    await h.say('/add fresh.nearlytrade.testnet', BOB, GROUP)
+    expect(h.last()?.text).toContain('Only admins')
+  })
+
+  it('a minimum in USD or NEAR, a value per emoji and a cap on emoji', async () => {
+    const h = await bot()
+    const id = (await addToken(h))?.id as number
+    await h.press(`bb:minm:${id}`, ALICE, GROUP)
+    expect(h.buttons().map((b) => b.text)).toEqual(expect.arrayContaining(['● NEAR', 'USD']))
+    await h.press(`bb:unit:${id}:USD`, ALICE, GROUP)
+    await h.press(`bb:minusd:${id}:50`, ALICE, GROUP)
+    expect(h.last()?.text).toContain('Now: $50+')
+    await h.press(`bb:emom:${id}`, ALICE, GROUP)
+    await h.press(`bb:stepusd:${id}:10`, ALICE, GROUP)
+    await h.press(`bb:max:${id}:50`, ALICE, GROUP)
+    expect(h.deps.buybot?.store.config(id)).toMatchObject({ unit: 'USD', minUsd: 50, stepUsd: 10, maxEmoji: 50 })
+    // Values outside the offered choices are ignored.
+    await h.press(`bb:minusd:${id}:7`, ALICE, GROUP)
+    await h.press(`bb:max:${id}:999`, ALICE, GROUP)
+    expect(h.deps.buybot?.store.config(id)).toMatchObject({ minUsd: 50, maxEmoji: 50 })
+  })
+
+  it('sells are off until turned on', async () => {
+    const h = await bot()
+    const id = (await addToken(h))?.id as number
+    expect(h.deps.buybot?.store.config(id)?.sells).toBe(false)
+    await h.press(`bb:sells:${id}`, ALICE, GROUP)
+    expect(h.deps.buybot?.store.config(id)?.sells).toBe(true)
+    expect(h.last()?.text).toContain('Sells on')
+  })
+
+  it('media: an admin replies with a photo, a GIF or a video; text is refused; the media can be removed', async () => {
+    const h = await bot()
+    const id = (await addToken(h))?.id as number
+    await h.press(`bb:media:${id}`, ALICE, GROUP)
+    expect(h.fake.calls.filter((c) => c.method === 'sendMessage').at(-1)?.params.reply_markup).toMatchObject({ force_reply: true })
+    await h.say('not a picture', ALICE, GROUP)
+    expect(h.last()?.text).toContain('isn’t a photo, GIF or video')
+    await h.app.handle({
+      update_id: 90,
+      message: {
+        message_id: 900,
+        date: 0,
+        chat: GROUP,
+        from: ALICE,
+        photo: [
+          { file_id: 'small', file_unique_id: 's', width: 90, height: 90 },
+          { file_id: 'large', file_unique_id: 'l', width: 800, height: 800 },
+        ],
+      },
+    })
+    expect(h.deps.buybot?.store.config(id)?.media).toEqual({ kind: 'photo', fileId: 'large' })
+    // Previews are spaced 30 s apart per group.
+    h.advance(60_000)
+    await h.press(`bb:test:${id}`, ALICE, GROUP)
+    const preview = h.fake.calls.filter((c) => c.method === 'sendPhoto').at(-1)
+    expect(preview).toMatchObject({ method: 'sendPhoto', params: { photo: 'large', parse_mode: 'HTML' } })
+    expect(String(preview?.params.caption)).toContain('not a real buy')
+    await h.press(`bb:mediarm:${id}`, ALICE, GROUP)
+    expect(h.deps.buybot?.store.config(id)?.media).toBeNull()
+  })
+})
+
 describe('the bot in a private chat keeps its buybot keys out', () => {
   it('ignores buybot buttons pressed in private', async () => {
     const h = await bot()

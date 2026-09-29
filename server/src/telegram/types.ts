@@ -37,6 +37,13 @@ export interface TgMessage {
   sender_chat?: TgChat
   text?: string
   entities?: TgMessageEntity[]
+  /** Text sent with a photo, GIF or video. */
+  caption?: string
+  /** A photo, in several sizes (largest last). */
+  photo?: { file_id: string; file_unique_id: string; width: number; height: number; file_size?: number }[]
+  /** A GIF or silent MP4. */
+  animation?: { file_id: string; file_unique_id: string; duration: number; file_size?: number }
+  video?: { file_id: string; file_unique_id: string; duration: number; file_size?: number }
   reply_to_message?: TgMessage
   /** Service message: this group became a supergroup with a new ID. */
   migrate_to_chat_id?: number

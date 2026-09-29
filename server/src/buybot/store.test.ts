@@ -19,6 +19,7 @@ const buy = (key = 'tx1:sing.near:alice.near') => ({
   eventKey: key,
   network: 'mainnet',
   token: 'sing.near',
+  side: 'buy' as const,
   txHash: 'tx1',
   buyer: 'alice.near',
   amount: 10n ** 21n,
@@ -113,5 +114,27 @@ describe('buys and deliveries', () => {
     store.prune(7 * 86_400_000)
     expect(store.event(buy().eventKey)).toBeNull()
     expect(store.delivery(buy().eventKey, a.id)).toBeNull()
+  })
+})
+
+describe('buybot V2 settings', () => {
+  it('a followed token starts with the old behavior: NEAR minimum, 30 emoji, no media, no sells', () => {
+    expect(cfg(-9)).toMatchObject({ unit: 'NEAR', minUsd: 0, stepUsd: 10, maxEmoji: 30, media: null, sells: false })
+  })
+
+  it('keeps media, unit and sells, and switches a whole chat on or off', () => {
+    const a = cfg(-10)
+    store.updateConfig(a.id, { unit: 'USD', minUsd: 25, media: { kind: 'video', fileId: 'v1' }, sells: true })
+    expect(store.config(a.id)).toMatchObject({ unit: 'USD', minUsd: 25, media: { kind: 'video', fileId: 'v1' }, sells: true })
+    expect(store.setChatEnabled(-10, false)).toBe(1)
+    expect(store.config(a.id)?.enabled).toBe(false)
+    expect(store.setChatEnabled(-10, true)).toBe(1)
+    expect(store.config(a.id)?.enabled).toBe(true)
+  })
+
+  it('records a sell as a sell', () => {
+    const a = cfg(-11)
+    expect(store.recordBuy({ ...buy('tx9:sing.near:bob.near'), side: 'sell' }, [a.id])).toBe(true)
+    expect(store.event('tx9:sing.near:bob.near')?.side).toBe('sell')
   })
 })

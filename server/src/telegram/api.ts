@@ -157,6 +157,12 @@ export function createTelegramApi(options: TelegramApiOptions) {
       call<TgUpdate[]>('getUpdates', { offset, timeout: timeoutSec, allowed_updates: allowed }, { timeoutMs: (timeoutSec + 15) * 1000, retries: 0, signal }),
     getWebhookInfo: () => call<{ url: string; pending_update_count: number }>('getWebhookInfo'),
     sendMessage: (chatId: number | string, html: string, opts?: SendOptions) => send<TgMessage>('sendMessage', chatId, { text: html, ...extras(opts) }),
+    /** A photo, GIF or video (by Telegram file_id) with the HTML text as its caption (at most 1024 characters). */
+    sendMedia: (chatId: number | string, kind: 'photo' | 'animation' | 'video', fileId: string, captionHtml: string, opts?: SendOptions) => {
+      const { link_preview_options: _preview, ...rest } = extras(opts)
+      const method = kind === 'photo' ? 'sendPhoto' : kind === 'animation' ? 'sendAnimation' : 'sendVideo'
+      return send<TgMessage>(method, chatId, { [kind]: fileId, caption: captionHtml, ...rest })
+    },
     /** Null when Telegram says the message is unchanged (a harmless double tap). */
     async editMessageText(chatId: number, messageId: number, html: string, opts?: { reply_markup?: InlineKeyboard; disable_link_preview?: boolean }): Promise<TgMessage | null> {
       try {

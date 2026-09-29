@@ -70,8 +70,8 @@ export interface Command {
 /** A pressed button: `data` is `namespace:action[:arg]`, at most 64 bytes. */
 export type CallbackHandler = (ctx: BotCtx, action: string, arg: string) => Promise<void>
 
-/** Free text while a conversation step waits for input. */
-export type FlowHandler = (ctx: BotCtx, text: string, data: Record<string, unknown>) => Promise<void>
+/** Free text (or a photo, GIF or video, with its caption as text) while a conversation step waits for input. */
+export type FlowHandler = (ctx: BotCtx, text: string, data: Record<string, unknown>, message?: TgMessage) => Promise<void>
 
 export interface BotModule {
   commands?: Record<string, Command>

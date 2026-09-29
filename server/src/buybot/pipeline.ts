@@ -6,7 +6,7 @@ import type { Logger } from '../log'
 import { TelegramError, type TelegramApi } from '../telegram/api'
 import type { InlineKeyboard } from '../telegram/types'
 import type { TxIndex } from './follower'
-import { emojiCount, renderBuy, type BuyView } from './format'
+import { CAPTION_LIMIT, emojiCount, renderBuy, type BuyView } from './format'
 import type { BuyMarket } from './market'
 import type { BuyEvent, BuybotConfig, BuybotStore } from './store'
 
@@ -14,7 +14,8 @@ import type { BuyEvent, BuybotConfig, BuybotStore } from './store'
  * From a candidate transaction to a message in each chat:
  * 1. `processCandidates` reads each transaction in full from the index once its
  *    block is final and every receipt it created is in the record, then finds buys
- *    with the shared analyzer (flows.ts); each buy is recorded once.
+ *    (and sells, for chats that want them) with the shared analyzer (flows.ts);
+ *    each trade is recorded once.
  * 2. `deliver` posts pending deliveries, spacing messages per chat, honouring
  *    Telegram's retry_after, and pausing chats the bot was removed from.
  * A crash between "Telegram accepted it" and "marked sent" can repeat one post;
@@ -29,6 +30,15 @@ export const FINAL_MARGIN = 5
 export const STALE_MS = 15 * 60_000
 /** The same limit in blocks (about 0.56 s each on mainnet), for buys found while catching up. */
 export const STALE_BLOCKS = 1600
+
+/**
+ * A trade is posted when it reaches the chat's minimum, in the chat's unit. A trade
+ * whose value in that unit is unknown passes only a minimum of 0: never a guess.
+ */
+export function passesMinimum(cfg: Pick<BuybotConfig, 'unit' | 'minNear' | 'minUsd'>, valueNear: bigint | null, valueUsd: number | null): boolean {
+  if (cfg.unit === 'USD') return cfg.minUsd <= 0 || (valueUsd !== null && valueUsd >= cfg.minUsd)
+  return cfg.minNear === 0n || (valueNear !== null && valueNear >= cfg.minNear)
+}
 
 export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; finalHeight: () => Promise<number>; store: BuybotStore; market: BuyMarket; log: Logger }) {
   return async function processCandidates(limit = 20): Promise<number> {
@@ -56,23 +66,27 @@ export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; 
         const configs = deps.store.activeConfigsFor(deps.network.id, token)
         if (!configs.length) continue
         for (const trade of detectTrades(tx, token, { wrapContract: deps.network.wrapContract })) {
-          if (trade.side !== 'buy') continue
-          const value = await deps.market.valueInNear(trade.paid)
-          const eligible = stale ? [] : configs.filter((cfg) => cfg.minNear === 0n || (value !== null && value >= cfg.minNear))
+          const wants = configs.filter((cfg) => trade.side === 'buy' || cfg.sells)
+          if (!wants.length) continue
+          // The other side of the trade: what a buyer paid, or what a seller received.
+          const other = trade.side === 'buy' ? trade.paid : trade.received
+          const [valueNear, valueUsd] = await Promise.all([deps.market.valueInNear(other), deps.market.usdOf(other)])
+          const eligible = stale ? [] : wants.filter((cfg) => passesMinimum(cfg, valueNear, valueUsd))
           const recorded = deps.store.recordBuy(
             {
               eventKey: `${tx.hash}:${token}:${trade.account}`,
               network: deps.network.id,
               token,
+              side: trade.side,
               txHash: tx.hash,
               buyer: trade.account,
               amount: trade.amount,
-              paid: trade.paid,
+              paid: other,
               blockHeight: c.blockHeight,
             },
             eligible.map((cfg) => cfg.id),
           )
-          if (recorded) deps.log.info('buy detected', { token, tx: tx.hash, buyer: trade.account, chats: eligible.length })
+          if (recorded) deps.log.info(`${trade.side} detected`, { token, tx: tx.hash, account: trade.account, chats: eligible.length })
         }
       }
       deps.store.finishCandidate(c.txHash)
@@ -81,7 +95,12 @@ export function createProcessor(deps: { network: NetworkConfig; index: TxIndex; 
   }
 }
 
-export async function buyView(event: Pick<BuyEvent, 'amount' | 'paid' | 'buyer' | 'txHash'>, cfg: BuybotConfig, market: BuyMarket, network: NetworkConfig): Promise<BuyView> {
+export async function buyView(
+  event: Pick<BuyEvent, 'side' | 'amount' | 'paid' | 'buyer' | 'txHash'>,
+  cfg: BuybotConfig,
+  market: BuyMarket,
+  network: NetworkConfig,
+): Promise<BuyView> {
   const [paidUsd, value, supply, metas] = await Promise.all([
     market.usdOf(event.paid),
     market.valueInNear(event.paid),
@@ -92,6 +111,7 @@ export async function buyView(event: Pick<BuyEvent, 'amount' | 'paid' | 'buyer' 
   const priceUsd = paidUsd !== null && tokens > 0 ? paidUsd / tokens : null
   const fdvUsd = priceUsd !== null && supply !== null ? (Number(supply) / 10 ** cfg.decimals) * priceUsd : null
   return {
+    side: event.side,
     symbol: cfg.symbol,
     name: cfg.name,
     decimals: cfg.decimals,
@@ -107,7 +127,8 @@ export async function buyView(event: Pick<BuyEvent, 'amount' | 'paid' | 'buyer' 
     priceUsd,
     fdvUsd,
     emoji: cfg.emoji,
-    emojiCount: emojiCount(value, cfg.stepNear),
+    emojiCount:
+      cfg.unit === 'USD' ? emojiCount(paidUsd, cfg.stepUsd, cfg.maxEmoji) : emojiCount(value === null ? null : Number(value) / 1e24, Number(cfg.stepNear) / 1e24, cfg.maxEmoji),
     networkLabel: network.label,
   }
 }
@@ -149,7 +170,21 @@ export function createDeliverer(deps: {
       const html = renderBuy(await buyView(event, cfg, deps.market, deps.network))
       try {
         const markup = tradeKeyboard(cfg, deps.webUrl, deps.webNetwork)
-        const msg = await deps.tg.sendMessage(cfg.chatId, html, { ...(markup ? { reply_markup: markup } : {}), disable_notification: cfg.silent, disable_link_preview: true })
+        const opts = { ...(markup ? { reply_markup: markup } : {}), disable_notification: cfg.silent }
+        let msg
+        if (cfg.media && html.length <= CAPTION_LIMIT) {
+          try {
+            msg = await deps.tg.sendMedia(cfg.chatId, cfg.media.kind, cfg.media.fileId, html, opts)
+          } catch (e) {
+            // A media file Telegram no longer knows must not silence the alerts: post text, drop the media.
+            if (!(e instanceof TelegramError) || e.code !== 400 || !/file|photo|animation|video|media/i.test(e.description)) throw e
+            deps.store.updateConfig(cfg.id, { media: null })
+            deps.log.warn('buybot media refused; alerts continue as text', { chat: cfg.chatId, reason: e.description })
+            msg = await deps.tg.sendMessage(cfg.chatId, html, { ...opts, disable_link_preview: true })
+          }
+        } else {
+          msg = await deps.tg.sendMessage(cfg.chatId, html, { ...opts, disable_link_preview: true })
+        }
         deps.store.markSent(d.eventKey, d.configId, msg.message_id)
       } catch (e) {
         if (!(e instanceof TelegramError)) {

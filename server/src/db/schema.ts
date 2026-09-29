@@ -182,6 +182,23 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE INDEX handoffs_user ON handoffs(user_id, created_at);
     `,
   },
+  {
+    version: 4,
+    name: 'buybot v2: USD or NEAR thresholds, emoji cap, media, sell alerts',
+    sql: `
+      -- Minimum and emoji step are in this unit: NEAR (min_near, step_near) or USD (min_usd, step_usd).
+      ALTER TABLE buybot_configs ADD COLUMN unit TEXT NOT NULL DEFAULT 'NEAR';
+      ALTER TABLE buybot_configs ADD COLUMN min_usd REAL NOT NULL DEFAULT 0;
+      ALTER TABLE buybot_configs ADD COLUMN step_usd REAL NOT NULL DEFAULT 10;
+      ALTER TABLE buybot_configs ADD COLUMN max_emoji INTEGER NOT NULL DEFAULT 30;
+      -- A photo, GIF or video posted with every alert (Telegram file_id), or none.
+      ALTER TABLE buybot_configs ADD COLUMN media_kind TEXT;
+      ALTER TABLE buybot_configs ADD COLUMN media_file_id TEXT;
+      ALTER TABLE buybot_configs ADD COLUMN sells INTEGER NOT NULL DEFAULT 0;
+      -- 'buy' or 'sell'; paid holds the other side (what a buyer paid, what a seller got).
+      ALTER TABLE buybot_events ADD COLUMN side TEXT NOT NULL DEFAULT 'buy';
+    `,
+  },
 ]
 
 export function migrate(db: Db): number {

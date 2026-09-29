@@ -18,11 +18,23 @@ export interface BuybotConfig {
   name: string
   decimals: number
   enabled: boolean
-  /** Smallest buy (NEAR value) that gets posted, in yoctoNEAR. */
+  /** The unit of the minimum and the emoji step. */
+  unit: 'NEAR' | 'USD'
+  /** Smallest trade (NEAR value) that gets posted, in yoctoNEAR, when unit is NEAR. */
   minNear: bigint
+  /** Smallest trade in USD, when unit is USD. A trade whose USD value is unknown passes only a 0 minimum. */
+  minUsd: number
   emoji: string
-  /** NEAR value per emoji in the header. */
+  /** NEAR value per emoji in the header (unit NEAR). */
   stepNear: bigint
+  /** USD value per emoji in the header (unit USD). */
+  stepUsd: number
+  /** Most emoji in one header. */
+  maxEmoji: number
+  /** Posted with every alert, the text as its caption. */
+  media: { kind: MediaKind; fileId: string } | null
+  /** Post sells too, not just buys. */
+  sells: boolean
   /** Post without a notification sound. */
   silent: boolean
   /** Why posting stopped on its own (e.g. the bot was removed from the chat). */
@@ -41,13 +53,18 @@ export interface Candidate {
   attempts: number
 }
 
+export type MediaKind = 'photo' | 'animation' | 'video'
+
 export interface BuyEvent {
   eventKey: string
   network: string
   token: string
+  side: 'buy' | 'sell'
   txHash: string
+  /** The account that bought (or sold). */
   buyer: string
   amount: bigint
+  /** The other side of the trade: what a buyer paid, or what a seller received. */
   paid: { asset: string; amount: bigint }[]
   blockHeight: number
   detectedAt: number
@@ -70,6 +87,13 @@ interface ConfigRow {
   min_near: string
   emoji: string
   step_near: string
+  unit: string
+  min_usd: number
+  step_usd: number
+  max_emoji: number
+  media_kind: string | null
+  media_file_id: string | null
+  sells: number
   silent: number
   paused_reason: string | null
   created_by: number
@@ -87,9 +111,15 @@ const toConfig = (r: ConfigRow): BuybotConfig => ({
   name: r.name,
   decimals: r.decimals,
   enabled: r.enabled === 1,
+  unit: r.unit === 'USD' ? 'USD' : 'NEAR',
   minNear: BigInt(r.min_near),
+  minUsd: r.min_usd,
   emoji: r.emoji,
   stepNear: BigInt(r.step_near),
+  stepUsd: r.step_usd,
+  maxEmoji: r.max_emoji,
+  media: r.media_file_id && (r.media_kind === 'photo' || r.media_kind === 'animation' || r.media_kind === 'video') ? { kind: r.media_kind, fileId: r.media_file_id } : null,
+  sells: r.sells === 1,
   silent: r.silent === 1,
   pausedReason: r.paused_reason,
   createdBy: r.created_by,
@@ -101,6 +131,7 @@ const toEvent = (r: {
   event_key: string
   network: string
   token: string
+  side: string
   tx_hash: string
   buyer: string
   amount: string
@@ -111,6 +142,7 @@ const toEvent = (r: {
   eventKey: r.event_key,
   network: r.network,
   token: r.token,
+  side: r.side === 'sell' ? 'sell' : 'buy',
   txHash: r.tx_hash,
   buyer: r.buyer,
   amount: BigInt(r.amount),
@@ -155,22 +187,43 @@ export class BuybotStore {
     return this.db.all<ConfigRow>('SELECT * FROM buybot_configs WHERE chat_id = ? ORDER BY id', [chatId]).map(toConfig)
   }
 
-  updateConfig(id: number, patch: Partial<Pick<BuybotConfig, 'enabled' | 'minNear' | 'emoji' | 'stepNear' | 'silent' | 'chatTitle' | 'pausedReason'>>): BuybotConfig | null {
+  updateConfig(
+    id: number,
+    patch: Partial<
+      Pick<BuybotConfig, 'enabled' | 'unit' | 'minNear' | 'minUsd' | 'emoji' | 'stepNear' | 'stepUsd' | 'maxEmoji' | 'media' | 'sells' | 'silent' | 'chatTitle' | 'pausedReason'>
+    >,
+  ): BuybotConfig | null {
     const cur = this.config(id)
     if (!cur) return null
     const next = { ...cur, ...patch }
-    this.db.run(`UPDATE buybot_configs SET enabled = ?, min_near = ?, emoji = ?, step_near = ?, silent = ?, chat_title = ?, paused_reason = ?, updated_at = ? WHERE id = ?`, [
-      next.enabled ? 1 : 0,
-      next.minNear.toString(),
-      next.emoji,
-      next.stepNear.toString(),
-      next.silent ? 1 : 0,
-      next.chatTitle,
-      next.pausedReason,
-      this.now(),
-      id,
-    ])
+    this.db.run(
+      `UPDATE buybot_configs SET enabled = ?, unit = ?, min_near = ?, min_usd = ?, emoji = ?, step_near = ?, step_usd = ?, max_emoji = ?, media_kind = ?, media_file_id = ?,
+         sells = ?, silent = ?, chat_title = ?, paused_reason = ?, updated_at = ? WHERE id = ?`,
+      [
+        next.enabled ? 1 : 0,
+        next.unit,
+        next.minNear.toString(),
+        next.minUsd,
+        next.emoji,
+        next.stepNear.toString(),
+        next.stepUsd,
+        next.maxEmoji,
+        next.media?.kind ?? null,
+        next.media?.fileId ?? null,
+        next.sells ? 1 : 0,
+        next.silent ? 1 : 0,
+        next.chatTitle,
+        next.pausedReason,
+        this.now(),
+        id,
+      ],
+    )
     return this.config(id)
+  }
+
+  /** Every token a chat follows: on (true) or off (false) at once. */
+  setChatEnabled(chatId: number, enabled: boolean): number {
+    return this.db.run('UPDATE buybot_configs SET enabled = ?, paused_reason = NULL, updated_at = ? WHERE chat_id = ?', [enabled ? 1 : 0, this.now(), chatId])
   }
 
   removeConfig(id: number): void {
@@ -283,11 +336,12 @@ export class BuybotStore {
     return this.db.tx(() => {
       const t = this.now()
       const inserted = this.db.run(
-        `INSERT OR IGNORE INTO buybot_events (event_key, network, token, tx_hash, buyer, amount, paid, block_height, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO buybot_events (event_key, network, token, side, tx_hash, buyer, amount, paid, block_height, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           event.eventKey,
           event.network,
           event.token,
+          event.side,
           event.txHash,
           event.buyer,
           event.amount.toString(),
