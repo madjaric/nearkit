@@ -11,6 +11,7 @@ import type { WalletAdapter } from '@/services/near/wallet'
 import type { Session } from '@/types/domain'
 import type { Capabilities } from '../types'
 import { browserStorage, createStores, type KeyValue, type Stores } from './stores'
+import { feeRecipientProblem } from '@/lib/fees'
 
 /**
  * Everything the real services share: configuration, the RPC client, token
@@ -27,6 +28,11 @@ export interface NearContextOptions {
   kv?: KeyValue
   wallet?: () => Promise<WalletAdapter>
   now?: () => number
+  /**
+   * Tests only: the account mainnet fees must go to, for real routes Rhea signed for
+   * another account. The app never sets it: production is PRODUCTION_FEE_RECIPIENT.
+   */
+  productionFeeRecipient?: string
 }
 
 export interface AccountBalances {
@@ -88,17 +94,20 @@ export function createNearContext(options: NearContextOptions): NearContext {
     })
 
   const executionEnabled = network.id === 'testnet' || env.mainnetExecution
+  // Mainnet trades carry NearKit's fee to exactly the production account; any other
+  // (unset, a test account, a typo) blocks trading. Transfers never carry the fee.
+  const feeProblem = network.id === 'mainnet' ? feeRecipientProblem('mainnet', env.feeRecipient, options.productionFeeRecipient) : null
   const policy: ExecutionPolicy = {
     network: network.id,
     enabled: executionEnabled,
     reason: executionEnabled ? null : mainnetDisabledReason(),
-    feeRecipient: network.id === 'mainnet' ? env.feeRecipient : null,
+    feeRecipient: network.id === 'mainnet' && !feeProblem ? env.feeRecipient : null,
   }
 
   const tradingReason = !executionEnabled
     ? mainnetDisabledReason()
-    : network.id === 'mainnet' && !env.feeRecipient
-      ? 'The NearKit fee account (VITE_NEARKIT_FEE_RECIPIENT) is not configured, so trades are blocked on mainnet. Transfers still work.'
+    : feeProblem
+      ? `${feeProblem} (VITE_NEARKIT_FEE_RECIPIENT), so trades are blocked on mainnet. Transfers still work.`
       : null
 
   const capabilities: Capabilities = {

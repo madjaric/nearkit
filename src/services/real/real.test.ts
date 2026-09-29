@@ -35,7 +35,16 @@ function setup(opts: { network?: NetworkId; env?: Record<string, string>; chain:
     }),
   )
   const outcomes = new Map<string, (hash: string, signer: string) => RpcTxResult>()
-  const services = createNearServices({ env, network: NETWORKS[network], fetch: chain.fetch, kv: memoryStorage(), wallet: async () => wallet.adapter, now: opts.now })
+  // The saved mainnet quotes are real routes Rhea signed for fees.example.near.
+  const services = createNearServices({
+    env,
+    network: NETWORKS[network],
+    fetch: chain.fetch,
+    kv: memoryStorage(),
+    wallet: async () => wallet.adapter,
+    now: opts.now,
+    productionFeeRecipient: 'fees.example.near',
+  })
   const run = (plan: Parameters<typeof services.execution.run>[0], prior: OperationProgress | null = null) => services.execution.run(plan, prior, () => undefined)
   return { chain, services, wallet, outcomes, run }
 }
