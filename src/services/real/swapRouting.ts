@@ -254,7 +254,9 @@ export function createSwapRouter(ctx: NearContext) {
         if (userMissing.length) aggregatorEntries.push({ user: signer, tokens: userMissing, deposit: per * BigInt(userMissing.length) })
         // NearKit's fee account must be registered for the token the fee is taken in.
         const candidates = r.fee.stage === 'input' ? [r.fee.token] : [...new Set([r.fee.token, r.routeOut])]
-        const feeMissing = await registeredWithAggregator(r.fee.recipient, candidates)
+        // A trader who is also the fee account is registered once, not twice.
+        const covered = new Set(r.fee.recipient === signer ? userMissing : [])
+        const feeMissing = (await registeredWithAggregator(r.fee.recipient, candidates)).filter((t) => !covered.has(t))
         if (feeMissing.length) aggregatorEntries.push({ user: r.fee.recipient, tokens: feeMissing, deposit: per * BigInt(feeMissing.length) })
       }
       return { wrapRegister, registrations, aggregatorEntries }
