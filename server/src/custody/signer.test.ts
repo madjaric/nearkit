@@ -1,0 +1,103 @@
+import { randomBytes } from 'node:crypto'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { NETWORKS } from '@/config/networks'
+import { base58Decode, base58Encode, base64Decode } from '@/lib/encoding'
+import { deserializeSignedTransaction, transactionDigest } from '@/services/near/transaction'
+import { migrate } from '../db/schema'
+import { Db } from '../db/sqlite'
+import { Store } from '../db/store'
+import { PolicyViolation, type WalletTxPlan } from './policy'
+import { createLocalSigner, EXPORT_WINDOW_MS } from './signer'
+import { CustodyStore, type TradingWallet } from './store'
+import { KeyUnavailableError, localKeyWrapper } from './vault'
+
+const net = NETWORKS.testnet
+let now = 5_000_000
+let store: CustodyStore
+const kek = randomBytes(32)
+
+async function setup() {
+  const db = await Db.open(null)
+  migrate(db)
+  new Store(db, () => now).upsertUser({ userId: 101, username: 'alice', firstName: 'Alice', languageCode: null })
+  store = new CustodyStore(db, () => now)
+  const signer = createLocalSigner({ wrapper: localKeyWrapper(kek), network: net, store, now: () => now })
+  const key = await signer.createKey('testnet')
+  const { wallet } = store.createWallet({ userId: 101, network: 'testnet', ...key, keyRef: signer.keyRef })
+  return { signer, wallet }
+}
+
+const transfer = (to: string, amount: bigint): WalletTxPlan[] => [{ receiverId: to, actions: [{ kind: 'transfer', deposit: amount.toString() }], label: 'w' }]
+const BLOCK = new Uint8Array(32).fill(9)
+
+beforeEach(() => {
+  now = 5_000_000
+})
+
+describe('signer', () => {
+  it('creates an implicit wallet and signs a checked operation that verifies against its key', async () => {
+    const { signer, wallet } = await setup()
+    expect(wallet.accountId).toMatch(/^[0-9a-f]{64}$/)
+    expect(base58Encode(base58Decode(wallet.publicKey.slice(8)) as Uint8Array)).toBe(wallet.publicKey.slice(8))
+    const signed = await signer.sign({
+      wallet,
+      op: { kind: 'withdraw-near', to: 'bob.testnet', amount: 5n },
+      plan: transfer('bob.testnet', 5n),
+      index: 0,
+      nonce: 42n,
+      blockHash: BLOCK,
+    })
+    const read = deserializeSignedTransaction(base64Decode(signed.base64) as Uint8Array)
+    expect(read.transaction).toMatchObject({
+      signerId: wallet.accountId,
+      publicKey: wallet.publicKey,
+      nonce: 42n,
+      receiverId: 'bob.testnet',
+      actions: [{ type: 'Transfer', deposit: 5n }],
+    })
+    const digest = await transactionDigest(read.transactionBytes)
+    expect(signed.hash).toBe(base58Encode(digest))
+    const key = await crypto.subtle.importKey('raw', base58Decode(wallet.publicKey.slice(8)) as Uint8Array<ArrayBuffer>, { name: 'Ed25519' }, false, ['verify'])
+    expect(await crypto.subtle.verify({ name: 'Ed25519' }, key, read.signature, digest)).toBe(true)
+  })
+
+  it('refuses, and logs the refusal, when the plan does not match the operation', async () => {
+    const { signer, wallet } = await setup()
+    await expect(
+      signer.sign({ wallet, op: { kind: 'withdraw-near', to: 'bob.testnet', amount: 5n }, plan: transfer('evil.testnet', 5n), index: 0, nonce: 1n, blockHash: BLOCK }),
+    ).rejects.toThrow(PolicyViolation)
+    await expect(
+      signer.sign({ wallet, op: { kind: 'withdraw-near', to: 'bob.testnet', amount: 5n }, plan: transfer('bob.testnet', 5n), index: 3, nonce: 1n, blockHash: BLOCK }),
+    ).rejects.toThrow(/no such transaction/)
+    expect(store.auditOf(wallet.id).filter((a) => a.action === 'policy-refused')).toHaveLength(2)
+  })
+
+  it('cannot sign for a closed wallet, or with another server’s key-encryption key', async () => {
+    const { signer, wallet } = await setup()
+    const other = createLocalSigner({ wrapper: localKeyWrapper(randomBytes(32)), network: net, store })
+    const req = { op: { kind: 'withdraw-near' as const, to: 'bob.testnet', amount: 5n }, plan: transfer('bob.testnet', 5n), index: 0, nonce: 1n, blockHash: BLOCK }
+    await expect(other.sign({ ...req, wallet })).rejects.toThrow(KeyUnavailableError)
+    store.closeWallet(wallet.id, 'deleted')
+    await expect(signer.sign({ ...req, wallet: store.wallet(wallet.id) as TradingWallet })).rejects.toThrow(/closed/)
+  })
+
+  it('exports the key once, only for a request verified in the last five minutes', async () => {
+    const { signer, wallet } = await setup()
+    store.createRecovery({ codeHash: 'h1', userId: 101, walletId: wallet.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 600_000 })
+    await expect(signer.exportSecret(wallet, 'h1')).rejects.toThrow(/verified/)
+    store.markRecoveryVerified('h1', 'alice.testnet')
+    const secret = await signer.exportSecret(wallet, 'h1')
+    const raw = base58Decode(secret.slice(8)) as Uint8Array
+    expect(base58Encode(raw.subarray(32))).toBe(wallet.publicKey.slice(8))
+    await expect(signer.exportSecret(wallet, 'h1')).rejects.toThrow(/already used/)
+
+    store.createRecovery({ codeHash: 'h2', userId: 101, walletId: wallet.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 600_000 })
+    store.markRecoveryVerified('h2', 'alice.testnet')
+    now += EXPORT_WINDOW_MS + 1
+    await expect(signer.exportSecret(wallet, 'h2')).rejects.toThrow(/fresh request/)
+    const actions = store.auditOf(wallet.id).map((a) => a.action)
+    expect(actions.filter((a) => a === 'key-exported')).toHaveLength(1)
+    // The security log never holds the key.
+    expect(JSON.stringify(store.auditOf(wallet.id))).not.toContain(secret.slice(8))
+  })
+})
