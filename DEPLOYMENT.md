@@ -171,6 +171,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 | Signer (from the app) | `npm run ops -- signer-pause <reason>` | Every signature, export, approval and erasure | Everything read-only. Only the signer's operator resumes |
 | Signer (on its host) | `npm run signer:admin -- pause/resume <reason>`, `NEARKIT_SIGNER_PAUSED=true`, or the pause file | Same | Same |
 | Mainnet custody | `NEARKIT_MAINNET_CUSTODY=off` and restart | NearKit wallets in Telegram | Everything else |
+| KMS key (emergency brake) | Disable the key in AWS KMS (`aws kms disable-key --key-id <ARN>`); enable it again to resume | Every unwrap anywhere, so nothing is signed or exported, even by a compromised signer host | Everything read-only. Funds stay on chain |
 | Web execution | `VITE_ENABLE_MAINNET_EXECUTION=false` and redeploy | All web signing | Balances, quotes |
 
 - Switches that can't be read count as paused.
