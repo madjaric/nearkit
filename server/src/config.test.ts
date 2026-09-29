@@ -35,18 +35,18 @@ describe('server config', () => {
     expect(loadConfig({ TELEGRAM_API_URL: 'http://bots.example' }).issues.map((i) => i.key)).toEqual(['TELEGRAM_API_URL'])
   })
 
-  it('reads mainnet settings, keeping the fee account a plain, replaceable setting', () => {
+  it('reads mainnet settings with the production fee account (no other is accepted there)', () => {
     const { config, issues } = loadConfig({
       TELEGRAM_BOT_TOKEN: TOKEN,
       NEAR_NETWORK: 'mainnet',
-      NEARKIT_FEE_RECIPIENT: 'fees.example.near',
+      NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
       NEARKIT_WEB_URL: 'http://localhost:5199/',
       NEARKIT_API_ALLOWED_ORIGINS: 'http://localhost:5199, http://localhost:5200',
       BUYBOT_ENABLED: 'false',
     })
     expect(issues).toEqual([])
     expect(config.network.id).toBe('mainnet')
-    expect(config.env.feeRecipient).toBe('fees.example.near')
+    expect(config.env.feeRecipient).toBe('nearkitfee.near')
     expect(config.webUrl).toBe('http://localhost:5199')
     expect(config.linkRecipient).toBe('localhost')
     expect(config.api.allowedOrigins).toEqual(['http://localhost:5199', 'http://localhost:5200'])
@@ -87,24 +87,67 @@ describe('server config', () => {
 
 describe('trading wallets (custody)', () => {
   const KEK = Buffer.alloc(32, 7).toString('base64')
+  const AUTH = Buffer.alloc(32, 9).toString('base64')
+  const PG = 'postgres://nearkit:secret@db.internal:5432/nearkit'
+  const keys = (issues: { key: string }[]) => issues.map((i) => i.key).sort()
 
-  it('run on testnet with a 32-byte key-encryption key, and are off without one', () => {
+  it('run on testnet with the signer in this process (a 32-byte KEK), or the signer service; off without either', () => {
     const on = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WALLET_KEK: KEK }).config.custody
-    expect(on).toMatchObject({ enabled: true, reason: null })
-    expect(on.kek?.equals(Buffer.alloc(32, 7))).toBe(true)
-    expect(loadConfig({ NEAR_NETWORK: 'testnet' }).config.custody).toMatchObject({ enabled: false, kek: null, reason: expect.stringMatching(/NEARKIT_WALLET_KEK/) })
+    expect(on).toMatchObject({ enabled: true, reason: null, signer: { kind: 'in-process' } })
+    expect(on.signer?.kind === 'in-process' && on.signer.kek.equals(Buffer.alloc(32, 7))).toBe(true)
+    const remote = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_SIGNER_URL: 'http://127.0.0.1:8790', NEARKIT_SIGNER_AUTH_KEY: AUTH }).config.custody
+    expect(remote).toMatchObject({ enabled: true, signer: { kind: 'remote', url: 'http://127.0.0.1:8790' } })
+    expect(loadConfig({ NEAR_NETWORK: 'testnet' }).config.custody).toMatchObject({ enabled: false, signer: null, reason: expect.stringMatching(/NEARKIT_WALLET_KEK/) })
   })
 
-  it('are off on mainnet even with a key: custody is testnet-only in this build', () => {
-    const { config, issues } = loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_WALLET_KEK: KEK })
+  it('stay off on mainnet until the owner’s switch, whatever else is configured', () => {
+    const { config, issues } = loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_SIGNER_URL: 'https://signer.internal', NEARKIT_SIGNER_AUTH_KEY: AUTH, NEARKIT_DATABASE_URL: PG })
     expect(issues).toEqual([])
-    expect(config.custody).toMatchObject({ enabled: false, kek: null, reason: expect.stringMatching(/testnet-only/) })
+    expect(config.custody).toMatchObject({ enabled: false, signer: null, reason: expect.stringMatching(/until the owner turns them on/) })
+  })
+
+  it('refuse to start on mainnet with the switch on and anything missing: signer service, PostgreSQL, the production fee account, TLS', () => {
+    expect(keys(loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_MAINNET_CUSTODY: 'enabled' }).issues)).toEqual([
+      'NEARKIT_DATABASE_URL',
+      'NEARKIT_FEE_RECIPIENT',
+      'NEARKIT_SIGNER_URL',
+    ])
+    const plain = loadConfig({
+      NEAR_NETWORK: 'mainnet',
+      NEARKIT_MAINNET_CUSTODY: 'enabled',
+      NEARKIT_SIGNER_URL: 'http://localhost:8790',
+      NEARKIT_SIGNER_AUTH_KEY: AUTH,
+      NEARKIT_DATABASE_URL: PG,
+      NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
+    })
+    expect(keys(plain.issues)).toEqual(['NEARKIT_SIGNER_URL'])
+    const ready = loadConfig({
+      NEAR_NETWORK: 'mainnet',
+      NEARKIT_MAINNET_CUSTODY: 'enabled',
+      NEARKIT_SIGNER_URL: 'https://signer.internal',
+      NEARKIT_SIGNER_AUTH_KEY: AUTH,
+      NEARKIT_DATABASE_URL: PG,
+      NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
+    })
+    expect(ready.issues).toEqual([])
+    expect(ready.config.custody).toMatchObject({ enabled: true, signer: { kind: 'remote', url: 'https://signer.internal' } })
+  })
+
+  it('refuse a KEK in the app’s environment on mainnet, and any fee account but the production one', () => {
+    expect(keys(loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_WALLET_KEK: KEK }).issues)).toEqual(['NEARKIT_WALLET_KEK'])
+    expect(loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_FEE_RECIPIENT: 'testone.near' }).issues).toEqual([
+      { key: 'NEARKIT_FEE_RECIPIENT', message: expect.stringMatching(/test account/) },
+    ])
+    expect(loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_FEE_RECIPIENT: 'someone.near' }).issues).toEqual([
+      { key: 'NEARKIT_FEE_RECIPIENT', message: expect.stringMatching(/must be nearkitfee\.near/) },
+    ])
+    expect(loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_FEE_RECIPIENT: 'nearkitfee.near' }).issues).toEqual([])
   })
 
   it('refuse a malformed key without ever repeating it', () => {
     const bad = 'c2hvcnQta2V5LXNob3J0LWtleQ=='
-    const { config, issues } = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WALLET_KEK: bad })
-    expect(issues.map((i) => i.key)).toEqual(['NEARKIT_WALLET_KEK'])
+    const { config, issues } = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WALLET_KEK: bad, NEARKIT_SIGNER_URL: 'https://signer.test', NEARKIT_SIGNER_AUTH_KEY: bad })
+    expect(keys(issues)).toEqual(['NEARKIT_SIGNER_AUTH_KEY', 'NEARKIT_WALLET_KEK'])
     expect(JSON.stringify(issues)).not.toContain(bad)
     expect(config.custody.enabled).toBe(false)
   })

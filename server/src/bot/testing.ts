@@ -19,7 +19,13 @@ import { createSignerClient, inProcessTransport } from '../custody/signer'
 import { CustodyStore } from '../custody/store'
 import { keyring, localKeyWrapper } from '../custody/vault'
 import { MAX_SLIPPAGE } from '@/lib/fees'
+import { randomBytes } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createSignerChain } from '../signer/chain'
+import { httpSignerTransport } from '../signer/client'
+import { startSignerService } from '../signer/service'
 import { createSignerCore } from '../signer/core'
 import { createRouteOracle } from '../signer/routes'
 import { migrateSigner } from '../signer/schema'
@@ -53,6 +59,11 @@ export async function botHarness(
     modules?: (deps: BotDeps) => BotModule[]
     buybot?: boolean
     custody?: boolean
+    /**
+     * The signer as production runs it: a separate service reached over signed HTTP, with
+     * its own database (the default is the signer in this process, as on testnet).
+     */
+    remoteSigner?: boolean
     /** Where the bot and the engine log (silent by default). */
     log?: Logger
   } = {},
@@ -86,22 +97,50 @@ export async function botHarness(
   let signerCore: ReturnType<typeof createSignerCore> | null = null
   let signerVault: SignerStore | null = null
   let settledNotice: Parameters<typeof notifySettled>[1] = async () => false
-  if (config.custody.enabled && config.custody.kek) {
+  let stopSigner: (() => Promise<void>) | null = null
+  if (config.custody.enabled && config.custody.signer?.kind === 'in-process') {
     const cstore = new CustodyStore(db, now)
-    await migrateSigner(db)
-    const signerStore = new SignerStore(db, now)
-    const core = createSignerCore({
-      store: signerStore,
-      keys: keyring(localKeyWrapper(config.custody.kek)),
-      chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: chain.fetch }),
-      oracle: createRouteOracle(config.network, chain.fetch),
-      config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
-      now,
-      log,
-    })
-    signerCore = core
-    signerVault = signerStore
-    const signer = createSignerClient(inProcessTransport(core))
+    let transport
+    if (options.remoteSigner) {
+      const dir = mkdtempSync(join(tmpdir(), 'nearkit-harness-signer-'))
+      const authKey = randomBytes(32)
+      const service = await startSignerService({
+        env: {
+          NEAR_NETWORK: 'testnet',
+          NEARKIT_SIGNER_AUTH_KEY: authKey.toString('base64'),
+          NEARKIT_SIGNER_KEK: config.custody.signer.kek.toString('base64'),
+          NEARKIT_SIGNER_DB_PATH: join(dir, 'signer.sqlite'),
+          NEARKIT_SIGNER_RECIPIENT: config.linkRecipient,
+          NEARKIT_SIGNER_PORT: '0',
+        },
+        fetch: chain.fetch,
+        now,
+        log,
+      })
+      stopSigner = async () => {
+        await service.stop()
+        rmSync(dir, { recursive: true, force: true })
+      }
+      signerCore = service.core
+      signerVault = service.store
+      transport = httpSignerTransport({ url: `http://127.0.0.1:${service.port}`, authKey, now })
+    } else {
+      await migrateSigner(db)
+      const signerStore = new SignerStore(db, now)
+      const core = createSignerCore({
+        store: signerStore,
+        keys: keyring(localKeyWrapper(config.custody.signer.kek)),
+        chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: chain.fetch }),
+        oracle: createRouteOracle(config.network, chain.fetch),
+        config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
+        now,
+        log,
+      })
+      signerCore = core
+      signerVault = signerStore
+      transport = inProcessTransport(core)
+    }
+    const signer = createSignerClient(transport)
     const access = createChainAccess({ rpc: near.ctx.rpc, fetch: chain.fetch })
     const swaps = createSwapService(near)
     const engine = createEngine({
@@ -163,9 +202,11 @@ export async function botHarness(
     db,
     store,
     chain,
-    /** The signer (in this process, as on testnet) and its own tables. */
+    /** The signer (in this process, as on testnet, or the separate service) and its own tables. */
     signerCore,
     signerVault,
+    /** Stops the separate signer service, when there is one. */
+    stopSigner: async () => void (await stopSigner?.()),
     config,
     deps,
     app,

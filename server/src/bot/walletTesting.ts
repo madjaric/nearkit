@@ -25,7 +25,7 @@ export const LINKED_KEY = 'ed25519:Anu7LYDfpLtkP7E16LT9imXF694BdQaa9ufVkQiwTQxC'
 export const REG = 1_250_000_000_000_000_000_000n
 const FIND_PATH = 'https://smartroutertest.refburrow.top/findPath'
 
-export async function walletBot(options: { link?: boolean; linkedKey?: string; extraKeys?: Record<string, 'full' | 'function-call'>; log?: Logger } = {}) {
+export async function walletBot(options: { link?: boolean; linkedKey?: string; extraKeys?: Record<string, 'full' | 'function-call'>; log?: Logger; remoteSigner?: boolean } = {}) {
   const linkedKey = options.linkedKey ?? LINKED_KEY
   /** USDT (6 decimals) per NEAR, times 1e6: 4_000_000 = 4 USDT. */
   const market = { usdtPerNear: 4_000_000n, noRoute: false }
@@ -34,6 +34,7 @@ export async function walletBot(options: { link?: boolean; linkedKey?: string; e
   let list: () => { name: string; command: Command }[] = () => []
   const h = await botHarness({
     custody: true,
+    remoteSigner: options.remoteSigner,
     log: options.log,
     chain: {
       accounts: {

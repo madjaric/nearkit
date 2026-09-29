@@ -1,10 +1,11 @@
 import { resolve } from 'node:path'
 import { parseEnv, type AppEnv, type EnvIssue } from '@/config/env'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
-import { CUSTODY_NETWORKS } from './custody/networks'
+import { feeRecipientProblem } from '@/lib/fees'
 import type { DatabaseConfig } from './db/open'
 import { parseKek } from './custody/vault'
 import type { LogLevel } from './log'
+import { parseAuthKey } from './signer/auth'
 
 /**
  * Server configuration, from environment variables (a local run also reads the
@@ -39,12 +40,17 @@ export interface ServerConfig {
    */
   buybot: { enabled: boolean; network: NetworkConfig; dataUrl: string }
   /**
-   * NearKit trading wallets (keys NearKit holds, sealed). Only on the networks in
-   * CUSTODY_NETWORKS (testnet), and only with a key-encryption key configured.
+   * NearKit trading wallets. Their keys live with NearKit's signer: in this process on
+   * testnet (a KEK in the environment), or the separate signer service (NEARKIT_SIGNER_URL).
+   * Mainnet custody needs the owner's switch (NEARKIT_MAINNET_CUSTODY=enabled), the signer
+   * service, PostgreSQL and the production fee account: without one of them it stays off,
+   * and with the switch on but something missing the server refuses to start.
    */
-  custody: { enabled: boolean; reason: string | null; kek: Buffer | null }
+  custody: { enabled: boolean; reason: string | null; signer: CustodySigner | null }
   logLevel: LogLevel
 }
+
+export type CustodySigner = { kind: 'in-process'; kek: Buffer } | { kind: 'remote'; url: string; authKey: Buffer }
 
 export type ConfigIssue = EnvIssue
 
@@ -140,20 +146,9 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   const dataUrl = blank(raw.BUYBOT_DATA_URL) ? NETWORKS[bbId].discovery.fastnearTxUrl : (httpUrl(raw.BUYBOT_DATA_URL)?.origin ?? null)
   if (dataUrl === null) issue('BUYBOT_DATA_URL', 'Must be an https:// URL (http:// only for localhost)')
 
-  // SECRET: the testnet wallet key-encryption key. Its value is never shown, even in an issue.
-  const kekRaw = raw.NEARKIT_WALLET_KEK
-  const kek = blank(kekRaw) ? null : parseKek(kekRaw)
-  if (!blank(kekRaw) && !kek) issue('NEARKIT_WALLET_KEK', 'Must be 32 random bytes in base64 (value not shown). Create one with npm run server:wallet-key')
-  const custodyNetwork = CUSTODY_NETWORKS.includes(network.id)
-  const custody = {
-    enabled: custodyNetwork && kek !== null,
-    reason: !custodyNetwork
-      ? `NearKit trading wallets are testnet-only in this build; they are off on ${network.id}.`
-      : kek === null
-        ? 'NearKit trading wallets need NEARKIT_WALLET_KEK on this server.'
-        : null,
-    kek: custodyNetwork ? kek : null,
-  }
+  // The fee account: on mainnet exactly the production one, when set (unset blocks fee-bearing trades).
+  const feeProblem = env.feeRecipient ? feeRecipientProblem(network.id, env.feeRecipient) : null
+  if (feeProblem) issue('NEARKIT_FEE_RECIPIENT', feeProblem)
 
   const dbPath = resolve(blank(raw.NEARKIT_DB_PATH) ? `server/data/nearkit-${network.id}.sqlite` : raw.NEARKIT_DB_PATH.trim())
   // SECRET: the Postgres URL carries the database password. Never shown, not even in an issue.
@@ -168,6 +163,43 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
     }
     if (protocol !== 'postgres:' && protocol !== 'postgresql:') issue('NEARKIT_DATABASE_URL', 'Must be a postgres:// connection URL (value not shown)')
     else database = { kind: 'postgres', url }
+  }
+
+  // SECRET values below are never shown, not even in an issue.
+  const mainnet = network.id === 'mainnet'
+  const kekRaw = raw.NEARKIT_WALLET_KEK
+  const kek = blank(kekRaw) ? null : parseKek(kekRaw)
+  if (!blank(kekRaw) && !kek) issue('NEARKIT_WALLET_KEK', 'Must be 32 random bytes in base64 (value not shown). Create one with npm run server:wallet-key')
+  if (!blank(kekRaw) && mainnet)
+    issue('NEARKIT_WALLET_KEK', 'A key-encryption key in the app’s environment is for testnet only. Mainnet keys live with the signer service and its KMS: remove it')
+  let remote: { url: string; authKey: Buffer } | null = null
+  if (!blank(raw.NEARKIT_SIGNER_URL) || !blank(raw.NEARKIT_SIGNER_AUTH_KEY)) {
+    const url = blank(raw.NEARKIT_SIGNER_URL) ? null : httpUrl(raw.NEARKIT_SIGNER_URL)
+    const authKey = parseAuthKey(raw.NEARKIT_SIGNER_AUTH_KEY)
+    if (!url) issue('NEARKIT_SIGNER_URL', 'The signer service’s https:// URL (http:// only for localhost)')
+    if (!authKey) issue('NEARKIT_SIGNER_AUTH_KEY', 'Must be 32 random bytes in base64, the same as the signer’s (value not shown)')
+    if (url && authKey) remote = { url: url.origin + url.pathname.replace(/\/$/, ''), authKey }
+  }
+  const mainnetSwitch = raw.NEARKIT_MAINNET_CUSTODY?.trim()
+  if (!blank(mainnetSwitch) && mainnetSwitch !== 'enabled' && mainnetSwitch !== 'off') issue('NEARKIT_MAINNET_CUSTODY', 'Expected "enabled" or "off"')
+  let custody: ServerConfig['custody']
+  if (mainnet) {
+    if (mainnetSwitch !== 'enabled') {
+      custody = { enabled: false, reason: 'NearKit trading wallets are off on mainnet until the owner turns them on at go-live.', signer: null }
+    } else {
+      // The owner's switch is on: every production requirement must hold, or the server doesn't start.
+      if (!remote) issue('NEARKIT_SIGNER_URL', 'Mainnet custody needs the separate signer service (NEARKIT_SIGNER_URL and NEARKIT_SIGNER_AUTH_KEY)')
+      if (blank(raw.NEARKIT_DATABASE_URL)) issue('NEARKIT_DATABASE_URL', 'Mainnet custody needs PostgreSQL')
+      if (!env.feeRecipient) issue('NEARKIT_FEE_RECIPIENT', 'Mainnet custody needs the production fee account')
+      if (remote && remote.url.startsWith('http://')) issue('NEARKIT_SIGNER_URL', 'On mainnet the signer is reached over https:// (TLS)')
+      custody = { enabled: remote !== null, reason: remote ? null : 'The signer service is not configured.', signer: remote ? { kind: 'remote', ...remote } : null }
+    }
+  } else if (remote) {
+    custody = { enabled: true, reason: null, signer: { kind: 'remote', ...remote } }
+  } else if (kek) {
+    custody = { enabled: true, reason: null, signer: { kind: 'in-process', kek } }
+  } else {
+    custody = { enabled: false, reason: 'NearKit trading wallets need NEARKIT_WALLET_KEK (testnet) or the signer service on this server.', signer: null }
   }
 
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'

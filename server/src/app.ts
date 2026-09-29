@@ -32,6 +32,7 @@ import { CustodyStore, type Intent } from './custody/store'
 import { keyring, localKeyWrapper } from './custody/vault'
 import { MAX_SLIPPAGE } from '@/lib/fees'
 import { createSignerChain } from './signer/chain'
+import { httpSignerTransport } from './signer/client'
 import { createSignerCore } from './signer/core'
 import { importLegacyKeys } from './signer/legacy'
 import { createRouteOracle } from './signer/routes'
@@ -90,7 +91,9 @@ export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
 
 export async function startServer(options: { env: Record<string, string | undefined>; fetch?: typeof fetch; log?: Logger; now?: () => number }): Promise<RunningServer> {
   const { config, issues } = loadConfig(options.env)
-  const secrets = [config.telegramToken, options.env.NEARKIT_WALLET_KEK?.trim(), ...databaseSecrets(config.database)].filter((s): s is string => Boolean(s))
+  const secrets = [config.telegramToken, options.env.NEARKIT_WALLET_KEK?.trim(), options.env.NEARKIT_SIGNER_AUTH_KEY?.trim(), ...databaseSecrets(config.database)].filter(
+    (s): s is string => Boolean(s),
+  )
   const log = options.log ?? createLogger({ level: config.logLevel, secrets })
   if (issues.length) {
     for (const i of issues) log.error('configuration problem', { key: i.key, problem: i.message })
@@ -128,22 +131,40 @@ export async function startServer(options: { env: Record<string, string | undefi
   // NearKit trading wallets: testnet only, and only with a key-encryption key (config.ts).
   let custody: CustodyDeps | null = null
   let onSettled: (intent: Intent) => Promise<void> = async () => {}
-  if (config.custody.enabled && config.custody.kek) {
+  if (config.custody.enabled && config.custody.signer) {
     const cstore = new CustodyStore(db, now)
-    // Testnet, one process: the signer runs in this process and its tables share this database.
-    await migrateSigner(db)
-    const moved = await importLegacyKeys(db, now)
-    if (moved) log.info('wallet keys moved into the signer vault', { count: moved })
-    const core = createSignerCore({
-      store: new SignerStore(db, now),
-      keys: keyring(localKeyWrapper(config.custody.kek)),
-      chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: fetchImpl }),
-      oracle: createRouteOracle(config.network, fetchImpl),
-      config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
-      now,
-      log,
+    const signerConfig = config.custody.signer
+    let transport
+    let signerMode: string
+    if (signerConfig.kind === 'in-process') {
+      // Testnet, one process: the signer runs in this process and its tables share this database.
+      await migrateSigner(db)
+      const moved = await importLegacyKeys(db, now)
+      if (moved) log.info('wallet keys moved into the signer vault', { count: moved })
+      const core = createSignerCore({
+        store: new SignerStore(db, now),
+        keys: keyring(localKeyWrapper(signerConfig.kek)),
+        chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: fetchImpl }),
+        oracle: createRouteOracle(config.network, fetchImpl),
+        config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
+        now,
+        log,
+      })
+      transport = inProcessTransport(core)
+      signerMode = `in-process (${core.keyRef})`
+    } else {
+      transport = httpSignerTransport({ url: signerConfig.url, authKey: signerConfig.authKey, fetch: fetchImpl })
+      signerMode = 'service'
+    }
+    const signer = createSignerClient(transport)
+    // The signer must serve this network; if it can't be asked now, wallet actions fail closed until it answers.
+    const signerHealth = await signer.health().catch((e: unknown) => {
+      log.error('the signer is not answering; wallet actions fail until it does', { error: e })
+      return null
     })
-    const signer = createSignerClient(inProcessTransport(core))
+    if (signerHealth && signerHealth.network !== config.network.id)
+      throw new Error(`The signer serves ${signerHealth.network}, but this server runs ${config.network.id}. Fix the configuration.`)
+    if (signerHealth) log.info('signer', { mode: signerMode, ok: signerHealth.ok, paused: signerHealth.paused, kek: signerHealth.kek })
     const chain = createChainAccess({ rpc: near.ctx.rpc, fetch: fetchImpl })
     const swaps = createSwapService(near)
     const engine = createEngine({
@@ -166,7 +187,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
     custody = { store: cstore, signer, engine, chain, swaps, recovery }
-    log.info('trading wallets on', { network: config.network.id, signer: 'in-process', keyRef: core.keyRef })
+    log.info('trading wallets on', { network: config.network.id, signer: signerMode })
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })
   }
