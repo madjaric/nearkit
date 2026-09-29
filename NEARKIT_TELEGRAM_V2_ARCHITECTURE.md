@@ -194,7 +194,7 @@ trading wallet, encrypt keys with hardware-held keys, and gate withdrawals and e
 | A user's Telegram account is compromised | Attacker can trade that user's trading-wallet funds (bad trades); **cannot withdraw to their own address** | Withdrawals go only to the linked main account; export needs a wallet signature; limits cap damage |
 | A Telegram group is compromised | Buybot settings can be changed; nothing financial | Buybot holds no keys; trading works only in private chats |
 | NearKit database leaks | Encrypted keys only; no loss | KEK not in the database; AES-GCM with bound additional data |
-| NearKit server is compromised (running process) | Attacker can make the signer sign **within policy** (trades on Rhea, withdrawals to users' own linked accounts) and, with KMS access, could try to decrypt keys | Policy allow-list; KMS usage alerts; limits; kill switch. Residual risk: value extraction through bad trades. This is why mainnet needs a separate signer, KMS and a review, and why R is the long-term fix |
+| NearKit server is compromised (running process) | Through the signer: only in-policy actions (Rhea trades, which can still be made at bad prices, and withdrawals to users' own linked accounts). If the attacker also gets the signer's right to decrypt keys, they can sign anything and **drain trading-wallet balances**. Users' main wallets are never reachable | The signer is its own process and the only holder of KMS decrypt rights; KMS usage alerts; limits keep trading balances small; kill switch. This residual risk is why mainnet needs a separate signer, KMS and a review, and why R (vault contract) is the long-term fix |
 | Environment variables leak | Bot token (and testnet KEK) exposed | Rotate the token with @BotFather; testnet only; mainnet KEK is in KMS, not env |
 | Encryption key (KEK) leaks | With a DB copy, trading keys are readable | KMS on mainnet (key never leaves the HSM); rotate by re-wrapping DEKs; the user's own key still controls each account |
 | Hosting provider is compromised | Same as server compromise | Same controls; KMS in a separate cloud account |
@@ -203,7 +203,7 @@ trading wallet, encrypt keys with hardware-held keys, and gate withdrawals and e
 
 What NearKit can do with this design:
 - **Sign trades for users**, as any custodial bot can, but only inside the policy.
-- **Not** send funds anywhere except the user's own verified account.
+- **Not**, through its signer, send funds anywhere except the user's own verified account. A full compromise of the signer is the exception (see the server row above), and it can reach only trading-wallet balances.
 - **Not** stop a user from taking their funds out with their own key.
 
 ---
