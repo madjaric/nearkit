@@ -1,4 +1,4 @@
-import type { Database } from '../db/database'
+import { isUniqueViolation, type Database } from '../db/database'
 import { randomToken } from '../ids'
 
 /**
@@ -54,6 +54,9 @@ export interface Intent<P = Record<string, unknown>, Q = Record<string, unknown>
   expiresAt: number
   result: IntentResult | null
   replacedBy: string | null
+  /** The server instance running it while in flight, and until when (its execution lease). */
+  leaseOwner: string | null
+  leaseUntil: number | null
   createdAt: number
   updatedAt: number
 }
@@ -103,6 +106,20 @@ export interface RecoveryRequest {
 }
 
 export type ConfirmRefusal = 'unknown' | 'not-yours' | 'expired' | 'busy' | 'not-open' | 'wallet'
+
+/**
+ * The execution lease on an intent passed to someone else (it expired while this
+ * instance was busy, and another took over). Stop at once: sign and send nothing more.
+ */
+export class LeaseLostError extends Error {
+  constructor(intentId: string) {
+    super(`Lost the execution lease on intent ${intentId}`)
+    this.name = 'LeaseLostError'
+  }
+}
+
+/** How long an execution lease lasts without renewal. The executor renews it at every step. */
+export const EXECUTION_LEASE_MS = 120_000
 
 const parse = <T>(text: string | null): T | null => {
   if (text === null) return null
@@ -159,6 +176,8 @@ interface IntentRow {
   expires_at: number
   result: string | null
   replaced_by: string | null
+  lease_owner: string | null
+  lease_until: number | null
   created_at: number
   updated_at: number
 }
@@ -175,6 +194,8 @@ const toIntent = (r: IntentRow): Intent => ({
   expiresAt: r.expires_at,
   result: parse<IntentResult>(r.result),
   replacedBy: r.replaced_by,
+  leaseOwner: r.lease_owner,
+  leaseUntil: r.lease_until,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 })
@@ -311,9 +332,18 @@ export class CustodyStore {
   /**
    * The Confirm button, atomically: only the user it belongs to, only while quoted
    * and unexpired, only while nothing else of this wallet is in flight. A second
-   * press finds it no longer quoted and changes nothing.
+   * press finds it no longer quoted and changes nothing. The confirming instance
+   * gets the execution lease (`lease.owner`): it alone may sign for the intent.
+   *
+   * The database decides, not a process: the move from quoted is a compare-and-set,
+   * and a unique index allows one intent in flight per wallet, so two server
+   * instances confirming at once can't both win.
    */
-  async confirmIntent(id: string, userId: number): Promise<{ ok: true; intent: Intent } | { ok: false; reason: ConfirmRefusal; intent: Intent | null }> {
+  async confirmIntent(
+    id: string,
+    userId: number,
+    lease: { owner: string; ms: number } = { owner: 'local', ms: EXECUTION_LEASE_MS },
+  ): Promise<{ ok: true; intent: Intent } | { ok: false; reason: ConfirmRefusal; intent: Intent | null }> {
     return this.db.tx(async () => {
       const intent = await this.intent(id)
       if (!intent) return { ok: false, reason: 'unknown', intent: null }
@@ -326,7 +356,23 @@ export class CustodyStore {
       const wallet = await this.wallet(intent.walletId)
       if (!wallet || wallet.status !== 'active') return { ok: false, reason: 'wallet', intent }
       if ((await this.inFlight(intent.walletId)).length) return { ok: false, reason: 'busy', intent }
-      await this.setStatus(id, ['quoted'], 'confirmed')
+      const t = this.now()
+      let moved: number
+      try {
+        moved = await this.db.attempt(() =>
+          this.db.run("UPDATE wallet_intents SET status = 'confirmed', lease_owner = ?, lease_until = ?, updated_at = ? WHERE id = ? AND status = 'quoted'", [
+            lease.owner,
+            t + lease.ms,
+            t,
+            id,
+          ]),
+        )
+      } catch (e) {
+        // Another intent of this wallet went in flight a moment ago (on another instance).
+        if (isUniqueViolation(e)) return { ok: false, reason: 'busy', intent }
+        throw e
+      }
+      if (moved !== 1) return { ok: false, reason: 'not-open', intent: await this.intent(id) }
       await this.audit({ userId, walletId: intent.walletId, action: 'intent-confirmed', detail: { intent: id, kind: intent.kind, params: intent.params } })
       return { ok: true, intent: (await this.intent(id)) as Intent }
     })
@@ -356,9 +402,50 @@ export class CustodyStore {
     ).map(toIntent)
   }
 
-  /** Every intent that may have something on its way to the chain, for the resolver. */
+  /** Every intent that may have something on its way to the chain. */
   async allInFlight(): Promise<Intent[]> {
     return (await this.db.all<IntentRow>(`SELECT * FROM wallet_intents WHERE status IN (${placeholders(IN_FLIGHT.length)}) ORDER BY created_at`, [...IN_FLIGHT])).map(toIntent)
+  }
+
+  /** In-flight intents nobody is running: no lease, or an expired one (the resolver's work list). */
+  async unattended(): Promise<Intent[]> {
+    return (
+      await this.db.all<IntentRow>(
+        `SELECT * FROM wallet_intents WHERE status IN (${placeholders(IN_FLIGHT.length)}) AND (lease_owner IS NULL OR lease_until IS NULL OR lease_until < ?) ORDER BY created_at`,
+        [...IN_FLIGHT, this.now()],
+      )
+    ).map(toIntent)
+  }
+
+  // ─── execution leases ─────────────────────────────────────────────────────
+
+  /** Takes an unattended in-flight intent (no lease, or an expired one). True for exactly one taker. */
+  async claimIntent(id: string, owner: string, ms: number): Promise<boolean> {
+    const t = this.now()
+    return (
+      (await this.db.run(
+        `UPDATE wallet_intents SET lease_owner = ?, lease_until = ? WHERE id = ? AND status IN (${placeholders(IN_FLIGHT.length)})
+           AND (lease_owner IS NULL OR lease_until IS NULL OR lease_until < ?)`,
+        [owner, t + ms, id, ...IN_FLIGHT, t],
+      )) === 1
+    )
+  }
+
+  /** Extends `owner`'s lease. False when it no longer holds it: then it must stop. */
+  async renewLease(id: string, owner: string, ms: number): Promise<boolean> {
+    return (
+      (await this.db.run(`UPDATE wallet_intents SET lease_until = ? WHERE id = ? AND lease_owner = ? AND status IN (${placeholders(IN_FLIGHT.length)})`, [
+        this.now() + ms,
+        id,
+        owner,
+        ...IN_FLIGHT,
+      ])) === 1
+    )
+  }
+
+  /** Gives the lease up (the intent is settled, or handed to the resolver). */
+  async releaseLease(id: string, owner: string): Promise<void> {
+    await this.db.run('UPDATE wallet_intents SET lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ?', [id, owner])
   }
 
   /**
@@ -380,7 +467,13 @@ export class CustodyStore {
 
   // ─── signed transactions ──────────────────────────────────────────────────
 
-  /** Saves a signed transaction before it is sent, and marks the intent as signing, in one write. */
+  /**
+   * Saves a signed transaction before it is sent, and marks the intent as signing, in
+   * one write, only while `owner` holds the intent's execution lease (it is extended
+   * too). Otherwise it throws LeaseLostError and nothing is recorded: the caller must
+   * not send. The lease check comes first, so a resolver that took the intent over
+   * either sees this transaction or makes this write fail.
+   */
   async recordSigned(t: {
     intentId: string
     step: number
@@ -391,15 +484,21 @@ export class CustodyStore {
     expiresHeight: number
     signed: string
     plan: unknown
+    owner: string
+    leaseMs?: number
   }): Promise<void> {
     await this.db.tx(async () => {
       const at = this.now()
+      const held = await this.db.run(
+        "UPDATE wallet_intents SET status = 'signing', lease_until = ?, updated_at = ? WHERE id = ? AND status IN ('confirmed', 'signing') AND lease_owner = ?",
+        [at + (t.leaseMs ?? EXECUTION_LEASE_MS), at, t.intentId, t.owner],
+      )
+      if (held !== 1) throw new LeaseLostError(t.intentId)
       await this.db.run(
         `INSERT INTO wallet_txs (intent_id, step, hash, signer_id, receiver_id, nonce, expires_height, signed, plan, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'signed', ?, ?)`,
         [t.intentId, t.step, t.hash, t.signerId, t.receiverId, t.nonce.toString(), t.expiresHeight, t.signed, JSON.stringify(t.plan), at, at],
       )
-      await this.setStatus(t.intentId, ['confirmed', 'signing'], 'signing')
     })
   }
 

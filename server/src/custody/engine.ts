@@ -1,10 +1,21 @@
 import { toNearKitError } from '@/services/near/errors'
 import type { RpcTxResult } from '@/services/near/rpc'
+import { randomToken } from '../ids'
 import type { Logger } from '../log'
 import type { ChainAccess } from './chain'
 import type { WalletOperation, WalletTxPlan } from './policy'
 import type { TradingSigner } from './signer'
-import type { ConfirmRefusal, CustodyStore, Intent, IntentKind, IntentResult, TradingWallet, WalletTx } from './store'
+import {
+  EXECUTION_LEASE_MS,
+  LeaseLostError,
+  type ConfirmRefusal,
+  type CustodyStore,
+  type Intent,
+  type IntentKind,
+  type IntentResult,
+  type TradingWallet,
+  type WalletTx,
+} from './store'
 
 /**
  * Runs confirmed intents: one Confirm in Telegram, at most one transaction per step.
@@ -20,6 +31,11 @@ import type { ConfirmRefusal, CustodyStore, Intent, IntentKind, IntentResult, Tr
  *    NearKit's key never reached its nonce. When the key's nonce moved but the chain
  *    doesn't return the hash, nobody can tell, and NearKit never says "nothing was
  *    sent" then. After a restart the resolver does the same, without sending anything.
+ * 5. Many server instances may share the database. The instance whose Confirm won
+ *    holds the intent's execution lease; it renews it before every signature and
+ *    records a signed transaction only while it still holds it. The resolver takes
+ *    over only intents whose lease expired (the instance died or stalled), claiming
+ *    each with a compare-and-set, so exactly one instance works on an intent at a time.
  */
 
 export type PlanOutcome = { kind: 'plan'; op: WalletOperation; plan: WalletTxPlan[] } | { kind: 'requote'; quote: Record<string, unknown>; ttlMs: number }
@@ -65,6 +81,10 @@ export interface EngineDeps {
   confirmMs?: number
   /** An intent the resolver settled in the background (after a timeout or a restart). */
   onSettled?: (intent: Intent) => Promise<void>
+  /** This server instance's name in execution leases (unique per process). */
+  instanceId?: string
+  /** How long an execution lease lasts without renewal. */
+  leaseMs?: number
 }
 
 /** Past expiry with the key's nonce moved but no such transaction on chain: wait this long before calling it unconfirmed. */
@@ -85,8 +105,8 @@ export function createEngine(deps: EngineDeps) {
   const now = deps.now ?? Date.now
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const explain = deps.explain ?? ((e: unknown) => toNearKitError(e).message)
-  /** Wallets with a live run in this process; the resolver leaves them alone. */
-  const running = new Set<string>()
+  const instance = deps.instanceId ?? `local-${randomToken(6)}`
+  const leaseMs = deps.leaseMs ?? EXECUTION_LEASE_MS
 
   /** Moves an in-flight intent to failed. `moved` is false when something else settled it first (then nothing is logged or told twice). */
   const failIntent = async (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Promise<{ intent: Intent; moved: boolean }> => {
@@ -97,13 +117,14 @@ export function createEngine(deps: EngineDeps) {
   const fail = async (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Promise<Intent> =>
     (await failIntent(intent, message, hashes, facts)).intent
 
-  async function finalStatus(hash: string, signerId: string, waitMs: number): Promise<RpcTxResult | null> {
+  /** Waits for a final outcome while keeping the lease; null when it's not final in time (or the lease passed on). */
+  async function finalStatus(hash: string, signerId: string, waitMs: number, keep: () => Promise<boolean>): Promise<RpcTxResult | null> {
     const stop = now() + waitMs
     let wait = 500
     for (;;) {
       const r = await chain.status(hash, signerId).catch(() => null)
       if (r) return r
-      if (now() >= stop) return null
+      if (now() >= stop || !(await keep())) return null
       await sleep(wait)
       wait = Math.min(wait * 2, 4000)
     }
@@ -130,10 +151,13 @@ export function createEngine(deps: EngineDeps) {
     return { intent: (await store.intent(intent.id)) as Intent, moved }
   }
 
-  async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[]): Promise<ExecuteResult> {
+  async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[], owner: string): Promise<ExecuteResult> {
     const confirmed: ConfirmedTx[] = []
     let lastNonce: bigint | null = null
+    const keep = () => store.renewLease(intent.id, owner, leaseMs)
     for (let step = 0; step < plan.length; step++) {
+      // Only the lease holder signs: if another instance took the intent over, stop here.
+      if (!(await keep())) throw new LeaseLostError(intent.id)
       const tx = plan[step] as WalletTxPlan
       let signed
       let expiresHeight: number
@@ -163,7 +187,10 @@ export function createEngine(deps: EngineDeps) {
         return { kind: 'finished', intent: await fail(intent, `${explain(e)}${before}`, hashes) }
       }
       // On disk before it leaves: after any crash, NearKit knows this hash and never signs the step again.
+      // Recorded only while this instance holds the lease; otherwise LeaseLostError and nothing is sent.
       await store.recordSigned({
+        owner,
+        leaseMs,
         intentId: intent.id,
         step,
         hash: signed.hash,
@@ -204,7 +231,7 @@ export function createEngine(deps: EngineDeps) {
       } else if (sent.kind === 'unknown') {
         log.warn('send unclear; asking the chain', { intent: intent.id, step, hash: signed.hash, reason: sent.reason })
       }
-      result = await finalStatus(signed.hash, wallet.accountId, deps.confirmMs ?? 60_000)
+      result = await finalStatus(signed.hash, wallet.accountId, deps.confirmMs ?? 60_000, keep)
       if (!result) {
         await store.setStatus(intent.id, ['signing'], 'submitted')
         await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-unclear', detail: { intent: intent.id, step, hash: signed.hash } })
@@ -228,14 +255,14 @@ export function createEngine(deps: EngineDeps) {
     return { kind: 'finished', intent: (await settle(intent, wallet, confirmed)).intent }
   }
 
-  return {
+  const api = {
     /** The Confirm button. Safe to call any number of times for the same intent. */
     async execute(intentId: string, userId: number): Promise<ExecuteResult> {
-      const c = await store.confirmIntent(intentId, userId)
+      // This execution's name in the lease: the resolver (even in this process) can't take it while it lives.
+      const owner = `${instance}/x/${randomToken(6)}`
+      const c = await store.confirmIntent(intentId, userId, { owner, ms: leaseMs })
       if (!c.ok) return { kind: 'refused', reason: c.reason, intent: c.intent }
       const intent = c.intent
-      if (running.has(intent.walletId)) return { kind: 'refused', reason: 'busy', intent }
-      running.add(intent.walletId)
       try {
         const wallet = (await store.wallet(intent.walletId)) as TradingWallet
         const handler = deps.handlers[intent.kind]
@@ -263,9 +290,15 @@ export function createEngine(deps: EngineDeps) {
           })
           return { kind: 'requoted', intent: (await store.intent(intent.id)) as Intent, next }
         }
-        return await run(intent, wallet, outcome.op, outcome.plan)
+        return await run(intent, wallet, outcome.op, outcome.plan, owner)
+      } catch (e) {
+        if (!(e instanceof LeaseLostError)) throw e
+        // Another instance took the intent over (this one stalled past its lease): it reports the outcome.
+        log.warn('execution lease lost; the resolver finishes this intent', { intent: intent.id })
+        return { kind: 'pending', intent: (await store.intent(intent.id)) as Intent }
       } finally {
-        running.delete(intent.walletId)
+        // Settled, or handed to the resolver: either way this execution is over.
+        await store.releaseLease(intent.id, owner).catch(() => undefined)
       }
     },
 
@@ -276,122 +309,137 @@ export function createEngine(deps: EngineDeps) {
     async resolvePending(): Promise<Intent[]> {
       await store.expireQuotes()
       const settled: Intent[] = []
-      for (const intent of await store.allInFlight()) {
-        if (running.has(intent.walletId)) continue
-        const wallet = await store.wallet(intent.walletId)
-        if (!wallet) continue
-        const txs = await store.txsOf(intent.id)
-        const keep = (r: { intent: Intent; moved: boolean }) => {
-          if (r.moved) settled.push(r.intent)
+      const owner = `${instance}/r/${randomToken(6)}`
+      const keep = (r: { intent: Intent; moved: boolean }) => {
+        if (r.moved) settled.push(r.intent)
+      }
+      for (const listed of await store.unattended()) {
+        // Exactly one resolver (on any instance) takes each intent; one that is being run is not listed.
+        if (!(await store.claimIntent(listed.id, owner, leaseMs))) continue
+        try {
+          const intent = await store.intent(listed.id)
+          if (intent) await resolveOne(intent, keep)
+        } finally {
+          await store.releaseLease(listed.id, owner).catch(() => undefined)
         }
-        if (!txs.length) {
-          // Confirmed, then stopped before anything was signed: nothing can have been sent.
-          keep(await failIntent(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
-          continue
-        }
-        let unresolved = false
-        for (const t of txs) {
-          if (t.status === 'success' || t.status === 'failed' || t.status === 'expired' || t.status === 'unconfirmed') continue
-          let r: RpcTxResult | null
-          let seen: boolean
-          try {
-            r = await chain.status(t.hash, t.signerId)
-            // Not final: if the chain knows the hash at all, it landed; wait for its outcome.
-            seen = r !== null || (await chain.seen(t.hash, t.signerId))
-          } catch {
-            unresolved = true
-            continue
-          }
-          if (r) {
-            await store.markTx(intent.id, t.step, succeeded(r) ? 'success' : 'failed', { success: succeeded(r) })
-            continue
-          }
-          if (seen) {
-            unresolved = true
-            continue
-          }
-          const [height, nonce] = await Promise.all([chain.finalHeight().catch(() => null), chain.keyNonce(t.signerId, wallet.publicKey).catch(() => undefined)])
-          // Until its expiry height passes, it may still land.
-          if (height === null || height <= t.expiresHeight) {
-            unresolved = true
-            continue
-          }
-          if (nonce !== undefined && nonce !== null && nonce < t.nonce) {
-            // Nonces only go up, so the key never used this one, and past expiry it never can: provably not executed.
-            await store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NearKit’s key never used its nonce' })
-          } else if (nonce !== undefined && height > t.expiresHeight + AMBIGUOUS_GRACE_BLOCKS) {
-            // The key's nonce moved (or the key is gone) but the chain returns no such transaction: nobody can tell.
-            await store.markTx(intent.id, t.step, 'unconfirmed', { reason: 'the key’s nonce moved but the chain does not return this transaction' })
-          } else {
-            unresolved = true
-          }
-        }
-        if (unresolved) continue
-
-        const all = await store.txsOf(intent.id)
-        const landed = all.filter((t) => t.status === 'success' || t.status === 'failed')
-        const total = stepOf(all[0] as WalletTx)?.total ?? all.length
-        const unknown = all.find((t) => t.status === 'unconfirmed')
-        if (unknown) {
-          // Never "nothing was sent" here: it may have gone through.
-          keep(
-            await failIntent(
-              intent,
-              'NearKit couldn’t confirm whether a transaction went through: the chain doesn’t return it, though the wallet’s key was used. Check the wallet’s balance and history before trying again.',
-              [...landed.map((t) => t.hash), unknown.hash],
-            ),
-          )
-          continue
-        }
-        const lost = all.find((t) => t.status === 'expired' || (t.status === 'failed' && !(t.outcome && 'success' in t.outcome)))
-        if (lost) {
-          const msg = landed.length
-            ? 'A transaction never reached the chain, so the rest was not sent. Earlier steps went through; see the transactions.'
-            : 'The transaction never reached the chain. Nothing was sent.'
-          keep(
-            await failIntent(
-              intent,
-              msg,
-              landed.map((t) => t.hash),
-            ),
-          )
-          continue
-        }
-        const confirmed: ConfirmedTx[] = []
-        let readable = true
-        for (const t of landed) {
-          const r = await chain.status(t.hash, t.signerId).catch(() => null)
-          const step = stepOf(t)
-          if (!r || !step) {
-            readable = false
-            break
-          }
-          confirmed.push({ plan: step.tx, hash: t.hash, result: r })
-        }
-        if (!readable) continue
-        const failedEarly = confirmed.slice(0, -1).some((c) => !succeeded(c.result))
-        if (failedEarly)
-          keep(
-            await failIntent(
-              intent,
-              'A preparation step failed on chain, so the rest was not sent.',
-              confirmed.map((c) => c.hash),
-            ),
-          )
-        else if (confirmed.length < total)
-          keep(
-            await failIntent(
-              intent,
-              'NearKit restarted between steps, so the rest was not sent. Nothing was traded; try again.',
-              confirmed.map((c) => c.hash),
-            ),
-          )
-        else keep(await settle(intent, wallet, confirmed))
       }
       for (const i of settled) await deps.onSettled?.(i).catch((e: unknown) => log.warn('settled notice failed', { intent: i.id, error: e }))
       return settled
     },
   }
+
+  /** Settles one claimed intent from the chain's record, if it can be settled yet. Reads only. */
+  async function resolveOne(intent: Intent, keep: (r: { intent: Intent; moved: boolean }) => void): Promise<void> {
+    const wallet = await store.wallet(intent.walletId)
+    if (!wallet) return
+    // Read after the claim: an executor that lost its lease can no longer add to these.
+    const txs = await store.txsOf(intent.id)
+    if (!txs.length) {
+      // Confirmed, then stopped before anything was signed: nothing can have been sent.
+      keep(await failIntent(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
+      return
+    }
+    let unresolved = false
+    for (const t of txs) {
+      if (t.status === 'success' || t.status === 'failed' || t.status === 'expired' || t.status === 'unconfirmed') continue
+      let r: RpcTxResult | null
+      let seen: boolean
+      try {
+        r = await chain.status(t.hash, t.signerId)
+        // Not final: if the chain knows the hash at all, it landed; wait for its outcome.
+        seen = r !== null || (await chain.seen(t.hash, t.signerId))
+      } catch {
+        unresolved = true
+        continue
+      }
+      if (r) {
+        await store.markTx(intent.id, t.step, succeeded(r) ? 'success' : 'failed', { success: succeeded(r) })
+        continue
+      }
+      if (seen) {
+        unresolved = true
+        continue
+      }
+      const [height, nonce] = await Promise.all([chain.finalHeight().catch(() => null), chain.keyNonce(t.signerId, wallet.publicKey).catch(() => undefined)])
+      // Until its expiry height passes, it may still land.
+      if (height === null || height <= t.expiresHeight) {
+        unresolved = true
+        continue
+      }
+      if (nonce !== undefined && nonce !== null && nonce < t.nonce) {
+        // Nonces only go up, so the key never used this one, and past expiry it never can: provably not executed.
+        await store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NearKit’s key never used its nonce' })
+      } else if (nonce !== undefined && height > t.expiresHeight + AMBIGUOUS_GRACE_BLOCKS) {
+        // The key's nonce moved (or the key is gone) but the chain returns no such transaction: nobody can tell.
+        await store.markTx(intent.id, t.step, 'unconfirmed', { reason: 'the key’s nonce moved but the chain does not return this transaction' })
+      } else {
+        unresolved = true
+      }
+    }
+    if (unresolved) return
+
+    const all = await store.txsOf(intent.id)
+    const landed = all.filter((t) => t.status === 'success' || t.status === 'failed')
+    const total = stepOf(all[0] as WalletTx)?.total ?? all.length
+    const unknown = all.find((t) => t.status === 'unconfirmed')
+    if (unknown) {
+      // Never "nothing was sent" here: it may have gone through.
+      keep(
+        await failIntent(
+          intent,
+          'NearKit couldn’t confirm whether a transaction went through: the chain doesn’t return it, though the wallet’s key was used. Check the wallet’s balance and history before trying again.',
+          [...landed.map((t) => t.hash), unknown.hash],
+        ),
+      )
+      return
+    }
+    const lost = all.find((t) => t.status === 'expired' || (t.status === 'failed' && !(t.outcome && 'success' in t.outcome)))
+    if (lost) {
+      const msg = landed.length
+        ? 'A transaction never reached the chain, so the rest was not sent. Earlier steps went through; see the transactions.'
+        : 'The transaction never reached the chain. Nothing was sent.'
+      keep(
+        await failIntent(
+          intent,
+          msg,
+          landed.map((t) => t.hash),
+        ),
+      )
+      return
+    }
+    const confirmed: ConfirmedTx[] = []
+    let readable = true
+    for (const t of landed) {
+      const r = await chain.status(t.hash, t.signerId).catch(() => null)
+      const step = stepOf(t)
+      if (!r || !step) {
+        readable = false
+        break
+      }
+      confirmed.push({ plan: step.tx, hash: t.hash, result: r })
+    }
+    if (!readable) return
+    const failedEarly = confirmed.slice(0, -1).some((c) => !succeeded(c.result))
+    if (failedEarly)
+      keep(
+        await failIntent(
+          intent,
+          'A preparation step failed on chain, so the rest was not sent.',
+          confirmed.map((c) => c.hash),
+        ),
+      )
+    else if (confirmed.length < total)
+      keep(
+        await failIntent(
+          intent,
+          'NearKit restarted between steps, so the rest was not sent. Nothing was traded; try again.',
+          confirmed.map((c) => c.hash),
+        ),
+      )
+    else keep(await settle(intent, wallet, confirmed))
+  }
+
+  return api
 }
 
 export type Engine = ReturnType<typeof createEngine>

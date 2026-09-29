@@ -195,6 +195,17 @@ describe('settings', () => {
 })
 
 describe('robustness', () => {
+  it('an update Telegram delivers twice (a retry, a re-read after a restart) is handled once', async () => {
+    const h = await bot()
+    const update = h.fake.push({
+      message: { message_id: 7, date: 0, chat: privateChat(ALICE), from: ALICE, text: '/help', entities: [{ type: 'bot_command', offset: 0, length: 5 }] },
+    })
+    await h.app.handle(update)
+    await h.app.handle(update)
+    await h.app.handle({ ...update })
+    expect(h.fake.messages().filter((m) => m.text.includes('/help') || m.text.length > 0)).toHaveLength(1)
+  })
+
   it('drops floods from one user and says so once', async () => {
     const h = await bot()
     for (let i = 0; i < 25; i++) await h.say('/help')

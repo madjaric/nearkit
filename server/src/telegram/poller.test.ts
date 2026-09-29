@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Leases } from '../db/leases'
 import { migrate } from '../db/schema'
 import { SqliteDatabase } from '../db/sqlite'
 import { Store } from '../db/store'
@@ -13,7 +14,7 @@ async function setup() {
   const tg = createTelegramApi({ token: fake.token, fetch: fake.fetch, sleep: async () => {} })
   const db = await SqliteDatabase.open(null)
   await migrate(db)
-  return { fake, tg, store: new Store(db) }
+  return { fake, tg, store: new Store(db), db }
 }
 
 const message = (chatId: number, text: string) => ({
@@ -62,6 +63,52 @@ describe('polling', () => {
     })
     await poller.done
     expect(seen).toEqual(['good'])
+  })
+
+  it('with several instances only the lease holder reads; the next one resumes from the saved offset', async () => {
+    const { fake, tg, store, db } = await setup()
+    let now = 1_000
+    const leases = new Leases(db, () => now)
+    // Instance "a" leads: it reads the first update, then stops (a crash: its lease is left to expire).
+    fake.push(message(1, 'first'))
+    const seenA: string[] = []
+    const a = startPolling({
+      tg,
+      store,
+      log: silentLogger,
+      sleep: async () => {},
+      handle: async (u) => {
+        seenA.push(u.message?.text ?? '')
+        void a.stop()
+      },
+      lease: { hold: () => leases.acquire('telegram-poller', 'a', 60_000), release: async () => {} },
+    })
+    await a.done
+    expect(seenA).toEqual(['first'])
+    // "b" waits while a's lease lasts, then takes over and reads from the saved offset.
+    fake.push(message(1, 'second'))
+    const seenB: string[] = []
+    let waits = 0
+    let stopping: Promise<void> | undefined
+    const b = startPolling({
+      tg,
+      store,
+      log: silentLogger,
+      sleep: async () => {
+        waits += 1
+        now += 30_000
+      },
+      handle: async (u) => {
+        seenB.push(u.message?.text ?? '')
+        stopping = b.stop()
+      },
+      lease: { hold: () => leases.acquire('telegram-poller', 'b', 60_000), release: () => leases.release('telegram-poller', 'b') },
+    })
+    await b.done
+    await stopping
+    expect(waits).toBeGreaterThan(0)
+    expect(seenB).toEqual(['second'])
+    expect(await leases.holder('telegram-poller')).toBeNull()
   })
 
   it('stops for good when Telegram rejects the token', async () => {

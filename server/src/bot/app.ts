@@ -28,7 +28,14 @@ export function userMessage(e: unknown): string | null {
   return null
 }
 
-export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
+export function createBotApp(
+  deps: BotDeps,
+  modules: BotModule[],
+  options: {
+    /** True the first time an update ID is seen (shared by every instance); a repeat is ignored. */
+    firstDelivery?: (updateId: number) => Promise<boolean>
+  } = {},
+): BotApp {
   const membership = modules.flatMap((m) => (m.onMembership ? [m.onMembership] : []))
   const migrations = modules.flatMap((m) => (m.onChatMigrated ? [m.onChatMigrated] : []))
   const commands = new Map<string, Command>()
@@ -173,6 +180,8 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
 
   return {
     async handle(update) {
+      // A retried or re-read update (restart, leader change) runs once.
+      if (options.firstDelivery && !(await options.firstDelivery(update.update_id))) return
       if (update.message) return onMessage(update.message)
       if (update.callback_query) return onCallback(update.callback_query)
       if (update.my_chat_member) {

@@ -33,8 +33,16 @@ export interface Database extends Queryable {
   /**
    * All-or-nothing: commits when `fn` resolves, rolls back when it throws. A call
    * made while a transaction is open (anywhere in `fn`'s async call chain) joins it.
+   * On Postgres any failed statement dooms the whole transaction, so a caught error
+   * (e.g. a unique violation you expect) must go through `attempt`.
    */
   tx<T>(fn: () => Promise<T>): Promise<T>
+  /**
+   * Runs `fn` so that its failure undoes only its own statements (a savepoint inside
+   * a transaction; nothing extra outside one). Use it around a statement whose error
+   * you catch and handle, e.g. an insert that may hit a unique constraint.
+   */
+  attempt<T>(fn: () => Promise<T>): Promise<T>
   /** Several statements without parameters (schema changes). */
   exec(sql: string): Promise<void>
   close(): Promise<void>
@@ -57,6 +65,7 @@ interface Scope {
 export abstract class BaseDatabase implements Database {
   abstract readonly dialect: Dialect
   protected readonly scope = new AsyncLocalStorage<Scope>()
+  private savepoints = 0
 
   /** Runs `fn` on a connection outside any transaction. */
   protected abstract outside<T>(fn: (conn: Connection) => Promise<T>): Promise<T>
@@ -88,6 +97,22 @@ export abstract class BaseDatabase implements Database {
     return s ? s.conn.exec(sql) : this.outside((c) => c.exec(sql))
   }
 
+  async attempt<T>(fn: () => Promise<T>): Promise<T> {
+    const s = this.current()
+    if (!s) return fn()
+    const name = `nk_sp_${++this.savepoints}`
+    await s.conn.exec(`SAVEPOINT ${name}`)
+    try {
+      const result = await fn()
+      await s.conn.exec(`RELEASE SAVEPOINT ${name}`)
+      return result
+    } catch (e) {
+      await s.conn.exec(`ROLLBACK TO SAVEPOINT ${name}`)
+      await s.conn.exec(`RELEASE SAVEPOINT ${name}`)
+      throw e
+    }
+  }
+
   tx<T>(fn: () => Promise<T>): Promise<T> {
     // Nested: join the transaction already open in this call chain.
     if (this.current()) return fn()
@@ -99,6 +124,14 @@ export abstract class BaseDatabase implements Database {
         scope.open = false
       }
     })
+  }
+}
+
+/** Postgres ended a transaction with ROLLBACK because a statement in it failed and the error was caught. */
+export class TransactionAbortedError extends Error {
+  constructor() {
+    super('The database rolled this transaction back: a statement in it failed and its error was caught without attempt()')
+    this.name = 'TransactionAbortedError'
   }
 }
 

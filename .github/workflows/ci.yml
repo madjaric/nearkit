@@ -57,3 +57,39 @@ jobs:
       # The Telegram bot server shares the web app's source; it must bundle too.
       - name: Server build
         run: npm run server:build
+
+  postgres:
+    # Production runs several server instances on one PostgreSQL. These suites run the
+    # database layer, the leases and the multi-instance races (two connection pools
+    # racing for the same intent) on a real server, plus the whole bot on Postgres SQL.
+    name: Server on PostgreSQL (multi-instance races)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nearkit
+          # A throwaway database inside the CI job; not a secret.
+          POSTGRES_PASSWORD: nearkit_ci
+          POSTGRES_DB: nearkit_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nearkit -d nearkit_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Database, leases and concurrency on SQLite, PGlite and PostgreSQL
+        run: npx vitest run server/src/db server/src/custody
+        env:
+          NEARKIT_TEST_DATABASE_URL: postgres://nearkit:nearkit_ci@127.0.0.1:5432/nearkit_test
+      - name: The whole bot on the Postgres dialect (PGlite)
+        run: npx vitest run server/src/bot --testTimeout=180000
+        env:
+          NEARKIT_TEST_BOT_DB: pglite

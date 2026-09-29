@@ -321,6 +321,29 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       UPDATE trading_wallets SET backup_key = NULL WHERE backup_key IS NOT NULL AND (owner_key IS NULL OR backup_key <> owner_key);
     `,
   },
+  {
+    version: 7,
+    name: 'multi-instance safety: execution leases, one intent in flight per wallet, role leases, processed Telegram updates',
+    sql: `
+      -- Which server instance runs an in-flight intent, and until when. Signing and recording
+      -- a transaction require holding the lease; the resolver takes over only expired ones.
+      ALTER TABLE wallet_intents ADD COLUMN lease_owner TEXT;
+      ALTER TABLE wallet_intents ADD COLUMN lease_until INTEGER;
+      -- The database, not a process, guarantees one intent in flight per wallet.
+      CREATE UNIQUE INDEX wallet_intents_one_in_flight ON wallet_intents(wallet_id) WHERE status IN ('confirmed', 'signing', 'submitted');
+      -- Singleton roles (the Telegram poller, the buybot runner): one holder at a time.
+      CREATE TABLE leases (
+        name TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        until INTEGER NOT NULL
+      );
+      -- Telegram updates already handled: a retried or re-delivered update runs once.
+      CREATE TABLE processed_updates (
+        update_id INTEGER PRIMARY KEY,
+        at INTEGER NOT NULL
+      );
+    `,
+  },
 ]
 
 /**

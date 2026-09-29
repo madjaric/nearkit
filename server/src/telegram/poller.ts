@@ -5,10 +5,14 @@ import type { TgUpdate } from './types'
 
 /**
  * Long polling (getUpdates). The offset is saved after each batch, so a restart
- * resumes where it stopped; at worst the last unfinished batch is seen twice,
- * which the handlers tolerate (commands are re-answered, not re-executed on
- * chain: nothing here signs). Updates from one chat run in order; different
- * chats run side by side, so one slow quote doesn't hold everyone up.
+ * resumes where it stopped; an update seen twice (the last unfinished batch after
+ * a restart) is handled once, by its ID (see Leases.firstDelivery). Updates from
+ * one chat run in order; different chats run side by side, so one slow quote
+ * doesn't hold everyone up.
+ *
+ * With several server instances, Telegram serves updates to one reader only: the
+ * instance holding the poller lease reads; the others wait and take over if it
+ * stops renewing (then they resume from the saved offset).
  */
 
 export const ALLOWED_UPDATES = ['message', 'callback_query', 'my_chat_member']
@@ -21,6 +25,8 @@ export function startPolling(opts: {
   log: Logger
   timeoutSec?: number
   sleep?: (ms: number) => Promise<void>
+  /** Leadership among instances: `hold` takes or renews it (true while this instance leads). */
+  lease?: { hold(): Promise<boolean>; release(): Promise<void> }
 }) {
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const controller = new AbortController()
@@ -46,9 +52,25 @@ export function startPolling(opts: {
   }
 
   const done = (async () => {
-    offset = Number((await opts.store.getMeta(OFFSET_KEY).catch(() => null)) ?? '0')
+    let leading = !opts.lease
+    if (leading) offset = Number((await opts.store.getMeta(OFFSET_KEY).catch(() => null)) ?? '0')
     let backoff = 1000
     while (!stopped) {
+      if (opts.lease) {
+        const held = await opts.lease.hold().catch(() => false)
+        if (!held) {
+          if (leading) opts.log.warn('another instance now reads Telegram updates; this one waits')
+          leading = false
+          await sleep(5_000)
+          continue
+        }
+        if (!leading) {
+          // Just became the reader: continue from where the previous one stopped.
+          offset = Number((await opts.store.getMeta(OFFSET_KEY).catch(() => null)) ?? '0')
+          opts.log.info('reading Telegram updates (this instance holds the poller lease)', { offset })
+          leading = true
+        }
+      }
       let updates: TgUpdate[]
       try {
         updates = await opts.tg.getUpdates(offset, opts.timeoutSec ?? 25, ALLOWED_UPDATES, controller.signal)
@@ -83,6 +105,7 @@ export function startPolling(opts: {
       stopped = true
       controller.abort()
       await done
+      await opts.lease?.release().catch(() => undefined)
     },
   }
 }

@@ -124,6 +124,7 @@ describe('intents', () => {
     const i = await intentFor(w.id)
     await store.confirmIntent(i.id, USER)
     await store.recordSigned({
+      owner: 'local',
       intentId: i.id,
       step: 0,
       hash: 'H1',
@@ -138,6 +139,7 @@ describe('intents', () => {
     // The same step can never be signed twice.
     await expect(
       store.recordSigned({
+        owner: 'local',
         intentId: i.id,
         step: 0,
         hash: 'H2',
@@ -191,7 +193,18 @@ describe('persistence', () => {
     const { wallet: w } = await s1.createWallet(wallet())
     const i = await s1.createIntent({ walletId: w.id, userId: USER, chatId: USER, kind: 'withdraw', params: { to: 'bob.testnet' }, ttlMs: 60_000 })
     await s1.confirmIntent(i.id, USER)
-    await s1.recordSigned({ intentId: i.id, step: 0, hash: 'H', signerId: w.accountId, receiverId: 'bob.testnet', nonce: 3n, expiresHeight: 9, signed: 'AA', plan: {} })
+    await s1.recordSigned({
+      owner: 'local',
+      intentId: i.id,
+      step: 0,
+      hash: 'H',
+      signerId: w.accountId,
+      receiverId: 'bob.testnet',
+      nonce: 3n,
+      expiresHeight: 9,
+      signed: 'AA',
+      plan: {},
+    })
     // No close(): every committed write is already on disk, as after a crash.
     const second = await SqliteDatabase.open(path)
     await migrate(second)

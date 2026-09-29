@@ -218,6 +218,8 @@ export function startBuybot(deps: {
   deliver: () => Promise<number>
   log: Logger
   sleep?: (ms: number) => Promise<void>
+  /** With several instances only the lease holder follows and posts (an alert goes out once). */
+  lease?: { hold(): Promise<boolean>; release(): Promise<void> }
 }) {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   let running = true
@@ -225,6 +227,10 @@ export function startBuybot(deps: {
     let backoff = 1000
     while (running) {
       try {
+        if (deps.lease && !(await deps.lease.hold())) {
+          await sleep(10_000)
+          continue
+        }
         const wait = await body()
         backoff = 1000
         await sleep(wait)
@@ -248,6 +254,7 @@ export function startBuybot(deps: {
     async stop() {
       running = false
       await Promise.all([follow, pipeline])
+      await deps.lease?.release().catch(() => undefined)
     },
   }
 }

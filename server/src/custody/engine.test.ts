@@ -12,7 +12,7 @@ import { createChainAccess, type ChainAccess } from './chain'
 import { AMBIGUOUS_GRACE_BLOCKS, createEngine, type IntentHandler, type PlanOutcome } from './engine'
 import { secretKeyText } from './keys'
 import { createLocalSigner, walletAad, type TradingSigner } from './signer'
-import { CustodyStore, type TradingWallet } from './store'
+import { CustodyStore, EXECUTION_LEASE_MS, type TradingWallet } from './store'
 import { localKeyWrapper, openSecret, parseSealed } from './vault'
 
 const ONE = 10n ** 24n
@@ -193,6 +193,9 @@ describe('unclear sends and restarts', () => {
   it('a crash after Confirm but before signing is settled as failed: nothing can have been sent', async () => {
     const i = await intent()
     await store.confirmIntent(i.id, 101)
+    // While the crashed instance's lease lasts, nobody touches the intent; then the resolver takes it.
+    expect(await engineFor().resolvePending()).toEqual([])
+    clock += EXECUTION_LEASE_MS + 1
     const done = await engineFor().resolvePending()
     expect(done).toMatchObject([{ id: i.id, status: 'failed', result: { message: expect.stringMatching(/before sending anything/) } }])
     expect(chain.sent).toHaveLength(0)
@@ -207,6 +210,7 @@ describe('unclear sends and restarts', () => {
     const plan = [{ receiverId: 'bob.testnet', actions: [{ kind: 'transfer' as const, deposit: ONE.toString() }], label: 'Withdraw' }]
     const signed = await signer.sign({ wallet, op: { kind: 'withdraw-near', to: 'bob.testnet', amount: ONE }, plan, index: 0, nonce, blockHash: anchor.hash })
     await store.recordSigned({
+      owner: 'local',
       intentId: i.id,
       step: 0,
       hash: signed.hash,
@@ -218,6 +222,7 @@ describe('unclear sends and restarts', () => {
       plan: { tx: plan[0], total: 1 },
     })
     const engine = engineFor()
+    clock += EXECUTION_LEASE_MS + 1
     expect(await engine.resolvePending()).toEqual([])
     chain.advance(601)
     expect((await engine.resolvePending()).map((x) => x.status)).toEqual(['failed'])

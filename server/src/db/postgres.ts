@@ -1,5 +1,5 @@
 import pg from 'pg'
-import { BaseDatabase, Mutex, numberPlaceholders, type Connection, type SqlParams } from './database'
+import { BaseDatabase, Mutex, numberPlaceholders, TransactionAbortedError, type Connection, type SqlParams } from './database'
 
 /**
  * PostgreSQL, the production database: many server instances share it, and
@@ -93,7 +93,9 @@ export class PostgresDatabase extends BaseDatabase {
       await client.query('BEGIN')
       try {
         const result = await fn(connection(client as unknown as PgQueryable))
-        await client.query('COMMIT')
+        const end = await client.query('COMMIT')
+        // A failed statement whose error was caught doomed the transaction: never lose writes silently.
+        if (end.command === 'ROLLBACK') throw new TransactionAbortedError()
         return result
       } catch (e) {
         await client.query('ROLLBACK').catch((rollbackError: unknown) => {
@@ -119,7 +121,7 @@ export class PostgresDatabase extends BaseDatabase {
 
 /** PGlite's surface this adapter needs (kept structural so the WASM package stays a dev dependency). */
 export interface PgliteLike {
-  query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; affectedRows?: number }>
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; affectedRows?: number; command?: string }>
   exec(text: string): Promise<unknown>
   close(): Promise<void>
 }
@@ -153,7 +155,8 @@ export class PgliteDatabase extends BaseDatabase {
       await this.db.exec('BEGIN')
       try {
         const result = await fn(this.conn)
-        await this.db.exec('COMMIT')
+        const end = await this.db.query('COMMIT')
+        if (end.command === 'ROLLBACK') throw new TransactionAbortedError()
         return result
       } catch (e) {
         await this.db.exec('ROLLBACK').catch(() => undefined)

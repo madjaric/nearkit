@@ -204,10 +204,13 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         result TEXT,
         replaced_by TEXT,
         created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
+        updated_at BIGINT NOT NULL,
+        lease_owner TEXT,
+        lease_until BIGINT
       );
       CREATE INDEX wallet_intents_wallet ON wallet_intents(wallet_id, status);
       CREATE INDEX wallet_intents_open ON wallet_intents(status, updated_at);
+      CREATE UNIQUE INDEX wallet_intents_one_in_flight ON wallet_intents(wallet_id) WHERE status IN ('confirmed', 'signing', 'submitted');
       CREATE TABLE wallet_txs (
         intent_id TEXT NOT NULL REFERENCES wallet_intents(id),
         step INTEGER NOT NULL,
@@ -249,6 +252,16 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         exported_at BIGINT
       );
       CREATE INDEX recovery_requests_user ON recovery_requests(user_id, created_at);
+
+      CREATE TABLE leases (
+        name TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        until BIGINT NOT NULL
+      );
+      CREATE TABLE processed_updates (
+        update_id BIGINT PRIMARY KEY,
+        at BIGINT NOT NULL
+      );
     `,
   },
 ]

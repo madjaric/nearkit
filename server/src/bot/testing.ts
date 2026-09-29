@@ -3,6 +3,7 @@ import type { Follower, TxIndex } from '../buybot/follower'
 import { createBuyMarket } from '../buybot/market'
 import { BuybotStore } from '../buybot/store'
 import { loadConfig } from '../config'
+import { Leases } from '../db/leases'
 import { openTestDatabase, type TestEngine } from '../db/testing'
 import { Store } from '../db/store'
 import { createLinkService } from '../link/service'
@@ -124,7 +125,9 @@ export async function botHarness(
     deps.buybot = { store: new BuybotStore(db, now), near, market: createBuyMarket(near, now), follower, index }
   }
   const modules = options.modules?.(deps) ?? []
-  const app = createBotApp(deps, modules)
+  const leases = new Leases(db, now)
+  // Like production: an update ID is handled once, however often Telegram delivers it.
+  const app = createBotApp(deps, modules, { firstDelivery: (id) => leases.firstDelivery(id) })
   notify = async (userId, html) => void (await app.notify(userId, html))
   settledNotice = (userId, html, markup) => app.notify(userId, html, markup)
   let messageId = 500

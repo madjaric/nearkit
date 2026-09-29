@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isUniqueViolation, numberPlaceholders, type Database } from './database'
+import { isUniqueViolation, numberPlaceholders, TransactionAbortedError, type Database } from './database'
 import { SqliteDatabase } from './sqlite'
 import { ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES } from './testing'
 
@@ -84,6 +84,32 @@ describe.each(TEST_ENGINES)(
       // Either before (nothing) or after (both), never between.
       expect([[], [1, 2]]).toContainEqual(seen)
     })
+
+    it('attempt(): a failure caught inside a transaction undoes only its own statements', async () => {
+      const db = await scratch(engine)
+      await db.run("INSERT INTO t (id, name) VALUES (1, 'a')")
+      const outcome = await db.tx(async () => {
+        await db.run("INSERT INTO t (id, name) VALUES (2, 'b')")
+        const dup = await db.attempt(() => db.run("INSERT INTO t (id, name) VALUES (3, 'a')")).catch((e: unknown) => e)
+        await db.run("INSERT INTO t (id, name) VALUES (4, 'd')")
+        return isUniqueViolation(dup)
+      })
+      expect(outcome).toBe(true)
+      expect((await db.all<{ id: number }>('SELECT id FROM t ORDER BY id')).map((r) => r.id)).toEqual([1, 2, 4])
+    })
+
+    if (engine !== 'sqlite')
+      it('Postgres never drops writes silently: an error caught without attempt() fails the transaction', async () => {
+        const db = await scratch(engine)
+        await db.run("INSERT INTO t (id, name) VALUES (1, 'a')")
+        await expect(
+          db.tx(async () => {
+            await db.run("INSERT INTO t (id, name) VALUES (2, 'b')")
+            await db.run("INSERT INTO t (id, name) VALUES (3, 'a')").catch(() => undefined)
+          }),
+        ).rejects.toThrow(TransactionAbortedError)
+        expect((await db.all<{ id: number }>('SELECT id FROM t')).map((r) => r.id)).toEqual([1])
+      })
 
     it('two transactions racing for the same row: exactly one wins a compare-and-set', async () => {
       const db = await scratch(engine)

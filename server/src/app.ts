@@ -11,6 +11,7 @@ import { portfolioModule } from './bot/portfolio'
 import { settingsModule } from './bot/settings'
 import { tradeModule } from './bot/trade'
 import { loadConfig, type ServerConfig } from './config'
+import { instanceId, Leases } from './db/leases'
 import { databaseSecrets, describeDatabase, openDatabase } from './db/open'
 import { migrate } from './db/schema'
 import { Store } from './db/store'
@@ -94,6 +95,9 @@ export async function startServer(options: { env: Record<string, string | undefi
   const db = await openDatabase(config.database)
   const schema = await migrate(db)
   const store = new Store(db, now)
+  const leases = new Leases(db, now)
+  // This process's name in leases: several instances may share the database.
+  const instance = instanceId()
   const boot = await store.recordBoot()
   log.info('database ready', { database: describeDatabase(config.database), schema, boot: boot.boot, since: new Date(boot.since).toISOString(), ...(await store.counts()) })
   const near = createServerNear(config, fetchImpl, now)
@@ -138,6 +142,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       now,
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => onSettled(intent),
+      instanceId: instance,
     })
     const recovery = createRecoveryService({ store, custody: cstore, signer, config, rpc: near.ctx.rpc, now })
     custody = { store: cstore, signer, engine, chain, swaps, recovery }
@@ -174,6 +179,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     bot = createBotApp(
       deps,
       botModules(deps, () => list()),
+      { firstDelivery: (id) => leases.firstDelivery(id) },
     )
     const app = bot
     list = () => app.commands()
@@ -184,13 +190,25 @@ export async function startServer(options: { env: Record<string, string | undefi
     onSettled = (intent) => notifySettled(deps, (userId, html, markup) => app.notify(userId, html, markup), intent)
     await tg.setMyCommands(menuCommands(bot, 'private'), { type: 'all_private_chats' })
     await tg.setMyCommands(menuCommands(bot, 'group'), { type: 'all_group_chats' })
-    poller = startPolling({ tg, store, log, handle: (u) => app.handle(u) })
+    poller = startPolling({
+      tg,
+      store,
+      log,
+      handle: (u) => app.handle(u),
+      lease: { hold: () => leases.acquire('telegram-poller', instance, 60_000), release: () => leases.release('telegram-poller', instance) },
+    })
     log.info('Telegram bot polling', { bot: `@${deps.me.username}` })
     if (buybot) {
       const bb = buybot
       const process = createProcessor({ network: bb.near.ctx.network, index: bb.index, finalHeight: () => bb.follower.finalHeight(), store: bb.store, market: bb.market, log })
       const deliver = createDeliverer({ tg, store: bb.store, market: bb.market, network: bb.near.ctx.network, webUrl: config.webUrl, webNetwork: config.network.id, log, now })
-      buybotRunner = startBuybot({ follow: () => bb.follower.step(), process: () => process(), deliver: () => deliver(), log })
+      buybotRunner = startBuybot({
+        follow: () => bb.follower.step(),
+        process: () => process(),
+        deliver: () => deliver(),
+        log,
+        lease: { hold: () => leases.acquire('buybot-runner', instance, 60_000), release: () => leases.release('buybot-runner', instance) },
+      })
       log.info('buybot following final blocks', { network: bb.near.ctx.network.id, data: config.buybot.dataUrl })
     }
   }
@@ -249,6 +267,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     void (async () => {
       try {
         await store.prune()
+        await leases.prune()
         await buybot?.store.prune(7 * 86_400_000)
       } catch (e) {
         log.warn('prune failed', { error: e })
