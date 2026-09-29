@@ -1,5 +1,6 @@
 import type { Server } from 'node:http'
 import { createApiServer, listen } from './api/http'
+import { handoffRoutes } from './api/handoffRoutes'
 import { linkRoutes } from './api/linkRoutes'
 import { accountsModule, linkedText, movedAwayText, startLink } from './bot/accounts'
 import { createBotApp, type BotApp } from './bot/app'
@@ -7,6 +8,7 @@ import { buybotModule } from './bot/buybot'
 import type { BotDeps, BotModule, BuybotDeps, Command } from './bot/context'
 import { coreModule } from './bot/core'
 import { settingsModule } from './bot/settings'
+import { tradeModule } from './bot/trade'
 import { loadConfig, type ServerConfig } from './config'
 import { migrate } from './db/schema'
 import { Db } from './db/sqlite'
@@ -20,6 +22,7 @@ import { BuybotStore } from './buybot/store'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
+import { createHandoffs } from './trade/handoff'
 
 /**
  * Wires the server together: configuration, database, NearKit services, the
@@ -37,7 +40,7 @@ export interface RunningServer {
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
   // `/start link` (from the "open a private chat" button) goes straight to linking.
-  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), buybotModule()]
+  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), tradeModule(), buybotModule()]
 }
 
 /** Commands for Telegram's menu, per chat type. */
@@ -63,6 +66,20 @@ export async function startServer(options: { env: Record<string, string | undefi
   const store = new Store(db, now)
   const near = createServerNear(config, fetchImpl, now)
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
+  // Trade results reach the user through the bot once it is running; they respect /settings.
+  let notifyUser: (userId: number, html: string) => Promise<void> = async () => {}
+  const handoffs = createHandoffs({
+    db,
+    network: config.network,
+    rpc: near.ctx.rpc,
+    webUrl: config.webUrl,
+    now,
+    describeToken: async (id) => {
+      const m = await near.ctx.reader.metadata(id)
+      return { symbol: m.symbol, decimals: m.decimals }
+    },
+    notify: (userId, html) => notifyUser(userId, html),
+  })
   log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: config.dbPath, bot: Boolean(config.telegramToken) })
 
   // Buy alerts read the chain on their own network; they need the bot to post.
@@ -88,7 +105,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     const me = await tg.getMe()
     const webhook = await tg.getWebhookInfo()
     if (webhook.url) throw new Error('A webhook is set for this bot, so long polling cannot run. Remove the webhook (deleteWebhook) or stop the other deployment first.')
-    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set(), buybot }
+    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set(), buybot, handoffs }
     let list: () => { name: string; command: Command }[] = () => []
     bot = createBotApp(
       deps,
@@ -96,6 +113,9 @@ export async function startServer(options: { env: Record<string, string | undefi
     )
     const app = bot
     list = () => app.commands()
+    notifyUser = async (userId, html) => {
+      if (store.getSettings(userId).notifyTrades) await app.notify(userId, html)
+    }
     await tg.setMyCommands(menuCommands(bot, 'private'), { type: 'all_private_chats' })
     await tg.setMyCommands(menuCommands(bot, 'group'), { type: 'all_group_chats' })
     poller = startPolling({ tg, store, log, handle: (u) => app.handle(u) })
@@ -117,8 +137,8 @@ export async function startServer(options: { env: Record<string, string | undefi
   const api: Server = createApiServer({
     config,
     log,
-    routes: { ...linkRoutes({ link, onLinked }) },
-    limits: { '/api/link/describe': 30, '/api/link/confirm': 10 },
+    routes: { ...linkRoutes({ link, onLinked }), ...handoffRoutes(handoffs) },
+    limits: { '/api/link/describe': 30, '/api/link/confirm': 10, '/api/handoff/describe': 30, '/api/handoff/result': 20 },
     health: () => ({ bot: bot ? true : false }),
     now,
   })

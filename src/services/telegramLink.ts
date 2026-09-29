@@ -62,6 +62,28 @@ async function post<T>(apiUrl: string, path: string, body: unknown, fetchImpl: t
 export const describeLink = (apiUrl: string, code: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
   post<LinkDescription>(apiUrl, '/api/link/describe', { code }, fetchImpl)
 
+// ─── trades prepared in Telegram ─────────────────────────────────────────────
+
+export interface HandoffInfo {
+  /** The linked account the trade was prepared for; the server only accepts its signatures. */
+  accountId: string
+  network: string
+  status: 'open' | 'confirmed' | 'failed'
+  expiresAt: number
+}
+
+/** `?tg=<id>` on the swap page: a trade prepared in Telegram. */
+export function readHandoffId(value: string | null): string | null {
+  return value && /^[A-Za-z0-9_-]{16,64}$/.test(value) ? value : null
+}
+
+export const describeHandoff = (apiUrl: string, id: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
+  post<HandoffInfo>(apiUrl, '/api/handoff/describe', { id }, fetchImpl)
+
+/** Tells the NearKit server what the wallet signed; it checks each hash on chain before telling Telegram. */
+export const reportHandoff = (apiUrl: string, id: string, txHashes: string[], fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
+  post<{ status: HandoffInfo['status']; outcome: 'traded' | 'no-trade' | 'failed' | null }>(apiUrl, '/api/handoff/result', { id, txHashes }, fetchImpl)
+
 export const confirmLink = (
   apiUrl: string,
   body: { code: string; accountId: string; publicKey: string; signature: string },

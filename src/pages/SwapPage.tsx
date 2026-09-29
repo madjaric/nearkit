@@ -11,12 +11,15 @@ import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { SwapTicket } from '@/features/trade/SwapTicket'
+import { HandoffBanner, RequestedToken } from '@/features/trade/TelegramHandoff'
+import { useHandoffReport } from '@/features/trade/useHandoffReport'
 import { cn } from '@/lib/cn'
-import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { MAX_SLIPPAGE, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPrice, formatUsdCompact } from '@/lib/format'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
 import { useCapabilities, useHoldings, useSession, useTokens, useWallets } from '@/services/queries'
+import { readHandoffId } from '@/services/telegramLink'
 import type { TokenId, TokenListing } from '@/types/domain'
 
 const NEAR = NATIVE_TOKEN_ID
@@ -142,9 +145,17 @@ function WalletBalances({ fromId, toId, walletId, onPick }: { fromId: TokenId; t
   )
 }
 
-function SwapScreen({ initialFrom, initialTo }: { initialFrom: TokenId; initialTo: TokenId }) {
+interface Prefill {
+  amount?: string
+  slippage?: number
+  /** A trade prepared in the Telegram bot. */
+  handoff: string | null
+}
+
+function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId; initialTo: TokenId; prefill: Prefill }) {
   const caps = useCapabilities()
   const [pair, setPair] = useState({ from: initialFrom, to: initialTo })
+  const { report, onSettled } = useHandoffReport(prefill.handoff)
   const { data: session } = useSession()
   // Trade from the connected account unless the user picks another wallet.
   const [picked, setWalletId] = useState<string | null>(null)
@@ -154,6 +165,8 @@ function SwapScreen({ initialFrom, initialTo }: { initialFrom: TokenId; initialT
     .filter((id) => id !== NEAR)
     .map((id) => tokens.find((t) => t.id === id))
     .filter((t): t is TokenListing => Boolean(t))
+  // A contract the link names that this browser's list doesn't have yet (the list loaded, it isn't in it).
+  const missing = tokens.length ? [pair.from, pair.to].filter((id) => id !== NEAR && !tokens.some((t) => t.id === id)) : []
 
   return (
     <Page>
@@ -166,7 +179,22 @@ function SwapScreen({ initialFrom, initialTo }: { initialFrom: TokenId; initialT
         }
       />
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,480px)_minmax(0,1fr)]">
-        <SwapTicket fromId={pair.from} toId={pair.to} onPairChange={(from, to) => setPair({ from, to })} walletId={walletId} onWalletChange={setWalletId} />
+        <div className="flex min-w-0 flex-col gap-4">
+          {prefill.handoff && <HandoffBanner id={prefill.handoff} report={report} />}
+          {missing.map((id) => (
+            <RequestedToken key={id} contract={id} />
+          ))}
+          <SwapTicket
+            fromId={pair.from}
+            toId={pair.to}
+            onPairChange={(from, to) => setPair({ from, to })}
+            walletId={walletId}
+            onWalletChange={setWalletId}
+            initialAmount={prefill.amount}
+            initialSlippage={prefill.slippage}
+            onSettled={onSettled}
+          />
+        </div>
         <div className="flex min-w-0 flex-col gap-4">
           <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
             {subjects.map((t) => (
@@ -180,14 +208,28 @@ function SwapScreen({ initialFrom, initialTo }: { initialFrom: TokenId; initialT
   )
 }
 
+/** Amount and slippage from a link, only when they are exactly what the form would accept. */
+function readPrefill(params: URLSearchParams): Prefill {
+  const amount = params.get('amount') ?? ''
+  const slippage = Number(params.get('slippage'))
+  return {
+    ...(/^\d{1,30}(\.\d{1,24})?$/.test(amount) ? { amount } : {}),
+    ...(params.has('slippage') && slippage > 0 && slippage <= MAX_SLIPPAGE ? { slippage } : {}),
+    handoff: readHandoffId(params.get('tg')),
+  }
+}
+
 export default function SwapPage() {
   const [params] = useSearchParams()
   const location = useLocation()
   const defaultToken = useDefaultTradeToken()
   const requested = params.get('to') ?? params.get('token')
+  const from = params.get('from')
   const token = requested ?? defaultToken
   const sell = params.get('side') === 'sell'
+  const initialFrom = from ?? (sell ? token : NEAR)
+  const initialTo = from ? (requested ?? NEAR) : sell ? NEAR : token
   // Remount on a new query (e.g. from search) so the ticket starts from the requested pair,
   // and once the default token resolves, so a slow token list never leaves it on NEAR → NEAR.
-  return <SwapScreen key={`${location.search}|${requested ? '' : defaultToken}`} initialFrom={sell ? token : NEAR} initialTo={sell ? NEAR : token} />
+  return <SwapScreen key={`${location.search}|${requested ? '' : defaultToken}`} initialFrom={initialFrom} initialTo={initialTo} prefill={readPrefill(params)} />
 }

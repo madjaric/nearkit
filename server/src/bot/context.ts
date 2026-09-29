@@ -2,6 +2,7 @@ import { commandDoc } from '@/config/botCommands'
 import type { ServerConfig } from '../config'
 import type { Store } from '../db/store'
 import type { LinkService } from '../link/service'
+import type { Handoffs } from '../trade/handoff'
 import type { Logger } from '../log'
 import type { ServerNear } from '../near'
 import type { TelegramApi } from '../telegram/api'
@@ -17,6 +18,8 @@ export interface BotDeps {
   config: ServerConfig
   near: ServerNear
   link: LinkService
+  /** Trades prepared here and signed in the web app. */
+  handoffs: Handoffs
   log: Logger
   now: () => number
   me: { id: number; username: string }

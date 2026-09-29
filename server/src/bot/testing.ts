@@ -7,6 +7,7 @@ import { migrate } from '../db/schema'
 import { Db } from '../db/sqlite'
 import { Store } from '../db/store'
 import { createLinkService } from '../link/service'
+import { createHandoffs } from '../trade/handoff'
 import { silentLogger } from '../log'
 import { createServerNear } from '../near'
 import { createTelegramApi } from '../telegram/api'
@@ -36,7 +37,20 @@ export async function botHarness(options: { env?: Record<string, string>; chain?
   const chain = createFakeChain(options.chain ?? {})
   const near = createServerNear(config, chain.fetch, now)
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
-  const deps: BotDeps = { tg, store, config, near, link, log: silentLogger, now, me: { id: 1111111111, username: 'NearKitBot' }, features: new Set(), buybot: null }
+  let notify: (userId: number, html: string) => Promise<void> = async () => {}
+  const handoffs = createHandoffs({
+    db,
+    network: config.network,
+    rpc: near.ctx.rpc,
+    webUrl: config.webUrl,
+    now,
+    describeToken: async (id) => {
+      const m = await near.ctx.reader.metadata(id)
+      return { symbol: m.symbol, decimals: m.decimals }
+    },
+    notify: (userId, html) => notify(userId, html),
+  })
+  const deps: BotDeps = { tg, store, config, near, link, handoffs, log: silentLogger, now, me: { id: 1111111111, username: 'NearKitBot' }, features: new Set(), buybot: null }
   if (options.buybot) {
     const follower = { step: async () => 'idle' as const, finalHeight: async () => 5000 } as unknown as Follower
     const index = { recent: async () => ({ txs: [], resumeToken: null }), transactions: async () => new Map() } as unknown as TxIndex
@@ -44,6 +58,7 @@ export async function botHarness(options: { env?: Record<string, string>; chain?
   }
   const modules = options.modules?.(deps) ?? []
   const app = createBotApp(deps, modules)
+  notify = async (userId, html) => void (await app.notify(userId, html))
   let messageId = 500
 
   const send = async (update: Omit<TgUpdate, 'update_id'>) => {

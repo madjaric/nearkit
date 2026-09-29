@@ -2,13 +2,15 @@
 //   npm run e2e:telegram [-- --shots <dir>]
 // Starts the built bot server (dist-server) and the web app (vite --mode e2e), with
 // Telegram faked over HTTP (TELEGRAM_API_URL) and NEAR faked for both the server
-// (NEAR_RPC_URL) and the page (request routing). Nothing touches a live network,
-// and the real bot token is never read (NEARKIT_ENV_FILE points nowhere).
+// (NEAR_RPC_URL, plus a fetch guard that sends every other external request to the
+// fake network) and the page (request routing). Nothing touches a live network, and
+// the real bot token is never read (NEARKIT_ENV_FILE points nowhere).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { chromium } from 'playwright-core'
 import { createFakeNear } from './lib/fake-near.mjs'
 import { startFakeTelegram } from './lib/fake-telegram.mjs'
@@ -46,21 +48,37 @@ const PUBLIC_KEY = `ed25519:${b58(raw)}`
 const appPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])
 const APP_KEY = `ed25519:${b58(new Uint8Array(await crypto.subtle.exportKey('raw', appPair.publicKey)))}`
 
+const USDT = 'usdt.itachicara.testnet'
+const MIN = '1250000000000000000000'
 const near = createFakeNear({
   accounts: {
     [USER]: { amount: String(5n * ONE), keys: { [PUBLIC_KEY]: 'full', [APP_KEY]: 'function-call' } },
     'wrap.testnet': { amount: String(ONE), code: true },
+    [USDT]: { amount: String(ONE), code: true },
   },
-  tokens: { 'wrap.testnet': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, balances: {}, registered: [], boundsMin: '1250000000000000000000' } },
+  tokens: {
+    'wrap.testnet': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, balances: {}, registered: ['ref-finance-101.testnet'], boundsMin: MIN },
+    [USDT]: { symbol: 'USDT', name: 'Tether USD', decimals: 24, balances: {}, registered: [USER, 'ref-finance-101.testnet'], boundsMin: MIN },
+  },
 })
 
-// NEAR JSON-RPC over HTTP for the server process.
+// The fake network over HTTP for the server process: JSON-RPC at the root, and any other
+// external host through /__proxy/<host>/<path> (see lib/fetch-guard.mjs).
 const rpcServer = createServer((req, res) => {
   let body = ''
   req.on('data', (c) => (body += c))
   req.on('end', () => {
-    res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify(near.rpc(JSON.parse(body || '{}'))))
+    const send = (status, json) => {
+      res.writeHead(status, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(json))
+    }
+    const proxied = /^\/__proxy\/([^/]+)(\/.*)?$/.exec(req.url ?? '')
+    if (!proxied) return send(200, near.rpc(JSON.parse(body || '{}')))
+    const url = new URL(`https://${proxied[1]}${proxied[2] ?? '/'}`)
+    const r = near.respond({ url, method: req.method, body })
+    if (r) return send(r.status, r.json)
+    near.state.external.push(`server: ${url.href}`)
+    send(502, { error: 'no live network in tests' })
   })
 })
 await new Promise((r) => rpcServer.listen(0, '127.0.0.1', r))
@@ -73,9 +91,11 @@ if (build.status !== 0) process.exit(1)
 
 const data = mkdtempSync(join(tmpdir(), 'nearkit-e2e-tg-'))
 const serverLog = []
-const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(ROOT, 'dist-server', 'main.js')], {
+const guard = pathToFileURL(join(ROOT, 'scripts', 'lib', 'fetch-guard.mjs')).href
+const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', guard, join(ROOT, 'dist-server', 'main.js')], {
   cwd: ROOT,
   env: {
+    NEARKIT_E2E_FAKE_HTTP: RPC_URL,
     PATH: process.env.PATH,
     SYSTEMROOT: process.env.SYSTEMROOT,
     NEARKIT_ENV_FILE: join(data, 'no-such-file'),
@@ -139,6 +159,11 @@ async function newPage(walletScript) {
   const page = await ctx.newPage()
   await near.install(page)
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
+  if (process.env.E2E_DEBUG) {
+    page.on('request', (r) => r.url().includes(':8799') && console.log('API >', r.method(), r.url(), r.postData()?.slice(0, 200)))
+    page.on('response', async (r) => r.url().includes(':8799') && console.log('API <', r.status(), (await r.text().catch(() => '')).slice(0, 300)))
+    page.on('console', (m) => console.log('console:', m.type(), m.text().slice(0, 200)))
+  }
   page.on('console', (m) => {
     if (m.type() === 'error' && !/net::ERR_FAILED|Failed to load resource/.test(m.text())) errors.push(`console: ${m.text()}`)
   })
@@ -240,6 +265,55 @@ await step('a function-call key can’t prove ownership: nothing is linked', asy
   await shot('tg-03-refused')
   const other = tg.sent.filter((x) => x.chatId === TG_OTHER.id && x.text.includes('✅ Linked'))
   if (other.length) throw new Error('the other Telegram user was linked')
+})
+
+await step('a buy prepared in Telegram is signed in NearKit, checked on chain and reported back', async () => {
+  let from = tg.sent.length
+  say(TG_USER, `/buy ${USDT} 1`)
+  const quote = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.url?.includes('/swap?')), { from })
+  if (!quote.text.includes('No NearKit fee on testnet') || !quote.text.includes('Route: NEAR')) throw new Error(`unexpected quote: ${quote.text.slice(0, 200)}`)
+  const url = quote.buttons.find((b) => b.url?.includes('/swap?')).url
+  // A properly formed transaction hash (32 bytes, base58): the server refuses anything else.
+  const TX_HASH = b58(crypto.getRandomValues(new Uint8Array(32)))
+  page = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk, publicKey: PUBLIC_KEY }, hashes: [TX_HASH] })
+  await page.goto(url, { waitUntil: 'networkidle' })
+  await page.getByText('Prepared in Telegram').waitFor()
+  await page.getByText(`for ${USER}`).waitFor()
+  if ((await page.getByPlaceholder('0.00').first().inputValue()) !== '1') throw new Error('the amount was not filled in from the link')
+  await page.getByRole('button', { name: 'Connect wallet' }).first().click()
+  await page
+    .getByRole('dialog', { name: 'Connect a wallet' })
+    .getByRole('button', { name: /E2E Test Wallet/ })
+    .click()
+  await page.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
+  await page.getByRole('button', { name: 'Confirm swap' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review swap' })
+  await modal.getByText('NEAR → USDT', { exact: true }).first().waitFor({ timeout: 10000 })
+  await shot('tg-04-trade-review')
+  await modal.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
+  await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })
+  if (process.env.E2E_DEBUG) {
+    await page.waitForTimeout(3000)
+    console.log(
+      'MODAL:',
+      (
+        await page
+          .getByRole('dialog')
+          .first()
+          .innerText()
+          .catch(() => '')
+      )
+        .replace(/\s+/g, ' ')
+        .slice(0, 1200),
+    )
+    console.log('STATUS:', (await page.locator('[role=status]').allInnerTexts()).join(' | ').slice(0, 600))
+  }
+  await page.keyboard.press('Escape')
+  await page.getByText('Confirmed on chain and sent to Telegram.').waitFor({ timeout: 15000 })
+  await shot('tg-05-trade-reported')
+  from = tg.sent.length
+  const done = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Bought'), { timeoutMs: 15000 })
+  if (!/Bought 4\.0\d+ USDT/.test(done.text) || !done.text.includes('for 1 NEAR')) throw new Error(`unexpected result: ${done.text}`)
 })
 
 await step('unlinking from Telegram removes the account', async () => {

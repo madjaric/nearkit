@@ -79,7 +79,9 @@ export function createTelegramApi(options: TelegramApiOptions) {
   async function once<T>(method: string, params: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
-    signal?.addEventListener('abort', () => controller.abort(), { once: true })
+    // The caller's signal lives long (the poller's): detach from it when this call ends.
+    const onAbort = () => controller.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
     let res: Response
     try {
       res = await fetchImpl(`${base}/bot${options.token}/${method}`, {
@@ -94,6 +96,7 @@ export function createTelegramApi(options: TelegramApiOptions) {
       throw new TelegramError(method, 0, `${reason}${detail ? ` (${detail})` : ''}`)
     } finally {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
     }
     let body: { ok?: boolean; result?: unknown; error_code?: number; description?: string; parameters?: { retry_after?: number; migrate_to_chat_id?: number } }
     try {

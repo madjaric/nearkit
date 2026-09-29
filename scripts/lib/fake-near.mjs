@@ -57,7 +57,54 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
       }
     }
     const value = last?.type === 'FunctionCall' && last.params.methodName === 'ft_transfer_call' ? btoa(JSON.stringify(String(last.params.args.amount))) : ''
-    return { ...base, status: { SuccessValue: value } }
+    return { ...base, ...swapReceipts(hash, signerId, tx), status: { SuccessValue: value } }
+  }
+
+  /**
+   * Receipts and logs of a classic Rhea swap, as the chain records them: wrap.testnet's
+   * legacy logs for wrapping and sending, and the output token's NEP-141 transfer to the
+   * signer (the route's minimum). Anything else keeps an empty receipt list.
+   */
+  function swapReceipts(hash, signerId, tx) {
+    const call = tx.actions.find((a) => a.type === 'FunctionCall' && a.params.methodName === 'ft_transfer_call')
+    let actions
+    try {
+      actions = JSON.parse(call?.params.args.msg ?? '{}').actions
+    } catch {
+      actions = null
+    }
+    if (!call || !Array.isArray(actions) || !actions.length) return { receipts_outcome: [], receipts: [] }
+    const exchange = call.params.args.receiver_id
+    const lastAction = actions.at(-1)
+    const deposit = tx.actions.find((a) => a.type === 'FunctionCall' && a.params.methodName === 'near_deposit')
+    const rpcAction = (a) => ({
+      FunctionCall: { method_name: a.params.methodName, args: btoa(JSON.stringify(a.params.args)), gas: Number(a.params.gas), deposit: a.params.deposit },
+    })
+    const first = `${hash}-r1`
+    const payout = `${hash}-r2`
+    const logs = [...(deposit ? [`Deposit ${deposit.params.deposit} NEAR to ${signerId}`] : []), `Transfer ${call.params.args.amount} from ${signerId} to ${exchange}`]
+    const outcome = (id, executor, logLines, children) => ({
+      id,
+      outcome: { logs: logLines, receipt_ids: children, gas_burnt: 1, tokens_burnt: '0', executor_id: executor, status: { SuccessValue: '' } },
+    })
+    return {
+      transaction_outcome: { id: hash, outcome: { logs: [], receipt_ids: [first], gas_burnt: 1, tokens_burnt: '0', executor_id: signerId, status: { SuccessReceiptId: first } } },
+      receipts_outcome: [
+        outcome(first, tx.receiverId, logs, [payout]),
+        outcome(
+          payout,
+          lastAction.token_out,
+          [
+            `EVENT_JSON:${JSON.stringify({ standard: 'nep141', version: '1.0.0', event: 'ft_transfer', data: [{ old_owner_id: exchange, new_owner_id: signerId, amount: lastAction.min_amount_out }] })}`,
+          ],
+          [],
+        ),
+      ],
+      receipts: [
+        { receipt_id: first, predecessor_id: signerId, receiver_id: tx.receiverId, receipt: { Action: { signer_id: signerId, actions: tx.actions.map(rpcAction) } } },
+        { receipt_id: payout, predecessor_id: exchange, receiver_id: lastAction.token_out, receipt: { Action: { signer_id: signerId, actions: [] } } },
+      ],
+    }
   }
 
   function rpc(body) {
@@ -127,6 +174,28 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
     }
   }
 
+  /**
+   * Answers one request to an external host, or null when the fake network doesn't
+   * know it (the caller then aborts and records it: nothing may reach a live network).
+   */
+  function respond({ url, method, body }) {
+    if (/(^|\.)rpc\.fastnear\.com$|intea\.rs$|drpc\.org$/.test(url.hostname) && method === 'POST') return { status: 200, json: rpc(JSON.parse(body ?? '{}')) }
+    if (url.hostname.endsWith('api.fastnear.com') && url.pathname.endsWith('/ft')) {
+      const account = decodeURIComponent(url.pathname.split('/')[3] ?? '')
+      const held = [...state.tokens.entries()].flatMap(([contract, t]) =>
+        BigInt(t.balances.get(account) ?? '0') > 0n ? [{ contract_id: contract, balance: String(t.balances.get(account)) }] : [],
+      )
+      return { status: 200, json: { account_id: account, tokens: held } }
+    }
+    if (url.hostname === 'smartroutertest.refburrow.top') return { status: 200, json: findPath(url) }
+    if (url.hostname.endsWith('nearblocks.io')) {
+      if (url.pathname.endsWith('/holders/count')) return { status: 200, json: { holders: [{ count: '872' }] } }
+      if (url.pathname.includes('/holders')) return { status: 200, json: { holders: [{ account: 'ref-finance-101.testnet', amount: '40000000000000000000000000' }] } }
+      if (url.pathname.startsWith('/v1/account/')) return { status: 200, json: { account: [{ created: { block_timestamp: 1700000000000000000 } }] } }
+    }
+    return null
+  }
+
   /** Install on a Playwright page: local traffic passes, everything else is faked or aborted. */
   async function install(page) {
     await page.route('**/*', async (route) => {
@@ -134,33 +203,23 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
       const url = new URL(req.url())
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return route.continue()
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
-      const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) })
-      if (/(^|\.)rpc\.fastnear\.com$|intea\.rs$|drpc\.org$/.test(url.hostname) && req.method() === 'POST') {
+      if (req.method() === 'POST' && /(^|\.)rpc\.fastnear\.com$|intea\.rs$|drpc\.org$/.test(url.hostname)) {
         const body = JSON.parse(req.postData() ?? '{}')
-        if (body.method === 'EXPERIMENTAL_tx_status') {
-          const log = await page.evaluate(() => window.__NEARKIT_E2E_SIGNED__ ?? [])
-          for (const s of log) s.hashes.forEach((h, i) => state.signed.set(h, { signerId: s.signerId, tx: s.transactions[i] }))
-        }
-        return json(rpc(body))
+        if (body.method === 'EXPERIMENTAL_tx_status') await syncSigned(page)
       }
-      if (url.hostname.endsWith('api.fastnear.com') && url.pathname.endsWith('/ft')) {
-        const account = decodeURIComponent(url.pathname.split('/')[3] ?? '')
-        const held = [...state.tokens.entries()].flatMap(([contract, t]) =>
-          BigInt(t.balances.get(account) ?? '0') > 0n ? [{ contract_id: contract, balance: String(t.balances.get(account)) }] : [],
-        )
-        return json({ account_id: account, tokens: held })
-      }
-      if (url.hostname === 'smartroutertest.refburrow.top') return json(findPath(url))
-      if (url.hostname.endsWith('nearblocks.io')) {
-        if (url.pathname.endsWith('/holders/count')) return json({ holders: [{ count: '872' }] })
-        if (url.pathname.includes('/holders')) return json({ holders: [{ account: 'ref-finance-101.testnet', amount: '40000000000000000000000000' }] })
-        if (url.pathname.startsWith('/v1/account/')) return json({ account: [{ created: { block_timestamp: 1700000000000000000 } }] })
-      }
+      const r = respond({ url, method: req.method(), body: req.postData() })
+      if (r) return route.fulfill({ status: r.status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(r.json) })
       state.external.push(req.url())
       return route.abort()
     })
   }
 
-  // `rpc` answers JSON-RPC bodies directly, for servers that talk to the fake network over HTTP.
-  return { state, install, rpc }
+  /** Learns what the page's scripted wallet signed, so transaction status can answer for it. */
+  async function syncSigned(page) {
+    const log = await page.evaluate(() => window.__NEARKIT_E2E_SIGNED__ ?? [])
+    for (const s of log) s.hashes.forEach((h, i) => state.signed.set(h, { signerId: s.signerId, tx: s.transactions[i] }))
+  }
+
+  // `rpc` and `respond` serve servers that talk to the fake network over HTTP.
+  return { state, install, rpc, respond, syncSigned }
 }

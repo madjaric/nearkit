@@ -157,6 +157,31 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE INDEX buybot_deliveries_due ON buybot_deliveries(status, next_at);
     `,
   },
+  {
+    version: 3,
+    name: 'trade handoffs: trades prepared in Telegram, signed in the web app',
+    sql: `
+      CREATE TABLE handoffs (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        chat_id INTEGER NOT NULL,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        side TEXT NOT NULL,
+        token_in TEXT NOT NULL,
+        token_out TEXT NOT NULL,
+        amount_in TEXT NOT NULL,
+        slippage_pct REAL NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        tx_hashes TEXT,
+        result TEXT,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX handoffs_user ON handoffs(user_id, created_at);
+    `,
+  },
 ]
 
 export function migrate(db: Db): number {

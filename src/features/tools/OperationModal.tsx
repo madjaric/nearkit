@@ -170,10 +170,12 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
         lastProgress.current = p
         if (alive.current) setStage({ kind: 'running', plan, progress: p })
       })
+      // The parent hears the outcome even when this modal was closed while the run finished
+      // (the last transaction can show as confirmed a moment before the run returns).
+      if (progress.phase !== 'paused') onSettled?.(progress)
       if (!alive.current) return
       setStage({ kind: 'settled', plan, progress })
       if (progress.phase !== 'paused') {
-        onSettled?.(progress)
         const ok = progress.txs.filter((t) => t.phase === 'success').length
         if (progress.simulated) toast.push({ tone: 'accent', title: `Simulated · ${plan.title}`, detail: 'Nothing was signed or sent. Balances are unchanged.' })
         else if (progress.phase === 'success')

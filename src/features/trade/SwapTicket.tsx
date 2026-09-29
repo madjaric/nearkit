@@ -14,6 +14,7 @@ import { useDebouncedValue, useNow } from '@/lib/hooks'
 import { useBalance, usePlanners, useQuote, useSession, useTokens, useWallets } from '@/services/queries'
 import { useConnectPrompt, useSettings } from '@/state/contexts'
 import type { QuoteRequest, TokenId } from '@/types/domain'
+import type { OperationProgress } from '@/types/operations'
 import { OperationModal } from '../tools/OperationModal'
 import { ArmStatus } from './ArmStatus'
 import { QuoteDetails } from './QuoteDetails'
@@ -28,10 +29,15 @@ interface SwapTicketProps {
   onPairChange: (from: TokenId, to: TokenId) => void
   walletId: string
   onWalletChange: (id: string) => void
+  /** Prefilled from a link (e.g. a trade prepared in Telegram). Exact decimal string. */
+  initialAmount?: string
+  initialSlippage?: number
+  /** Called when a swap this ticket started finishes, with its final progress. */
+  onSettled?: (progress: OperationProgress) => void
 }
 
 /** Any listed token for any other. Pairs without NEAR hop through it; the fee sits on that leg. */
-export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChange }: SwapTicketProps) {
+export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChange, initialAmount, initialSlippage, onSettled }: SwapTicketProps) {
   const uid = useId()
   const { settings } = useSettings()
   const { data: session } = useSession()
@@ -41,8 +47,8 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
   const planners = usePlanners()
   const now = useNow(500)
   const { armed, armedAt, arm, disarm } = useArm()
-  const [amountText, setAmountText] = useState('')
-  const [slippage, setSlippage] = useState(settings.defaultSlippage)
+  const [amountText, setAmountText] = useState(initialAmount ?? '')
+  const [slippage, setSlippage] = useState(initialSlippage ?? settings.defaultSlippage)
   const [review, setReview] = useState<QuoteRequest | null>(null)
 
   const signers = wallets.filter((w) => w.access !== 'watch')
@@ -256,6 +262,7 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
           onClose={() => setReview(null)}
           onSettled={(p) => {
             if (p.phase === 'success') setAmountText('')
+            onSettled?.(p)
           }}
         />
       )}

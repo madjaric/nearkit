@@ -10,7 +10,7 @@ export function mainMenu(ctx: BotCtx) {
   const has = (name: string) => ctx.deps.features.has(name)
   return keyboard(
     [btn('🔗 Link wallet', 'acct:link'), btn('👛 Accounts', 'acct:list')],
-    [has('buy') ? btn('🟢 Buy', 'trade:buy') : null, has('sell') ? btn('🔴 Sell', 'trade:sell') : null],
+    [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null, has('balance') ? btn('💰 Balance', 'menu:balance') : null],
     [has('positions') ? btn('📊 Positions', 'pf:positions') : null, has('pnl') ? btn('📈 PnL', 'pf:pnl') : null],
     [btn('⚙️ Settings', 'set:show'), btn('❓ Help', 'menu:help')],
   )
@@ -55,6 +55,12 @@ export function coreModule(commandList: () => { name: string; command: Command }
         if (action === 'help') {
           await ctx.answer()
           await ctx.reply(helpText(ctx))
+          return
+        }
+        if (action === 'balance') {
+          await ctx.answer()
+          const command = commandList().find((c) => c.name === 'balance')?.command
+          if (command) await command.run(ctx, '')
           return
         }
         await ctx.show('What would you like to do?', mainMenu(ctx))

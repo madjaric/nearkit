@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { confirmLink, describeLink, LinkRequestError, readLinkCode } from './telegramLink'
+import { confirmLink, describeLink, LinkRequestError, readHandoffId, readLinkCode } from './telegramLink'
 
 const code = 'Abc_DEF-123456789012345'
 
@@ -10,6 +10,15 @@ describe('link code from the page URL', () => {
     expect(readLinkCode(`#link=${code}<script>`)).toBeNull()
     expect(readLinkCode('')).toBeNull()
     expect(readLinkCode(`#other=${code}`)).toBeNull()
+  })
+})
+
+describe('trade handoff IDs', () => {
+  it('accepts only well-formed IDs from the swap link', () => {
+    expect(readHandoffId(code)).toBe(code)
+    expect(readHandoffId('short')).toBeNull()
+    expect(readHandoffId(null)).toBeNull()
+    expect(readHandoffId(`${code}/../x`)).toBeNull()
   })
 })
 

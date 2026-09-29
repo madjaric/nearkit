@@ -39,6 +39,26 @@ The web app finds the server through two public build variables:
 - **Input.** Everything from outside (token names from chain metadata, user text) is
   HTML-escaped and stripped of control and bidi characters before it reaches Telegram.
 
+## Trading from Telegram
+
+`/buy`, `/sell`, `/quote`, `/token` and `/balance`, in a private chat, on the linked
+default account. Tokens are found by symbol or by exact contract (the same `lookupToken`
+as the web app's exact-contract import, so a token launched minutes ago works).
+
+The quote comes from NearKit's own trading service: Rhea's router with every route
+check the web app runs, the same 0.10% fee on mainnet, and "Rhea found no route" said
+plainly when there is none. Nothing is ever faked or estimated into a trade.
+
+**Signing stays in the wallet.** NearKit has no custody and the bot holds no keys, so a
+trade can't be signed in Telegram itself. "Review & sign in NearKit" opens the web app's
+swap page with the trade filled in and a random handoff ID (`src/trade/handoff.ts`).
+There the route is quoted again, the usual review shows the exact transactions, and the
+user's wallet signs (HOT Wallet signs inside Telegram; other wallets open as usual).
+The web app then reports the transaction hashes to the API. The server believes none of
+it: each hash is read from chain and must be signed by the linked account the trade was
+prepared for, and the amounts come from the chain's record. Only then does the bot
+report "Bought … for …", "the swap failed", or "confirmed, but no swap went through".
+
 ## Buybot
 
 Group admins send `/buybot` in their group, add a token by its exact contract (NearKit
