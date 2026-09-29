@@ -4,7 +4,7 @@ A controlled first run of NearKit on NEAR mainnet, with very small amounts, befo
 
 ## What you need first
 
-1. **The NearKit fee account.** This is an existing mainnet account you control, for example `nearkit-fees.near`.
+1. **The NearKit fee account.** This is `nearkitfee.near`, the production fee account (owner decision, 2026-09-29). It exists on mainnet.
    - On every Swap and Quick Trade it receives 0.40% (NearKit's share of the 0.50% fee) as an internal balance on Rhea's aggregator (`aggregatedex.near`), and only this account can withdraw it.
    - NearKit refuses to trade if the account is missing, malformed, belongs to testnet or does not exist.
 2. **The fee account registered with the aggregator** (recommended). This is one transaction, signed by the fee account (0.025 NEAR):
@@ -76,4 +76,4 @@ Amounts are deliberately tiny. Budget about 0.3 NEAR on A for the whole run: reg
 
 ## After it passes
 
-The public site stays on the testnet beta until you approve a mainnet deployment. That deployment needs `VITE_NEAR_NETWORK=mainnet`, `VITE_NEARKIT_FEE_RECIPIENT=<fee account>` and `VITE_ENABLE_MAINNET_EXECUTION=true` set on Vercel. Fees accrue on the aggregator; withdraw them with the commands in the README's operator tasks.
+The public site stays on the testnet beta until you approve a mainnet deployment. That deployment needs `VITE_NEAR_NETWORK=mainnet`, `VITE_NEARKIT_FEE_RECIPIENT=nearkitfee.near` and `VITE_ENABLE_MAINNET_EXECUTION=true` set on Vercel. Fees accrue on the aggregator; withdraw them with the commands in the README's operator tasks.

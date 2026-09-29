@@ -59,7 +59,7 @@ Every variable is public (none is a secret), documented in `.env.example`, and v
 | `VITE_NEAR_NETWORK` | `testnet` | `testnet` or `mainnet`, fixed per build |
 | `VITE_NEAR_RPC_URL` | the network's verified list | comma-separated override; first is primary |
 | `VITE_ENABLE_MAINNET_EXECUTION` | `false` | must be exactly `true` for value-moving actions on mainnet |
-| `VITE_NEARKIT_FEE_RECIPIENT` | none | account that receives the NearKit app fee; without it mainnet trades are blocked |
+| `VITE_NEARKIT_FEE_RECIPIENT` | none | account that receives the NearKit app fee; without it mainnet trades are blocked. Production: `nearkitfee.near`, set in `.env.mainnet` |
 | `VITE_KIT_TOKEN_CONTRACT` | none | the $KIT contract once it launches on Nearly |
 
 Every external host and contract lives in `src/config/networks.ts`, verified live on 2026-09-28.
@@ -124,6 +124,8 @@ NearKit can't create accounts or sign for you, so this is done by hand with your
 Only after all eight pass, run the controlled mainnet smoke test in [MAINNET_SMOKE_TEST.md](MAINNET_SMOKE_TEST.md). It is a local production build with very small amounts; the public site stays on the testnet beta.
 
 ## Operator tasks (mainnet fee account)
+
+The production fee account is `nearkitfee.near` (owner decision, 2026-09-29); `<fee account>` below is that account.
 
 The NearKit trading fee is 0.50% (50 bps) on Swap and Quick Trade. It is set in one place, `NEARKIT_FEE` in `src/lib/fees.ts`, and everything derives from it: quotes on the web and in Telegram, the rate Rhea is asked to collect, the route checks, reviews, docs and tests.
 

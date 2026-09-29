@@ -2,7 +2,7 @@
 
 **Status (2026-09-29).** Phases A (research), B (UX), C (NearKit trading wallet) and D (native Buy and Sell) are implemented. They run on **testnet only**.
 - Mainnet custody is hard-blocked in code: `CUSTODY_NETWORKS` in `server/src/custody/networks.ts` is not configurable.
-- The production fee account is decided (`nearkitfee.near`) but configured nowhere, and no mainnet transaction was signed.
+- The production fee account is `nearkitfee.near`. It is set only in the tracked mainnet build profile (`.env.mainnet`), where execution stays off. The testnet beta and the server templates leave it empty, and no mainnet transaction was signed.
 - §1 records the owner decisions this build follows.
 - §2 describes what is implemented and §3 what must change before mainnet, including the custody gap analysis (§3.3).
 - §4–§7 cover the threat model, fees (with the fee-claim runbook, §5.1), hosting and open decisions. The appendix keeps the Phase A research.
@@ -16,7 +16,7 @@
 |---|---|
 | Custody model | **G**: each Telegram user gets a separate NearKit trading wallet, never their main wallet. NearKit signs from it under a policy. Testnet only |
 | NearKit fee | **0.50% (50 bps) is the total user-facing app fee.** If Rhea takes a share of it, that share comes out of the 0.50%; the rate is not grossed up. Rhea's protocol fee, pool fees and gas are separate lines |
-| Production fee account | **`nearkitfee.near`** for web and Telegram (decided 2026-09-29). Not hard-coded and not configured yet: it is set only when mainnet trading is approved. Until then fee-taking mainnet trades stay blocked. The smoke-test account is never the production recipient |
+| Production fee account | **`nearkitfee.near`** for web and Telegram (decided 2026-09-29). Not hard-coded in code: it comes from `VITE_NEARKIT_FEE_RECIPIENT` (set in `.env.mainnet`, execution off) and `NEARKIT_FEE_RECIPIENT` (a mainnet server's environment). The smoke-test account is never the production recipient |
 | Withdrawals | To **any valid NEAR address** on the network. The linked wallet is the default, one tap away and marked |
 | Trade limits | **None.** No per-trade, daily or per-user monetary cap. Security comes from architecture and validation |
 | Recovery / export | Yes. Export happens in the NearKit web app after strong ownership proof, never in Telegram. Recovery must work without Telegram chat access |
@@ -313,7 +313,7 @@ The intent engine, idempotency, anchoring, resolver, Telegram UX, withdrawals an
 ---
 
 ## 7. Decisions still open
-1. **When to configure the fee account.** `nearkitfee.near` is decided; it is configured at mainnet go-live, not before.
+1. **Fee account:** decided (`nearkitfee.near`), in the mainnet build profile. A mainnet server gets `NEARKIT_FEE_RECIPIENT` at go-live.
 2. **KMS provider** for the mainnet KEK: AWS KMS or GCP Cloud KMS behind a separate signer is recommended (§3.3). Non-exportable keys are stronger but conflict with export (§3.2).
 3. **Hosting plan:** after the local test, FadeHost free (it sleeps) versus always-on.
 4. **Mainnet go/no-go** after §3.
