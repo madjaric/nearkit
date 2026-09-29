@@ -1,0 +1,890 @@
+{
+  "transaction": {
+    "signer_id": "pulamica.near",
+    "public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+    "nonce": 217549445000033,
+    "receiver_id": "singularty.nearlytrade.near",
+    "actions": [
+      {
+        "FunctionCall": {
+          "method_name": "ft_transfer_call",
+          "args": "eyJhbW91bnQiOiI4ODA2MDM3MDg5NTAxMTgyMjQzNTM4MjEiLCJtc2ciOiJ7XCJtc2dcIjpcImdpbDhlbXg1S1VFcGQzeHphSFJ3YW1nMWRXeG9lU2t6S1hsc2FteHdmV3htZkhwc2VTbEJLWGQ4YzJoMGNHcG9OWFZzYUhrcE15bHVhSG9wUVNrNVBqYzNOemMzTnpjM056YzNOemNwTXlscWRuVjdlV2hxZTNvcFFXSXBlbkIxYm54emFIbDdnRFYxYkdoNWM0QjdlV2hyYkRWMWJHaDVLV1F6S1hSc2UyOTJhM29wUVdJcGJYdG1lM2xvZFhwdGJIbG1hbWh6Y3lsa015bDBlbTU2S1VGaUtZSmpLV2gwZG54MWUyTXBRV01wUHo4M1BUYzZQamMvUUR3M09EZy9PVGs3T2p3NlB6azRZeWt6WXlsMGVtNWpLVUZqS1lKalkyTXBXbjVvZDJOall5bEJnbU5qWXlsM2RuWnpabkJyZW1Oall5bEJZbU5qWXlsNmNIVnVmSE5vZVh1QU5YVnNhSGx6Z0h0NWFHdHNOWFZzYUhtRGZubG9kelYxYkdoNWd6ZzNOemMzWTJOaktXUXpZMk5qS1haOGUzZDhlMlo3ZG5Kc2RXTmpZeWxCWTJOaktYNTVhSGMxZFd4b2VXTmpZeWt6WTJOaktYUndkV1oyZkh0M2ZIdG1hSFIyZkhWN1kyTmpLVUZqWTJNcE9EazVPRGczUHowM09UYzZQejA0T0Q4NE96bytQajg3UUQxalkyTXBNMk5qWXlsNmNuQjNabngxZm5sb2QyWjFiR2g1WTJOaktVRjdlWHhzTTJOall5bHdkWGQ4ZTJaN2RuSnNkV05qWXlsQlkyTmpLV05qWXlrelkyTmpLWEIxZDN4N1ptaDBkbngxZTJOall5bEJZMk5qS1RkalkyTXBoSVJqS1ROaktYbHNhbXh3Zld4NVpuQnJZeWxCWXlscmFuTjlPVFY1YkcwMGMyaHBlalYxYkdoNVl5bUVLV1F6S1c1b2VtWnpjSHA3S1VGaVB6dzNOemMzTnpjM056YzNOemRrTXlsMWJHaDVabWgwZG54MWUzb3BRV0lwT0Nsa015bDZjbkIzWm54MWZubG9kMloxYkdoNUtVRnRhSE42YkRNcGFuWnpjMnhxZTJ4clptMXNiQ2xCYldoemVtd3pLWHg4Y0dzcFFTbHJQMEJwTnp0c2FqUTdPVDlyTkRzOVFHazBQMnM5UERSc09EOXJha0E4T1dob1B6c3BNeWxyYkdocmMzQjFiQ2xCT0Q1QU56MDdOencrT3owNFBvUT1cIixcInNpZ25hdHVyZVwiOlwiMzVkMTRjNjcyNWRkNjVjODVlZTc0ZTU1MmYzZDZiMjRjMzJmNjcxYzEyOTZkM2IwMmQ0YzQzOWRjNmFlZWM5ZGQ5MjRmMWRjOTViODI3ZGMzMWM1Yzc4NjRhMzEwZTZkYzZlMzhjMDVjYzUzOWQ0MDlmMmQ3YjM5NDMyYjM2MDRcIn0iLCJyZWNlaXZlcl9pZCI6ImFnZ3JlZ2F0ZWRleC5uZWFyIn0=",
+          "gas": 300000000000000,
+          "deposit": "1"
+        }
+      }
+    ],
+    "priority_fee": 0,
+    "signature": "ed25519:5CDkkweoisoASdq3woyE7F1eXroXYMGbDTpAJBPFe169KvKt2KxEQhVAhVfUF9uzwaQaCtAwb1sehXAPXrpRQTHE",
+    "hash": "3tApqgRoLHCDt27FMo84r4zrGobsKqf1UTMVWgSejKbK"
+  },
+  "execution_outcome": {
+    "block_hash": "EUm2yoFodt2Dp9k9VNPE1RRSS67TsyffE6wZ3xR8ZeL4",
+    "block_timestamp": 1790640287142358800,
+    "block_height": 217702178,
+    "index": 3,
+    "id": "3tApqgRoLHCDt27FMo84r4zrGobsKqf1UTMVWgSejKbK",
+    "outcome": {
+      "logs": [],
+      "receipt_ids": ["F2A4gZfewxpxmtFTFCjW3bk7vkoeHWn97TsQup5EgUhm"],
+      "gas_burnt": 365136906855,
+      "tokens_burnt": "36513690685500000000",
+      "executor_id": "pulamica.near",
+      "status": { "SuccessReceiptId": "F2A4gZfewxpxmtFTFCjW3bk7vkoeHWn97TsQup5EgUhm" },
+      "metadata": { "version": 1, "gas_profile": null }
+    }
+  },
+  "receipts": [
+    {
+      "execution_outcome": {
+        "block_hash": "6p2MYPYMsP2kPxgKfQ3LfVonLyGCQDRxe4pKrjYdf1iJ",
+        "block_timestamp": 1790640287781316900,
+        "block_height": 217702179,
+        "index": 27,
+        "id": "F2A4gZfewxpxmtFTFCjW3bk7vkoeHWn97TsQup5EgUhm",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"pulamica.near\",\"new_owner_id\":\"aggregatedex.near\",\"amount\":\"880603708950118224353821\"}]}"
+          ],
+          "receipt_ids": ["HwbKB73sQ3xpLAenReqMpxgT77o2mf9geJMk68J3z9Qs", "AZdab7kZMbDYEz63gK4vNbNB1Azid8mjvVUyjiCzXBwv", "8fdnafQrJ3C27xbjKUCRrGVj94DUQoK6nA1NB6PRA1PM"],
+          "gas_burnt": 2446462670057,
+          "tokens_burnt": "244646267005700000000",
+          "executor_id": "singularty.nearlytrade.near",
+          "status": { "SuccessReceiptId": "AZdab7kZMbDYEz63gK4vNbNB1Azid8mjvVUyjiCzXBwv" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702179,
+        "block_hash": "6p2MYPYMsP2kPxgKfQ3LfVonLyGCQDRxe4pKrjYdf1iJ",
+        "block_timestamp": 1790640287781316900,
+        "receipt_index": 25,
+        "predecessor_id": "pulamica.near",
+        "receiver_id": "singularty.nearlytrade.near",
+        "receipt_id": "F2A4gZfewxpxmtFTFCjW3bk7vkoeHWn97TsQup5EgUhm",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_transfer_call",
+                  "args": "eyJhbW91bnQiOiI4ODA2MDM3MDg5NTAxMTgyMjQzNTM4MjEiLCJtc2ciOiJ7XCJtc2dcIjpcImdpbDhlbXg1S1VFcGQzeHphSFJ3YW1nMWRXeG9lU2t6S1hsc2FteHdmV3htZkhwc2VTbEJLWGQ4YzJoMGNHcG9OWFZzYUhrcE15bHVhSG9wUVNrNVBqYzNOemMzTnpjM056YzNOemNwTXlscWRuVjdlV2hxZTNvcFFXSXBlbkIxYm54emFIbDdnRFYxYkdoNWM0QjdlV2hyYkRWMWJHaDVLV1F6S1hSc2UyOTJhM29wUVdJcGJYdG1lM2xvZFhwdGJIbG1hbWh6Y3lsa015bDBlbTU2S1VGaUtZSmpLV2gwZG54MWUyTXBRV01wUHo4M1BUYzZQamMvUUR3M09EZy9PVGs3T2p3NlB6azRZeWt6WXlsMGVtNWpLVUZqS1lKalkyTXBXbjVvZDJOall5bEJnbU5qWXlsM2RuWnpabkJyZW1Oall5bEJZbU5qWXlsNmNIVnVmSE5vZVh1QU5YVnNhSGx6Z0h0NWFHdHNOWFZzYUhtRGZubG9kelYxYkdoNWd6ZzNOemMzWTJOaktXUXpZMk5qS1haOGUzZDhlMlo3ZG5Kc2RXTmpZeWxCWTJOaktYNTVhSGMxZFd4b2VXTmpZeWt6WTJOaktYUndkV1oyZkh0M2ZIdG1hSFIyZkhWN1kyTmpLVUZqWTJNcE9EazVPRGczUHowM09UYzZQejA0T0Q4NE96bytQajg3UUQxalkyTXBNMk5qWXlsNmNuQjNabngxZm5sb2QyWjFiR2g1WTJOaktVRjdlWHhzTTJOall5bHdkWGQ4ZTJaN2RuSnNkV05qWXlsQlkyTmpLV05qWXlrelkyTmpLWEIxZDN4N1ptaDBkbngxZTJOall5bEJZMk5qS1RkalkyTXBoSVJqS1ROaktYbHNhbXh3Zld4NVpuQnJZeWxCWXlscmFuTjlPVFY1YkcwMGMyaHBlalYxYkdoNVl5bUVLV1F6S1c1b2VtWnpjSHA3S1VGaVB6dzNOemMzTnpjM056YzNOemRrTXlsMWJHaDVabWgwZG54MWUzb3BRV0lwT0Nsa015bDZjbkIzWm54MWZubG9kMloxYkdoNUtVRnRhSE42YkRNcGFuWnpjMnhxZTJ4clptMXNiQ2xCYldoemVtd3pLWHg4Y0dzcFFTbHJQMEJwTnp0c2FqUTdPVDlyTkRzOVFHazBQMnM5UERSc09EOXJha0E4T1dob1B6c3BNeWxyYkdocmMzQjFiQ2xCT0Q1QU56MDdOencrT3owNFBvUT1cIixcInNpZ25hdHVyZVwiOlwiMzVkMTRjNjcyNWRkNjVjODVlZTc0ZTU1MmYzZDZiMjRjMzJmNjcxYzEyOTZkM2IwMmQ0YzQzOWRjNmFlZWM5ZGQ5MjRmMWRjOTViODI3ZGMzMWM1Yzc4NjRhMzEwZTZkYzZlMzhjMDVjYzUzOWQ0MDlmMmQ3YjM5NDMyYjM2MDRcIn0iLCJyZWNlaXZlcl9pZCI6ImFnZ3JlZ2F0ZWRleC5uZWFyIn0=",
+                  "gas": 300000000000000,
+                  "deposit": "1"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "6e8b4A3vqgNUVyXEjcXtpw3W8eYz54RX8dyiaZGyprQj",
+        "block_timestamp": 1790640288265365000,
+        "block_height": 217702180,
+        "index": 7,
+        "id": "HwbKB73sQ3xpLAenReqMpxgT77o2mf9geJMk68J3z9Qs",
+        "outcome": {
+          "logs": [
+            "Gas info => prepaid: 279260702508859 yoctoGas, used: 672420993047 yoctoGas, remaining: 278588281515812 yoctoGas",
+            "Gas info => prepaid: 279260702508859 yoctoGas, used: 3053279394805 yoctoGas, remaining: 276207423114054 yoctoGas, dex_gas_transfer_call:180000000000000,GAS_FOR_DEX_FT_TRANSFER_CALL_BACK:15000000000000"
+          ],
+          "receipt_ids": ["A4W47GZHeXAf1phfN35CVtnAD71maLxgHwazurNQyRJ2", "FzmpfwbVkWVEt4jL8UNsgBPXiFTouo3nmsW5Jo4aMGwi", "8aLd14KQuzZsNwbY6ypqHw7NxewkQitTakANzwzxrtWY"],
+          "gas_burnt": 5055641233108,
+          "tokens_burnt": "505564123310800000000",
+          "executor_id": "aggregatedex.near",
+          "status": { "SuccessValue": "IjAi" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7FceSoVo9gnR12Te4ENUVdwBRmFG4n3DK6auwrrpg7Tw" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702180,
+        "block_hash": "6e8b4A3vqgNUVyXEjcXtpw3W8eYz54RX8dyiaZGyprQj",
+        "block_timestamp": 1790640288265365000,
+        "receipt_index": 27,
+        "predecessor_id": "singularty.nearlytrade.near",
+        "receiver_id": "aggregatedex.near",
+        "receipt_id": "HwbKB73sQ3xpLAenReqMpxgT77o2mf9geJMk68J3z9Qs",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [{ "data_id": "EPKrDLYT3QGhAvhcutYpMqMn8dqeRXDX3uZVFpbmvKfH", "receiver_id": "singularty.nearlytrade.near" }],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_on_transfer",
+                  "args": "eyJzZW5kZXJfaWQiOiJwdWxhbWljYS5uZWFyIiwiYW1vdW50IjoiODgwNjAzNzA4OTUwMTE4MjI0MzUzODIxIiwibXNnIjoie1wibXNnXCI6XCJnaWw4ZW14NUtVRXBkM3h6YUhSd2FtZzFkV3hvZVNrektYbHNhbXh3Zld4bWZIcHNlU2xCS1hkOGMyaDBjR3BvTlhWc2FIa3BNeWx1YUhvcFFTazVQamMzTnpjM056YzNOemMzTnpjcE15bHFkblY3ZVdocWUzb3BRV0lwZW5CMWJueHphSGw3Z0RWMWJHaDVjNEI3ZVdocmJEVjFiR2g1S1dRektYUnNlMjkyYTNvcFFXSXBiWHRtZTNsb2RYcHRiSGxtYW1oemN5bGtNeWwwZW01NktVRmlLWUpqS1doMGRueDFlMk1wUVdNcFB6ODNQVGM2UGpjL1FEdzNPRGcvT1RrN09qdzZQems0WXlrell5bDBlbTVqS1VGaktZSmpZMk1wV241b2QyTmpZeWxCZ21Oall5bDNkblp6Wm5CcmVtTmpZeWxCWW1Oall5bDZjSFZ1ZkhOb2VYdUFOWFZzYUhsemdIdDVhR3RzTlhWc2FIbURmbmxvZHpWMWJHaDVnemczTnpjM1kyTmpLV1F6WTJOaktYWjhlM2Q4ZTJaN2RuSnNkV05qWXlsQlkyTmpLWDU1YUhjMWRXeG9lV05qWXlrelkyTmpLWFJ3ZFdaMmZIdDNmSHRtYUhSMmZIVjdZMk5qS1VGalkyTXBPRGs1T0RnM1B6MDNPVGM2UHowNE9EODRPem8rUGo4N1FEMWpZMk1wTTJOall5bDZjbkIzWm54MWZubG9kMloxYkdoNVkyTmpLVUY3ZVh4c00yTmpZeWx3ZFhkOGUyWjdkbkpzZFdOall5bEJZMk5qS1dOall5a3pZMk5qS1hCMWQzeDdabWgwZG54MWUyTmpZeWxCWTJOaktUZGpZMk1waElSaktUTmpLWGxzYW14d2ZXeDVabkJyWXlsQll5bHJhbk45T1RWNWJHMDBjMmhwZWpWMWJHaDVZeW1FS1dRektXNW9lbVp6Y0hwN0tVRmlQenczTnpjM056YzNOemMzTnpka015bDFiR2g1Wm1oMGRueDFlM29wUVdJcE9DbGtNeWw2Y25CM1pueDFmbmxvZDJaMWJHaDVLVUZ0YUhONmJETXBhblp6YzJ4cWUyeHJabTFzYkNsQmJXaHplbXd6S1h4OGNHc3BRU2xyUDBCcE56dHNhalE3T1Q5ck5EczlRR2swUDJzOVBEUnNPRDlyYWtBOE9XaG9QenNwTXlscmJHaHJjM0IxYkNsQk9ENUFOejA3Tnp3K096MDRQb1E9XCIsXCJzaWduYXR1cmVcIjpcIjM1ZDE0YzY3MjVkZDY1Yzg1ZWU3NGU1NTJmM2Q2YjI0YzMyZjY3MWMxMjk2ZDNiMDJkNGM0MzlkYzZhZWVjOWRkOTI0ZjFkYzk1YjgyN2RjMzFjNWM3ODY0YTMxMGU2ZGM2ZTM4YzA1Y2M1MzlkNDA5ZjJkN2IzOTQzMmIzNjA0XCJ9In0=",
+                  "gas": 279260702508859,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "6e8b4A3vqgNUVyXEjcXtpw3W8eYz54RX8dyiaZGyprQj",
+        "block_timestamp": 1790640288265365000,
+        "block_height": 217702180,
+        "index": 28,
+        "id": "8fdnafQrJ3C27xbjKUCRrGVj94DUQoK6nA1NB6PRA1PM",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702180,
+        "block_hash": "6e8b4A3vqgNUVyXEjcXtpw3W8eYz54RX8dyiaZGyprQj",
+        "block_timestamp": 1790640288265365000,
+        "receipt_index": 29,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "8fdnafQrJ3C27xbjKUCRrGVj94DUQoK6nA1NB6PRA1PM",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "14606323412055300000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+        "block_timestamp": 1790640288960651300,
+        "block_height": 217702181,
+        "index": 20,
+        "id": "A4W47GZHeXAf1phfN35CVtnAD71maLxgHwazurNQyRJ2",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"aggregatedex.near\",\"new_owner_id\":\"dclv2.ref-labs.near\",\"amount\":\"871797671860617042110283\"}]}",
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"aggregatedex.near\",\"new_owner_id\":\"singularty.nearlytrade.near\",\"amount\":\"8806037089501182243538\",\"memo\":\"tax\"}]}"
+          ],
+          "receipt_ids": ["9Cq7ztmDJqBx3xP2mDkkRunPzLwb1q8JVfM71pzWSimJ", "2UV1PjpNgt1LXgQXZTXm7hP7dsJzUkM4amdKEnKnUGUx", "JDWV8rREbt88BXrZCAaQCmygB7obVQ1TBirPyJAHS9DK"],
+          "gas_burnt": 2701310069644,
+          "tokens_burnt": "270131006964400000000",
+          "executor_id": "singularty.nearlytrade.near",
+          "status": { "SuccessReceiptId": "2UV1PjpNgt1LXgQXZTXm7hP7dsJzUkM4amdKEnKnUGUx" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702181,
+        "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+        "block_timestamp": 1790640288960651300,
+        "receipt_index": 3,
+        "predecessor_id": "aggregatedex.near",
+        "receiver_id": "singularty.nearlytrade.near",
+        "receipt_id": "A4W47GZHeXAf1phfN35CVtnAD71maLxgHwazurNQyRJ2",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [{ "data_id": "63T59xv3W26YnZm43qQbrFypTAxC6pnin6jzScueLUbr", "receiver_id": "aggregatedex.near" }],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_transfer_call",
+                  "args": "eyJyZWNlaXZlcl9pZCI6ImRjbHYyLnJlZi1sYWJzLm5lYXIiLCJhbW91bnQiOiI4ODA2MDM3MDg5NTAxMTgyMjQzNTM4MjEiLCJtc2ciOiJ7XCJTd2FwXCI6e1wicG9vbF9pZHNcIjpbXCJzaW5ndWxhcnR5Lm5lYXJseXRyYWRlLm5lYXJ8d3JhcC5uZWFyfDEwMDAwXCJdLFwib3V0cHV0X3Rva2VuXCI6XCJ3cmFwLm5lYXJcIixcIm1pbl9vdXRwdXRfYW1vdW50XCI6XCIxMjIxMTA4NjAyMDM4NjExODE0Mzc3ODQ5NlwiLFwiY2xpZW50X2VjaG9cIjpcIntcXFwidXNlclxcXCI6XFxcInB1bGFtaWNhLm5lYXJcXFwiLFxcXCJyZWNlaXZlX3VzZXJcXFwiOlxcXCJwdWxhbWljYS5uZWFyXFxcIixcXFwiZ2FzXFxcIjpcXFwiMFxcXCIsXFxcImNvbnRyYWN0c1xcXCI6W10sXFxcIm1ldGhvZHNcXFwiOltdLFxcXCJtc2dzXFxcIjpbXSxcXFwiZ2FzX2xpc3RcXFwiOltdLFxcXCJuZWFyX2Ftb3VudHNcXFwiOltdLFxcXCJza2lwX3Vud3JhcF9uZWFyXFxcIjpmYWxzZSxcXFwicmVmZXJyYWxcXFwiOm51bGwsXFxcImFwcF9mZWVfcmF0ZVxcXCI6bnVsbCxcXFwiYXBwX2ZlZV9yZWNpcGllbnRcXFwiOm51bGwsXFxcInV1aWRcXFwiOlxcXCJcXFwiLFxcXCJkZWFkbGluZVxcXCI6MTc5MDY0MDU3NDYxNyxcXFwic3dhcF9mZWVcXFwiOm51bGx9XCIsXCJleHRyYV90Z2FzX2Zvcl9jbGllbnRfZWNob1wiOjUwLFwic2tpcF91bndyYXBfbmVhclwiOnRydWV9fSJ9",
+                  "gas": 180000000000000,
+                  "deposit": "1"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+        "block_timestamp": 1790640288960651300,
+        "block_height": 217702181,
+        "index": 21,
+        "id": "8aLd14KQuzZsNwbY6ypqHw7NxewkQitTakANzwzxrtWY",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702181,
+        "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+        "block_timestamp": 1790640288960651300,
+        "receipt_index": 5,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "8aLd14KQuzZsNwbY6ypqHw7NxewkQitTakANzwzxrtWY",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "4550077109797200000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+        "block_timestamp": 1790640288960651300,
+        "block_height": 217702181,
+        "index": 23,
+        "id": "AZdab7kZMbDYEz63gK4vNbNB1Azid8mjvVUyjiCzXBwv",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": ["HsodERHG5BHG3kJzxuvkT4X9S5UM8VwnnT5tPDTx8mQV"],
+          "gas_burnt": 965195638523,
+          "tokens_burnt": "96519563852300000000",
+          "executor_id": "singularty.nearlytrade.near",
+          "status": { "SuccessValue": "Ijg4MDYwMzcwODk1MDExODIyNDM1MzgyMSI=" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702180,
+        "block_hash": "6e8b4A3vqgNUVyXEjcXtpw3W8eYz54RX8dyiaZGyprQj",
+        "block_timestamp": 1790640288265365000,
+        "receipt_index": 28,
+        "predecessor_id": "singularty.nearlytrade.near",
+        "receiver_id": "singularty.nearlytrade.near",
+        "receipt_id": "AZdab7kZMbDYEz63gK4vNbNB1Azid8mjvVUyjiCzXBwv",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": ["EPKrDLYT3QGhAvhcutYpMqMn8dqeRXDX3uZVFpbmvKfH"],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_resolve_transfer",
+                  "args": "eyJzZW5kZXJfaWQiOiJwdWxhbWljYS5uZWFyIiwicmVjZWl2ZXJfaWQiOiJhZ2dyZWdhdGVkZXgubmVhciIsImFtb3VudCI6Ijg4MDYwMzcwODk1MDExODIyNDM1MzgyMSIsInRheCI6IjAifQ==",
+                  "gas": 5000000000000,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "block_height": 217702182,
+        "index": 6,
+        "id": "9Cq7ztmDJqBx3xP2mDkkRunPzLwb1q8JVfM71pzWSimJ",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"data\":[{\"amount_in\":\"871797671860617042110283\",\"amount_out\":\"12159023394827156125223750\",\"pool_id\":\"singularty.nearlytrade.near|wrap.near|10000\",\"protocol_fee\":\"1743595343721234084220\",\"referral_fee\":\"0\",\"referral_id\":null,\"swapper\":\"aggregatedex.near\",\"token_in\":\"singularty.nearlytrade.near\",\"token_out\":\"wrap.near\",\"total_fee\":\"8717976718606170421103\"}],\"event\":\"swap\",\"standard\":\"dcl.ref\",\"version\":\"1.0.0\"}"
+          ],
+          "receipt_ids": ["DGsi91hFYXvEGqymfJEYupG7CfGfirKiaCBAn7W8wJ1u"],
+          "gas_burnt": 13419945341931,
+          "tokens_burnt": "1341994534193100000000",
+          "executor_id": "dclv2.ref-labs.near",
+          "status": { "Failure": { "ActionError": { "index": 0, "kind": { "FunctionCallError": { "ExecutionError": "Smart contract panicked: E204: slippage error" } } } } },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7jHmiuDCFiCr6VDPszptYNPHWaYvg7aQoeLSGzqqtNNn" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702182,
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "receipt_index": 14,
+        "predecessor_id": "singularty.nearlytrade.near",
+        "receiver_id": "dclv2.ref-labs.near",
+        "receipt_id": "9Cq7ztmDJqBx3xP2mDkkRunPzLwb1q8JVfM71pzWSimJ",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [{ "data_id": "2ecf9rvvxm74yMLcLzWCp4gmjvCVw3vW1ncy8kdARsdY", "receiver_id": "singularty.nearlytrade.near" }],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_on_transfer",
+                  "args": "eyJzZW5kZXJfaWQiOiJhZ2dyZWdhdGVkZXgubmVhciIsImFtb3VudCI6Ijg3MTc5NzY3MTg2MDYxNzA0MjExMDI4MyIsIm1zZyI6IntcIlN3YXBcIjp7XCJwb29sX2lkc1wiOltcInNpbmd1bGFydHkubmVhcmx5dHJhZGUubmVhcnx3cmFwLm5lYXJ8MTAwMDBcIl0sXCJvdXRwdXRfdG9rZW5cIjpcIndyYXAubmVhclwiLFwibWluX291dHB1dF9hbW91bnRcIjpcIjEyMjExMDg2MDIwMzg2MTE4MTQzNzc4NDk2XCIsXCJjbGllbnRfZWNob1wiOlwie1xcXCJ1c2VyXFxcIjpcXFwicHVsYW1pY2EubmVhclxcXCIsXFxcInJlY2VpdmVfdXNlclxcXCI6XFxcInB1bGFtaWNhLm5lYXJcXFwiLFxcXCJnYXNcXFwiOlxcXCIwXFxcIixcXFwiY29udHJhY3RzXFxcIjpbXSxcXFwibWV0aG9kc1xcXCI6W10sXFxcIm1zZ3NcXFwiOltdLFxcXCJnYXNfbGlzdFxcXCI6W10sXFxcIm5lYXJfYW1vdW50c1xcXCI6W10sXFxcInNraXBfdW53cmFwX25lYXJcXFwiOmZhbHNlLFxcXCJyZWZlcnJhbFxcXCI6bnVsbCxcXFwiYXBwX2ZlZV9yYXRlXFxcIjpudWxsLFxcXCJhcHBfZmVlX3JlY2lwaWVudFxcXCI6bnVsbCxcXFwidXVpZFxcXCI6XFxcIlxcXCIsXFxcImRlYWRsaW5lXFxcIjoxNzkwNjQwNTc0NjE3LFxcXCJzd2FwX2ZlZVxcXCI6bnVsbH1cIixcImV4dHJhX3RnYXNfZm9yX2NsaWVudF9lY2hvXCI6NTAsXCJza2lwX3Vud3JhcF9uZWFyXCI6dHJ1ZX19In0=",
+                  "gas": 158984552533671,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "block_height": 217702182,
+        "index": 14,
+        "id": "JDWV8rREbt88BXrZCAaQCmygB7obVQ1TBirPyJAHS9DK",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702182,
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "receipt_index": 16,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "JDWV8rREbt88BXrZCAaQCmygB7obVQ1TBirPyJAHS9DK",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "14856923805198600000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "block_height": 217702182,
+        "index": 15,
+        "id": "HsodERHG5BHG3kJzxuvkT4X9S5UM8VwnnT5tPDTx8mQV",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702182,
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "receipt_index": 17,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "HsodERHG5BHG3kJzxuvkT4X9S5UM8VwnnT5tPDTx8mQV",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "5791826135699700000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "3i4Tkkpp7YpENen5fkDbceriUsXf2knwP3y5hSPi6voT",
+        "block_timestamp": 1790640290249042000,
+        "block_height": 217702183,
+        "index": 19,
+        "id": "DGsi91hFYXvEGqymfJEYupG7CfGfirKiaCBAn7W8wJ1u",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702183,
+        "block_hash": "3i4Tkkpp7YpENen5fkDbceriUsXf2knwP3y5hSPi6voT",
+        "block_timestamp": 1790640290249042000,
+        "receipt_index": 14,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "DGsi91hFYXvEGqymfJEYupG7CfGfirKiaCBAn7W8wJ1u",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "158532222900089900000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "3i4Tkkpp7YpENen5fkDbceriUsXf2knwP3y5hSPi6voT",
+        "block_timestamp": 1790640290249042000,
+        "block_height": 217702183,
+        "index": 21,
+        "id": "2UV1PjpNgt1LXgQXZTXm7hP7dsJzUkM4amdKEnKnUGUx",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"dclv2.ref-labs.near\",\"new_owner_id\":\"aggregatedex.near\",\"amount\":\"871797671860617042110283\",\"memo\":\"refund\"}]}",
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"singularty.nearlytrade.near\",\"new_owner_id\":\"aggregatedex.near\",\"amount\":\"8806037089501182243538\",\"memo\":\"tax refund\"}]}"
+          ],
+          "receipt_ids": ["78vzMHccroWNjz8KhaamFYXhHG6HWNqkNwFwdyFYKceS"],
+          "gas_burnt": 1968095015104,
+          "tokens_burnt": "196809501510400000000",
+          "executor_id": "singularty.nearlytrade.near",
+          "status": { "SuccessValue": "IjAi" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702182,
+        "block_hash": "Co2RMYvJK9dSVmY8yvBzrE52VikAmgskZnNdC15BfgMT",
+        "block_timestamp": 1790640289608959500,
+        "receipt_index": 15,
+        "predecessor_id": "singularty.nearlytrade.near",
+        "receiver_id": "singularty.nearlytrade.near",
+        "receipt_id": "2UV1PjpNgt1LXgQXZTXm7hP7dsJzUkM4amdKEnKnUGUx",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [{ "data_id": "63T59xv3W26YnZm43qQbrFypTAxC6pnin6jzScueLUbr", "receiver_id": "aggregatedex.near" }],
+            "input_data_ids": ["2ecf9rvvxm74yMLcLzWCp4gmjvCVw3vW1ncy8kdARsdY"],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_resolve_transfer",
+                  "args": "eyJzZW5kZXJfaWQiOiJhZ2dyZWdhdGVkZXgubmVhciIsInJlY2VpdmVyX2lkIjoiZGNsdjIucmVmLWxhYnMubmVhciIsImFtb3VudCI6Ijg3MTc5NzY3MTg2MDYxNzA0MjExMDI4MyIsInRheCI6Ijg4MDYwMzcwODk1MDExODIyNDM1MzgifQ==",
+                  "gas": 5000000000000,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "3n72MFNceHXtnRmvuCD6QtnWJP4EXkudQXouKkHdv8Z2",
+        "block_timestamp": 1790640290742950400,
+        "block_height": 217702184,
+        "index": 3,
+        "id": "FzmpfwbVkWVEt4jL8UNsgBPXiFTouo3nmsW5Jo4aMGwi",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"data\":[{}],\"event\":\"single_swap_failed\"}",
+            "EVENT_JSON:{\"data\":[{\"amount\":\"880603708950118224353821\",\"token_id\":\"singularty.nearlytrade.near\",\"user_id\":\"pulamica.near\"}],\"event\":\"swap_failed_refund_started\"}"
+          ],
+          "receipt_ids": ["4KZGQxcxiuYdJxXAeKcvrGyfPofNVtGNtAQpnrmMr2wv", "9HeKvgC9XNUiyZzN4FXmxXmZZjtbL8npWNyPuJ7Luvuh", "G4UUhAU9cjosZQ2AVyjiFAuYr87VEvS14y73r9gZiHxZ"],
+          "gas_burnt": 2735150196628,
+          "tokens_burnt": "273515019662800000000",
+          "executor_id": "aggregatedex.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7FceSoVo9gnR12Te4ENUVdwBRmFG4n3DK6auwrrpg7Tw" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702181,
+        "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+        "block_timestamp": 1790640288960651300,
+        "receipt_index": 4,
+        "predecessor_id": "aggregatedex.near",
+        "receiver_id": "aggregatedex.near",
+        "receipt_id": "FzmpfwbVkWVEt4jL8UNsgBPXiFTouo3nmsW5Jo4aMGwi",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": ["63T59xv3W26YnZm43qQbrFypTAxC6pnin6jzScueLUbr"],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "callback_swap",
+                  "args": "eyJzd2FwX3JlcXVlc3QiOnsidXNlciI6InB1bGFtaWNhLm5lYXIiLCJyZWNlaXZlX3VzZXIiOiJwdWxhbWljYS5uZWFyIiwiZ2FzIjoiMjcwMDAwMDAwMDAwMDAwIiwiY29udHJhY3RzIjpbInNpbmd1bGFydHkubmVhcmx5dHJhZGUubmVhciJdLCJtZXRob2RzIjpbImZ0X3RyYW5zZmVyX2NhbGwiXSwibXNncyI6WyJ7XCJhbW91bnRcIjpcIjg4MDYwMzcwODk1MDExODIyNDM1MzgyMVwiLFwibXNnXCI6XCJ7XFxcIlN3YXBcXFwiOntcXFwicG9vbF9pZHNcXFwiOltcXFwic2luZ3VsYXJ0eS5uZWFybHl0cmFkZS5uZWFyfHdyYXAubmVhcnwxMDAwMFxcXCJdLFxcXCJvdXRwdXRfdG9rZW5cXFwiOlxcXCJ3cmFwLm5lYXJcXFwiLFxcXCJtaW5fb3V0cHV0X2Ftb3VudFxcXCI6XFxcIjEyMjExMDg2MDIwMzg2MTE4MTQzNzc4NDk2XFxcIixcXFwic2tpcF91bndyYXBfbmVhclxcXCI6dHJ1ZSxcXFwiaW5wdXRfdG9rZW5cXFwiOlxcXCJcXFwiLFxcXCJpbnB1dF9hbW91bnRcXFwiOlxcXCIwXFxcIn19XCIsXCJyZWNlaXZlcl9pZFwiOlwiZGNsdjIucmVmLWxhYnMubmVhclwifSJdLCJnYXNfbGlzdCI6Wzg1MDAwMDAwMDAwMDAwXSwibmVhcl9hbW91bnRzIjpbIjEiXSwic2tpcF91bndyYXBfbmVhciI6ZmFsc2UsInJlZmVycmFsIjpudWxsLCJhcHBfZmVlX3JhdGUiOm51bGwsImFwcF9mZWVfcmVjaXBpZW50IjpudWxsLCJ1dWlkIjoiZDg5YjA0ZWMtNDI4ZC00NjliLThkNjUtZTE4ZGM5NTJhYTg0IiwiZGVhZGxpbmUiOjE3OTA2NDA1NzQ2MTcsInN3YXBfZmVlIjpudWxsfSwidXNlciI6InB1bGFtaWNhLm5lYXIiLCJhbW91bnQiOjg4MDYwMzcwODk1MDExODIyNDM1MzgyMSwidG9rZW5faW4iOiJzaW5ndWxhcnR5Lm5lYXJseXRyYWRlLm5lYXIifQ==",
+                  "gas": 93316058211603,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "3n72MFNceHXtnRmvuCD6QtnWJP4EXkudQXouKkHdv8Z2",
+        "block_timestamp": 1790640290742950400,
+        "block_height": 217702184,
+        "index": 24,
+        "id": "78vzMHccroWNjz8KhaamFYXhHG6HWNqkNwFwdyFYKceS",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702184,
+        "block_hash": "3n72MFNceHXtnRmvuCD6QtnWJP4EXkudQXouKkHdv8Z2",
+        "block_timestamp": 1790640290742950400,
+        "receipt_index": 24,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "78vzMHccroWNjz8KhaamFYXhHG6HWNqkNwFwdyFYKceS",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "5691596568259600000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "8zjKwGH6bnj98px6yCQDxTaWaAr5fUo7Jx3Uc2daUduQ",
+        "block_timestamp": 1790640291473630200,
+        "block_height": 217702185,
+        "index": 26,
+        "id": "4KZGQxcxiuYdJxXAeKcvrGyfPofNVtGNtAQpnrmMr2wv",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"aggregatedex.near\",\"new_owner_id\":\"pulamica.near\",\"amount\":\"880603708950118224353821\"}]}"
+          ],
+          "receipt_ids": ["HpvxR3rA32hnGNny1bymRCFn8Ne25uDYPHYw5o5aQSAc"],
+          "gas_burnt": 1562135268682,
+          "tokens_burnt": "156213526868200000000",
+          "executor_id": "singularty.nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702185,
+        "block_hash": "8zjKwGH6bnj98px6yCQDxTaWaAr5fUo7Jx3Uc2daUduQ",
+        "block_timestamp": 1790640291473630200,
+        "receipt_index": 2,
+        "predecessor_id": "aggregatedex.near",
+        "receiver_id": "singularty.nearlytrade.near",
+        "receipt_id": "4KZGQxcxiuYdJxXAeKcvrGyfPofNVtGNtAQpnrmMr2wv",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [{ "data_id": "8r4vUgVvDuQe8xgdYYhADud6wgJbsrenPHcDPkxNhgnj", "receiver_id": "aggregatedex.near" }],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "ft_transfer",
+                  "args": "eyJyZWNlaXZlcl9pZCI6InB1bGFtaWNhLm5lYXIiLCJhbW91bnQiOiI4ODA2MDM3MDg5NTAxMTgyMjQzNTM4MjEiLCJtZW1vIjpudWxsfQ==",
+                  "gas": 44847141992301,
+                  "deposit": "1"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "8zjKwGH6bnj98px6yCQDxTaWaAr5fUo7Jx3Uc2daUduQ",
+        "block_timestamp": 1790640291473630200,
+        "block_height": 217702185,
+        "index": 27,
+        "id": "G4UUhAU9cjosZQ2AVyjiFAuYr87VEvS14y73r9gZiHxZ",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702185,
+        "block_hash": "8zjKwGH6bnj98px6yCQDxTaWaAr5fUo7Jx3Uc2daUduQ",
+        "block_timestamp": 1790640291473630200,
+        "receipt_index": 4,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "G4UUhAU9cjosZQ2AVyjiFAuYr87VEvS14y73r9gZiHxZ",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "2461635176965200000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "CPhfNEPPjtH9bbktb88m8CryJVqBRXCPmaTje4JsAeCK",
+        "block_timestamp": 1790640291965651500,
+        "block_height": 217702186,
+        "index": 3,
+        "id": "9HeKvgC9XNUiyZzN4FXmxXmZZjtbL8npWNyPuJ7Luvuh",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"data\":[{\"amount\":\"880603708950118224353821\",\"receive_id\":\"pulamica.near\",\"token_id\":\"singularty.nearlytrade.near\",\"user_id\":\"pulamica.near\"}],\"event\":\"withdraw_succeeded\"}"
+          ],
+          "receipt_ids": ["3z3XR3tRzGWD9xnweeczoXyyhjE2Ux8ZpTfx78XkReXu"],
+          "gas_burnt": 2009780024769,
+          "tokens_burnt": "200978002476900000000",
+          "executor_id": "aggregatedex.near",
+          "status": { "SuccessValue": "dHJ1ZQ==" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7FceSoVo9gnR12Te4ENUVdwBRmFG4n3DK6auwrrpg7Tw" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702185,
+        "block_hash": "8zjKwGH6bnj98px6yCQDxTaWaAr5fUo7Jx3Uc2daUduQ",
+        "block_timestamp": 1790640291473630200,
+        "receipt_index": 3,
+        "predecessor_id": "aggregatedex.near",
+        "receiver_id": "aggregatedex.near",
+        "receipt_id": "9HeKvgC9XNUiyZzN4FXmxXmZZjtbL8npWNyPuJ7Luvuh",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": ["8r4vUgVvDuQe8xgdYYhADud6wgJbsrenPHcDPkxNhgnj"],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "after_ft_transfer",
+                  "args": "eyJhY2NvdW50X2lkIjoicHVsYW1pY2EubmVhciIsInJlY2VpdmVfdXNlciI6InB1bGFtaWNhLm5lYXIiLCJ0b2tlbl9pZCI6InNpbmd1bGFydHkubmVhcmx5dHJhZGUubmVhciIsImFtb3VudCI6Ijg4MDYwMzcwODk1MDExODIyNDM1MzgyMSJ9",
+                  "gas": 44847141992302,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "CPhfNEPPjtH9bbktb88m8CryJVqBRXCPmaTje4JsAeCK",
+        "block_timestamp": 1790640291965651500,
+        "block_height": 217702186,
+        "index": 29,
+        "id": "HpvxR3rA32hnGNny1bymRCFn8Ne25uDYPHYw5o5aQSAc",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702186,
+        "block_hash": "CPhfNEPPjtH9bbktb88m8CryJVqBRXCPmaTje4JsAeCK",
+        "block_timestamp": 1790640291965651500,
+        "receipt_index": 33,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "HpvxR3rA32hnGNny1bymRCFn8Ne25uDYPHYw5o5aQSAc",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "45579189199492800000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "HzmnM63LKkbNj15WsQ4Dxk2GrNLSKJcXpfnUL3QigPRw",
+        "block_timestamp": 1790640292602068000,
+        "block_height": 217702187,
+        "index": 45,
+        "id": "3z3XR3tRzGWD9xnweeczoXyyhjE2Ux8ZpTfx78XkReXu",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "pulamica.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [null] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702187,
+        "block_hash": "HzmnM63LKkbNj15WsQ4Dxk2GrNLSKJcXpfnUL3QigPRw",
+        "block_timestamp": 1790640292602068000,
+        "receipt_index": 5,
+        "predecessor_id": "system",
+        "receiver_id": "pulamica.near",
+        "receipt_id": "3z3XR3tRzGWD9xnweeczoXyyhjE2Ux8ZpTfx78XkReXu",
+        "receipt": {
+          "Action": {
+            "signer_id": "pulamica.near",
+            "signer_public_key": "ed25519:5aLRCQunkFJBXAkEpryGhdPJAwjbLS4r8jmuPR86qLeX",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "45534570059595100000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    }
+  ],
+  "data_receipts": [
+    {
+      "block_height": 217702181,
+      "block_hash": "9CVoLjF6JXu2Mo8dLy9NqzeL5rxgfXLpdAbL7orVzQ2j",
+      "block_timestamp": 1790640288960651300,
+      "receipt_index": 6,
+      "predecessor_id": "aggregatedex.near",
+      "receiver_id": "singularty.nearlytrade.near",
+      "receipt_id": "AQazZCMzYwZAv77QiLkDeK93M6NBXb29NMYDWhCNwfmE",
+      "receipt": { "Data": { "data_id": "EPKrDLYT3QGhAvhcutYpMqMn8dqeRXDX3uZVFpbmvKfH", "data": "IjAi", "is_promise_resume": false } },
+      "priority": 0
+    },
+    {
+      "block_height": 217702183,
+      "block_hash": "3i4Tkkpp7YpENen5fkDbceriUsXf2knwP3y5hSPi6voT",
+      "block_timestamp": 1790640290249042000,
+      "receipt_index": 15,
+      "predecessor_id": "dclv2.ref-labs.near",
+      "receiver_id": "singularty.nearlytrade.near",
+      "receipt_id": "GoVe4NCWbkCE7yez1sKJu6gNbYvVAHrv2Xi4oFGqnWpQ",
+      "receipt": { "Data": { "data_id": "2ecf9rvvxm74yMLcLzWCp4gmjvCVw3vW1ncy8kdARsdY", "data": null, "is_promise_resume": false } },
+      "priority": 0
+    },
+    {
+      "block_height": 217702184,
+      "block_hash": "3n72MFNceHXtnRmvuCD6QtnWJP4EXkudQXouKkHdv8Z2",
+      "block_timestamp": 1790640290742950400,
+      "receipt_index": 25,
+      "predecessor_id": "singularty.nearlytrade.near",
+      "receiver_id": "aggregatedex.near",
+      "receipt_id": "86Cv8kUoDS3qqthFndsLFKSJh556g7imTW93AvsjhiHN",
+      "receipt": { "Data": { "data_id": "63T59xv3W26YnZm43qQbrFypTAxC6pnin6jzScueLUbr", "data": "IjAi", "is_promise_resume": false } },
+      "priority": 0
+    },
+    {
+      "block_height": 217702186,
+      "block_hash": "CPhfNEPPjtH9bbktb88m8CryJVqBRXCPmaTje4JsAeCK",
+      "block_timestamp": 1790640291965651500,
+      "receipt_index": 34,
+      "predecessor_id": "singularty.nearlytrade.near",
+      "receiver_id": "aggregatedex.near",
+      "receipt_id": "Hb3oTsSg2QwECfGep4HBxqRynx8dC71wm7oZz5MLGUde",
+      "receipt": { "Data": { "data_id": "8r4vUgVvDuQe8xgdYYhADud6wgJbsrenPHcDPkxNhgnj", "data": "", "is_promise_resume": false } },
+      "priority": 0
+    }
+  ],
+  "block_height": 217702178,
+  "block_timestamp": "1790640287142358673"
+}

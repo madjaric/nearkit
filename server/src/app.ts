@@ -3,7 +3,8 @@ import { createApiServer, listen } from './api/http'
 import { linkRoutes } from './api/linkRoutes'
 import { accountsModule, linkedText, movedAwayText, startLink } from './bot/accounts'
 import { createBotApp, type BotApp } from './bot/app'
-import type { BotDeps, BotModule, Command } from './bot/context'
+import { buybotModule } from './bot/buybot'
+import type { BotDeps, BotModule, BuybotDeps, Command } from './bot/context'
 import { coreModule } from './bot/core'
 import { settingsModule } from './bot/settings'
 import { loadConfig, type ServerConfig } from './config'
@@ -12,6 +13,10 @@ import { Db } from './db/sqlite'
 import { Store } from './db/store'
 import { createLinkService } from './link/service'
 import { createLogger, type Logger } from './log'
+import { createFollower, createTxIndex } from './buybot/follower'
+import { createBuyMarket } from './buybot/market'
+import { createDeliverer, createProcessor, startBuybot } from './buybot/pipeline'
+import { BuybotStore } from './buybot/store'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
@@ -32,7 +37,7 @@ export interface RunningServer {
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
   // `/start link` (from the "open a private chat" button) goes straight to linking.
-  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule()]
+  return [coreModule(list, { link: startLink }), accountsModule(), settingsModule(), buybotModule()]
 }
 
 /** Commands for Telegram's menu, per chat type. */
@@ -60,15 +65,30 @@ export async function startServer(options: { env: Record<string, string | undefi
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: config.dbPath, bot: Boolean(config.telegramToken) })
 
+  // Buy alerts read the chain on their own network; they need the bot to post.
+  let buybot: BuybotDeps | null = null
+  if (config.buybot.enabled && config.telegramToken) {
+    const bbNetwork = config.buybot.network
+    const bbNear =
+      bbNetwork === config.network
+        ? near
+        : createServerNear({ env: { ...config.env, network: bbNetwork.id, feeRecipient: null, kitContract: null }, network: bbNetwork }, fetchImpl, now)
+    const bbStore = new BuybotStore(db, now)
+    const index = createTxIndex(config.buybot.dataUrl, fetchImpl)
+    const follower = createFollower({ network: bbNetwork.id, rpc: bbNear.ctx.rpc, index, store: bbStore, log })
+    buybot = { store: bbStore, near: bbNear, market: createBuyMarket(bbNear, now), follower, index }
+  }
+
   let tg: TelegramApi | null = null
   let bot: BotApp | null = null
   let poller: ReturnType<typeof startPolling> | null = null
+  let buybotRunner: ReturnType<typeof startBuybot> | null = null
   if (config.telegramToken) {
     tg = createTelegramApi({ token: config.telegramToken, fetch: fetchImpl, baseUrl: config.telegramApiUrl })
     const me = await tg.getMe()
     const webhook = await tg.getWebhookInfo()
     if (webhook.url) throw new Error('A webhook is set for this bot, so long polling cannot run. Remove the webhook (deleteWebhook) or stop the other deployment first.')
-    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set() }
+    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set(), buybot }
     let list: () => { name: string; command: Command }[] = () => []
     bot = createBotApp(
       deps,
@@ -80,6 +100,13 @@ export async function startServer(options: { env: Record<string, string | undefi
     await tg.setMyCommands(menuCommands(bot, 'group'), { type: 'all_group_chats' })
     poller = startPolling({ tg, store, log, handle: (u) => app.handle(u) })
     log.info('Telegram bot polling', { bot: `@${deps.me.username}` })
+    if (buybot) {
+      const bb = buybot
+      const process = createProcessor({ network: bb.near.ctx.network, index: bb.index, finalHeight: () => bb.follower.finalHeight(), store: bb.store, market: bb.market, log })
+      const deliver = createDeliverer({ tg, store: bb.store, market: bb.market, network: bb.near.ctx.network, webUrl: config.webUrl, webNetwork: config.network.id, log, now })
+      buybotRunner = startBuybot({ follow: () => bb.follower.step(), process: () => process(), deliver: () => deliver(), log })
+      log.info('buybot following final blocks', { network: bb.near.ctx.network.id, data: config.buybot.dataUrl })
+    }
   }
 
   const onLinked = async (r: { accountId: string; userId: number; previousUserId: number | null }) => {
@@ -101,6 +128,7 @@ export async function startServer(options: { env: Record<string, string | undefi
   const housekeeping = setInterval(() => {
     try {
       store.prune()
+      buybot?.store.prune(7 * 86_400_000)
     } catch (e) {
       log.warn('prune failed', { error: e })
     }
@@ -114,6 +142,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     apiPort,
     async stop() {
       clearInterval(housekeeping)
+      await buybotRunner?.stop()
       await poller?.stop()
       await new Promise<void>((resolve) => api.close(() => resolve()))
       db.close()

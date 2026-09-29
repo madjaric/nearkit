@@ -39,6 +39,35 @@ The web app finds the server through two public build variables:
 - **Input.** Everything from outside (token names from chain metadata, user text) is
   HTML-escaped and stripped of control and bidi characters before it reaches Telegram.
 
+## Buybot
+
+Group admins send `/buybot` in their group, add a token by its exact contract (NearKit
+reads its metadata from chain and shows it before anything is saved), and choose a
+minimum buy size, emoji scale and sound. From then on every buy is posted in the group.
+
+- **Detection** (`src/buybot/follower.ts`, `pipeline.ts`): each followed token's contract
+  history is read from FastNEAR's transaction index (about two blocks behind the chain).
+  A transaction is read in full only after its block is final by a margin and every receipt
+  it created is present. Buys are found by the shared analyzer `src/services/near/flows.ts`
+  (also used for positions): the transaction's initiator ended with more of the token and
+  gave something up. Failed swaps, refunds, transfers and launchpad tax payouts are not buys.
+- **Figures**: amounts come from the chain. USD uses NEAR/USD from Coinbase (CoinGecko
+  fallback) or Rhea's price list for other tokens. Price is this buy's own price. FDV is total
+  supply × that price, labelled as such. Market cap and liquidity are not shown: circulating
+  supply and per-token liquidity aren't reliably known. Unknown figures are left out.
+- **Delivery**: one row per (buy, chat), whose status only moves forward. Messages are spaced
+  per chat, `retry_after` is honoured, a chat that removed the bot is paused, and a group
+  that became a supergroup is followed to its new ID. A buy more than 15 minutes old is
+  not posted. A crash between Telegram accepting a message and it being marked sent can
+  repeat that one message; nothing else can.
+- **Restarts**: each token's cursor trails the final head by a few blocks and is saved with
+  the transactions found, so a restart resumes without gaps; seeing a transaction twice is
+  harmless. After a long outage it skips ahead instead of posting old buys.
+- **Network**: `BUYBOT_NETWORK` defaults to mainnet (read-only), independent of the network
+  trading uses. The "Trade on NearKit" button appears only when both match.
+
+Channels aren't supported yet: add the bot to a group.
+
 ## Data
 
 SQLite through sql.js (WebAssembly, no native build). The database is written after every

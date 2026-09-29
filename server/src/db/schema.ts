@@ -90,6 +90,73 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       );
     `,
   },
+  {
+    version: 2,
+    name: 'buybot: configurations, block cursor, candidates, detected buys, deliveries',
+    sql: `
+      -- One token followed in one chat. Amounts in yoctoNEAR as TEXT.
+      CREATE TABLE buybot_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id INTEGER NOT NULL,
+        chat_title TEXT,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        name TEXT NOT NULL,
+        decimals INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        min_near TEXT NOT NULL DEFAULT '0',
+        emoji TEXT NOT NULL DEFAULT '🟢',
+        step_near TEXT NOT NULL DEFAULT '1000000000000000000000000',
+        silent INTEGER NOT NULL DEFAULT 0,
+        paused_reason TEXT,
+        created_by INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (chat_id, network, token)
+      );
+      CREATE INDEX buybot_configs_token ON buybot_configs(network, token);
+      -- Transactions that touched a followed token. Read in full, then kept a while
+      -- as done so the index showing them again doesn't cause another read.
+      CREATE TABLE buybot_candidates (
+        tx_hash TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        tokens TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
+        first_seen INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_at INTEGER NOT NULL,
+        done_at INTEGER
+      );
+      CREATE INDEX buybot_candidates_due ON buybot_candidates(network, done_at, next_at);
+      -- A detected buy. The key (tx, token, buyer) makes detection idempotent.
+      CREATE TABLE buybot_events (
+        event_key TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        tx_hash TEXT NOT NULL,
+        buyer TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        paid TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
+        detected_at INTEGER NOT NULL
+      );
+      -- One message per (buy, chat). The key makes delivery idempotent.
+      CREATE TABLE buybot_deliveries (
+        event_key TEXT NOT NULL REFERENCES buybot_events(event_key) ON DELETE CASCADE,
+        config_id INTEGER NOT NULL REFERENCES buybot_configs(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_at INTEGER NOT NULL,
+        message_id INTEGER,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (event_key, config_id)
+      );
+      CREATE INDEX buybot_deliveries_due ON buybot_deliveries(status, next_at);
+    `,
+  },
 ]
 
 export function migrate(db: Db): number {

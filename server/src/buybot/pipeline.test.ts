@@ -1,0 +1,243 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
+import directSell from '@/services/near/fixtures/flows/direct-sell-dcl.fastnear.json'
+import { createFakeChain } from '@/services/real/testing/fakeChain'
+import { loadConfig } from '../config'
+import { migrate } from '../db/schema'
+import { Db } from '../db/sqlite'
+import { silentLogger } from '../log'
+import { createServerNear } from '../near'
+import { createTelegramApi } from '../telegram/api'
+import { createFakeTelegram } from '../telegram/fake'
+import { createFollower, MAX_BACKLOG, TRAIL, type IndexedTx, type TxIndex } from './follower'
+import { createBuyMarket } from './market'
+import { createDeliverer, createProcessor, FINAL_MARGIN, STALE_BLOCKS, STALE_MS } from './pipeline'
+import { BuybotStore } from './store'
+
+// Real mainnet transactions (2026-09-29) in the FastNEAR format the buybot reads.
+const SING = 'singularty.nearlytrade.near'
+const BUY = directBuy as unknown as { transaction: { hash: string }; block_height: number; receipts: unknown[] }
+const SELL = directSell as unknown as { transaction: { hash: string }; block_height: number }
+
+async function world() {
+  let now = 50_000_000
+  let head = BUY.block_height - 200
+  const history: IndexedTx[] = []
+  const full = new Map<string, unknown>()
+  const indexCalls: string[] = []
+  const index = {
+    async recent(account: string) {
+      indexCalls.push(`recent:${account}`)
+      return { txs: account === SING ? [...history].sort((a, b) => b.blockHeight - a.blockHeight) : [], resumeToken: null }
+    },
+    async transactions(hashes: string[]) {
+      indexCalls.push(`transactions:${hashes.length}`)
+      return new Map(hashes.flatMap((h) => (full.has(h) ? [[h, full.get(h)] as [string, unknown]] : [])))
+    },
+  } as unknown as TxIndex
+
+  const chain = createFakeChain({
+    tokens: {
+      [SING]: { symbol: 'SINGULARTY', name: 'Singularity is NEAR', decimals: 18, boundsMin: 1n, totalSupply: 10n ** 27n },
+      'wrap.near': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, boundsMin: 1n },
+    },
+  })
+  chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/ticker', () => ({ price: '5.00' }))
+  chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/stats', () => ({ open: '5', last: '5' }))
+  chain.route('https://api.rhea.finance/list-token-price', () => ({}))
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST' && init.body) {
+      const body = JSON.parse(String(init.body)) as { id: unknown; method: string }
+      if (body.method === 'block') return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { header: { height: head } } }))
+    }
+    return chain.fetch(input, init)
+  }) as typeof fetch
+
+  const { config } = loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_WEB_URL: 'http://localhost:5199' })
+  const near = createServerNear(config, fetchImpl, () => now)
+  const db = await Db.open(null)
+  migrate(db)
+  const store = new BuybotStore(db, () => now)
+  const market = createBuyMarket(near, () => now)
+  const follower = createFollower({ network: 'mainnet', rpc: near.ctx.rpc, index, store, log: silentLogger })
+  const process = createProcessor({ network: config.network, index, finalHeight: () => follower.finalHeight(), store, market, log: silentLogger })
+  const tgFake = createFakeTelegram()
+  const tg = createTelegramApi({ token: tgFake.token, fetch: tgFake.fetch, sleep: async () => {}, now: () => now })
+  const deliver = createDeliverer({ tg, store, market, network: config.network, webUrl: config.webUrl, webNetwork: 'mainnet', log: silentLogger, now: () => now })
+  return {
+    store,
+    follower,
+    process,
+    deliver,
+    tgFake,
+    indexCalls,
+    /** The index starts showing this transaction (and can serve it in full). */
+    publish(tx: { transaction: { hash: string }; block_height: number }, served: unknown = tx) {
+      history.push({ hash: tx.transaction.hash, blockHeight: tx.block_height })
+      full.set(tx.transaction.hash, served)
+    },
+    serve: (hash: string, served: unknown) => void full.set(hash, served),
+    setHead: (h: number) => void (head = h),
+    advance: (ms: number) => void (now += ms),
+    config: store.addConfig({
+      chatId: -100777,
+      chatTitle: 'SINGULARTY fans',
+      network: 'mainnet',
+      token: SING,
+      symbol: 'SINGULARTY',
+      name: 'Singularity is NEAR',
+      decimals: 18,
+      createdBy: 1,
+    }),
+  }
+}
+
+/** Starts following (cursor below the buy), then lets the chain reach the buy and finalize it. */
+async function reachBuy(w: Awaited<ReturnType<typeof world>>) {
+  await w.follower.step()
+  w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+  await w.follower.step()
+}
+
+describe('buybot pipeline on the transaction index', () => {
+  let w: Awaited<ReturnType<typeof world>>
+  beforeEach(async () => {
+    w = await world()
+  })
+
+  it('starts just below the head, never posting old buys', async () => {
+    w.publish(BUY)
+    w.setHead(BUY.block_height + 1000)
+    expect(await w.follower.step()).toBe('caught-up')
+    expect(w.store.tokenCursor('mainnet', SING)).toBe(BUY.block_height + 1000 - TRAIL)
+    expect(await w.process()).toBe(0)
+  })
+
+  it('finds the buy, reads it in full, and posts one alert with real figures', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    w.publish(SELL)
+    w.setHead(SELL.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    expect(await w.process()).toBe(2)
+    expect(await w.deliver()).toBe(1)
+    const posts = w.tgFake.messages()
+    expect(posts).toHaveLength(1)
+    const text = posts[0]?.text ?? ''
+    expect(posts[0]?.chatId).toBe(-100777)
+    expect(text).toContain('SINGULARTY buy')
+    expect(text).toContain('1 NEAR')
+    expect(text).toContain('($5.00)')
+    expect(text).toContain('69,099 SINGULARTY')
+    expect(text).toContain('mort1705.tg')
+    expect(text).toContain(`https://nearblocks.io/txns/${BUY.transaction.hash}`)
+    // FDV = supply (1e9 tokens) × this buy's price.
+    expect(text).toMatch(/FDV \$72\.\dK \(total supply × this price\)/)
+    expect(posts[0]?.buttons[0]?.url).toBe(`http://localhost:5199/swap?to=${SING}`)
+  })
+
+  it('waits for a transaction whose receipts are still executing', async () => {
+    await w.follower.step()
+    w.publish(BUY, { ...BUY, receipts: BUY.receipts.slice(0, -1) })
+    w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    await w.process()
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(0)
+    w.serve(BUY.transaction.hash, BUY)
+    w.advance(5_000)
+    await w.process()
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(1)
+  })
+
+  it('reads a transaction only once its block is final by a margin', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    w.setHead(BUY.block_height + 1)
+    await w.follower.step()
+    await w.process()
+    expect(w.indexCalls.filter((c) => c.startsWith('transactions'))).toEqual([])
+  })
+
+  it('is idempotent when the index shows the same transaction again', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    // Head just far enough for the buy to be final: it sits inside the cursor's trailing window.
+    w.setHead(BUY.block_height + FINAL_MARGIN)
+    await w.follower.step()
+    await w.process()
+    await w.deliver()
+    expect(w.store.tokenCursor('mainnet', SING)).toBeLessThan(BUY.block_height)
+    // The next passes see it again; nothing is re-read or re-posted.
+    await w.follower.step()
+    await w.follower.step()
+    await w.process()
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(1)
+    expect(w.indexCalls.filter((c) => c.startsWith('transactions'))).toHaveLength(1)
+  })
+
+  it('respects the minimum buy size', async () => {
+    w.store.updateConfig(w.config.id, { minNear: 2n * 10n ** 24n })
+    w.publish(BUY)
+    await reachBuy(w)
+    await w.process()
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(0)
+  })
+
+  it('waits out a 429 and posts later; pauses a chat that removed the bot', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    await w.process()
+    w.tgFake.failNext('sendMessage', { code: 429, description: 'Too Many Requests: retry after 90', retryAfter: 90 })
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(0)
+    w.advance(91_000)
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(1)
+
+    const other = w.store.addConfig({ chatId: -100888, chatTitle: 'Gone', network: 'mainnet', token: SING, symbol: 'SINGULARTY', name: 'S', decimals: 18, createdBy: 1 })
+    w.store.recordBuy(
+      { eventKey: 'x:y:z', network: 'mainnet', token: SING, txHash: 'x', buyer: 'z.near', amount: 1n, paid: [{ asset: 'near', amount: 10n ** 24n }], blockHeight: 1 },
+      [other.id],
+    )
+    w.tgFake.failNext('sendMessage', { code: 403, description: 'Forbidden: bot was kicked from the supergroup chat' })
+    await w.deliver()
+    expect(w.store.config(other.id)?.pausedReason).toMatch(/kicked/)
+    expect(w.store.activeConfigsFor('mainnet', SING).map((c) => c.id)).toEqual([w.config.id])
+  })
+
+  it('skips buys that became too old to post', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    await w.process()
+    w.advance(STALE_MS + 1)
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(0)
+  })
+
+  it('records but does not post a buy found far behind the chain head', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    w.setHead(BUY.block_height + STALE_BLOCKS + 1)
+    await w.process()
+    await w.deliver()
+    expect(w.tgFake.messages()).toHaveLength(0)
+  })
+
+  it('skips ahead after a long outage instead of reading everything', async () => {
+    await w.follower.step()
+    const start = w.store.tokenCursor('mainnet', SING) as number
+    w.setHead(start + TRAIL + MAX_BACKLOG * 5)
+    await w.follower.step()
+    expect(w.store.tokenCursor('mainnet', SING)).toBe(start + MAX_BACKLOG * 5)
+  })
+})

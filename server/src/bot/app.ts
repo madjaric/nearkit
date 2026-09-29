@@ -29,6 +29,8 @@ export function userMessage(e: unknown): string | null {
 }
 
 export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
+  const membership = modules.flatMap((m) => (m.onMembership ? [m.onMembership] : []))
+  const migrations = modules.flatMap((m) => (m.onChatMigrated ? [m.onChatMigrated] : []))
   const commands = new Map<string, Command>()
   const callbacks = new Map<string, NonNullable<BotModule['callbacks']>[string]>()
   const flows = new Map<string, NonNullable<BotModule['flows']>[string]>()
@@ -109,6 +111,10 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
   }
 
   async function onMessage(message: TgMessage) {
+    if (message.migrate_to_chat_id) {
+      for (const hook of migrations) await hook(deps, message.chat.id, message.migrate_to_chat_id).catch((e: unknown) => deps.log.warn('migration hook failed', { error: e }))
+      return
+    }
     const user = message.from
     if (!user || user.is_bot || !message.text) return
     recordUser(user)
@@ -167,6 +173,9 @@ export function createBotApp(deps: BotDeps, modules: BotModule[]): BotApp {
     async handle(update) {
       if (update.message) return onMessage(update.message)
       if (update.callback_query) return onCallback(update.callback_query)
+      if (update.my_chat_member) {
+        for (const hook of membership) await hook(deps, update.my_chat_member).catch((e: unknown) => deps.log.warn('membership hook failed', { error: e }))
+      }
     },
     commands: () => [...commands.entries()].map(([name, command]) => ({ name, command })),
     async notify(userId, html, markup) {

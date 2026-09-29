@@ -1,4 +1,7 @@
 import { createFakeChain, type FakeChainOptions } from '@/services/real/testing/fakeChain'
+import type { Follower, TxIndex } from '../buybot/follower'
+import { createBuyMarket } from '../buybot/market'
+import { BuybotStore } from '../buybot/store'
 import { loadConfig } from '../config'
 import { migrate } from '../db/schema'
 import { Db } from '../db/sqlite'
@@ -21,7 +24,7 @@ export const ALICE: TgUser = { id: 101, is_bot: false, first_name: 'Alice', user
 export const privateChat = (user: TgUser): TgChat => ({ id: user.id, type: 'private', first_name: user.first_name })
 export const GROUP: TgChat = { id: -100555, type: 'supergroup', title: 'Test group' }
 
-export async function botHarness(options: { env?: Record<string, string>; chain?: FakeChainOptions; modules?: (deps: BotDeps) => BotModule[] } = {}) {
+export async function botHarness(options: { env?: Record<string, string>; chain?: FakeChainOptions; modules?: (deps: BotDeps) => BotModule[]; buybot?: boolean } = {}) {
   let clock = 10_000_000
   const now = () => clock
   const fake = createFakeTelegram()
@@ -33,7 +36,12 @@ export async function botHarness(options: { env?: Record<string, string>; chain?
   const chain = createFakeChain(options.chain ?? {})
   const near = createServerNear(config, chain.fetch, now)
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
-  const deps: BotDeps = { tg, store, config, near, link, log: silentLogger, now, me: { id: 1111111111, username: 'NearKitBot' }, features: new Set() }
+  const deps: BotDeps = { tg, store, config, near, link, log: silentLogger, now, me: { id: 1111111111, username: 'NearKitBot' }, features: new Set(), buybot: null }
+  if (options.buybot) {
+    const follower = { step: async () => 'idle' as const, finalHeight: async () => 5000 } as unknown as Follower
+    const index = { recent: async () => ({ txs: [], resumeToken: null }), transactions: async () => new Map() } as unknown as TxIndex
+    deps.buybot = { store: new BuybotStore(db, now), near, market: createBuyMarket(near, now), follower, index }
+  }
   const modules = options.modules?.(deps) ?? []
   const app = createBotApp(deps, modules)
   let messageId = 500

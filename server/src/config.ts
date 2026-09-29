@@ -24,7 +24,11 @@ export interface ServerConfig {
   linkRecipient: string
   api: { host: string; port: number; publicUrl: string; allowedOrigins: string[] }
   dbPath: string
-  buybot: { enabled: boolean; dataUrl: string }
+  /**
+   * Buy alerts. They only read the chain, so they may follow another network than
+   * the bot's trading (e.g. mainnet buys while trading is the testnet beta).
+   */
+  buybot: { enabled: boolean; network: NetworkConfig; dataUrl: string }
   logLevel: LogLevel
 }
 
@@ -36,8 +40,6 @@ const SERVER_NAMES: Record<string, string> = {
   VITE_NEARKIT_FEE_RECIPIENT: 'NEARKIT_FEE_RECIPIENT',
   VITE_KIT_TOKEN_CONTRACT: 'KIT_TOKEN_CONTRACT',
 }
-
-const NEARDATA: Record<NetworkConfig['id'], string> = { mainnet: 'https://mainnet.neardata.xyz', testnet: 'https://testnet.neardata.xyz' }
 
 const blank = (v: string | undefined): v is undefined => v === undefined || v.trim() === ''
 
@@ -102,7 +104,23 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
 
   const buybotRaw = raw.BUYBOT_ENABLED?.trim()
   if (!blank(buybotRaw) && buybotRaw !== 'true' && buybotRaw !== 'false') issue('BUYBOT_ENABLED', 'Expected "true" or "false"')
-  const dataUrl = blank(raw.BUYBOT_DATA_URL) ? NEARDATA[network.id] : (httpUrl(raw.BUYBOT_DATA_URL)?.origin ?? null)
+  const bbNetRaw = raw.BUYBOT_NETWORK?.trim()
+  if (!blank(bbNetRaw) && bbNetRaw !== 'mainnet' && bbNetRaw !== 'testnet') issue('BUYBOT_NETWORK', `Expected "mainnet" or "testnet", got "${bbNetRaw}"`)
+  // Buy alerts matter where tokens have real value: mainnet unless set otherwise. Read-only either way.
+  const bbId: NetworkConfig['id'] = bbNetRaw === 'mainnet' || bbNetRaw === 'testnet' ? bbNetRaw : 'mainnet'
+  let bbRpc: string[] | null = null
+  if (!blank(raw.BUYBOT_RPC_URL)) {
+    const urls = raw.BUYBOT_RPC_URL.split(',')
+      .map((u) => httpUrl(u))
+      .filter((u): u is URL => u !== null)
+      .map((u) => u.toString().replace(/\/$/, ''))
+    if (!urls.length) issue('BUYBOT_RPC_URL', 'Every RPC URL must be https:// (http:// only for localhost)')
+    else bbRpc = urls
+  }
+  const bbNetwork: NetworkConfig =
+    bbId === network.id && !bbRpc ? network : { ...NETWORKS[bbId], rpcUrls: bbRpc ?? (bbId === network.id ? network.rpcUrls : [...NETWORKS[bbId].rpcUrls]) }
+  // FastNEAR's transaction index for the buybot's network (the same host NearKit uses for discovery).
+  const dataUrl = blank(raw.BUYBOT_DATA_URL) ? NETWORKS[bbId].discovery.fastnearTxUrl : (httpUrl(raw.BUYBOT_DATA_URL)?.origin ?? null)
   if (dataUrl === null) issue('BUYBOT_DATA_URL', 'Must be an https:// URL (http:// only for localhost)')
 
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'
@@ -123,7 +141,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         allowedOrigins,
       },
       dbPath: resolve(blank(raw.NEARKIT_DB_PATH) ? `server/data/nearkit-${network.id}.sqlite` : raw.NEARKIT_DB_PATH.trim()),
-      buybot: { enabled: buybotRaw !== 'false', dataUrl: dataUrl ?? NEARDATA[network.id] },
+      buybot: { enabled: buybotRaw !== 'false', network: bbNetwork, dataUrl: dataUrl ?? NETWORKS[bbId].discovery.fastnearTxUrl },
       logLevel,
     },
     issues,

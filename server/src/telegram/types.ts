@@ -38,6 +38,8 @@ export interface TgMessage {
   text?: string
   entities?: TgMessageEntity[]
   reply_to_message?: TgMessage
+  /** Service message: this group became a supergroup with a new ID. */
+  migrate_to_chat_id?: number
 }
 
 export interface TgCallbackQuery {
@@ -81,8 +83,15 @@ export interface InlineKeyboard {
   inline_keyboard: InlineButton[][]
 }
 
+/** Opens the reply box to the bot's message: how a bot with privacy mode reads a group admin's answer. */
+export interface ForceReply {
+  force_reply: true
+  selective?: boolean
+  input_field_placeholder?: string
+}
+
 export interface SendOptions {
-  reply_markup?: InlineKeyboard
+  reply_markup?: InlineKeyboard | ForceReply
   disable_link_preview?: boolean
   reply_to_message_id?: number
   /** Group posts that shouldn't ping members. */

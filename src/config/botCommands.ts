@@ -21,6 +21,7 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'accounts', description: 'linked accounts and the default one', section: 'Account', scope: 'private' },
   { name: 'unlink', description: 'remove a linked account', section: 'Account', scope: 'private' },
   { name: 'settings', description: 'slippage, buy amounts, notifications', section: 'Account', scope: 'private' },
+  { name: 'buybot', description: 'buy alerts for a token in your group (group admins)', section: 'Groups', scope: 'any' },
   { name: 'help', description: 'what the bot can do', section: 'General', scope: 'any' },
   { name: 'cancel', description: 'stop what the bot is waiting for', section: 'General', scope: 'any' },
 ])

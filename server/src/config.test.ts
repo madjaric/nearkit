@@ -12,9 +12,22 @@ describe('server config', () => {
     expect(config.linkRecipient).toBe('nearkit.vercel.app')
     expect(config.api).toMatchObject({ host: '127.0.0.1', port: 8787, publicUrl: 'http://localhost:8787', allowedOrigins: ['https://nearkit.vercel.app'] })
     expect(config.dbPath).toMatch(/nearkit-testnet\.sqlite$/)
-    expect(config.buybot).toEqual({ enabled: true, dataUrl: 'https://testnet.neardata.xyz' })
+    // Buy alerts follow mainnet by default (read-only), even while trading is the testnet beta.
+    expect(config.buybot).toMatchObject({ enabled: true, dataUrl: 'https://tx.main.fastnear.com' })
+    expect(config.buybot.network.id).toBe('mainnet')
     expect(config.env.feeRecipient).toBeNull()
     expect(config.telegramApiUrl).toBe('https://api.telegram.org')
+  })
+
+  it('lets buy alerts follow mainnet while trading stays on the testnet beta', () => {
+    const { config, issues } = loadConfig({ NEAR_NETWORK: 'testnet', BUYBOT_NETWORK: 'mainnet', BUYBOT_RPC_URL: '' })
+    expect(issues).toEqual([])
+    expect(config.network.id).toBe('testnet')
+    expect(config.buybot.network.id).toBe('mainnet')
+    expect(config.buybot.network.rpcUrls[0]).toBe('https://free.rpc.fastnear.com')
+    expect(config.buybot.dataUrl).toBe('https://tx.main.fastnear.com')
+    expect(loadConfig({ BUYBOT_NETWORK: 'devnet' }).issues.map((i) => i.key)).toEqual(['BUYBOT_NETWORK'])
+    expect(loadConfig({ BUYBOT_NETWORK: 'testnet' }).config.buybot.dataUrl).toBe('https://tx.test.fastnear.com')
   })
 
   it('accepts a self-hosted Bot API server, https or local', () => {
@@ -38,7 +51,7 @@ describe('server config', () => {
     expect(config.linkRecipient).toBe('localhost')
     expect(config.api.allowedOrigins).toEqual(['http://localhost:5199', 'http://localhost:5200'])
     expect(config.buybot.enabled).toBe(false)
-    expect(config.buybot.dataUrl).toBe('https://mainnet.neardata.xyz')
+    expect(config.buybot.dataUrl).toBe('https://tx.main.fastnear.com')
   })
 
   it('reports problems by server variable name, and never echoes the token', () => {

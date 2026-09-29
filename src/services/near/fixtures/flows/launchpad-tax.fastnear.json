@@ -1,0 +1,407 @@
+{
+  "transaction": {
+    "signer_id": "nearlytrade.near",
+    "public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+    "nonce": 217645272003166,
+    "receiver_id": "nearlytrade.near",
+    "actions": [
+      {
+        "FunctionCall": {
+          "method_name": "process_tax",
+          "args": "eyJsYXVuY2hfaWQiOiIxMjMwIiwibWluX291dCI6IjgyMDQ0MDA0MjE3NTI2MTAzNTk5MjM0OCIsInRvX3NlbGxlciI6dHJ1ZX0=",
+          "gas": 300000000000000,
+          "deposit": "0"
+        }
+      }
+    ],
+    "priority_fee": 0,
+    "signature": "ed25519:5oaRWxxJ4jrsszeWFoRHGV9vdiB7VPypuQzxuD1Qi7tTPp6DSRwt7By4k6TPuAN3TBFbwkyJZvDTQheaKPAxkr9B",
+    "hash": "DYxrS3nFqAepnS7Rt1YpwbqYiyBVpg9iw85QyREaNdby"
+  },
+  "execution_outcome": {
+    "block_hash": "BDvUSAmafn7LCPgeWerVTRTVmVQ8FYk7HEoBY7CkuzrM",
+    "block_timestamp": 1790640238113461500,
+    "block_height": 217702095,
+    "index": 9,
+    "id": "DYxrS3nFqAepnS7Rt1YpwbqYiyBVpg9iw85QyREaNdby",
+    "outcome": {
+      "logs": [],
+      "receipt_ids": ["A8dNa51NvdeEp52wymtbRYpBMm7rTbfHwMeqtEydmLwj"],
+      "gas_burnt": 308249554390,
+      "tokens_burnt": "30824955439000000000",
+      "executor_id": "nearlytrade.near",
+      "status": { "SuccessReceiptId": "A8dNa51NvdeEp52wymtbRYpBMm7rTbfHwMeqtEydmLwj" },
+      "metadata": { "version": 1, "gas_profile": null }
+    }
+  },
+  "receipts": [
+    {
+      "execution_outcome": {
+        "block_hash": "BDvUSAmafn7LCPgeWerVTRTVmVQ8FYk7HEoBY7CkuzrM",
+        "block_timestamp": 1790640238113461500,
+        "block_height": 217702095,
+        "index": 10,
+        "id": "A8dNa51NvdeEp52wymtbRYpBMm7rTbfHwMeqtEydmLwj",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": ["F9HN9eGYaPHbtPfLBDmQ7XNnfNWaUx7vBBzXERCwZSfk", "Dev1sVF3ahxvti6i7YxypoNXxW1CJWZr1iH7oc8aFo6g", "8os4QdpZQBVaV4bRiwWr4Ho4hnuN93z1WUqpx5cdWVGv"],
+          "gas_burnt": 3711062123773,
+          "tokens_burnt": "371106212377300000000",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessReceiptId": "Dev1sVF3ahxvti6i7YxypoNXxW1CJWZr1iH7oc8aFo6g" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702095,
+        "block_hash": "BDvUSAmafn7LCPgeWerVTRTVmVQ8FYk7HEoBY7CkuzrM",
+        "block_timestamp": 1790640238113461500,
+        "receipt_index": 14,
+        "predecessor_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "A8dNa51NvdeEp52wymtbRYpBMm7rTbfHwMeqtEydmLwj",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "process_tax",
+                  "args": "eyJsYXVuY2hfaWQiOiIxMjMwIiwibWluX291dCI6IjgyMDQ0MDA0MjE3NTI2MTAzNTk5MjM0OCIsInRvX3NlbGxlciI6dHJ1ZX0=",
+                  "gas": 300000000000000,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "9Pwp4XDdBv33ek4SL3L2jqd58hRsYvKvVW3fshrzBqhF",
+        "block_timestamp": 1790640238612338000,
+        "block_height": 217702096,
+        "index": 29,
+        "id": "F9HN9eGYaPHbtPfLBDmQ7XNnfNWaUx7vBBzXERCwZSfk",
+        "outcome": {
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"59516673790817046944762\",\"memo\":\"tax\"}]}"
+          ],
+          "receipt_ids": ["DnyaV97sPuvmALV6B8J7BbGb9BZDvv9WRU8ZR2NMPFHB", "DKfMXwDLXCTLJo82YGD1EyCyJZR4C6davyRFjqNcfYFa"],
+          "gas_burnt": 2719600134903,
+          "tokens_burnt": "271960013490300000000",
+          "executor_id": "singularty.nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": {
+            "version": 4,
+            "gas_profile": null,
+            "contracts": [{ "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }, { "global_hash": "1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we" }]
+          }
+        }
+      },
+      "receipt": {
+        "block_height": 217702096,
+        "block_hash": "9Pwp4XDdBv33ek4SL3L2jqd58hRsYvKvVW3fshrzBqhF",
+        "block_timestamp": 1790640238612338000,
+        "receipt_index": 11,
+        "predecessor_id": "nearlytrade.near",
+        "receiver_id": "singularty.nearlytrade.near",
+        "receipt_id": "F9HN9eGYaPHbtPfLBDmQ7XNnfNWaUx7vBBzXERCwZSfk",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "1000000000",
+            "output_data_receivers": [{ "data_id": "8db9Jk9SqPRYjMKfRR23KgBNTFADk2CmZkEz3a4wE4JG", "receiver_id": "nearlytrade.near" }],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "storage_deposit",
+                  "args": "eyJhY2NvdW50X2lkIjoiZmVlc3dhcC5uZWFyIiwicmVnaXN0cmF0aW9uX29ubHkiOnRydWV9",
+                  "gas": 5000000000000,
+                  "deposit": "1250000000000000000000"
+                }
+              },
+              {
+                "FunctionCall": {
+                  "method_name": "ft_transfer",
+                  "args": "eyJyZWNlaXZlcl9pZCI6ImZlZXN3YXAubmVhciIsImFtb3VudCI6IjU5NTE2NjczNzkwODE3MDQ2OTQ0NzYyIiwibWVtbyI6InRheCJ9",
+                  "gas": 12000000000000,
+                  "deposit": "1"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "9Pwp4XDdBv33ek4SL3L2jqd58hRsYvKvVW3fshrzBqhF",
+        "block_timestamp": 1790640238612338000,
+        "block_height": 217702096,
+        "index": 30,
+        "id": "8os4QdpZQBVaV4bRiwWr4Ho4hnuN93z1WUqpx5cdWVGv",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702096,
+        "block_hash": "9Pwp4XDdBv33ek4SL3L2jqd58hRsYvKvVW3fshrzBqhF",
+        "block_timestamp": 1790640238612338000,
+        "receipt_index": 13,
+        "predecessor_id": "system",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "8os4QdpZQBVaV4bRiwWr4Ho4hnuN93z1WUqpx5cdWVGv",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "3339955911395700000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "rDGEVjUHmGmYik5o2D5NrmhLAKUnAtHLDai7EDNaVYG",
+        "block_timestamp": 1790640239114459600,
+        "block_height": 217702097,
+        "index": 31,
+        "id": "DnyaV97sPuvmALV6B8J7BbGb9BZDvv9WRU8ZR2NMPFHB",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": ["9N1HD2BPCtf3mAvnhJk1EApEhcB2U28dTqTNPhi8BnFS"],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "22318256250000000000",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702097,
+        "block_hash": "rDGEVjUHmGmYik5o2D5NrmhLAKUnAtHLDai7EDNaVYG",
+        "block_timestamp": 1790640239114459600,
+        "receipt_index": 26,
+        "predecessor_id": "singularty.nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "DnyaV97sPuvmALV6B8J7BbGb9BZDvv9WRU8ZR2NMPFHB",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "1250000000000000000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "rDGEVjUHmGmYik5o2D5NrmhLAKUnAtHLDai7EDNaVYG",
+        "block_timestamp": 1790640239114459600,
+        "block_height": 217702097,
+        "index": 32,
+        "id": "DKfMXwDLXCTLJo82YGD1EyCyJZR4C6davyRFjqNcfYFa",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702097,
+        "block_hash": "rDGEVjUHmGmYik5o2D5NrmhLAKUnAtHLDai7EDNaVYG",
+        "block_timestamp": 1790640239114459600,
+        "receipt_index": 27,
+        "predecessor_id": "system",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "DKfMXwDLXCTLJo82YGD1EyCyJZR4C6davyRFjqNcfYFa",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "18173270201581700000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "rDGEVjUHmGmYik5o2D5NrmhLAKUnAtHLDai7EDNaVYG",
+        "block_timestamp": 1790640239114459600,
+        "block_height": 217702097,
+        "index": 34,
+        "id": "Dev1sVF3ahxvti6i7YxypoNXxW1CJWZr1iH7oc8aFo6g",
+        "outcome": {
+          "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":1230,\"amount\":\"59516673790817046944762\"}]}"],
+          "receipt_ids": ["2agLz4QkVZ9ikgcDbeByqjgbKrisNFP3n7MXaSS35pe3"],
+          "gas_burnt": 2023573757559,
+          "tokens_burnt": "202357375755900000000",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessValue": "dHJ1ZQ==" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702096,
+        "block_hash": "9Pwp4XDdBv33ek4SL3L2jqd58hRsYvKvVW3fshrzBqhF",
+        "block_timestamp": 1790640238612338000,
+        "receipt_index": 12,
+        "predecessor_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "Dev1sVF3ahxvti6i7YxypoNXxW1CJWZr1iH7oc8aFo6g",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "1000000000",
+            "output_data_receivers": [],
+            "input_data_ids": ["8db9Jk9SqPRYjMKfRR23KgBNTFADk2CmZkEz3a4wE4JG"],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "on_tax_to_seller",
+                  "args": "eyJsYXVuY2hfaWQiOiIxMjMwIiwiYW1vdW50IjoiNTk1MTY2NzM3OTA4MTcwNDY5NDQ3NjIifQ==",
+                  "gas": 277620556401731,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "7VNxh4Bd52HMWXHL5Gw9EhU3EJ3GyWYLQ2kvuBiPktKC",
+        "block_timestamp": 1790640239742816000,
+        "block_height": 217702098,
+        "index": 27,
+        "id": "9N1HD2BPCtf3mAvnhJk1EApEhcB2U28dTqTNPhi8BnFS",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702098,
+        "block_hash": "7VNxh4Bd52HMWXHL5Gw9EhU3EJ3GyWYLQ2kvuBiPktKC",
+        "block_timestamp": 1790640239742816000,
+        "receipt_index": 32,
+        "predecessor_id": "system",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "9N1HD2BPCtf3mAvnhJk1EApEhcB2U28dTqTNPhi8BnFS",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "200864306250000000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    },
+    {
+      "execution_outcome": {
+        "block_hash": "7VNxh4Bd52HMWXHL5Gw9EhU3EJ3GyWYLQ2kvuBiPktKC",
+        "block_timestamp": 1790640239742816000,
+        "block_height": 217702098,
+        "index": 28,
+        "id": "2agLz4QkVZ9ikgcDbeByqjgbKrisNFP3n7MXaSS35pe3",
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 223182562500,
+          "tokens_burnt": "0",
+          "executor_id": "nearlytrade.near",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 4, "gas_profile": null, "contracts": [{ "local": "7iiTYSJTTToaTX7g6Y5dNaUUkrzTMqVPMzjHKogJmc4t" }] }
+        }
+      },
+      "receipt": {
+        "block_height": 217702098,
+        "block_hash": "7VNxh4Bd52HMWXHL5Gw9EhU3EJ3GyWYLQ2kvuBiPktKC",
+        "block_timestamp": 1790640239742816000,
+        "receipt_index": 33,
+        "predecessor_id": "system",
+        "receiver_id": "nearlytrade.near",
+        "receipt_id": "2agLz4QkVZ9ikgcDbeByqjgbKrisNFP3n7MXaSS35pe3",
+        "receipt": {
+          "Action": {
+            "signer_id": "nearlytrade.near",
+            "signer_public_key": "ed25519:J97ymEGeyJR5q4iM1zdsQkueXrckG829xMJnaMCSPjiV",
+            "gas_price": "0",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [{ "Transfer": { "deposit": "278306417277289100000000" } }],
+            "is_promise_yield": false
+          }
+        },
+        "priority": 0
+      }
+    }
+  ],
+  "data_receipts": [
+    {
+      "block_height": 217702097,
+      "block_hash": "rDGEVjUHmGmYik5o2D5NrmhLAKUnAtHLDai7EDNaVYG",
+      "block_timestamp": 1790640239114459600,
+      "receipt_index": 28,
+      "predecessor_id": "singularty.nearlytrade.near",
+      "receiver_id": "nearlytrade.near",
+      "receipt_id": "6dYMEwE7YqNxhh3yVgGG4TGsfD2MzPFvvQgdF4XjZEw7",
+      "receipt": { "Data": { "data_id": "8db9Jk9SqPRYjMKfRR23KgBNTFADk2CmZkEz3a4wE4JG", "data": "", "is_promise_resume": false } },
+      "priority": 0
+    }
+  ],
+  "block_height": 217702095,
+  "block_timestamp": "1790640238113461485"
+}

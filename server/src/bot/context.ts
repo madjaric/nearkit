@@ -5,7 +5,10 @@ import type { LinkService } from '../link/service'
 import type { Logger } from '../log'
 import type { ServerNear } from '../near'
 import type { TelegramApi } from '../telegram/api'
-import type { InlineButton, InlineKeyboard, TgChat, TgMessage, TgUser } from '../telegram/types'
+import type { BuybotStore } from '../buybot/store'
+import type { BuyMarket } from '../buybot/market'
+import type { Follower, TxIndex } from '../buybot/follower'
+import type { ForceReply, InlineButton, InlineKeyboard, TgChat, TgChatMemberUpdated, TgMessage, TgUser } from '../telegram/types'
 
 /** Everything a bot handler may use. Handlers never see the bot token. */
 export interface BotDeps {
@@ -19,6 +22,17 @@ export interface BotDeps {
   me: { id: number; username: string }
   /** Names of the commands this bot has, filled in by the router: menus only offer what exists. */
   features: Set<string>
+  /** Buy alerts; null when the buybot is off. */
+  buybot: BuybotDeps | null
+}
+
+export interface BuybotDeps {
+  store: BuybotStore
+  /** NearKit services on the network the buybot follows (may differ from trading's). */
+  near: ServerNear
+  market: BuyMarket
+  follower: Follower
+  index: TxIndex
 }
 
 export interface BotCtx {
@@ -29,7 +43,7 @@ export interface BotCtx {
   /** The message a pressed button sits on; null for commands and text. */
   message: TgMessage | null
   /** Sends a new message in this chat. */
-  reply(html: string, markup?: InlineKeyboard): Promise<TgMessage>
+  reply(html: string, markup?: InlineKeyboard | ForceReply): Promise<TgMessage>
   /** Replaces the pressed button's message, or sends a new one for commands. */
   show(html: string, markup?: InlineKeyboard): Promise<void>
   /** Acknowledges a pressed button (a toast when `text` is given). No-op otherwise. */
@@ -60,6 +74,10 @@ export interface BotModule {
   commands?: Record<string, Command>
   callbacks?: Record<string, CallbackHandler>
   flows?: Record<string, FlowHandler>
+  /** The bot was added to or removed from a chat. */
+  onMembership?: (deps: BotDeps, update: TgChatMemberUpdated) => Promise<void>
+  /** A group became a supergroup with a new ID. */
+  onChatMigrated?: (deps: BotDeps, from: number, to: number) => Promise<void>
 }
 
 // ─── keyboard helpers ───────────────────────────────────────────────────────

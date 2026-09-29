@@ -9,12 +9,14 @@ import type { TgChatMember, TgUpdate } from './types'
 export interface FakeCall {
   method: string
   params: Record<string, unknown>
+  /** Telegram refused it (failNext): nothing reached the chat. */
+  failed?: boolean
 }
 
 export interface FakeTelegram {
   fetch: typeof fetch
   calls: FakeCall[]
-  /** sendMessage / editMessageText calls, flattened to what a user would see. */
+  /** Delivered sendMessage / editMessageText calls, flattened to what a user would see. */
   messages(): { chatId: number; text: string; buttons: { text: string; data?: string; url?: string }[]; method: string; messageId: number }[]
   push(update: Omit<TgUpdate, 'update_id'>): TgUpdate
   failNext(method: string, error: { code: number; description: string; retryAfter?: number }): void
@@ -48,7 +50,10 @@ export function createFakeTelegram(options: { token?: string; username?: string 
     calls.push({ method, params })
     const pending = failures.get(method)
     const failure = pending?.shift()
-    if (failure) return fail(failure.code, failure.description, failure.retryAfter)
+    if (failure) {
+      ;(calls[calls.length - 1] as FakeCall).failed = true
+      return fail(failure.code, failure.description, failure.retryAfter)
+    }
     switch (method) {
       case 'getMe':
         return ok({ id: 1111111111, is_bot: true, first_name: 'NearKit', username: options.username ?? 'NearKitBot' })
@@ -82,7 +87,7 @@ export function createFakeTelegram(options: { token?: string; username?: string 
     members,
     messages() {
       return calls
-        .filter((c) => c.method === 'sendMessage' || c.method === 'editMessageText' || c.method === 'sendPhoto')
+        .filter((c) => !c.failed && (c.method === 'sendMessage' || c.method === 'editMessageText' || c.method === 'sendPhoto'))
         .map((c) => {
           const markup = c.params.reply_markup as { inline_keyboard?: { text: string; callback_data?: string; url?: string }[][] } | undefined
           return {
