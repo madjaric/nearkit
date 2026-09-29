@@ -3,12 +3,12 @@ import { NETWORKS } from '@/config/networks'
 import { PRODUCTION_FEE_RECIPIENT } from '@/lib/fees'
 import type { RpcTxResult } from '@/services/near/rpc'
 import { CustodyStore } from '../custody/store'
-import type { Database } from '../db/database'
+import type { Database, SqlParams } from '../db/database'
 import { Store } from '../db/store'
 import { ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES } from '../db/testing'
 import { checkPayout } from './payout'
 import { ATTRIBUTION_WINDOW_MS, createReferrals, type Referrals, type TradeFee } from './service'
-import { isReferralCode } from './store'
+import { isReferralCode, ReferralStore } from './store'
 
 const ALICE = 101
 const BOB = 202
@@ -164,6 +164,37 @@ describe.each(TEST_ENGINES)(
       expect(ids.size).toBe(1)
       expect(await r.store.claims('mainnet')).toHaveLength(1)
       expect((await r.store.claims('mainnet'))[0]?.amount).toBe(80n)
+    })
+
+    it('a claim another request made meanwhile is answered as open, never as "nothing to claim"', async () => {
+      await join(BOB)
+      await r.attribute(BOB, (await r.link(ALICE, 'b')).code)
+      await trade('t1', BOB, fee(400n))
+      // The other request commits between this one's look for an open claim and its read of
+      // the earnings (PostgreSQL's READ COMMITTED allows that): its claim is visible by then,
+      // and the earnings are no longer unclaimed.
+      let raced = false
+      const racing = new Proxy(db, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop) as unknown
+          if (prop !== 'all') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value
+          return async (sql: string, params?: SqlParams) => {
+            if (!raced && sql.startsWith('SELECT id, referral_raw FROM referral_earnings')) {
+              raced = true
+              await target.run(
+                "INSERT INTO referral_claims (id, referrer_user_id, network, token, amount_raw, destination, status, requested_at) VALUES ('first', ?, 'mainnet', ?, '80', 'alice.near', 'requested', ?)",
+                [ALICE, USDC, now],
+              )
+              await target.run("UPDATE referral_earnings SET claim_id = 'first' WHERE referrer_user_id = ? AND claim_id IS NULL", [ALICE])
+            }
+            return target.all(sql, params)
+          }
+        },
+      })
+      const c = await new ReferralStore(racing, () => now).createClaim({ referrerUserId: ALICE, network: 'mainnet', token: USDC, destination: 'alice.near' })
+      expect(raced).toBe(true)
+      expect(c).toMatchObject({ kind: 'open', claim: { id: 'first', amount: 80n } })
+      expect(await r.store.claims('mainnet')).toHaveLength(1)
     })
 
     it('one payout transaction can’t settle two claims', async () => {

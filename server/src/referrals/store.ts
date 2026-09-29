@@ -253,7 +253,12 @@ export class ReferralStore {
           [c.referrerUserId, c.network, c.token],
         )
         const amount = rows.reduce((s, r) => s + BigInt(r.referral_raw), 0n)
-        if (amount === 0n) return { kind: 'empty' as const }
+        if (amount === 0n) {
+          // A request that committed since the first look may hold them (PostgreSQL reads
+          // committed rows per statement): answer with its claim, not "nothing to claim".
+          const claimed = await open()
+          return claimed ? { kind: 'open' as const, claim: toClaim(claimed) } : { kind: 'empty' as const }
+        }
         const id = randomToken(12)
         const t = this.now()
         await this.db.run(
