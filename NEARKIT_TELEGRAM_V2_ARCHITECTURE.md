@@ -2,10 +2,11 @@
 
 **Status (2026-09-29).** Phases A (research), B (UX), C (NearKit trading wallet) and D (native Buy and Sell) are implemented. They run on **testnet only**.
 - Mainnet custody is hard-blocked in code: `CUSTODY_NETWORKS` in `server/src/custody/networks.ts` is not configurable.
-- No production fee account is set, and no mainnet transaction was signed.
+- The production fee account is decided (`nearkitfee.near`) but configured nowhere, and no mainnet transaction was signed.
 - §1 records the owner decisions this build follows.
-- §2 describes what is implemented and §3 what must change before mainnet.
-- §4–§7 cover the threat model, fees, hosting and open decisions. The appendix keeps the Phase A research.
+- §2 describes what is implemented and §3 what must change before mainnet, including the custody gap analysis (§3.3).
+- §4–§7 cover the threat model, fees (with the fee-claim runbook, §5.1), hosting and open decisions. The appendix keeps the Phase A research.
+- The pre-mainnet custody audit (2026-09-29) added owner binding for recovery (§2.7), the resolver's handling of index lag (§2.4) and the Settings fee split fix; its findings are folded into §2–§7.
 
 ---
 
@@ -15,10 +16,11 @@
 |---|---|
 | Custody model | **G**: each Telegram user gets a separate NearKit trading wallet, never their main wallet. NearKit signs from it under a policy. Testnet only |
 | NearKit fee | **0.50% (50 bps) is the total user-facing app fee.** If Rhea takes a share of it, that share comes out of the 0.50%; the rate is not grossed up. Rhea's protocol fee, pool fees and gas are separate lines |
-| Production fee account | Not chosen, not hard-coded. Mainnet fee-taking trades stay blocked until the owner sets it |
+| Production fee account | **`nearkitfee.near`** for web and Telegram (decided 2026-09-29). Not hard-coded and not configured yet: it is set only when mainnet trading is approved. Until then fee-taking mainnet trades stay blocked. The smoke-test account is never the production recipient |
 | Withdrawals | To **any valid NEAR address** on the network. The linked wallet is the default, one tap away and marked |
 | Trade limits | **None.** No per-trade, daily or per-user monetary cap. Security comes from architecture and validation |
-| Recovery / export | Yes. Export happens in the NearKit web app after strong ownership proof, never in Telegram |
+| Recovery / export | Yes. Export happens in the NearKit web app after strong ownership proof, never in Telegram. Recovery must work without Telegram chat access |
+| Mainnet custody in Telegram | Stays blocked until §3 is done and the owner approves |
 
 ---
 
@@ -28,7 +30,7 @@
 
 | Step | What happens | Where |
 |---|---|---|
-| Create | Needs a linked wallet (proof of ownership, and later the backup key). An ed25519 key is generated. The wallet is a **NEAR implicit account**: its address is the public key in hex. One live wallet per user and network, enforced by a partial unique index, so a double tap, a Telegram retry or a restart never makes two. At most 3 creations per user per day (abuse protection) | `custody/wallets.ts`, `custody/store.ts` |
+| Create | Needs a linked wallet. The linked wallet it is created with (the default one) becomes its **owner**: the account and its NEP-413-verified key are recorded, and export, the backup key and revoke answer to the owner alone (§2.7). An ed25519 key is generated. The wallet is a **NEAR implicit account**: its address is the public key in hex. One live wallet per user and network, enforced by a partial unique index, so a double tap, a Telegram retry or a restart never makes two. At most 3 creations per user per day (abuse protection) | `custody/wallets.ts`, `custody/store.ts` |
 | Encrypt and persist | The key is envelope-encrypted (§2.2) before it is stored. The database never holds it in plain form | `custody/vault.ts`, `custody/signer.ts` |
 | Display and deposit | The Deposit screen shows the exact address (tap to copy), the network and "send testnet assets only". The account exists on chain once it first receives NEAR | `bot/tradingWallet.ts` |
 | Balance | Read from chain every time (NEAR spendable, tokens verified by `ft_balance_of`). An unreadable figure shows as —; a never-funded wallet says "Empty" | `custody/wallets.ts` `readWallet` |
@@ -36,7 +38,7 @@
 | Withdraw | NEAR or any NEP-141 token it holds, to any valid address (§2.6) | `custody/withdraw.ts` |
 | Unwrap | wNEAR back to NEAR (a refunded buy returns wNEAR) | `custody/unwrap.ts` |
 | Recovery | Backup key on chain, and key export in the web app (§2.7) | `custody/recovery.ts`, `bot/recovery.ts`, `src/pages/TelegramPage.tsx` |
-| Revoke | Deletes NearKit's key on chain, then erases its sealed copy. Allowed only once another full-access key is on the wallet | `custody/recovery.ts` `revokeHandler` |
+| Revoke | Deletes NearKit's key on chain, then erases its sealed copy. Allowed only once a key on the wallet is, right now, a full-access key of the owner wallet (checked on chain) | `custody/recovery.ts` `revokeHandler` |
 | Delete | Only a wallet that was never funded, re-checked at the tap; its sealed key is erased | `bot/recovery.ts` |
 
 Positions and PnL include the NearKit wallet and are re-read from chain after every trade; nothing is shown optimistically.
@@ -67,7 +69,7 @@ Positions and PnL include the NearKit wallet and are re-read from chain after ev
 | `withdraw-near` | One `Transfer` of the confirmed amount to the confirmed destination | Another destination or amount; the wallet itself; another network's account; invalid IDs |
 | `withdraw-token` | One transaction to the token: optional `storage_deposit` for the destination (the exact deposit shown), then `ft_transfer {receiver_id, amount}` with 1 yocto | `memo` or other fields, a different amount, sending tokens to the token's own contract |
 | `unwrap` | `near_withdraw {amount}` with 1 yocto on the wrap contract | Anything else |
-| `add-backup-key` | `AddKey` (full access) of the linked wallet's NEP-413-verified key, by the wallet on itself | Any other key, NearKit's own key, another receiver |
+| `add-backup-key` | `AddKey` (full access) of a key the handler checked on chain is a full-access key of the owner wallet, by the wallet on itself | Any other key, NearKit's own key, another receiver |
 | `revoke` | `DeleteKey` of NearKit's own key, by the wallet on itself | Deleting any other key |
 
 - **Around every signature:**
@@ -96,14 +98,17 @@ quoted ──Confirm──▶ confirmed ──fresh checks OK──▶ signing �
 - **Unclear sends:**
   - A timeout or network error is never re-signed.
   - The same signed bytes may go to the next RPC endpoint; they have the same hash and nonce, so the chain executes them at most once.
-  - The chain is asked for the hash until it is final, or provably can't land: past its expiry height, or its nonce used by another transaction.
+  - The chain is asked for the hash until it is final, or provably can't land: past its expiry height **and** NearKit's key nonce still below the transaction's own, so it was never executed and never can be.
+  - If the key's nonce did pass it but no node returns the hash (index lag, a node without the history), it may have landed. NearKit keeps asking; 3,000 blocks (about 50 minutes) after expiry it ends the intent with "couldn't confirm whether a transaction went through", marks the transaction `unconfirmed` and tells the user to check the wallet before trying again. It never says "nothing was sent" then, so a retry can't trade twice.
+  - A hash any node knows (`EXPERIMENTAL_tx_status` with `wait_until: NONE`) is never treated as lost.
   - Refused outright (invalid, or unparseable bytes) by the first node counts as "never landed".
 - **Resolver:**
   - It runs at start and every 15 s.
   - After a restart it only **reads** the chain and never sends. What it settles in the background is messaged to the user.
   - A crash after Confirm but before signing is settled as "nothing was sent".
   - A crash between steps (registration done, swap not sent) is settled as failed, with the landed steps linked.
-- **Concurrency:** one process, one writer (sql.js), and an in-process lock per wallet. Run a **single instance**.
+  - Two resolver runs at once (a slow run overlapping the next) settle an intent once: only the run whose status change lands records it, audits it and messages the user.
+- **Concurrency:** one process, one writer (sql.js), and an in-process lock per wallet. Run a **single instance**. sql.js keeps the database in memory and writes the whole file, so two processes on one file silently lose each other's writes, a saved signed transaction included; that would break "saved before sent". Before mainnet this needs a lease that stops a second instance from starting, or a server database (§3).
 
 ### 2.5 Native Buy and Sell
 
@@ -139,17 +144,19 @@ quoted ──Confirm──▶ confirmed ──fresh checks OK──▶ signing �
 
 ### 2.7 Recovery and export
 
+- **The owner.** Everything here answers to the wallet's owner, the linked wallet it was created with, never to whichever wallet is linked now. Someone holding a stolen Telegram session can link a wallet of their own; it can't authorize an export, never becomes the backup key, and doesn't count for revoke. Wallets created before this rule got their owner from the link history (migration v6): a wallet linked to the user when the NearKit wallet was created, the default one first.
 - **Backup key:**
-  - One tap in 🔐 Recovery (review and Confirm) adds the linked wallet's verified full-access key to the NearKit wallet on chain.
-  - Before signing, NearKit re-checks that the link is still this user's and that the key is still a full-access key of the linked account.
+  - One tap in 🔐 Recovery (review and Confirm) adds the owner wallet's key to the NearKit wallet on chain: the key the owner last proved when linked here (linking the owner wallet again after a key change updates it), else the one recorded at creation.
+  - Before signing, NearKit checks on chain that the key is still a full-access key of the owner wallet. Only then is it added.
   - Result: **if NearKit disappears**, the user's own wallet controls the NearKit wallet. Restoring their seed phrase or key in a NEAR wallet app finds it, because wallets look accounts up by key.
   - Tested by moving funds with the user's key alone.
+  - 🔐 Recovery names the owner and warns about any other full-access key on the wallet ("If it isn't yours, move your funds").
 - **Export (web only):**
   1. Telegram gives a one-time link: `/telegram#recover=<code>`. The code sits in the fragment, so it never reaches a server log. It lasts 10 minutes, is stored as SHA-256, and at most 3 are issued per hour.
   2. The page names the NearKit wallet and the Telegram account that asked, then drops the code from the address bar and history.
-  3. A linked wallet signs a NEP-413 message naming the wallet and the Telegram account. The signature is free, moves nothing and uses a fresh 32-byte nonce.
-  4. The server checks the code (live, unused, at most 5 attempts), that the account is linked to that Telegram user, the signature over the stored message, nonce and recipient, and that the key is a **full-access** key of that account on chain.
-  5. The signer then releases the key **once**, within 5 minutes of verification.
+  3. The owner wallet signs a NEP-413 message naming the wallet and the Telegram account. The signature is free, moves nothing and uses a fresh 32-byte nonce.
+  4. The server checks the code (live, unused, at most 5 attempts), that the signing account **is the wallet's owner** (whether or not it is still linked), the signature over the stored message, nonce and recipient, and that the key is a **full-access** key of that account on chain.
+  5. The signer then releases the key **once**, within 5 minutes of verification, and only for a request the owner verified (it checks this itself too).
   6. The page shows it masked until revealed, with copy and import instructions. It stays in memory only, never in storage, the URL or the query cache, and is dropped on leaving.
   7. Telegram is told about every export and names the signing account.
 - **The API** (`/api/recovery/describe`, `/api/recovery/export`) is JSON-only with a CORS allowlist, rate-limited (30 and 5 per minute per IP), `no-store`, and logs path and status only. The export response is the single place a key leaves the server, by design.
@@ -169,13 +176,15 @@ quoted ──Confirm──▶ confirmed ──fresh checks OK──▶ signing �
 | Transaction encoding (near-api-js reference vector, round trips, refusals, signatures) | `src/services/near/transaction.test.ts` |
 | Keys, envelope encryption, wrong KEK, tampering, other-wallet additional data, rotation | `server/src/custody/vault.test.ts` |
 | Store: one live wallet, erasing keys, atomic Confirm, busy wallet, expiry, saved-before-sent, restart persistence | `server/src/custody/store.test.ts` |
-| Policy: arbitrary receiver, method, deposit and extra action, modified route, wrong network, backup and revoke keys, withdrawals | `server/src/custody/policy.test.ts` |
+| Policy: arbitrary receiver, method, deposit and extra action, modified route, selling more than confirmed, wrong network, backup and revoke keys, withdrawals (switched token, method, deposit, a NEAR transfer tacked on), unwrap | `server/src/custody/policy.test.ts` |
 | Signer: real signatures, audited refusals, closed wallet, wrong KEK, export once and only when fresh, restart | `server/src/custody/signer.test.ts` |
-| Engine: duplicate or simultaneous Confirm, replay, expiry, requote, busy wallet, unfunded wallet, rejected send, RPC timeout (landed), dropped transaction (expiry), restart (read-only resolution), crash before signing and after saving; no secret anywhere | `server/src/custody/engine.test.ts` |
+| Engine: duplicate or simultaneous Confirm, replay, expiry, requote, busy wallet, unfunded wallet, rejected send, RPC timeout (landed), dropped transaction (expiry), restart (read-only resolution), crash before signing and after saving, a landed transaction the index doesn't return yet, one it never returns, two resolver runs at once; no secret anywhere | `server/src/custody/engine.test.ts` |
 | Chain access: send classification across endpoints, anchoring and fallback | `server/src/custody/chain.test.ts` |
 | Wallet UI: create (double tap), deposit, balance, NEAR and token withdrawals, custom and invalid destinations, fresh-address warning, changed review, expiry, cancel, MAX | `server/src/bot/tradingWallet.test.ts` |
 | Native trading: buy by ticker and by contract, sell by ticker and by contract, presets, custom, MAX, wrong network, no route, insufficient NEAR, worse and better price, expiry, Refresh, canonical fee rate, refunded swap and unwrap, positions | `server/src/bot/nativeTrade.test.ts` |
-| Recovery: backup key, the user's key alone moves funds, export once, every refusal, no link, revoke rules, delete only when empty | `server/src/bot/recovery.test.ts` |
+| Recovery: backup key, the user's key alone moves funds, export once, every refusal, revoke rules, delete only when empty; owner binding (a wallet linked later can't export, can't become the backup key, doesn't count for revoke; a key change on the owner wallet) | `server/src/bot/recovery.test.ts` |
+| Owner backfill for wallets made before owners were recorded | `server/src/custody/store.test.ts` |
+| A whole lifecycle (create, fund, buy, withdraw, a refused revoke, a timed-out send, backup key, export, revoke): the key reaches no Telegram message, log line or database row in any encoding | `server/src/bot/custodySecrets.test.ts` |
 | Built server with wallets on, fake Telegram | `scripts/e2e-telegram.mjs` |
 
 The tests run against a fake NEAR runtime (`src/services/real/testing/fakeRuntime.ts`). It verifies signatures, nonces and expiry and executes transfers, keys, NEP-141/145 calls and a Rhea classic swap, with the chain's receipt and log format.
@@ -187,18 +196,19 @@ The tests run against a fake NEAR runtime (`src/services/real/testing/fakeRuntim
 Mainnet custody stays hard-blocked until **all** of these are done and the owner approves:
 
 1. **KMS-held KEK.** Implement a `KeyWrapper` over a KMS or HSM (§3.2) and move the keys over with `rewrapSecret`. The KEK must never exist in the server's environment.
-2. **Separate signer process.** The signer and its policy become their own service, the only holder of KMS decrypt rights. The bot talks to it over an authenticated local channel, not a generic signing API.
+2. **Separate signer process.** The signer and its policy become their own service, the only holder of KMS decrypt rights. The bot talks to it over an authenticated channel, not a generic signing API (§3.3).
 3. **Mainnet policy for Rhea's aggregator.** Re-verify the route's signature inside the signer, check the app fee is exactly `NEARKIT_FEE` to the configured fee account, and allowlist the aggregator's `tokens_storage_deposit` registrations. Today the policy refuses aggregator routes.
-4. **Production fee account** set by the owner (`NEARKIT_FEE_RECIPIENT`), existing on chain and registered with the aggregator.
-5. **External security review** of `server/src/custody` and the recovery flow.
-6. **Operations:**
+4. **Production fee account** `nearkitfee.near` configured (`NEARKIT_FEE_RECIPIENT`, `VITE_NEARKIT_FEE_RECIPIENT`) at go-live, funded with a little NEAR for claim gas, with the claim procedure of §5.1 rehearsed read-only.
+5. **One writer.** A lease (or lock) that stops a second server instance from opening the database, or a move to a server database; see §2.4.
+6. **External security review** of `server/src/custody` and the recovery flow.
+7. **Operations:**
    - a kill switch that stops all signing;
    - alerts on `custody_audit` (policy refusals, exports, unclear sends);
    - an incident runbook.
-7. **Backups and disaster recovery:** encrypted database backups, with the KEK's durability handled by the KMS. Remind users to add the backup key, which is the only recovery that needs neither NearKit nor its KEK.
-8. **Hosting:** a single always-on instance with a persistent volume and secrets outside the volume (§6).
-9. **Telegram account safety:** withdrawals go to any address (owner decision), so a stolen Telegram account can empty a NearKit wallet (§4). Tell users to turn on Telegram's two-step verification. An optional, user-chosen withdrawal lock to the linked wallet could be offered later; it doesn't exist today.
-10. **Legal and compliance review** of holding user keys on mainnet.
+8. **Backups and disaster recovery:** encrypted database backups, with the KEK's durability handled by the KMS. Remind users to add the backup key, which is the only recovery that needs neither NearKit nor its KEK.
+9. **Hosting:** a single always-on instance with a persistent volume and secrets outside the volume (§6).
+10. **Telegram account safety:** withdrawals go to any address (owner decision), so a stolen Telegram account can empty a NearKit wallet (§4). Tell users to turn on Telegram's two-step verification. An optional, user-chosen withdrawal lock to the linked wallet could be offered later; it doesn't exist today.
+11. **Legal and compliance review** of holding user keys on mainnet.
 
 ### 3.1 What mainnet does NOT need to change
 The intent engine, idempotency, anchoring, resolver, Telegram UX, withdrawals and recovery are network-independent. The fee comes from the one canonical `NEARKIT_FEE`.
@@ -209,24 +219,50 @@ The intent engine, idempotency, anchoring, resolver, Telegram UX, withdrawals an
 - **HashiCorp Vault transit:** `encrypt`/`decrypt` with `context`.
 - **Alternative: non-exportable ed25519 keys.** GCP KMS and Vault transit can sign ed25519 without the key leaving them. That removes key-in-memory risk but makes export impossible for new wallets; the backup key still gives recovery. This is an owner decision, since it trades against the export decision.
 
+### 3.3 Custody gap analysis (pre-mainnet audit, 2026-09-29)
+
+**Today (testnet):** the KEK is in the server's environment (`server/.env.wallet.local` locally), and the signer runs inside the bot process. Code running in that process can open every sealed key. A database copy plus the KEK decrypts every NearKit wallet key, and those keys stay usable after the attacker is gone, until each wallet's key is replaced or revoked. Main wallets are never reachable.
+
+| Option | If the app server is compromised | Key extractable? | Added latency | Operations | Infrastructure | Fit with the policy signer |
+|---|---|---|---|---|---|---|
+| **A.** KEK in a KMS, signer still in the app process | The attacker calls KMS Decrypt as the app and opens every key while inside | Yes, while access lasts | One KMS call per signature (tens of ms in-region) | Low | A KMS key and IAM | Weak: the policy runs in the compromised process |
+| **B.** Separate signer service, KMS envelope encryption (recommended) | The app can only ask for typed operations; the signer enforces the policy. While inside, the attacker can request what a user could (trades, withdrawals to any address). No key leaves the signer, so it stops at eviction, and the kill switch stops it sooner | Not from the app server. Only by compromising the signer host too | KMS call plus a local hop, tens of ms | Medium: a second service, IAM, alerts, kill switch | A KMS key plus a small always-on service on a private channel (Unix socket or mTLS) | Direct: `custody/policy.ts` and `custody/signer.ts` move as they are; export still works (released once, after owner verification) |
+| **C.** Non-exportable ed25519 in an HSM or KMS, per wallet | Like B for operations. Even a signer compromise can't copy keys | Never | A remote signature, tens to ~100 ms | Medium to high | One asymmetric key per wallet, billed per key version each month; at scale this dominates the cost | Good for signing, but **no export** (conflicts with owner decision 9; recovery would rest on the backup key alone) |
+| **D.** MPC or a wallet-as-a-service vendor | Depends on the vendor | Split key | 100 ms or more | High, vendor-bound | Vendor | Poor: the policy is re-expressed in vendor rules; export depends on the vendor |
+| Simpler: B with the KEK on the signer host instead of a KMS | Same as B for the app server | Yes, from the signer host or its backups | None | Medium | A second host | Direct, but without IAM, KMS audit logs or managed rotation |
+
+**Recommendation: B.** A separate signer service with envelope encryption under a cloud KMS (GCP Cloud KMS or AWS KMS):
+- IAM lets only the signer's identity decrypt. The app server holds no key material and no KMS rights.
+- The channel is authenticated and private, and it carries typed operations only.
+- The signer enforces the policy, alerts on anomalies (refusals, exports, withdrawal bursts across users) and has a kill switch. These are not monetary caps.
+
+**Caveat:** withdrawals go to any address and Telegram is the only confirmation channel. So a compromised app server can still send in-policy withdrawals while it is compromised. B bounds that to the compromise window, because keys can't be copied out. Closing it fully needs a confirmation the app server can't forge, such as an owner-wallet signature for new destinations. That is a product decision and is not implemented.
+
 ---
 
 ## 4. Threat model (as implemented)
 
 | If this happens | Impact | What bounds it |
 |---|---|---|
-| A user's Telegram account is compromised | The attacker can trade **and withdraw that user's NearKit-wallet balance to any address** (withdrawals go to any address, owner decision). Export still needs the linked wallet's signature | Only what the user deposited is exposed; main wallets never are. Every export is announced in Telegram. Advise Telegram two-step verification. An optional withdrawal lock could come later |
+| A user's Telegram account is compromised | The attacker can trade **and withdraw that user's NearKit-wallet balance to any address** (withdrawals go to any address, owner decision). They can't reach the linked wallet: NearKit holds no key to it, and the backup key only lets the linked wallet control the NearKit wallet, not the other way round. Export needs the **owner** wallet's signature: linking their own wallet from the stolen session doesn't help, nor does it become a backup key | Only what the user deposited is exposed; main wallets never are. Every export is announced in Telegram. Advise Telegram two-step verification. An optional withdrawal lock could come later |
 | A Telegram group is compromised | Buybot settings change; nothing financial | Trading works only in private chats; the buybot holds no keys |
 | NearKit's database leaks | Ciphertext only; no loss | The KEK is not in the database; AES-GCM with bound additional data |
+| The database and the KEK leak together | Every NearKit wallet key can be decrypted, and every balance drained, except wallets whose NearKit key was already revoked. Linked wallets are untouched | KMS and a separate signer (§3.3); rotate by moving funds to new wallets; users with a backup key keep control alongside |
+| The owner (linked) wallet is compromised | Its key controls the NearKit wallet directly once it is the backup key. Export still needs the one-time link from Telegram | The user's own wallet security; revoke or move funds |
+| An export link is intercepted | Nothing without the owner wallet's signature. It works once and expires in 10 minutes | The code is in the URL fragment and hashed at rest; 5 attempts per link |
+| An export signature is replayed | Refused: the message, its fresh nonce and the recipient are bound to one request, and a request verifies and exports once | `markRecoveryVerified` and `markExported` change state once |
+| A route is tampered with, or the destination changed | Refused before signing | The policy re-reads the route and requires the confirmed minimum; intent parameters can't change after review |
 | The running server is compromised | Through the signer: only in-policy actions (Rhea trades, possibly at bad prices; withdrawals as a user could make them). With the KEK in reach, the attacker can sign anything and **drain NearKit-wallet balances**. Main wallets are never reachable | On testnet the KEK is in the process environment. Mainnet requires a KMS, a separate signer, alerts and a kill switch (§3) |
 | Environment variables leak | Bot token and testnet KEK exposed | Rotate the token (@BotFather); rotate the KEK with `rewrapSecret`; the mainnet KEK lives in a KMS |
 | The KEK leaks | With a database copy, NearKit-wallet keys are readable | KMS on mainnet; rotation; backup keys |
 | The KEK is lost | NearKit can no longer sign for existing wallets | Backup keys and exports still control them. A wallet with neither is stuck, so keep the KEK file or secret backed up |
 | The hosting provider is compromised | Same as a server compromise | Same controls; KMS in a separate account |
-| NearKit disappears | Users with a backup key or an export keep full control | The backup key is on chain; wallets find accounts by key |
+| NearKit disappears | Users with a backup key or an export keep full control. Without either, funds stay on a wallet nobody can sign for | The backup key is on chain; wallets find accounts by key |
+| NearKit's access is removed (revoke) | NearKit can no longer sign for the wallet; its sealed copy is erased | Allowed only with an owner key on the wallet |
 | A user loses their Telegram account | No loss if a backup key is on the wallet (or the key was exported) | Relinking a new Telegram account needs a wallet signature |
 | Replayed or duplicate button, or a double tap | Nothing extra happens | Atomic Confirm, one live quote, persistent intents |
 | RPC timeout, crash or restart mid-trade | Nothing is sent twice | Saved-before-sent, anchoring, read-only resolver |
+| The chain index lags or a node lacks history | A landed transaction is never reported as "nothing was sent" | Expiry proven by nonce; otherwise pending, then "couldn't confirm" (§2.4) |
 
 ---
 
@@ -239,12 +275,30 @@ The intent engine, idempotency, anchoring, resolver, Telegram UX, withdrawals an
   - Rhea's own 0.10% protocol fee, pool fees and gas are separate. The 0.50% is never presented as the whole cost.
 - **Accounting:** `feeLedger(gross, routerShareBps, referralShareBps)` gives gross, router share, received, referral and net. Referrals are **not launched** (share 0); a program would only set the share and record referrers.
 
+### 5.1 The production fee account and claiming fees
+
+**`nearkitfee.near`, read on chain on 2026-09-29 (read-only):**
+- The account exists with one full-access key, no contract, 0 NEAR and 182 bytes of storage.
+- It is not registered with Rhea's aggregator (`aggregatedex.near`) and has no accrued fees.
+- It holds no storage on wNEAR, USDC or USDt.
+
+**How fees accrue:**
+- Fees accrue **inside the aggregator** as an internal balance of the fee account, per token. They don't arrive as transfers.
+- The first fee-bearing trade pays the aggregator's `tokens_storage_deposit` for the fee account on that token; the trade review shows it.
+- Balances can be read with `query_user_exist_balance {user, from_index, count}` and `query_user_balance {user, token}`.
+
+**Claiming** (for the owner; not automated, not executed):
+- **The call:** `nearkitfee.near` calls `aggregatedex.near` `withdraw({"token": "<fee token>", "return_near": false})` with exactly **1 yoctoNEAR** attached. For wNEAR, `"return_near": true` delivers NEAR instead.
+- **What happens:** the aggregator sends the **whole** accrued balance of that token to the caller with `ft_transfer`. If the transfer fails, its callback restores the balance. A real claim of this kind used 300 TGas.
+- **Before the first claim:** fund the account with a little NEAR for gas, since it holds 0. Register it on the fee token with `storage_deposit` (wNEAR 0.00125 NEAR), unless using `return_near: true` for wNEAR.
+- `withdraw_lost_fund` is owner-only on the aggregator and is not part of this.
+
 ---
 
 ## 6. Hosting requirements
 
 - **Portable:** a plain Node process (`npm run server:build`, then `npm run server:start`) or the Docker image (`server/Dockerfile`). Nothing in the business logic depends on a host.
-- **One always-on instance:** Telegram polling and the resolver must keep running. Don't run two instances; the per-wallet lock and the SQLite writer are in-process.
+- **One always-on instance:** Telegram polling and the resolver must keep running. Don't run two instances; the per-wallet lock and the SQLite writer are in-process, and two writers on one file lose data (§2.4). Mainnet needs this enforced (§3, item 5).
 - **Persistent state:** `NEARKIT_DB_PATH` on a persistent volume, never the container's ephemeral disk.
 - **Secrets:**
   - `TELEGRAM_BOT_TOKEN` and `NEARKIT_WALLET_KEK` go in the host's secret settings, **not** on the data volume, entered by the owner.
@@ -259,8 +313,8 @@ The intent engine, idempotency, anchoring, resolver, Telegram UX, withdrawals an
 ---
 
 ## 7. Decisions still open
-1. **Production fee account** (`NEARKIT_FEE_RECIPIENT`). Mainnet fee-taking trades stay blocked until it is set.
-2. **KMS provider** for the mainnet KEK (AWS, GCP or Vault), and whether mainnet keys should be **non-exportable**. Non-exportable is stronger but conflicts with export (§3.2).
+1. **When to configure the fee account.** `nearkitfee.near` is decided; it is configured at mainnet go-live, not before.
+2. **KMS provider** for the mainnet KEK: AWS KMS or GCP Cloud KMS behind a separate signer is recommended (§3.3). Non-exportable keys are stronger but conflict with export (§3.2).
 3. **Hosting plan:** after the local test, FadeHost free (it sleeps) versus always-on.
 4. **Mainnet go/no-go** after §3.
 
