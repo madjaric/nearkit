@@ -72,6 +72,12 @@ describe('server config', () => {
     expect(issues.map((i) => i.key)).toContain('NEARKIT_FEE_RECIPIENT')
   })
 
+  it('listens on the PORT a host assigns (Railway), unless NEARKIT_API_PORT says otherwise', () => {
+    expect(loadConfig({ PORT: '4321' }).config.api.port).toBe(4321)
+    expect(loadConfig({ PORT: '4321', NEARKIT_API_PORT: '8800' }).config.api.port).toBe(8800)
+    expect(loadConfig({ PORT: 'eighty' }).issues.map((i) => i.key)).toEqual(['PORT'])
+  })
+
   it('allows running the API without a bot token (the bot just stays off)', () => {
     const { config, issues } = loadConfig({})
     expect(config.telegramToken).toBeNull()

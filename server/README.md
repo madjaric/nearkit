@@ -112,6 +112,31 @@ conversation state. Nothing secret.
 
 ## Deploying
 
-The server needs a long-running host (a VM, Fly.io, Railway, …) with a persistent disk for
-the database. Put the API behind HTTPS and set `NEARKIT_API_PUBLIC_URL`, then build the
-web app with `VITE_NEARKIT_API_URL` pointing at it. Vercel's static hosting can't run it.
+The server needs a long-running host with a persistent disk for the database; Vercel's
+static hosting can't run it. `server/Dockerfile` builds it for any Docker host (build
+context: the repository root). Nothing secret goes into the image, and `.dockerignore`
+keeps every local `.env` file out of the build.
+
+### Railway
+
+`.railway/railway.ts` declares the whole setup:
+
+- one instance in `europe-west4`, because Telegram allows one long-polling client per bot token;
+- a 1 GB volume at `/data` holding `NEARKIT_DB_PATH`. The deploy refuses to start without it;
+- a healthcheck on `/health`, and no overlap between an old and a new deploy;
+- the domain `nearkit-api.up.railway.app`;
+- every non-secret variable: testnet trading like the public beta, the buybot reading mainnet, and no fee account.
+
+1. `railway config plan`, then `railway config apply`: creates the service, volume, domain and variables.
+2. In Railway, add `TELEGRAM_BOT_TOKEN` to `nearkit-server` (Variables). It is the only secret,
+   and the file keeps it as set (`preserve()`).
+3. From the repository root, run `railway up --service nearkit-server --detach`.
+   Git-ignored files, such as `server/.env.local`, are not uploaded.
+4. Check `https://nearkit-api.up.railway.app/health`. It should show `bot: true` and
+   `buybot: "running"`. `boot` goes up by one on every start that found the database, so
+   `boot: 1` after a restart means the data did not survive.
+5. Build the web app with `VITE_NEARKIT_API_URL=https://nearkit-api.up.railway.app` and
+   `VITE_TELEGRAM_BOT=NearKitBot` (Vercel, Production). The Telegram page then goes live.
+
+While Railway runs the bot, don't start a local server with the same token. Telegram gives
+one poller per token, and the other one gets 409 Conflict.

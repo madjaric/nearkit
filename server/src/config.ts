@@ -85,8 +85,11 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   if (!web) issue('NEARKIT_WEB_URL', 'Must be an https:// URL (http:// only for localhost)')
   const webUrl = (web?.origin ?? 'https://nearkit.vercel.app') + (web && web.pathname !== '/' ? web.pathname.replace(/\/$/, '') : '')
 
-  const port = blank(raw.NEARKIT_API_PORT) ? 8787 : Number(raw.NEARKIT_API_PORT)
-  if (!Number.isInteger(port) || port < 1 || port > 65535) issue('NEARKIT_API_PORT', 'Must be a port number between 1 and 65535')
+  // NEARKIT_API_PORT wins; hosts such as Railway assign one in PORT.
+  const portKey = blank(raw.NEARKIT_API_PORT) ? 'PORT' : 'NEARKIT_API_PORT'
+  const portRaw = raw[portKey]
+  const port = blank(portRaw) ? 8787 : Number(portRaw)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) issue(portKey, 'Must be a port number between 1 and 65535')
   const publicApi = blank(raw.NEARKIT_API_PUBLIC_URL) ? null : httpUrl(raw.NEARKIT_API_PUBLIC_URL)
   if (!blank(raw.NEARKIT_API_PUBLIC_URL) && !publicApi) issue('NEARKIT_API_PUBLIC_URL', 'Must be an https:// URL (http:// only for localhost)')
 

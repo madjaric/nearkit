@@ -330,6 +330,21 @@ export class Store {
     this.db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value])
   }
 
+  /**
+   * Counts this start in the database file. `boot` goes up by one on every start
+   * that found the previous data; `since` is when the first one happened. After a
+   * restart or redeploy, boot 1 again means the data did not survive.
+   */
+  recordBoot(): { boot: number; since: number } {
+    return this.db.tx(() => {
+      const boot = Number(this.getMeta('boots') ?? '0') + 1
+      const since = Number(this.getMeta('first_boot_at') ?? String(this.now()))
+      this.setMeta('boots', String(boot))
+      this.setMeta('first_boot_at', String(since))
+      return { boot, since }
+    })
+  }
+
   // ─── housekeeping ─────────────────────────────────────────────────────────
 
   /** Drops expired conversation state, callbacks and day-old link requests. */

@@ -1,0 +1,17 @@
+# Never sent to a Docker build: local settings and secrets, local data, build
+# output and dependencies. The only committed env files are secret-free examples.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+server/data
+node_modules
+dist
+dist-server
+.git
+.github
+.vscode
+.idea
+*.log

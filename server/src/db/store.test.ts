@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { migrate } from './schema'
 import { Db } from './sqlite'
@@ -119,5 +122,21 @@ describe('meta', () => {
     expect(store.getMeta('telegram_offset')).toBeNull()
     store.setMeta('telegram_offset', '42')
     expect(store.getMeta('telegram_offset')).toBe('42')
+  })
+})
+
+describe('boots', () => {
+  it('counts every start in the database file, so a restart shows the data survived', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'nearkit-boot-')), 'nearkit.sqlite')
+    const start = async (at: number) => {
+      const db = await Db.open(path)
+      migrate(db)
+      const boot = new Store(db, () => at).recordBoot()
+      db.close()
+      return boot
+    }
+    expect(await start(1000)).toEqual({ boot: 1, since: 1000 })
+    expect(await start(2000)).toEqual({ boot: 2, since: 1000 })
+    expect(await start(3000)).toEqual({ boot: 3, since: 1000 })
   })
 })

@@ -65,6 +65,8 @@ export async function startServer(options: { env: Record<string, string | undefi
   const db = await Db.open(config.dbPath)
   migrate(db)
   const store = new Store(db, now)
+  const boot = store.recordBoot()
+  log.info('database ready', { path: config.dbPath, boot: boot.boot, since: new Date(boot.since).toISOString(), ...store.counts() })
   const near = createServerNear(config, fetchImpl, now)
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   // Trade results reach the user through the bot once it is running; they respect /settings.
@@ -140,7 +142,12 @@ export async function startServer(options: { env: Record<string, string | undefi
     log,
     routes: { ...linkRoutes({ link, onLinked }), ...handoffRoutes(handoffs) },
     limits: { '/api/link/describe': 30, '/api/link/confirm': 10, '/api/handoff/describe': 30, '/api/handoff/result': 20 },
-    health: () => ({ bot: bot ? true : false }),
+    // Public and secret-free: whether the bot and buy alerts run, and the boot count (see Store.recordBoot).
+    health: () => ({
+      bot: bot ? true : false,
+      buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : 'needs the bot token',
+      boot: boot.boot,
+    }),
     now,
   })
   const apiPort = await listen(api, config.api.port, config.api.host)
