@@ -22,7 +22,7 @@ The beta ships Swap and Quick Trade, Multi Trade, Split, Consolidate, Batch Send
 
 **Coming soon:** Limit Orders, DCA, Copy Trade and Sniper (plus Telegram, live only in a build that names a running NearKit server, and $KIT, which has not launched).
 - Their pages, code and tests stay. In the beta the sidebar lists them last, in a COMING SOON group with SOON tags, and their pages show COMING SOON with every field and key disabled.
-- The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it.
+- The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it. [COMING_SOON.md](COMING_SOON.md) says what each held-back feature still needs.
 - The hold applies to every production build of the real services, on testnet and mainnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request. It covers typecheck, lint, format check, unit and integration tests, and the production build. The e2e suites and live smoke checks run locally (see Tests).
