@@ -31,13 +31,19 @@ The one place on NEAR where multi-wallet execution and wallet housekeeping (spli
 - Desktop is the primary trading surface; mobile must be genuinely usable (drawer or bottom navigation, tables that collapse into rows/cards, trading actions reachable).
 - Users compare prices, balances and PnL at a glance, so numbers must align and read as terminal output.
 - The $KIT token launches separately through Nearly. NearKit links to it but does not host the launch.
-- A Telegram bot on the same account will offer quick execution (`/buy`, `/sell`, `/positions`, `/split`, `/wallets`, `/orders`).
+- The Telegram bot (@NearKitBot) runs on the same account:
+  - NearKit wallets (up to 10 per user) with Buy, Sell, withdrawals and recovery;
+  - positions and PnL;
+  - buy alerts in groups;
+  - invites.
+  - Custody runs on testnet; mainnet waits for the owner's go-live.
 
 ## Capabilities and Constraints
 
 - **Phase 1 is UI/UX only.** No real NEAR transactions, smart contracts, Rhea or Nearly integration, private key handling, Telegram bot, swaps, or blockchain execution.
 - The UI talks only to service interfaces (`TradingService`, `WalletService`, `TokenService`, `AutomationService`, plus portfolio/scanner as needed). Phase 1 ships mock implementations, and components must not know whether data comes from mocks or chain.
 - NearKit fee: **0.50%** (50 bps) on Swap and Quick Trade on the web and on Buy and Sell in Telegram, shown on every trade surface and set once, in `NEARKIT_FEE` (`src/lib/fees.ts`). Of it NearKit receives 0.40% (to the production fee account `nearkitfee.near`) and Rhea's aggregator keeps 0.10%; Rhea's own protocol fee, pool fees and gas are separate. (0.10% from 2026-09-28 and 2.00% before that; 0.50% since 2026-09-29.) Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its Nearly launch and is separate.
+- Referrals: a referrer earns 20% of NearKit's 0.40% (0.08% of volume) on the trades of the people they invited, and NearKit keeps 0.32%. The trader always pays exactly 0.50%. The owner pays claims; there is no hot wallet.
 - Mock state may reset on refresh; persistence is not required.
 - Terminology: Split = distribute one wallet's tokens to many; Consolidate = gather from many into one; Batch Send = many transfers from one list; Presets = saved wallet groups.
 

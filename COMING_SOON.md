@@ -85,12 +85,13 @@ It also carries the highest risk of loss. It should stay COMING SOON until the s
 
 The bot and its API are built and tested in `server/` (see `server/README.md`):
 - account linking;
-- a NearKit trading wallet with Buy/Sell, withdrawals and recovery right in Telegram (testnet only);
+- NearKit wallets (up to 10 per user) with Buy/Sell, owner-approved withdrawals and recovery right in Telegram. Custody is on testnet; mainnet waits for the owner's ceremony (MAINNET_CEREMONY.md);
+- invites (referrals);
 - buy and sell from a linked wallet, signed in the wallet;
 - the buybot;
 - `/positions` and `/pnl`.
 
-The site's Telegram page goes live on its own when a build sets `VITE_NEARKIT_API_URL` and `VITE_TELEGRAM_BOT`. What's missing is a long-running host with a persistent disk and HTTPS. Vercel's static hosting can't run the server.
+The site's Telegram page goes live on its own when a build sets `VITE_NEARKIT_API_URL` and `VITE_TELEGRAM_BOT`. What's missing is hosting: a long-running host with HTTPS, and for mainnet the signer, PostgreSQL and a KMS key ([DEPLOYMENT.md](DEPLOYMENT.md)). Vercel's static hosting can't run the server.
 
 ## $KIT: E and C
 
