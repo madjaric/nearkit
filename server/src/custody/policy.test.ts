@@ -110,6 +110,13 @@ describe('signer policy: swaps', () => {
         tweak(plan, (p) => (((p[1] as WalletTxPlan).actions.at(-1) as { args: Record<string, unknown> }).args.receiver_id = 'evil.testnet')),
       ),
     ).toMatch(/different arguments/)
+    // Selling more than confirmed: the token amount handed to the exchange is exact.
+    expect(
+      refused(
+        sellOp,
+        tweak(swapPlan(SELL), (p) => (((p.at(-1) as WalletTxPlan).actions.at(-1) as { args: Record<string, unknown> }).args.amount = '800000')),
+      ),
+    ).toMatch(/different arguments/)
   })
 
   it('refuses a route that changed after it was verified, or promises less than you confirmed', () => {
@@ -191,6 +198,73 @@ describe('signer policy: withdrawals, backup key, revoke', () => {
     )
     const memo = tweak(token('bob.testnet', 5n, null), (p) => (((p[0] as WalletTxPlan).actions[0] as { args: Record<string, unknown> }).args.memo = 'x'))
     expect(refused({ kind: 'withdraw-token', token: USDT, to: 'bob.testnet', amount: 5n, registration: null }, memo)).toMatch(/different arguments/)
+  })
+
+  it('a token withdrawal can’t switch token, method or deposit, or carry a NEAR transfer along', () => {
+    const op: WalletOperation = { kind: 'withdraw-token', token: USDT, to: 'bob.testnet', amount: 5n, registration: null }
+    const plan = token('bob.testnet', 5n, null)
+    const call = (p: WalletTxPlan[]) => (p[0] as WalletTxPlan).actions[0] as { method: string; deposit: string }
+    expect(
+      refused(
+        op,
+        tweak(plan, (p) => ((p[0] as WalletTxPlan).receiverId = net.wrapContract)),
+      ),
+    ).toMatch(/one transaction to the token contract/)
+    expect(
+      refused(
+        op,
+        tweak(plan, (p) => (call(p).method = 'ft_transfer_call')),
+      ),
+    ).toMatch(/unexpected method/)
+    expect(
+      refused(
+        op,
+        tweak(plan, (p) => (call(p).deposit = ONE.toString())),
+      ),
+    ).toMatch(/unexpected deposit/)
+    expect(
+      refused(
+        op,
+        tweak(plan, (p) => (p[0] as WalletTxPlan).actions.push({ kind: 'transfer', deposit: ONE.toString() })),
+      ),
+    ).toMatch(/expected a call to ft_transfer/)
+    expect(refused(op, [...plan, ...near('evil.testnet')])).toMatch(/one transaction to the token contract/)
+  })
+
+  it('unwraps exactly the confirmed amount, as one call to the wrap contract', () => {
+    const op: WalletOperation = { kind: 'unwrap', amount: ONE }
+    const unwrap = (amount: bigint, receiver: string = net.wrapContract): WalletTxPlan[] => [
+      { receiverId: receiver, actions: [{ kind: 'call', method: 'near_withdraw', args: { amount: amount.toString() }, gas: '30000000000000', deposit: '1' }], label: 'u' },
+    ]
+    const call = (p: WalletTxPlan[]) => (p[0] as WalletTxPlan).actions[0] as { method: string; deposit: string; gas: string }
+    expect(() => checkPlan(op, unwrap(ONE), WALLET, net)).not.toThrow()
+    expect(refused(op, unwrap(2n * ONE))).toMatch(/different arguments/)
+    expect(refused(op, unwrap(ONE, USDT))).toMatch(/one call to the wrap contract/)
+    expect(
+      refused(
+        op,
+        tweak(unwrap(ONE), (p) => (call(p).method = 'ft_transfer')),
+      ),
+    ).toMatch(/unexpected method/)
+    expect(
+      refused(
+        op,
+        tweak(unwrap(ONE), (p) => (call(p).deposit = ONE.toString())),
+      ),
+    ).toMatch(/unexpected deposit/)
+    expect(
+      refused(
+        op,
+        tweak(unwrap(ONE), (p) => (call(p).gas = '300000000000000')),
+      ),
+    ).toMatch(/unexpected gas/)
+    expect(
+      refused(
+        op,
+        tweak(unwrap(ONE), (p) => (p[0] as WalletTxPlan).actions.push({ kind: 'transfer', deposit: '1' })),
+      ),
+    ).toMatch(/one call to the wrap contract/)
+    expect(refused(op, [...unwrap(ONE), ...near('evil.testnet')])).toMatch(/one call to the wrap contract/)
   })
 
   it('adds only your linked wallet’s key as the backup key, and revokes only NearKit’s own key', () => {
