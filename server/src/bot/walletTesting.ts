@@ -1,5 +1,6 @@
 import { botModules } from '../app'
 import type { TradingWallet } from '../custody/store'
+import type { Logger } from '../log'
 import type { Command } from './context'
 import { ALICE, botHarness } from './testing'
 
@@ -20,7 +21,7 @@ export const LINKED_KEY = 'ed25519:Anu7LYDfpLtkP7E16LT9imXF694BdQaa9ufVkQiwTQxC'
 export const REG = 1_250_000_000_000_000_000_000n
 const FIND_PATH = 'https://smartroutertest.refburrow.top/findPath'
 
-export async function walletBot(options: { link?: boolean; linkedKey?: string; extraKeys?: Record<string, 'full' | 'function-call'> } = {}) {
+export async function walletBot(options: { link?: boolean; linkedKey?: string; extraKeys?: Record<string, 'full' | 'function-call'>; log?: Logger } = {}) {
   const linkedKey = options.linkedKey ?? LINKED_KEY
   /** USDT (6 decimals) per NEAR, times 1e6: 4_000_000 = 4 USDT. */
   const market = { usdtPerNear: 4_000_000n, noRoute: false }
@@ -29,6 +30,7 @@ export async function walletBot(options: { link?: boolean; linkedKey?: string; e
   let list: () => { name: string; command: Command }[] = () => []
   const h = await botHarness({
     custody: true,
+    log: options.log,
     chain: {
       accounts: {
         [LINKED]: { amount: 5n * ONE, keys: { [linkedKey]: 'full', ...options.extraKeys } },

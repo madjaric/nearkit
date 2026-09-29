@@ -262,7 +262,7 @@ function RecoveryPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
   const who = d.telegram.username ? `@${d.telegram.username}` : d.telegram.name
   const left = d.expiresAt - now
   const wrongNetwork = d.network !== caps.network
-  const canSign = session ? d.accounts.includes(session.accountId) : false
+  const canSign = session ? session.accountId === d.owner : false
 
   return (
     <Panel>
@@ -274,7 +274,9 @@ function RecoveryPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
           </Line>
           <Line label="Telegram account">{who}</Line>
           <Line label="Network">{d.network}</Line>
-          <Line label="Sign with">{d.accounts.join(', ')}</Line>
+          <Line label="Sign with">
+            <span className="num break-all">{d.owner}</span>
+          </Line>
           <Line label="Link expires in">{left > 0 ? formatDuration(left) : 'expired'}</Line>
         </Lines>
 
@@ -303,11 +305,11 @@ function RecoveryPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
           <>
             {session && !canSign && (
               <p className="text-sm text-fg-2">
-                {session.accountId} is not linked to this Telegram account. Connect {d.accounts.join(' or ')}.
+                {session.accountId} is not this wallet’s owner. Connect {d.owner}, the wallet it was created with.
               </p>
             )}
             <Button variant="primary" size="lg" block onClick={promptConnect}>
-              Connect {d.accounts[0] ?? 'your linked wallet'}
+              Connect {d.owner}
             </Button>
           </>
         ) : (

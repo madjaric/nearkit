@@ -289,14 +289,46 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE INDEX recovery_requests_user ON recovery_requests(user_id, created_at);
     `,
   },
+  {
+    version: 6,
+    name: 'trading wallets: the owner (linked wallet and key the wallet was created with)',
+    sql: `
+      -- Export, the backup key and removing NearKit's key answer to the owner only, never
+      -- to whichever wallet happens to be linked now (a stolen Telegram session could link one).
+      ALTER TABLE trading_wallets ADD COLUMN owner_account TEXT;
+      ALTER TABLE trading_wallets ADD COLUMN owner_key TEXT;
+      -- Wallets from before: a wallet still linked to the user that was already linked to them
+      -- when the NearKit wallet was created (creating one required it), the default one first.
+      UPDATE trading_wallets SET
+        owner_account = (
+          SELECT a.account_id FROM account_links a LEFT JOIN user_settings s ON s.user_id = a.user_id
+          WHERE a.user_id = trading_wallets.user_id AND a.network = trading_wallets.network
+            AND EXISTS (SELECT 1 FROM link_events e WHERE e.kind = 'linked' AND e.network = a.network AND e.account_id = a.account_id
+                          AND e.user_id = a.user_id AND e.at <= trading_wallets.created_at)
+          ORDER BY (a.account_id = s.default_account) DESC, a.linked_at ASC LIMIT 1
+        ),
+        owner_key = (
+          SELECT a.public_key FROM account_links a LEFT JOIN user_settings s ON s.user_id = a.user_id
+          WHERE a.user_id = trading_wallets.user_id AND a.network = trading_wallets.network
+            AND EXISTS (SELECT 1 FROM link_events e WHERE e.kind = 'linked' AND e.network = a.network AND e.account_id = a.account_id
+                          AND e.user_id = a.user_id AND e.at <= trading_wallets.created_at)
+          ORDER BY (a.account_id = s.default_account) DESC, a.linked_at ASC LIMIT 1
+        )
+      WHERE owner_account IS NULL;
+      -- A backup key added before this may belong to another linked wallet: forget it, so the
+      -- Recovery screen lists it as a key that isn't the owner's.
+      UPDATE trading_wallets SET backup_key = NULL WHERE backup_key IS NOT NULL AND (owner_key IS NULL OR backup_key <> owner_key);
+    `,
+  },
 ]
 
-export function migrate(db: Db): number {
+/** Brings the database up to the newest version (or to `target`, for tests of a migration). */
+export function migrate(db: Db, target = Number.POSITIVE_INFINITY): number {
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
   const current = Number(db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")?.value ?? '0')
   let version = current
   for (const m of MIGRATIONS) {
-    if (m.version <= version) continue
+    if (m.version <= version || m.version > target) continue
     db.tx(() => {
       db.exec(m.sql)
       db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(m.version)])

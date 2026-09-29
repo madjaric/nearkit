@@ -26,7 +26,7 @@ async function setup() {
   store = new CustodyStore(db, () => now)
   const signer = createLocalSigner({ wrapper: localKeyWrapper(kek), network: net, store, now: () => now })
   const key = await signer.createKey('testnet')
-  const { wallet } = store.createWallet({ userId: 101, network: 'testnet', ...key, keyRef: signer.keyRef })
+  const { wallet } = store.createWallet({ userId: 101, network: 'testnet', ...key, keyRef: signer.keyRef, owner: { accountId: 'alice.testnet', publicKey: 'ed25519:Owner' } })
   return { signer, wallet }
 }
 
@@ -84,8 +84,11 @@ describe('signer', () => {
     await expect(signer.sign({ ...req, wallet: store.wallet(wallet.id) as TradingWallet })).rejects.toThrow(/closed/)
   })
 
-  it('exports the key once, only for a request verified in the last five minutes', async () => {
+  it('exports the key once, only for a request the owner wallet verified in the last five minutes', async () => {
     const { signer, wallet } = await setup()
+    store.createRecovery({ codeHash: 'h0', userId: 101, walletId: wallet.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 600_000 })
+    store.markRecoveryVerified('h0', 'mallory.testnet')
+    await expect(signer.exportSecret(wallet, 'h0')).rejects.toThrow(/owner wallet/)
     store.createRecovery({ codeHash: 'h1', userId: 101, walletId: wallet.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 600_000 })
     await expect(signer.exportSecret(wallet, 'h1')).rejects.toThrow(/verified/)
     store.markRecoveryVerified('h1', 'alice.testnet')

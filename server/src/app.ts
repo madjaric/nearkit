@@ -131,7 +131,7 @@ export async function startServer(options: { env: Record<string, string | undefi
         buy: swaps.handler,
         sell: swaps.handler,
         unwrap: unwrapHandler(near),
-        'backup-key': backupKeyHandler({ near, links: store, custody: cstore }),
+        'backup-key': backupKeyHandler({ near, custody: cstore }),
         revoke: revokeHandler({ near, custody: cstore }),
       },
       log,

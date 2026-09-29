@@ -2,6 +2,7 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { fractionOf, tryParseUnits } from '@/lib/amounts'
 import type { TokenListing } from '@/types/domain'
 import type { Intent, TradingWallet } from '../custody/store'
+import { ownerKeyNow } from '../custody/recovery'
 import { createTradingWallet, readWallet, WalletLimitError, type WalletView } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
@@ -70,7 +71,8 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
   const view = await readWallet(ctx.deps.near, w)
   const held = await tokensOf(ctx, view)
   const linked = linkedAccount(ctx)
-  const backup = w.backupKey && view.keys?.includes(w.backupKey)
+  const mine = ownerKeyNow(ctx.deps.store, w)
+  const backup = mine !== null && view.keys?.includes(mine)
   const wnear = view.tokens.some((t) => t.contract === ctx.deps.config.network.wrapContract && t.raw > 0n)
   const balance =
     view.exists === false
@@ -117,11 +119,14 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
 async function create(ctx: BotCtx) {
   const custody = ctx.deps.custody
   if (!custody) return ctx.answer('NearKit wallets aren’t available on this server.', true)
-  if (!(await needAccount(ctx))) return
+  const linked = await needAccount(ctx)
+  const link = linked ? ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
+  if (!link) return
   await ctx.answer()
   let result
   try {
-    result = await createTradingWallet(custody, ctx.user.id, ctx.deps.config.network.id, ctx.deps.now())
+    // The linked wallet it is created with becomes its owner: export, backup key and revoke answer to it alone.
+    result = await createTradingWallet(custody, ctx.user.id, ctx.deps.config.network.id, ctx.deps.now(), { accountId: link.accountId, publicKey: link.publicKey })
   } catch (e) {
     if (e instanceof WalletLimitError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard(walletRow))
     throw e

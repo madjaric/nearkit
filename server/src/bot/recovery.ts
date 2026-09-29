@@ -1,12 +1,11 @@
 import type { BackupKeyParams } from '../custody/recovery'
-import { RECOVERY_INTENT_TTL_MS, RecoveryApiError } from '../custody/recovery'
+import { ownerKeyNow, RECOVERY_INTENT_TTL_MS, RecoveryApiError } from '../custody/recovery'
 import type { Intent } from '../custody/store'
 import { readWallet } from '../custody/wallets'
 import { bold, code, esc, shortAccount } from '../telegram/html'
 import { btn, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { showWalletHome, tradingWallet } from './tradingWallet'
-import { linkedAccount } from './wallet'
 
 /**
  * 🔐 Recovery: the backup key, the key export (in the NearKit web app only) and
@@ -19,26 +18,32 @@ async function showRecovery(ctx: BotCtx) {
   const w = tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   const view = await readWallet(ctx.deps.near, w)
-  const linked = linkedAccount(ctx)
-  const backup = view.keys === null ? null : view.keys.some((k) => k !== w.publicKey)
+  const owner = w.ownerAccount
+  const mine = ownerKeyNow(ctx.deps.store, w)
+  const backup = view.keys === null ? null : mine !== null && view.keys.includes(mine)
+  // Any other full-access key can move the funds too: say so, it may not be the user's.
+  const known = [w.publicKey, w.ownerKey, w.backupKey, mine]
+  const others = (view.keys ?? []).filter((k) => !known.includes(k))
   const status = backup === null ? '— (couldn’t read the chain)' : backup ? '✓ added' : view.exists ? 'not added yet' : 'after the first deposit'
   await ctx.show(
     [
       `🔐 ${bold('Recovery')}`,
       'Your NearKit wallet stays yours, even if NearKit disappears.',
       '',
+      ...(owner ? [`Owner: ${code(owner)}, the wallet it was created with.`, ''] : []),
       `${bold('1. Backup key')} · ${esc(status)}`,
-      `Your linked wallet’s key also controls this wallet. Restoring your own wallet (its seed phrase or key) in a NEAR wallet app then finds this one too.`,
+      `Your owner wallet’s key also controls this wallet. Restoring your own wallet (its seed phrase or key) in a NEAR wallet app then finds this one too.`,
+      ...others.map((k) => `⚠️ Another key also controls this wallet: ${code(`${k.slice(0, 16)}…`)}. If it isn’t yours, move your funds.`),
       '',
       bold('2. Export'),
-      'See this wallet’s private key in NearKit web, after signing with your linked wallet. Never in Telegram.',
+      'See this wallet’s private key in NearKit web, after signing with your owner wallet. Never in Telegram.',
       '',
       bold('3. Remove NearKit’s access'),
       'NearKit deletes its own key; after that only your wallet controls this one. Needs the backup key first.',
     ].join('\n'),
     keyboard(
-      backup === false && view.exists && linked ? [btn('🔐 Add backup key', 'cr:backup')] : [],
-      linked ? [btn('🌐 Export key in NearKit web', 'cr:export')] : [btn('🔗 Link wallet', 'acct:link')],
+      backup === false && view.exists && mine ? [btn('🔐 Add backup key', 'cr:backup')] : [],
+      owner ? [btn('🌐 Export key in NearKit web', 'cr:export')] : [],
       backup ? [btn('🧹 Remove NearKit’s access', 'cr:revoke')] : [],
       view.exists === false ? [btn('🗑 Delete this empty wallet', 'cr:delete')] : [],
       back,
@@ -51,8 +56,8 @@ function backupReview(intent: Intent): string {
   return [
     `🔐 ${bold('Add a backup key')}`,
     '',
-    `Your linked wallet ${code(p.linkedAccount)} gets a full-access key on your NearKit wallet:`,
-    `Key ${code(p.publicKey)} (the one you signed with when you linked)`,
+    `Your owner wallet ${code(p.linkedAccount)} gets a full-access key on your NearKit wallet:`,
+    `Key ${code(p.publicKey)} (the one you signed with when you linked it)`,
     '',
     'After this, your own wallet can control this NearKit wallet directly, even without NearKit.',
     'Network fee ≈ 0.0001 NEAR; a tiny storage deposit stays on the wallet.',
@@ -105,11 +110,11 @@ registerIntentScreens('revoke', {
 async function offerBackup(ctx: BotCtx) {
   const custody = ctx.deps.custody
   const w = tradingWallet(ctx.deps, ctx.user.id)
-  const linked = linkedAccount(ctx)
-  const link = linked ? ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
-  if (!custody || !w || !link) return showRecovery(ctx)
+  // Always the owner's key, whichever wallet is linked now.
+  const key = w ? ownerKeyNow(ctx.deps.store, w) : null
+  if (!custody || !w || !w.ownerAccount || !key) return showRecovery(ctx)
   custody.store.cancelQuoted(w.id, ['backup-key', 'revoke'])
-  const params: BackupKeyParams = { linkedAccount: link.accountId, publicKey: link.publicKey }
+  const params: BackupKeyParams = { linkedAccount: w.ownerAccount, publicKey: key }
   const intent = custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'backup-key', params, ttlMs: RECOVERY_INTENT_TTL_MS })
   await ctx.show(backupReview(intent), intentKeyboard(intent, '✅ Add backup key'))
 }
@@ -125,7 +130,8 @@ async function offerRevoke(ctx: BotCtx) {
 
 async function exportLink(ctx: BotCtx) {
   const custody = ctx.deps.custody
-  if (!custody) return showWalletHome(ctx)
+  const w = tradingWallet(ctx.deps, ctx.user.id)
+  if (!custody || !w) return showWalletHome(ctx)
   let issued
   try {
     issued = custody.recovery.createRequest(ctx.user.id)
@@ -139,7 +145,7 @@ async function exportLink(ctx: BotCtx) {
       `🌐 ${bold('Export your NearKit wallet’s key')}`,
       '',
       `1. Open the link below. It works once and expires in ${minutes} minutes.`,
-      '2. Connect your linked wallet and sign the message it shows. Signing is free.',
+      `2. Connect ${w.ownerAccount ? code(w.ownerAccount) : 'your owner wallet'}, the wallet this one was created with, and sign the message it shows. Signing is free.`,
       '3. NearKit web shows the private key once, on your screen.',
       '',
       'Anyone who sees that key controls the wallet. Never share it or paste it into a chat. NearKit never asks for it.',

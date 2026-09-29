@@ -97,8 +97,8 @@ export interface RecoveryDescription {
   network: string
   /** The NearKit wallet whose key would be exported. */
   wallet: string
-  /** Linked accounts: one of them must sign. */
-  accounts: string[]
+  /** The wallet it was created with: only it can sign the export. */
+  owner: string
   recipient: string
   message: string
   /** Base64 of the 32-byte NEP-413 nonce. */

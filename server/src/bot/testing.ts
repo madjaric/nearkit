@@ -8,7 +8,7 @@ import { Db } from '../db/sqlite'
 import { Store } from '../db/store'
 import { createLinkService } from '../link/service'
 import { createHandoffs } from '../trade/handoff'
-import { silentLogger } from '../log'
+import { silentLogger, type Logger } from '../log'
 import { createServerNear } from '../near'
 import { createTelegramApi } from '../telegram/api'
 import { createFakeTelegram } from '../telegram/fake'
@@ -41,8 +41,17 @@ export const GROUP: TgChat = { id: -100555, type: 'supergroup', title: 'Test gro
 export const TEST_KEK = Buffer.alloc(32, 42).toString('base64')
 
 export async function botHarness(
-  options: { env?: Record<string, string>; chain?: FakeChainOptions; modules?: (deps: BotDeps) => BotModule[]; buybot?: boolean; custody?: boolean } = {},
+  options: {
+    env?: Record<string, string>
+    chain?: FakeChainOptions
+    modules?: (deps: BotDeps) => BotModule[]
+    buybot?: boolean
+    custody?: boolean
+    /** Where the bot and the engine log (silent by default). */
+    log?: Logger
+  } = {},
 ) {
+  const log = options.log ?? silentLogger
   let clock = 10_000_000
   const now = () => clock
   const fake = createFakeTelegram()
@@ -83,10 +92,10 @@ export async function botHarness(
         buy: swaps.handler,
         sell: swaps.handler,
         unwrap: unwrapHandler(near),
-        'backup-key': backupKeyHandler({ near, links: store, custody: cstore }),
+        'backup-key': backupKeyHandler({ near, custody: cstore }),
         revoke: revokeHandler({ near, custody: cstore }),
       },
-      log: silentLogger,
+      log,
       now,
       sleep: async (ms) => void (clock += ms),
       confirmMs: 2_000,
@@ -103,7 +112,7 @@ export async function botHarness(
     near,
     link,
     handoffs,
-    log: silentLogger,
+    log,
     now,
     me: { id: 1111111111, username: 'NearKitBot' },
     features: new Set(),
@@ -128,6 +137,7 @@ export async function botHarness(
 
   return {
     fake,
+    db,
     store,
     chain,
     config,

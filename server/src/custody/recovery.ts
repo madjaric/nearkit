@@ -9,20 +9,25 @@ import type { ServerNear } from '../near'
 import { plainText } from '../telegram/html'
 import type { IntentHandler } from './engine'
 import type { TradingSigner } from './signer'
-import type { CustodyStore } from './store'
+import type { CustodyStore, TradingWallet } from './store'
 import { accessKeys } from './wallets'
 
 /**
  * Keeping a NearKit wallet yours, with or without NearKit.
  *
- * - Backup key: the linked wallet's verified full-access key is added to the NearKit
- *   wallet on chain. Whoever holds the user's own wallet can then control this one
+ * Everything here answers to the wallet's owner: the linked wallet it was created with,
+ * never whichever wallet is linked now (someone holding the Telegram session could link
+ * their own).
+ *
+ * - Backup key: a full-access key of the owner wallet (checked on chain) is added to the
+ *   NearKit wallet. Whoever holds the user's own wallet can then control this one
  *   directly, even if NearKit, its database and its servers are gone.
  * - Export: the private key, shown once in the NearKit web app after a fresh NEP-413
- *   signature by a linked wallet (like linking), never in Telegram. A one-time code
- *   (10 minutes, stored as SHA-256) binds the request to the Telegram user who asked.
- * - Revoke: NearKit deletes its own key from the wallet (only once a backup key is on
- *   it), then erases its sealed copy. The wallet stays, controlled by the user alone.
+ *   signature by a full-access key of the owner wallet, never in Telegram. A one-time
+ *   code (10 minutes, stored as SHA-256) binds the request to the Telegram user who asked.
+ * - Revoke: NearKit deletes its own key from the wallet (only once a full-access key of
+ *   the owner wallet is on it), then erases its sealed copy. The wallet stays, the
+ *   user's alone.
  */
 
 export const RECOVERY_TTL_MS = 10 * 60_000
@@ -45,8 +50,8 @@ export interface RecoveryDescription {
   network: string
   /** The NearKit wallet whose key would be exported. */
   wallet: string
-  /** Linked accounts: the signature must come from one of them. */
-  accounts: string[]
+  /** The wallet's owner: the only account whose signature can authorize the export. */
+  owner: string
   recipient: string
   message: string
   nonce: string
@@ -95,7 +100,8 @@ export function createRecoveryService(deps: {
     const wallet = custody.wallet(req.walletId)
     if (!wallet || wallet.status !== 'active' || wallet.userId !== req.userId)
       throw new RecoveryApiError(410, 'wallet', 'This NearKit wallet is closed; NearKit no longer holds its key.')
-    return { req, wallet }
+    if (!wallet.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NearKit wallet has no recorded owner wallet, so its key can’t be exported.')
+    return { req, wallet, owner: wallet.ownerAccount }
   }
 
   return {
@@ -103,7 +109,7 @@ export function createRecoveryService(deps: {
     createRequest(userId: number): { url: string; expiresAt: number } {
       const wallet = custody.activeWallet(userId, network)
       if (!wallet) throw new RecoveryApiError(404, 'no-wallet', 'You have no NearKit wallet.')
-      if (!store.linksOf(userId, network).length) throw new RecoveryApiError(403, 'no-link', 'Link your own wallet first: the export is signed with it.')
+      if (!wallet.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NearKit wallet has no recorded owner wallet, so its key can’t be exported.')
       if (custody.countRecoveriesSince(userId, now() - 3_600_000) >= MAX_RECOVERY_REQUESTS_PER_HOUR)
         throw new RecoveryApiError(429, 'too-many', 'Too many export links this hour. Use the last one, or try again later.')
       const user = store.getUser(userId)
@@ -124,13 +130,13 @@ export function createRecoveryService(deps: {
     },
 
     describe(code: string): RecoveryDescription {
-      const { req, wallet } = live(code)
+      const { req, wallet, owner } = live(code)
       const user = store.getUser(req.userId)
       return {
         telegram: { name: user?.firstName ?? 'Telegram user', username: user?.username ?? null },
         network,
         wallet: wallet.accountId,
-        accounts: store.linksOf(req.userId, network).map((l) => l.accountId),
+        owner,
         recipient: config.linkRecipient,
         message: req.message,
         nonce: req.nonce,
@@ -139,12 +145,15 @@ export function createRecoveryService(deps: {
     },
 
     async export(input: { code: string; accountId: string; publicKey: string; signature: string }): Promise<RecoveryExport & { userId: number; signedBy: string }> {
-      const { req, wallet } = live(input.code)
+      const { req, wallet, owner } = live(input.code)
       if (req.attempts >= MAX_EXPORT_ATTEMPTS) throw new RecoveryApiError(429, 'locked', 'Too many attempts with this link. Ask the NearKit bot for a new one.')
       custody.bumpRecoveryAttempt(req.codeHash)
       const accountId = typeof input.accountId === 'string' ? input.accountId.trim() : ''
-      const link = store.linkOf(network, accountId)
-      if (!link || link.userId !== req.userId) throw new RecoveryApiError(403, 'not-linked', 'Sign with the wallet you linked to this Telegram account.')
+      // The owner alone: a wallet linked later (e.g. by someone holding the Telegram session) can't authorize this.
+      if (accountId !== owner) {
+        custody.audit({ userId: req.userId, walletId: wallet.id, action: 'export-refused', detail: { reason: 'not the owner', account: accountId } })
+        throw new RecoveryApiError(403, 'not-owner', `Sign with ${owner}, the wallet this NearKit wallet was created with. Nothing was exported.`)
+      }
       const nonce = base64Decode(req.nonce)
       const signed = nonce !== null && (await verifyNep413({ message: req.message, nonce, recipient: config.linkRecipient }, input.publicKey, input.signature))
       if (!signed) {
@@ -168,24 +177,34 @@ export function createRecoveryService(deps: {
 export type RecoveryService = ReturnType<typeof createRecoveryService>
 
 export interface BackupKeyParams {
-  /** The linked account whose verified key becomes the backup key. */
+  /** The wallet's owner (the linked wallet it was created with); its verified key becomes the backup key. */
   linkedAccount: string
   publicKey: string
 }
 
 export const RECOVERY_INTENT_TTL_MS = 5 * 60_000
 
-/** Adds the linked wallet's verified key to the NearKit wallet (AddKey, full access). */
-export function backupKeyHandler(deps: { near: ServerNear; links: Store; custody: CustodyStore }): IntentHandler {
-  const network = deps.near.ctx.network.id
+/**
+ * The owner key to add as the backup key: the one the owner wallet last proved when it
+ * was linked here (a re-link after a key change updates it), else the one the NearKit
+ * wallet was created with.
+ */
+export function ownerKeyNow(links: Pick<Store, 'linkOf'>, wallet: TradingWallet): string | null {
+  if (!wallet.ownerAccount) return null
+  const link = links.linkOf(wallet.network, wallet.ownerAccount)
+  return link && link.userId === wallet.userId ? link.publicKey : wallet.ownerKey
+}
+
+/** Adds a full-access key of the owner wallet to the NearKit wallet (AddKey, full access). No other key, ever. */
+export function backupKeyHandler(deps: { near: ServerNear; custody: CustodyStore }): IntentHandler {
   return {
     async plan(intent, wallet) {
       const p = intent.params as unknown as BackupKeyParams
-      const link = deps.links.linkOf(network, p.linkedAccount)
-      if (!link || link.userId !== wallet.userId || link.publicKey !== p.publicKey) throw new NearKitError('INVALID_ACCOUNT', 'Your linked wallet changed. Open Recovery again.')
+      if (!wallet.ownerAccount || p.linkedAccount !== wallet.ownerAccount)
+        throw new NearKitError('INVALID_ACCOUNT', 'Only a key of the wallet this NearKit wallet was created with can be its backup key.')
       const [permission, keys] = await Promise.all([accessKeyPermission(deps.near.ctx.rpc, p.linkedAccount, p.publicKey), accessKeys(deps.near, wallet.accountId)])
       if (permission !== 'full')
-        throw new NearKitError('INVALID_ACCOUNT', `That key is no longer a full-access key of ${p.linkedAccount}. Link your wallet again, then add the backup key.`)
+        throw new NearKitError('INVALID_ACCOUNT', `That key is no longer a full-access key of ${p.linkedAccount}. Link ${p.linkedAccount} again, then add the backup key.`)
       if (keys === null) throw new NearKitError('RPC_ERROR', 'Couldn’t read the wallet’s keys.')
       if (!keys.includes(wallet.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'NearKit’s key isn’t on this wallet (is it funded?).')
       if (keys.includes(p.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'That key is already a backup key of this wallet.')
@@ -208,15 +227,25 @@ export function backupKeyHandler(deps: { near: ServerNear; links: Store; custody
   }
 }
 
-/** Deletes NearKit's own key from the wallet, then erases NearKit's sealed copy. Needs another full-access key on it. */
+/** Deletes NearKit's own key from the wallet, then erases NearKit's sealed copy. Needs a key of the owner wallet on it. */
 export function revokeHandler(deps: { near: ServerNear; custody: CustodyStore }): IntentHandler {
   return {
     async plan(_intent, wallet) {
       const keys = await accessKeys(deps.near, wallet.accountId)
       if (keys === null) throw new NearKitError('RPC_ERROR', 'Couldn’t read the wallet’s keys.')
       if (!keys.includes(wallet.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'NearKit’s key isn’t on this wallet.')
-      if (!keys.some((k) => k !== wallet.publicKey))
-        throw new NearKitError('INVALID_ACCOUNT', 'Add your backup key first: without another key on it, nobody could control this wallet after NearKit’s key is gone.')
+      // Never leave the wallet to a key NearKit can't vouch for: another key on it must be a
+      // full-access key of the owner wallet, right now.
+      const owner = wallet.ownerAccount
+      const others = keys.filter((k) => k !== wallet.publicKey).slice(0, 8)
+      const held = owner ? await Promise.all(others.map((k) => accessKeyPermission(deps.near.ctx.rpc, owner, k))) : []
+      if (!held.includes('full'))
+        throw new NearKitError(
+          'INVALID_ACCOUNT',
+          owner
+            ? `Add your backup key first: no other key on this wallet is a full-access key of ${owner}, so nobody could control it after NearKit’s key is gone.`
+            : 'This NearKit wallet has no recorded owner wallet, so NearKit won’t remove its own key. Withdraw your funds instead.',
+        )
       return {
         kind: 'plan',
         op: { kind: 'revoke', publicKey: wallet.publicKey },

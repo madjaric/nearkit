@@ -162,9 +162,16 @@ export function createLocalSigner(deps: { wrapper: KeyWrapper; network: NetworkC
     async exportSecret(wallet, codeHash) {
       const req = store.recovery(codeHash)
       const fresh = req?.verifiedAt !== null && req?.verifiedAt !== undefined && now() - req.verifiedAt <= EXPORT_WINDOW_MS
-      if (!req || req.walletId !== wallet.id || req.userId !== wallet.userId || !fresh) {
-        store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'export-refused', detail: { reason: 'no verified request' } })
-        throw new KeyUnavailableError('Export needs a fresh request verified with your linked wallet')
+      // Verified by the owner wallet itself: the recovery service checked its signature and key.
+      const byOwner = wallet.ownerAccount !== null && req?.verifiedAccount === wallet.ownerAccount
+      if (!req || req.walletId !== wallet.id || req.userId !== wallet.userId || !fresh || !byOwner) {
+        store.audit({
+          userId: wallet.userId,
+          walletId: wallet.id,
+          action: 'export-refused',
+          detail: { reason: fresh && !byOwner ? 'not verified by the owner' : 'no verified request' },
+        })
+        throw new KeyUnavailableError('Export needs a fresh request verified with your owner wallet')
       }
       if (!store.markExported(codeHash)) throw new KeyUnavailableError('This export request was already used')
       const secret = await withSeed(wallet, (seed) => secretKeyText(seed))

@@ -50,6 +50,46 @@ describe('trading wallets', () => {
   })
 })
 
+describe('the owner of wallets made before owners were recorded', () => {
+  it('is the wallet linked when it was made (the default first), with its current key; a backup key of another wallet is forgotten', async () => {
+    const old = await Db.open(null)
+    migrate(old, 5)
+    const users = new Store(old, () => now)
+    for (const userId of [USER, 202, 303]) users.upsertUser({ userId, username: null, firstName: 'U', languageCode: null })
+    const link = (userId: number, accountId: string, publicKey: string) => {
+      const codeHash = `${userId}:${accountId}:${publicKey}`
+      users.createLinkRequest({ codeHash, userId, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+      users.completeLink({ codeHash, network: 'testnet', accountId, userId, publicKey })
+    }
+    const made = (id: string, userId: number, backupKey: string | null) =>
+      old.run(
+        "INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, backup_key, created_at, updated_at) VALUES (?, ?, 'testnet', ?, 'ed25519:N', '{}', 'local:x', 'active', ?, ?, ?)",
+        [id, userId, id.repeat(64).slice(0, 64), backupKey, now, now],
+      )
+    link(USER, 'first.testnet', 'ed25519:F')
+    link(303, 'carol.testnet', 'ed25519:C')
+    now += 1
+    link(USER, 'main.testnet', 'ed25519:M1')
+    users.updateSettings(USER, { defaultAccount: 'main.testnet' })
+    now += 1
+    made('a', USER, 'ed25519:F')
+    made('b', 202, null)
+    made('c', 303, 'ed25519:C')
+    now += 1
+    // Later: the default linked again with a new key, another wallet linked, Bob's first link.
+    link(USER, 'main.testnet', 'ed25519:M2')
+    link(USER, 'later.testnet', 'ed25519:L')
+    link(202, 'bob.testnet', 'ed25519:B')
+    migrate(old)
+    const s = new CustodyStore(old, () => now)
+    expect(s.wallet('a')).toMatchObject({ ownerAccount: 'main.testnet', ownerKey: 'ed25519:M2', backupKey: null })
+    // Nothing was linked when Bob's was made: no owner, so no export and no revoke.
+    expect(s.wallet('b')).toMatchObject({ ownerAccount: null, ownerKey: null })
+    expect(s.wallet('c')).toMatchObject({ ownerAccount: 'carol.testnet', ownerKey: 'ed25519:C', backupKey: 'ed25519:C' })
+    old.close()
+  })
+})
+
 describe('intents', () => {
   const intentFor = (walletId: string, ttlMs = 60_000) =>
     store.createIntent({ walletId, userId: USER, chatId: USER, kind: 'buy', params: { token: 't' }, quote: { min: '1' }, ttlMs })

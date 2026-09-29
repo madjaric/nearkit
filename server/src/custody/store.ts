@@ -24,6 +24,12 @@ export interface TradingWallet {
   status: WalletStatus
   /** The user's own public key, once it is confirmed on the account as a full-access backup key. */
   backupKey: string | null
+  /**
+   * The owner: the linked wallet (and its NEP-413-verified full-access key) this wallet was
+   * created with. Export, the backup key and removing NearKit's key answer to it alone.
+   */
+  ownerAccount: string | null
+  ownerKey: string | null
   createdAt: number
   updatedAt: number
   closedAt: number | null
@@ -117,6 +123,8 @@ interface WalletRow {
   key_ref: string
   status: WalletStatus
   backup_key: string | null
+  owner_account: string | null
+  owner_key: string | null
   created_at: number
   updated_at: number
   closed_at: number | null
@@ -132,6 +140,8 @@ const toWallet = (r: WalletRow): TradingWallet => ({
   keyRef: r.key_ref,
   status: r.status,
   backupKey: r.backup_key,
+  ownerAccount: r.owner_account,
+  ownerKey: r.owner_key,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   closedAt: r.closed_at,
@@ -215,18 +225,31 @@ export class CustodyStore {
    * Saves a new wallet unless the user already has a live one on this network, in
    * which case that one is returned and the new key material is simply never stored.
    */
-  createWallet(w: { userId: number; network: string; accountId: string; publicKey: string; sealedKey: string; keyRef: string }): { wallet: TradingWallet; created: boolean } {
+  createWallet(w: {
+    userId: number
+    network: string
+    accountId: string
+    publicKey: string
+    sealedKey: string
+    keyRef: string
+    owner?: { accountId: string; publicKey: string } | null
+  }): { wallet: TradingWallet; created: boolean } {
     return this.db.tx(() => {
       const existing = this.activeWallet(w.userId, w.network)
       if (existing) return { wallet: existing, created: false }
       const id = randomToken(12)
       const t = this.now()
       this.db.run(
-        `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-        [id, w.userId, w.network, w.accountId, w.publicKey, w.sealedKey, w.keyRef, t, t],
+        `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, owner_account, owner_key, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+        [id, w.userId, w.network, w.accountId, w.publicKey, w.sealedKey, w.keyRef, w.owner?.accountId ?? null, w.owner?.publicKey ?? null, t, t],
       )
-      this.audit({ userId: w.userId, walletId: id, action: 'wallet-created', detail: { network: w.network, accountId: w.accountId, publicKey: w.publicKey, keyRef: w.keyRef } })
+      this.audit({
+        userId: w.userId,
+        walletId: id,
+        action: 'wallet-created',
+        detail: { network: w.network, accountId: w.accountId, publicKey: w.publicKey, keyRef: w.keyRef, owner: w.owner?.accountId ?? null },
+      })
       return { wallet: this.wallet(id) as TradingWallet, created: true }
     })
   }
