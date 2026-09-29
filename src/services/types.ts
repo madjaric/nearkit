@@ -153,6 +153,11 @@ export interface ExecutionService {
    * by passing its last progress as `prior`.
    */
   run(plan: OperationPlan, prior: OperationProgress | null, onProgress: (progress: OperationProgress) => void): Promise<OperationProgress>
+  /**
+   * Drop what is cached about these accounts' balances, so the next read asks the chain
+   * again (the post-trade refresh does this before each try). No-op in demo mode.
+   */
+  forgetBalances(accountIds: readonly string[]): void
 }
 
 export interface AutomationService {

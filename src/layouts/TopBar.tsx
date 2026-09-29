@@ -2,6 +2,7 @@ import { ChevronDown, Coins, ExternalLink, LogOut, Menu as MenuIcon, Search, Set
 import { useState } from 'react'
 import { Link, useNavigate, useNavigation } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
+import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
 import { Freshness } from '@/components/domain/Freshness'
 import { Button, IconButton } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
@@ -188,6 +189,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
               <IconButton label="Search" onClick={() => setSearching(true)} className="lg:hidden">
                 <Search size={17} />
               </IconButton>
+              <BalanceRefreshStatus />
               <NearTicker className="hidden sm:flex" showAge />
               <div className="hidden md:block">
                 <NetworkChip />

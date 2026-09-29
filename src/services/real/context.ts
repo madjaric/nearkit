@@ -53,6 +53,8 @@ export interface NearContext {
   balances: {
     get(accountId: string): Promise<AccountBalances>
     invalidate(accountId?: string): void
+    /** Also read these token contracts for this account for a while (tokens it just traded). */
+    track(accountId: string, contracts: readonly string[]): void
   }
   /** Token contracts NearKit tracks besides discovered ones: configured, imported and $KIT. */
   trackedTokens(): string[]
@@ -128,11 +130,22 @@ export function createNearContext(options: NearContextOptions): NearContext {
   const trackedTokens = () => [...new Set([...network.knownTokens, ...stores.tokens.list(), ...(env.kitContract ? [env.kitContract] : [])])]
 
   const cache = new Map<string, { at: number; promise: Promise<AccountBalances> }>()
+  // Tokens an account just traded, read from chain directly until the indexer catches up.
+  const recent = new Map<string, Map<string, number>>()
+  const TRACK_MS = 15 * 60_000
+  const recentOf = (accountId: string) => {
+    const m = recent.get(accountId)
+    if (!m) return []
+    for (const [c, at] of m) if (now() - at > TRACK_MS) m.delete(c)
+    return [...m.keys()]
+  }
   async function loadBalances(accountId: string): Promise<AccountBalances> {
     const [state, discovered] = await Promise.all([accountState(rpc, accountId).catch(() => null), discoverFtHoldings(fetchImpl, network, accountId).catch(() => null)])
     // Discovery proposes; the chain decides. Without discovery, check the tracked tokens directly.
     const indexer = new Map((discovered ?? []).map((d) => [d.contract, d.raw]))
-    const candidates = [...new Set([...indexer.keys(), ...(discovered ? stores.tokens.list() : trackedTokens()), ...(env.kitContract ? [env.kitContract] : [])])]
+    const candidates = [
+      ...new Set([...recentOf(accountId), ...indexer.keys(), ...(discovered ? stores.tokens.list() : trackedTokens()), ...(env.kitContract ? [env.kitContract] : [])]),
+    ]
     const checked = await mapLimit(candidates.slice(0, VERIFY_LIMIT), 4, async (contract) => {
       try {
         return { contract, raw: await reader.balanceOf(contract, accountId), verified: true }
@@ -174,6 +187,11 @@ export function createNearContext(options: NearContextOptions): NearContext {
       invalidate(accountId) {
         if (accountId) cache.delete(accountId)
         else cache.clear()
+      },
+      track(accountId, contracts) {
+        const m = recent.get(accountId) ?? new Map<string, number>()
+        for (const c of contracts) m.set(c, now())
+        recent.set(accountId, m)
       },
     },
     trackedTokens,

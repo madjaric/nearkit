@@ -1,7 +1,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CopyRuleInput, DcaInput, MultiTradeRequest, OrderInput, PnlRange, PresetInput, QuoteRequest, SniperInput, TokenId, TransferRequest } from '@/types/domain'
+import { useSyncExternalStore } from 'react'
+import type { Holding } from '@/types/domain'
 import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
+import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChanges, snapshotOf, type RefreshStatus } from './postTradeRefresh'
 
 /**
  * Data hooks. Components only use these; they never see which service
@@ -192,15 +195,48 @@ export function usePlanners() {
   }
 }
 
-/** Run (or continue) a plan; refreshes balances and activity when it settles. */
+/** The post-trade balance refresh's status: "Updating balances…" in the top bar and the operation dialog. */
+export const balanceRefresh = createRefreshStatus()
+
+export function useBalanceRefresh(): RefreshStatus {
+  return useSyncExternalStore(balanceRefresh.subscribe, balanceRefresh.get, balanceRefresh.get)
+}
+
+/**
+ * Run (or continue) a plan. When it settles, the affected balances and activity refresh
+ * without a page reload. After a real operation that may have changed balances the
+ * refresh runs in the background on a bounded schedule until the traded tokens show the
+ * change (postTradeRefresh.ts); the result itself never waits for it.
+ */
 export function useExecution() {
   const s = useServices()
   const qc = useQueryClient()
   return async (plan: OperationPlan, prior: OperationProgress | null, onProgress: (p: OperationProgress) => void) => {
-    try {
-      return await s.execution.run(plan, prior, onProgress)
-    } finally {
+    const targets = refreshTargets(plan)
+    const before = snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets)
+    let result: OperationProgress | null = null
+    const refetch = async () => {
       await Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] }), qc.invalidateQueries({ queryKey: qk.tokens })])
+    }
+    try {
+      result = await s.execution.run(plan, prior, onProgress)
+      return result
+    } finally {
+      if (plan.mode === 'near' && settledWithChanges(result)) {
+        void balanceRefresh.track((cancelled) =>
+          refreshUntilMoved({
+            before,
+            refresh: async () => {
+              s.execution.forgetBalances(targets.accounts)
+              await refetch()
+            },
+            read: () => snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets),
+            cancelled,
+          }),
+        )
+      } else {
+        void refetch()
+      }
     }
   }
 }

@@ -24,6 +24,7 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** Demo execution: walks the plan's groups with believable timing. Nothing is signed or sent, and no hash exists. */
 export function createExecutionService(state: MockState): ExecutionService {
   return {
+    forgetBalances: () => undefined,
     async run(plan, prior, onProgress) {
       if (plan.mode !== 'demo') throw new ServiceError('wrong-mode', 'The demo can only simulate demo plans')
       let progress: OperationProgress = prior ? { ...prior, phase: 'running', pause: null } : { ...initialProgress(plan, true), phase: 'running' }

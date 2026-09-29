@@ -13,6 +13,7 @@ import { useCapabilities, useExecution } from '@/services/queries'
 import { useConnectPrompt } from '@/state/contexts'
 import type { OperationPlan, OperationProgress, TxProgress } from '@/types/operations'
 import { PlanReview } from './PlanReview'
+import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
 
 type Stage =
   | { kind: 'preparing' }
@@ -358,6 +359,7 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
               ))}
             </ol>
             {progress.simulated && <SimulationNote />}
+            {stage.kind === 'settled' && !progress.simulated && (progress.phase === 'success' || progress.phase === 'partial') && <BalanceRefreshStatus className="self-start" />}
           </>
         )}
       </div>

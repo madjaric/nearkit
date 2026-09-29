@@ -23,6 +23,9 @@ export function createExecutionService(ctx: NearContext, active: Set<string>): E
   })
 
   return {
+    forgetBalances(accountIds) {
+      for (const id of accountIds) ctx.balances.invalidate(id)
+    },
     async run(plan, prior, onProgress) {
       active.add(plan.id)
       try {
@@ -30,8 +33,14 @@ export function createExecutionService(ctx: NearContext, active: Set<string>): E
         return result
       } finally {
         active.delete(plan.id)
-        for (const signer of plan.signers) ctx.balances.invalidate(signer)
-        for (const line of plan.lines) ctx.balances.invalidate(line.accountId)
+        // The traded tokens are read from chain on every balance read for a while, even
+        // before the token indexer reports them (a first-time token included).
+        const tokens = plan.swap ? [plan.swap.tokenIn, plan.swap.tokenOut, ...(plan.swap.routeTokens ?? [])] : [plan.token]
+        const contracts = tokens.flatMap((t) => (t.contract ? [t.contract] : []))
+        for (const account of new Set([...plan.signers, ...plan.lines.map((l) => l.accountId)])) {
+          ctx.balances.track(account, contracts)
+          ctx.balances.invalidate(account)
+        }
       }
     },
   }

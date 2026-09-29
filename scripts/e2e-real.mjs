@@ -234,6 +234,38 @@ await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and
   await page.keyboard.press('Escape')
 })
 
+await step('after a confirmed swap the balances refresh on their own, with no reload: "Updating balances…" meanwhile', async () => {
+  await page.goto(BASE + '/swap', { waitUntil: 'networkidle' })
+  const usdt = near.state.tokens.get(USDT)
+  const before = BigInt(usdt.balances.get(USER) ?? '0')
+  await page.getByPlaceholder('0.00').first().fill('1')
+  await visible(/1 NEAR ≈ 4\.0\d USDT/)
+  const shown = (units) => new RegExp(`Balance\\s*${units}(\\.0+)?\\s*USDT`)
+  await visible(shown(String(before / ONE)))
+  let reloads = 0
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) reloads++
+  })
+  await page.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
+  await page.getByRole('button', { name: 'Confirm swap' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review swap' })
+  await modal.getByRole('button', { name: 'Swap NEAR → USDT' }).waitFor({ timeout: 10000 })
+  await modal.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
+  await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })
+  // The chain's readers lag behind the confirmation: the new balance shows up a moment later.
+  setTimeout(() => usdt.balances.set(USER, String(before + 4n * ONE)), 1500)
+  await page.getByRole('status').filter({ hasText: 'Updating balances…' }).first().waitFor({ timeout: 5000 })
+  await shot('real-05-updating-balances')
+  await page.keyboard.press('Escape')
+  await page
+    .getByText(shown(String(before / ONE + 4n)))
+    .first()
+    .waitFor({ state: 'visible', timeout: 20000 })
+  await page.getByRole('status').filter({ hasText: 'Balances updated' }).first().waitFor({ timeout: 5000 })
+  if (reloads) throw new Error(`the page navigated ${reloads} time(s) after the swap`)
+  usdt.balances.set(USER, String(before))
+})
+
 await step('multi buy across two accounts: sequential, one approval per wallet, no all-or-nothing', async () => {
   await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
   // The checkbox is custom-drawn over a visually hidden input. Wide screens list wallets
