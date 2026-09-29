@@ -1,0 +1,271 @@
+// End-to-end: the Telegram bot and the web app together, as they run for real.
+//   npm run e2e:telegram [-- --shots <dir>]
+// Starts the built bot server (dist-server) and the web app (vite --mode e2e), with
+// Telegram faked over HTTP (TELEGRAM_API_URL) and NEAR faked for both the server
+// (NEAR_RPC_URL) and the page (request routing). Nothing touches a live network,
+// and the real bot token is never read (NEARKIT_ENV_FILE points nowhere).
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { chromium } from 'playwright-core'
+import { createFakeNear } from './lib/fake-near.mjs'
+import { startFakeTelegram } from './lib/fake-telegram.mjs'
+
+const args = process.argv.slice(2)
+const opt = (name, fallback) => {
+  const i = args.indexOf(`--${name}`)
+  return i >= 0 ? args[i + 1] : fallback
+}
+const SHOTS = opt('shots', null)
+if (SHOTS) mkdirSync(SHOTS, { recursive: true })
+const ROOT = process.cwd()
+const WEB_PORT = 5206
+const API_PORT = 8799
+const WEB = `http://localhost:${WEB_PORT}`
+const TOKEN = '4242424242:E2E-fake-token-not-a-real-bot-000000000'
+const ONE = 10n ** 24n
+const USER = 'e2e-user.testnet'
+const TG_USER = { id: 777, is_bot: false, first_name: 'Tess', username: 'tester' }
+const TG_OTHER = { id: 888, is_bot: false, first_name: 'Other', username: 'other' }
+
+// A real ed25519 key for the scripted wallet; its public key is a full-access key of USER on the fake chain.
+const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])
+const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey)
+const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+const b58 = (bytes) => {
+  let n = 0n
+  for (const b of bytes) n = (n << 8n) | BigInt(b)
+  let s = ''
+  while (n > 0n) ((s = B58[Number(n % 58n)] + s), (n /= 58n))
+  return s
+}
+const PUBLIC_KEY = `ed25519:${b58(raw)}`
+const appPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])
+const APP_KEY = `ed25519:${b58(new Uint8Array(await crypto.subtle.exportKey('raw', appPair.publicKey)))}`
+
+const near = createFakeNear({
+  accounts: {
+    [USER]: { amount: String(5n * ONE), keys: { [PUBLIC_KEY]: 'full', [APP_KEY]: 'function-call' } },
+    'wrap.testnet': { amount: String(ONE), code: true },
+  },
+  tokens: { 'wrap.testnet': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, balances: {}, registered: [], boundsMin: '1250000000000000000000' } },
+})
+
+// NEAR JSON-RPC over HTTP for the server process.
+const rpcServer = createServer((req, res) => {
+  let body = ''
+  req.on('data', (c) => (body += c))
+  req.on('end', () => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify(near.rpc(JSON.parse(body || '{}'))))
+  })
+})
+await new Promise((r) => rpcServer.listen(0, '127.0.0.1', r))
+const RPC_URL = `http://127.0.0.1:${rpcServer.address().port}`
+const tg = await startFakeTelegram({ token: TOKEN })
+
+const vite = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js')
+const build = spawnSync(process.execPath, [vite, 'build', '-c', 'vite.server.config.ts', '--logLevel', 'warn'], { cwd: ROOT, stdio: 'inherit' })
+if (build.status !== 0) process.exit(1)
+
+const data = mkdtempSync(join(tmpdir(), 'nearkit-e2e-tg-'))
+const serverLog = []
+const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(ROOT, 'dist-server', 'main.js')], {
+  cwd: ROOT,
+  env: {
+    PATH: process.env.PATH,
+    SYSTEMROOT: process.env.SYSTEMROOT,
+    NEARKIT_ENV_FILE: join(data, 'no-such-file'),
+    TELEGRAM_BOT_TOKEN: TOKEN,
+    TELEGRAM_API_URL: tg.url,
+    NEAR_NETWORK: 'testnet',
+    NEAR_RPC_URL: RPC_URL,
+    NEARKIT_WEB_URL: WEB,
+    NEARKIT_API_PORT: String(API_PORT),
+    NEARKIT_DB_PATH: join(data, 'e2e.sqlite'),
+    BUYBOT_ENABLED: 'false',
+    LOG_LEVEL: 'warn',
+  },
+})
+server.stdout.on('data', (d) => serverLog.push(String(d)))
+server.stderr.on('data', (d) => serverLog.push(String(d)))
+const web = spawn(process.execPath, [vite, '--mode', 'e2e', '--port', String(WEB_PORT), '--strictPort'], {
+  cwd: ROOT,
+  env: { ...process.env, VITE_NEARKIT_API_URL: `http://localhost:${API_PORT}`, VITE_TELEGRAM_BOT: 'NearKitTestBot' },
+  stdio: 'ignore',
+})
+
+async function up(url) {
+  for (let i = 0; i < 150; i++) {
+    if (
+      await fetch(url).then(
+        (r) => r.ok,
+        () => false,
+      )
+    )
+      return
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  throw new Error(`${url} did not come up`)
+}
+
+const pw = join(process.env.LOCALAPPDATA ?? '', 'ms-playwright')
+const dir = existsSync(pw)
+  ? readdirSync(pw)
+      .filter((d) => d.startsWith('chromium-'))
+      .sort()
+      .pop()
+  : null
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? (dir ? join(pw, dir, 'chrome-win64', 'chrome.exe') : undefined) })
+const errors = []
+const results = []
+let passed = 0
+
+async function finish(code) {
+  await browser.close().catch(() => {})
+  server.kill()
+  web.kill()
+  await tg.close()
+  rpcServer.close()
+  process.exit(code)
+}
+
+async function newPage(walletScript) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  await ctx.addInitScript((script) => (window.__NEARKIT_E2E_WALLET__ = script), walletScript)
+  const page = await ctx.newPage()
+  await near.install(page)
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !/net::ERR_FAILED|Failed to load resource/.test(m.text())) errors.push(`console: ${m.text()}`)
+  })
+  return page
+}
+
+let page
+async function step(name, fn) {
+  try {
+    await fn()
+    passed += 1
+    results.push(`  ok   ${name}`)
+  } catch (e) {
+    if (SHOTS && page) await page.screenshot({ path: join(SHOTS, 'FAILED-' + name.replace(/[^a-z0-9]+/gi, '-').slice(0, 40) + '.png') }).catch(() => {})
+    results.push(`  FAIL ${name}\n       ${String(e.message).split('\n')[0]}`)
+    console.log(results.join('\n'))
+    console.log(`\n${passed} passed, 1 failed`)
+    if (errors.length) console.log('console/page errors:\n  ' + errors.join('\n  '))
+    if (serverLog.length) console.log('server log:\n' + serverLog.join('').slice(-3000))
+    await finish(1)
+  }
+}
+const shot = async (name) => SHOTS && page && page.screenshot({ path: join(SHOTS, `${name}.png`) })
+const say = (user, text) =>
+  tg.push({ message: { message_id: Math.floor(Math.random() * 1e6), date: 0, chat: { id: user.id, type: 'private', first_name: user.first_name }, from: user, text } })
+const press = (user, data) =>
+  tg.push({ callback_query: { id: `cb${Math.random()}`, from: user, data, message: { message_id: 1, date: 0, chat: { id: user.id, type: 'private' }, text: '' } } })
+
+try {
+  await up(`http://127.0.0.1:${API_PORT}/health`)
+  await up(WEB)
+} catch (e) {
+  console.log(String(e.message))
+  console.log(serverLog.join(''))
+  await finish(1)
+}
+
+let linkUrl = ''
+await step('the bot greets a new user and never asks for keys', async () => {
+  const from = tg.sent.length
+  say(TG_USER, '/start')
+  const m = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Welcome to NearKit'), { from })
+  if (!/never asks for your seed phrase/.test(m.text)) throw new Error('safety line missing')
+})
+
+await step('/link answers with a one-time link to the web app', async () => {
+  const from = tg.sent.length
+  say(TG_USER, '/link')
+  const m = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.url?.includes('/telegram#link=')), { from })
+  linkUrl = m.buttons.find((b) => b.url).url
+  if (!linkUrl.startsWith(`${WEB}/telegram#link=`)) throw new Error(`unexpected link ${linkUrl}`)
+})
+
+await step('the web page names the Telegram account and the exact message, then links after the wallet signs', async () => {
+  page = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk, publicKey: PUBLIC_KEY } })
+  await page.goto(linkUrl, { waitUntil: 'networkidle' })
+  await page.getByText('@tester').first().waitFor()
+  await page.getByText('NearKit: link this NEAR account to Telegram').waitFor()
+  await shot('tg-01-link-page')
+  await page.getByRole('button', { name: 'Connect wallet to link' }).click()
+  await page
+    .getByRole('dialog', { name: 'Connect a wallet' })
+    .getByRole('button', { name: /E2E Test Wallet/ })
+    .click()
+  await page.getByRole('button', { name: `Sign and link ${USER}` }).click()
+  await page.getByText(`Linked ${USER} to Telegram @tester`).waitFor()
+  const signed = await page.evaluate(() => window.__NEARKIT_E2E_MESSAGES__ ?? [])
+  if (signed.length !== 1 || signed[0].recipient !== 'localhost' || signed[0].nonce.length !== 32) throw new Error(`unexpected signMessage call ${JSON.stringify(signed)}`)
+  await shot('tg-02-linked')
+})
+
+await step('the bot confirms the link in Telegram and lists the account', async () => {
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('✅ Linked') && x.text.includes(USER))
+  const from = tg.sent.length
+  say(TG_USER, '/accounts')
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('Linked accounts') && x.text.includes(USER), { from })
+})
+
+await step('a used link can’t be replayed', async () => {
+  await page.goto(WEB + '/', { waitUntil: 'networkidle' })
+  await page.goto(linkUrl, { waitUntil: 'networkidle' })
+  await page.getByText(/already used/).waitFor()
+})
+
+await step('a function-call key can’t prove ownership: nothing is linked', async () => {
+  const from = tg.sent.length
+  say(TG_OTHER, '/link')
+  const m = await tg.waitFor(TG_OTHER.id, (x) => x.buttons.some((b) => b.url?.includes('/telegram#link=')), { from })
+  const appJwk = await crypto.subtle.exportKey('jwk', appPair.privateKey)
+  page = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk: appJwk, publicKey: APP_KEY } })
+  await page.goto(m.buttons.find((b) => b.url).url, { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Connect wallet to link' }).click()
+  await page
+    .getByRole('dialog', { name: 'Connect a wallet' })
+    .getByRole('button', { name: /E2E Test Wallet/ })
+    .click()
+  await page.getByRole('button', { name: `Sign and link ${USER}` }).click()
+  await page.getByText(/full-access key/).waitFor()
+  await shot('tg-03-refused')
+  const other = tg.sent.filter((x) => x.chatId === TG_OTHER.id && x.text.includes('✅ Linked'))
+  if (other.length) throw new Error('the other Telegram user was linked')
+})
+
+await step('unlinking from Telegram removes the account', async () => {
+  let from = tg.sent.length
+  say(TG_USER, '/unlink')
+  const list = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.callback_data?.startsWith('acct:ask:')), { from })
+  from = tg.sent.length
+  press(TG_USER, list.buttons.find((b) => b.callback_data?.startsWith('acct:ask:')).callback_data)
+  const ask = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.callback_data?.startsWith('acct:do:')), { from })
+  from = tg.sent.length
+  press(TG_USER, ask.buttons.find((b) => b.callback_data?.startsWith('acct:do:')).callback_data)
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('Unlinked'), { from })
+  from = tg.sent.length
+  say(TG_USER, '/accounts')
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('No NEAR account is linked'), { from })
+})
+
+await step('no request left for a live network, and no token in the server log', async () => {
+  if (near.state.external.length) throw new Error(`external requests: ${near.state.external.slice(0, 3).join(', ')}`)
+  if (serverLog.join('').includes(TOKEN)) throw new Error('the bot token reached the server log')
+})
+
+console.log(results.join('\n'))
+console.log(`\n${passed} passed, 0 failed`)
+if (errors.length) {
+  console.log('console/page errors:\n  ' + errors.join('\n  '))
+  await finish(1)
+}
+await finish(0)

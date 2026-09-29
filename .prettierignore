@@ -3,3 +3,5 @@ node_modules
 .impeccable
 package-lock.json
 *.md
+dist-server
+server/data

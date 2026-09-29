@@ -320,9 +320,12 @@ await step('$KIT and Telegram show placeholders, no invented stats', async () =>
   await visible(page, 'Trading $KIT opens at launch')
   const kit = await page.locator('main').innerText()
   if (/\$\d/.test(kit)) throw new Error('$KIT page shows a dollar figure')
+  // The demo has no bot server: the page says so, offers no bot button and shows no figures.
   await page.goto(BASE + '/telegram', { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Open Telegram bot' }).click()
-  await visible(page, 'The Telegram bot is not live yet')
+  await visible(page, 'no NearKit bot server is connected to this build yet')
+  if (await page.getByRole('button', { name: /Open .*bot/i }).count()) throw new Error('Telegram page offers a bot that is not connected')
+  const telegram = await page.locator('main').innerText()
+  if (/\$\d|≈\s?\d/.test(telegram)) throw new Error('Telegram page shows invented figures')
 })
 
 await step('disconnect shows connect states; demo account reconnects', async () => {

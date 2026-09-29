@@ -1,4 +1,6 @@
 import type { NetworkConfig } from '@/config/networks'
+import { base64Encode } from '@/lib/encoding'
+import { nep413Digest } from './nep413'
 import type { ConnectorTransaction, WalletAdapter, WalletSession } from './wallet'
 
 /**
@@ -17,6 +19,10 @@ interface E2EScript {
   crash?: boolean
   /** Hashes to hand out, in order; generated when empty. */
   hashes?: string[]
+  /** A test ed25519 key (JWK private key and its `ed25519:` public key) for signing NEP-413 messages. */
+  signingKey?: { jwk: JsonWebKey; publicKey: string }
+  /** Make the next signMessage fail as a user rejection. */
+  rejectMessage?: boolean
 }
 
 declare global {
@@ -27,6 +33,7 @@ declare global {
      */
     __NEARKIT_E2E_WALLET__?: E2EScript
     __NEARKIT_E2E_SIGNED__?: { signerId: string; transactions: ConnectorTransaction[]; hashes: string[] }[]
+    __NEARKIT_E2E_MESSAGES__?: { signerId: string; message: string; recipient: string; nonce: number[] }[]
   }
 }
 
@@ -79,6 +86,19 @@ export function createTestWalletAdapter(network: NetworkConfig): WalletAdapter {
       // The e2e harness reads this to answer transaction-status calls for these hashes.
       window.__NEARKIT_E2E_SIGNED__ = [...(window.__NEARKIT_E2E_SIGNED__ ?? []), { signerId, transactions, hashes }]
       return hashes.map((hash) => ({ transaction: { hash, signer_id: signerId } }))
+    },
+    async signMessage(signerId, request) {
+      const s = script()
+      if (s.rejectMessage) throw new Error('User rejected the request')
+      if (!s.signingKey) throw new Error('The e2e wallet has no signing key')
+      window.__NEARKIT_E2E_MESSAGES__ = [
+        ...(window.__NEARKIT_E2E_MESSAGES__ ?? []),
+        { signerId, message: request.message, recipient: request.recipient, nonce: [...request.nonce] },
+      ]
+      const key = await crypto.subtle.importKey('jwk', s.signingKey.jwk, { name: 'Ed25519' }, false, ['sign'])
+      const digest = await nep413Digest({ message: request.message, nonce: request.nonce, recipient: request.recipient })
+      const signature = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, digest))
+      return { accountId: signerId, publicKey: s.signingKey.publicKey, signature: base64Encode(signature) }
     },
   }
 }

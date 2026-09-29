@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', '.impeccable'] },
+  { ignores: ['dist', 'dist-server', 'node_modules', '.impeccable', 'server/data'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended, reactHooks.configs.flat['recommended-latest'], reactRefresh.configs.vite],
@@ -16,6 +16,11 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
+  },
+  {
+    // The Telegram bot server runs on Node, not in a browser.
+    files: ['server/**/*.ts'],
+    languageOptions: { ecmaVersion: 2022, globals: { ...globals.node } },
   },
   {
     files: ['scripts/**/*.mjs', '*.config.{js,ts}'],

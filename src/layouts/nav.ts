@@ -19,6 +19,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
+import { TELEGRAM_BOT_LIVE } from '@/config/release'
 
 export interface NavItem {
   to: string
@@ -90,7 +91,7 @@ export const NAV_GROUPS: NavGroup[] = [
 export const NAV_FOOTER: NavItem[] = [
   { to: '/settings', label: 'Settings', icon: Settings, keywords: ['preferences', 'slippage'] },
   { to: '/docs', label: 'Documentation', icon: BookOpen, keywords: ['docs', 'help', 'glossary', 'fees'] },
-  { to: '/telegram', label: 'Telegram', icon: MessageSquare, soon: true, keywords: ['bot'] },
+  { to: '/telegram', label: 'Telegram', icon: MessageSquare, soon: !TELEGRAM_BOT_LIVE, keywords: ['bot', 'link', 'buybot'] },
 ]
 
 /** Every page the navigation links to (in-place actions such as Quick Trade are not pages). */

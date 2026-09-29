@@ -22,3 +22,10 @@ const COMING_SOON = comingSoonRoutes({ services: ENV.services, network: ENV.netw
 export function isComingSoon(path: string): boolean {
   return COMING_SOON.includes(path)
 }
+
+/**
+ * The Telegram bot is live in a build only when that build names the bot and the
+ * NearKit server it talks to (VITE_TELEGRAM_BOT, VITE_NEARKIT_API_URL). Otherwise
+ * the Telegram page stays COMING SOON and says why.
+ */
+export const TELEGRAM_BOT_LIVE: boolean = ENV.services === 'near' && ENV.apiUrl !== null && ENV.telegramBot !== null

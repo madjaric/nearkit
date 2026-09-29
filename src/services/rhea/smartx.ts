@@ -1,3 +1,4 @@
+import { base58Decode } from '@/lib/encoding'
 import { NearKitError } from '@/services/near/errors'
 
 /**
@@ -97,27 +98,6 @@ export function decodeSmartxMsg(msg: string): unknown {
 
 // ─── signature ──────────────────────────────────────────────────────────────
 
-const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-
-function base58(text: string): Uint8Array<ArrayBuffer> | null {
-  let n = 0n
-  for (const c of text) {
-    const i = B58.indexOf(c)
-    if (i < 0) return null
-    n = n * 58n + BigInt(i)
-  }
-  const bytes: number[] = []
-  while (n > 0n) {
-    bytes.unshift(Number(n & 0xffn))
-    n >>= 8n
-  }
-  for (const c of text) {
-    if (c !== '1') break
-    bytes.unshift(0)
-  }
-  return Uint8Array.from(bytes)
-}
-
 const hexBytes = (hex: string): Uint8Array<ArrayBuffer> => Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16))
 
 /**
@@ -126,7 +106,7 @@ const hexBytes = (hex: string): Uint8Array<ArrayBuffer> => Uint8Array.from(hex.m
  * checks first so a bad route never reaches the wallet.
  */
 export async function verifySmartxSignature(msg: string, signatureHex: string, publicKey: string): Promise<boolean> {
-  const raw = base58(publicKey.replace(/^ed25519:/, ''))
+  const raw = base58Decode(publicKey.replace(/^ed25519:/, ''))
   if (!raw || raw.length !== 32 || !/^[0-9a-f]{128}$/i.test(signatureHex)) return false
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg)))
   const payload = new TextEncoder().encode([...digest].map((b) => b.toString(16).padStart(2, '0')).join(''))

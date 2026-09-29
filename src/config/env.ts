@@ -20,6 +20,10 @@ export interface AppEnv {
   feeRecipient: string | null
   /** $KIT NEP-141 contract, once launched. */
   kitContract: string | null
+  /** NearKit server API (Telegram linking, trade results). Public URL, not a secret. Null: no server for this build. */
+  apiUrl: string | null
+  /** The NearKit Telegram bot's username, without "@". Null: no bot for this build. */
+  telegramBot: string | null
 }
 
 export interface EnvIssue {
@@ -86,7 +90,19 @@ export function parseEnv(raw: RawEnv): { env: AppEnv; issues: EnvIssue[] } {
   const feeRecipient = account('VITE_NEARKIT_FEE_RECIPIENT')
   const kitContract = account('VITE_KIT_TOKEN_CONTRACT')
 
-  return { env: { services, network, rpcUrls, mainnetExecution, feeRecipient, kitContract }, issues }
+  let apiUrl: string | null = null
+  if (!blank(raw.VITE_NEARKIT_API_URL)) {
+    apiUrl = parseRpcUrl((raw.VITE_NEARKIT_API_URL ?? '').trim())
+    if (!apiUrl) issue('VITE_NEARKIT_API_URL', 'Must be an https:// URL (http:// only for localhost)')
+  }
+  let telegramBot: string | null = null
+  if (!blank(raw.VITE_TELEGRAM_BOT)) {
+    const name = (raw.VITE_TELEGRAM_BOT ?? '').trim().replace(/^@/, '')
+    if (/^[A-Za-z][A-Za-z0-9_]{3,30}bot$/i.test(name)) telegramBot = name
+    else issue('VITE_TELEGRAM_BOT', `${name} is not a Telegram bot username (letters, digits and _, ending in "bot")`)
+  }
+
+  return { env: { services, network, rpcUrls, mainnetExecution, feeRecipient, kitContract, apiUrl, telegramBot }, issues }
 }
 
 // Each key is read by name. Passing `import.meta.env` whole would compile every
@@ -98,6 +114,8 @@ const parsed = parseEnv({
   VITE_ENABLE_MAINNET_EXECUTION: import.meta.env.VITE_ENABLE_MAINNET_EXECUTION,
   VITE_NEARKIT_FEE_RECIPIENT: import.meta.env.VITE_NEARKIT_FEE_RECIPIENT,
   VITE_KIT_TOKEN_CONTRACT: import.meta.env.VITE_KIT_TOKEN_CONTRACT,
+  VITE_NEARKIT_API_URL: import.meta.env.VITE_NEARKIT_API_URL,
+  VITE_TELEGRAM_BOT: import.meta.env.VITE_TELEGRAM_BOT,
 })
 
 /** The validated build configuration. */

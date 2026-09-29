@@ -6,7 +6,7 @@ describe('parseEnv', () => {
   it('defaults to the real services on testnet with mainnet execution off', () => {
     const { env, issues } = parseEnv({})
     expect(issues).toEqual([])
-    expect(env).toEqual({ services: 'near', network: 'testnet', rpcUrls: null, mainnetExecution: false, feeRecipient: null, kitContract: null })
+    expect(env).toEqual({ services: 'near', network: 'testnet', rpcUrls: null, mainnetExecution: false, feeRecipient: null, kitContract: null, apiUrl: null, telegramBot: null })
   })
 
   it('enables mainnet execution only for the exact string "true"', () => {
@@ -38,6 +38,18 @@ describe('parseEnv', () => {
     const invalid = parseEnv({ VITE_NEARKIT_FEE_RECIPIENT: 'Fees.Near' })
     expect(invalid.env.feeRecipient).toBeNull()
     expect(invalid.issues[0]?.key).toBe('VITE_NEARKIT_FEE_RECIPIENT')
+  })
+
+  it('reads the Telegram bot and its API only when both are well formed', () => {
+    const ok = parseEnv({ VITE_NEARKIT_API_URL: 'https://api.nearkit.example/', VITE_TELEGRAM_BOT: '@NearKitBot' })
+    expect(ok.issues).toEqual([])
+    expect(ok.env.apiUrl).toBe('https://api.nearkit.example')
+    expect(ok.env.telegramBot).toBe('NearKitBot')
+    expect(parseEnv({ VITE_NEARKIT_API_URL: 'http://localhost:8787' }).env.apiUrl).toBe('http://localhost:8787')
+    const bad = parseEnv({ VITE_NEARKIT_API_URL: 'http://api.example', VITE_TELEGRAM_BOT: 'not a bot' })
+    expect(bad.env.apiUrl).toBeNull()
+    expect(bad.env.telegramBot).toBeNull()
+    expect(bad.issues.map((i) => i.key).sort()).toEqual(['VITE_NEARKIT_API_URL', 'VITE_TELEGRAM_BOT'])
   })
 
   it('keeps $KIT unset until a contract is configured', () => {

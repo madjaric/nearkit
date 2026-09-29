@@ -40,6 +40,10 @@ export function createWalletService(state: MockState): WalletService {
       state.session = null
     },
 
+    async signMessage() {
+      throw new ServiceError('demo', 'Signing a message needs a real wallet. The demo signs nothing.')
+    },
+
     async listWallets() {
       await wait('read')
       if (!state.session) return []

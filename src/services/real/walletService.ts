@@ -154,6 +154,20 @@ export function createWalletService(ctx: NearContext, market: Market): WalletSer
       ctx.balances.invalidate()
     },
 
+    async signMessage(request) {
+      const session = await currentSession()
+      if (!session) throw new NearKitError('WALLET_UNAVAILABLE', 'Connect a wallet first')
+      if (session.issue === 'network-mismatch')
+        throw new NearKitError('NETWORK_MISMATCH', `${session.accountId} belongs to the other network. Connect a ${ctx.network.label.toLowerCase()} account.`)
+      const signer = request.accountId ?? session.accountId
+      const adapter = await ctx.wallet()
+      try {
+        return await adapter.signMessage(signer, { message: request.message, recipient: request.recipient, nonce: request.nonce })
+      } catch (e) {
+        throw toNearKitError(e, 'WALLET_UNAVAILABLE')
+      }
+    },
+
     listWallets: wallets,
     listSnapshots: snapshots,
 

@@ -19,8 +19,11 @@ export interface FakeToken {
 }
 
 export interface FakeChainOptions {
-  /** `global`: the account runs a shared global contract (NEP-591) instead of local code. */
-  accounts?: Record<string, { amount: bigint; storageUsage?: number; code?: boolean; global?: string }>
+  /**
+   * `global`: the account runs a shared global contract (NEP-591) instead of local code.
+   * `keys`: access keys by public key (`ed25519:…`), 'full' or a function-call key.
+   */
+  accounts?: Record<string, { amount: bigint; storageUsage?: number; code?: boolean; global?: string; keys?: Record<string, 'full' | 'function-call'> }>
   tokens?: Record<string, Omit<FakeToken, 'balances' | 'registered'> & { balances?: Record<string, bigint>; registered?: string[] }>
   aggregator?: { contract: string; whitelist: string[]; protocolPpm: number; registered?: Record<string, string[]> }
 }
@@ -110,6 +113,14 @@ export function createFakeChain(options: FakeChainOptions = {}) {
         result: r.error ? { error: r.error, logs: [], block_height: 1, block_hash: 'h' } : { result: bytes(r.result), logs: [], block_height: 1, block_hash: 'h' },
       })
     }
+    if (method === 'query' && params.request_type === 'view_access_key') {
+      const a = accounts.get(String(params.account_id))
+      if (!a) return rpcError(id, 'UNKNOWN_ACCOUNT', `account ${String(params.account_id)} does not exist while viewing`)
+      const kind = a.keys?.[String(params.public_key)]
+      if (!kind) return rpcError(id, 'UNKNOWN_ACCESS_KEY', `access key ${String(params.public_key)} does not exist while viewing`)
+      const permission = kind === 'full' ? 'FullAccess' : { FunctionCall: { allowance: null, receiver_id: 'app.near', method_names: [] } }
+      return json({ jsonrpc: '2.0', id, result: { nonce: 1, permission, block_height: 1, block_hash: 'h' } })
+    }
     if (method === 'query' && params.request_type === 'view_access_key_list') {
       return json({ jsonrpc: '2.0', id, result: { keys: [], block_height: 1, block_hash: 'h' } })
     }
@@ -160,7 +171,11 @@ export function createFakeChain(options: FakeChainOptions = {}) {
 export type FakeChain = ReturnType<typeof createFakeChain>
 
 /** Wallet double: a fixed session; signing records the transactions and returns hashes. */
-export function fakeWallet(session: WalletSession | null, onSign?: (signerId: string, transactions: unknown[]) => unknown[] | Promise<unknown[]>) {
+export function fakeWallet(
+  session: WalletSession | null,
+  onSign?: (signerId: string, transactions: unknown[]) => unknown[] | Promise<unknown[]>,
+  messageSigner?: () => Promise<{ publicKey: string; signature: string }>,
+) {
   const signed: { signerId: string; transactions: unknown[] }[] = []
   let current = session
   let counter = 0
@@ -180,6 +195,10 @@ export function fakeWallet(session: WalletSession | null, onSign?: (signerId: st
       signed.push({ signerId, transactions })
       if (onSign) return onSign(signerId, transactions)
       return transactions.map(() => ({ transaction: { hash: `HASH${(counter += 1)}`, signer_id: signerId } }))
+    },
+    signMessage: async (signerId) => {
+      if (!messageSigner) throw new Error('User rejected the request')
+      return { accountId: signerId, ...(await messageSigner()) }
     },
   }
   return { adapter, signed, setSession: (s: WalletSession | null) => (current = s) }

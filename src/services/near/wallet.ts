@@ -37,6 +37,22 @@ export interface ConnectorTransaction {
   actions: ConnectorAction[]
 }
 
+/** A NEP-413 message for the wallet to sign (see nep413.ts). */
+export interface SignMessageRequest {
+  message: string
+  recipient: string
+  /** 32 bytes. */
+  nonce: Uint8Array
+}
+
+export interface SignedMessageResult {
+  accountId: string
+  /** `ed25519:<base58>` */
+  publicKey: string
+  /** Base64 (NEP-413); a few wallets send base58. */
+  signature: string
+}
+
 export interface WalletAdapter {
   readonly kind: 'near-connect' | 'e2e-test'
   listWallets(): Promise<WalletOption[]>
@@ -51,6 +67,11 @@ export interface WalletAdapter {
    * the executor validates; never trusted as proof of success on their own.
    */
   signAndSendTransactions(signerId: string, transactions: ConnectorTransaction[]): Promise<unknown[]>
+  /**
+   * Ask the wallet to sign a NEP-413 message: a signature, no transaction, no
+   * funds. The caller verifies it; the wallet's answer is never trusted as-is.
+   */
+  signMessage(signerId: string, request: SignMessageRequest): Promise<SignedMessageResult>
 }
 
 /** Refuse to run inside another site's frame: NEAR Connect accepts injected wallets from any parent. */
@@ -220,6 +241,22 @@ export function createNearConnectAdapter(network: NetworkConfig): WalletAdapter 
         return [await wallet.signAndSendTransaction({ network: networkId, signerId, receiverId: tx.receiverId, actions: tx.actions })]
       }
       return await wallet.signAndSendTransactions({ network: networkId, signerId, transactions })
+    },
+
+    async signMessage(signerId, request) {
+      assertTopLevel()
+      const c = await get()
+      const { wallet } = await c.getConnectedWallet().catch(() => {
+        throw new NearKitError('WALLET_UNAVAILABLE', 'Your wallet session ended. Connect the wallet again to continue.')
+      })
+      if (wallet.manifest.features && wallet.manifest.features.signMessage === false) {
+        throw new NearKitError('WALLET_UNAVAILABLE', `${wallet.manifest.name} can’t sign messages. Connect a wallet that can (Meteor, HOT, Intear or MyNearWallet).`)
+      }
+      const signed = await wallet.signMessage({ message: request.message, recipient: request.recipient, nonce: new Uint8Array(request.nonce), network: networkId, signerId })
+      if (!signed || typeof signed.accountId !== 'string' || typeof signed.publicKey !== 'string' || typeof signed.signature !== 'string') {
+        throw new NearKitError('WALLET_UNAVAILABLE', 'The wallet returned an incomplete signature')
+      }
+      return { accountId: signed.accountId, publicKey: signed.publicKey, signature: signed.signature }
     },
   }
 }

@@ -8,6 +8,6 @@ export default defineConfig({
   define: { __NEARKIT_E2E__: 'false' },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'server/src/**/*.test.ts'],
   },
 })

@@ -53,3 +53,7 @@ jobs:
 
       - name: No stray build variables in the bundle
         run: '! grep -rq must-not-ship dist/assets'
+
+      # The Telegram bot server shares the web app's source; it must bundle too.
+      - name: Server build
+        run: npm run server:build

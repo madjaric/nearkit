@@ -80,6 +80,18 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
       const r = call(params.account_id, params.method_name, args)
       return rpcOk(id, r.error ? { error: r.error, logs: [], block_height: 1, block_hash: 'h' } : { result: enc(r.result), logs: [], block_height: 1, block_hash: 'h' })
     }
+    if (method === 'query' && params.request_type === 'view_access_key') {
+      const a = state.accounts.get(params.account_id)
+      if (!a) return rpcErr(id, 'UNKNOWN_ACCOUNT', `account ${params.account_id} does not exist while viewing`)
+      const kind = a.keys?.[params.public_key]
+      if (!kind) return rpcErr(id, 'UNKNOWN_ACCESS_KEY', `access key ${params.public_key} does not exist while viewing`)
+      return rpcOk(id, {
+        nonce: 1,
+        permission: kind === 'full' ? 'FullAccess' : { FunctionCall: { allowance: null, receiver_id: 'app.testnet', method_names: [] } },
+        block_height: 1,
+        block_hash: 'h',
+      })
+    }
     if (method === 'query' && params.request_type === 'view_access_key_list') return rpcOk(id, { keys: [], block_height: 1, block_hash: 'h' })
     if (method === 'EXPERIMENTAL_tx_status') {
       const result = outcomeFor(params.tx_hash)
@@ -149,5 +161,6 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
     })
   }
 
-  return { state, install }
+  // `rpc` answers JSON-RPC bodies directly, for servers that talk to the fake network over HTTP.
+  return { state, install, rpc }
 }

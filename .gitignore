@@ -1,6 +1,7 @@
 # Dependencies and build output
 node_modules
 dist
+dist-server
 *.tsbuildinfo
 
 # Logs, OS and editor files
@@ -37,3 +38,6 @@ test-results
 
 # Vercel CLI project link (per machine)
 .vercel
+
+# Telegram bot server state (SQLite database, local only)
+server/data

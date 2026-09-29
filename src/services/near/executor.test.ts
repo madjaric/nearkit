@@ -49,6 +49,9 @@ function wallet(session: WalletSession | null, sign: (signerId: string, n: numbe
     session: async () => session,
     disconnect: async () => undefined,
     signAndSendTransactions: vi.fn(async (signerId: string, txs: unknown[]) => sign(signerId, txs.length)),
+    signMessage: async () => {
+      throw new Error('unused')
+    },
   }
   return adapter
 }

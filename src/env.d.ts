@@ -8,6 +8,8 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_MAINNET_EXECUTION?: string
   readonly VITE_NEARKIT_FEE_RECIPIENT?: string
   readonly VITE_KIT_TOKEN_CONTRACT?: string
+  readonly VITE_NEARKIT_API_URL?: string
+  readonly VITE_TELEGRAM_BOT?: string
 }
 
 interface ImportMeta {

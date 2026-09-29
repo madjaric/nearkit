@@ -31,6 +31,7 @@ import type {
   WalletSnapshot,
 } from '@/types/domain'
 import type { NetworkName, OperationPlan, OperationProgress } from '@/types/operations'
+import type { SignedMessageResult, SignMessageRequest } from './near/wallet'
 
 /**
  * Service contracts. The UI reaches data and actions only through these
@@ -112,6 +113,11 @@ export interface WalletService {
   listWalletOptions(): Promise<WalletOption[]>
   connect(walletId?: string): Promise<Session>
   disconnect(): Promise<void>
+  /**
+   * Sign a NEP-413 message with the connected wallet: free, no transaction. Used
+   * to prove account ownership (e.g. linking Telegram). Refused in demo mode.
+   */
+  signMessage(request: SignMessageRequest & { accountId?: string }): Promise<SignedMessageResult>
   listWallets(): Promise<Wallet[]>
   listSnapshots(): Promise<WalletSnapshot[]>
   listHoldings(): Promise<Holding[]>
