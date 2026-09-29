@@ -9,9 +9,9 @@ import { anotherInstance, ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES, typ
 import { silentLogger } from '../log'
 import { createChainAccess } from './chain'
 import { createEngine, type Engine, type IntentHandler, type PlanOutcome } from './engine'
-import { createLocalSigner, type TradingSigner } from './signer'
+import { TEST_OWNER_KEY, testSigner } from '../signer/testing'
+import type { TradingSigner } from './signer'
 import { CustodyStore, EXECUTION_LEASE_MS, type TradingWallet } from './store'
-import { localKeyWrapper } from './vault'
 
 /**
  * The invariant for production (many server instances on one Postgres): one
@@ -44,8 +44,11 @@ async function world(engine: TestEngine): Promise<World> {
   const chain = createFakeChain({ accounts: { 'bob.testnet': { amount: 0n } } })
   const access = createChainAccess({ rpc: createRpcClient({ urls: ['https://rpc.test'], fetch: chain.fetch }), fetch: chain.fetch })
   const base = new CustodyStore(db, () => clock.t)
-  const signer = createLocalSigner({ wrapper: localKeyWrapper(KEK), network: NETWORKS.testnet, store: base, now: () => clock.t })
-  const wallet = (await base.createWallet({ userId: 101, network: 'testnet', ...(await signer.createKey('testnet')), keyRef: signer.keyRef })).wallet
+  // One signer service for every instance, as in production.
+  const { signer: shared } = await testSigner(db, { network: NETWORKS.testnet, kek: KEK, fetch: chain.fetch, now: () => clock.t })
+  const owner = { accountId: 'bob.testnet', publicKey: TEST_OWNER_KEY }
+  const key = await shared.createKey({ userId: 101, owner })
+  const wallet = (await base.createWallet({ userId: 101, network: 'testnet', accountId: key.accountId, publicKey: key.publicKey, keyRef: key.keyRef, owner })).wallet
   chain.fund(wallet.accountId, 50n * ONE)
   let first = true
   return {
@@ -71,11 +74,10 @@ async function world(engine: TestEngine): Promise<World> {
           return { ok: true, message: 'Sent.', hashes: confirmed.map((c) => c.hash) }
         },
       }
-      const local = createLocalSigner({ wrapper: localKeyWrapper(KEK), network: NETWORKS.testnet, store, now: () => clock.t })
       const signer: TradingSigner = {
-        ...local,
+        ...shared,
         async sign(req) {
-          const signed = await local.sign(req)
+          const signed = await shared.sign(req)
           await whileSigning?.()
           return signed
         },

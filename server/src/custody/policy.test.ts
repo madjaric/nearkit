@@ -155,9 +155,9 @@ describe('signer policy: swaps', () => {
     ).toMatch(/outside the route/)
   })
 
-  it('refuses the wrong network: no trading-wallet keys exist on mainnet', () => {
-    expect(refused(buyOp, swapPlan(BUY), WALLET, NETWORKS.mainnet)).toMatch(/no trading-wallet keys on mainnet/)
+  it('refuses the wrong network, and Rhea’s classic exchange on mainnet (swaps there carry NearKit’s fee through the aggregator)', () => {
     expect(refused(buyOp, swapPlan(BUY), { ...WALLET, network: 'mainnet' })).toMatch(/wallet is on mainnet/)
+    expect(refused(buyOp, swapPlan(BUY), { ...WALLET, network: 'mainnet' }, NETWORKS.mainnet)).toMatch(/aggregator|fee account/)
   })
 })
 

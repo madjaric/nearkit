@@ -3,11 +3,11 @@ import { randomToken } from '../ids'
 import { MAX_ACTIVE_WALLETS_PER_USER } from './limits'
 
 /**
- * What NearKit keeps about trading wallets: the wallet (with its key sealed),
- * every confirmed intent, every transaction signed for it (saved before it is
- * sent), a security log and key-export requests. Nothing here is a plain secret:
- * sealed keys are ciphertext, signed transactions are public once broadcast, and
- * the log holds IDs, accounts, hashes and amounts only.
+ * What the app keeps about trading wallets: the wallet (its address, public key and
+ * owner; never its key, which only the signer holds, signer/store.ts), every confirmed
+ * intent, every transaction signed for it (saved before it is sent) and a security
+ * log. Nothing here is a secret: signed transactions are public once broadcast, and the
+ * log holds IDs, accounts, hashes and amounts only.
  */
 
 export type WalletStatus = 'active' | 'revoked' | 'deleted'
@@ -17,10 +17,9 @@ export interface TradingWallet {
   userId: number
   network: string
   accountId: string
-  /** NearKit's key on the account (public part). */
+  /** NearKit's key on the account (public part). The key itself is in the signer's vault. */
   publicKey: string
-  /** JSON of a SealedSecret, or null once erased. */
-  sealedKey: string | null
+  /** The KEK the signer sealed the key with when it was made (public reference). */
   keyRef: string
   status: WalletStatus
   /** The user's own public key, once it is confirmed on the account as a full-access backup key. */
@@ -169,7 +168,6 @@ const toWallet = (r: WalletRow): TradingWallet => ({
   network: r.network,
   accountId: r.account_id,
   publicKey: r.public_key,
-  sealedKey: r.sealed_key,
   keyRef: r.key_ref,
   status: r.status,
   backupKey: r.backup_key,
@@ -272,7 +270,6 @@ export class CustodyStore {
     network: string
     accountId: string
     publicKey: string
-    sealedKey: string
     keyRef: string
     owner?: { accountId: string; publicKey: string } | null
     createKey?: string | null
@@ -292,9 +289,9 @@ export class CustodyStore {
         try {
           await this.db.attempt(() =>
             this.db.run(
-              `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, owner_account, owner_key, slot, create_key, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
-              [id, w.userId, w.network, w.accountId, w.publicKey, w.sealedKey, w.keyRef, w.owner?.accountId ?? null, w.owner?.publicKey ?? null, slot, w.createKey ?? null, t, t],
+              `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, key_ref, status, owner_account, owner_key, slot, create_key, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+              [id, w.userId, w.network, w.accountId, w.publicKey, w.keyRef, w.owner?.accountId ?? null, w.owner?.publicKey ?? null, slot, w.createKey ?? null, t, t],
             ),
           )
         } catch (e) {
@@ -357,11 +354,20 @@ export class CustodyStore {
     return r ? toWallet(r) : null
   }
 
+  /** Wallets closed since `since` (their keys should be erased by the signer). */
+  async closedSince(since: number): Promise<TradingWallet[]> {
+    return (await this.db.all<WalletRow>("SELECT * FROM trading_wallets WHERE status IN ('revoked', 'deleted') AND closed_at >= ? ORDER BY closed_at", [since])).map(toWallet)
+  }
+
   async setBackupKey(walletId: string, publicKey: string | null): Promise<void> {
     await this.db.run('UPDATE trading_wallets SET backup_key = ?, updated_at = ? WHERE id = ?', [publicKey, this.now(), walletId])
   }
 
-  /** Ends a wallet: NearKit's sealed key is erased for good (crypto-shredding). */
+  /**
+   * Ends a wallet here. The signer erases its sealed key for good (crypto-shredding) on its
+   * own, once the chain shows the key controls nothing (signer.eraseKey). `sealed_key` is
+   * a column from before the signer, cleared for good measure.
+   */
   async closeWallet(walletId: string, status: 'revoked' | 'deleted', detail: Record<string, unknown> = {}): Promise<boolean> {
     return this.db.tx(async () => {
       const w = await this.wallet(walletId)

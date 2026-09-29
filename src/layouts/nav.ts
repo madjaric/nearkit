@@ -6,6 +6,7 @@ import {
   Coins,
   Copy,
   Crosshair,
+  KeyRound,
   LayoutGrid,
   Layers,
   ListOrdered,
@@ -19,6 +20,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
+import { ENV } from '@/config/env'
 import { TELEGRAM_BOT_LIVE } from '@/config/release'
 
 export interface NavItem {
@@ -92,6 +94,10 @@ export const NAV_FOOTER: NavItem[] = [
   { to: '/settings', label: 'Settings', icon: Settings, keywords: ['preferences', 'slippage'] },
   { to: '/docs', label: 'Documentation', icon: BookOpen, keywords: ['docs', 'help', 'glossary', 'fees'] },
   { to: '/telegram', label: 'Telegram', icon: MessageSquare, soon: !TELEGRAM_BOT_LIVE, keywords: ['bot', 'link', 'buybot'] },
+  // NearKit wallets, recovered with the owner wallet's signature: needs a NearKit server.
+  ...(ENV.services === 'near' && ENV.apiUrl
+    ? [{ to: '/recover', label: 'Recover', icon: KeyRound, keywords: ['export', 'private key', 'backup', 'nearkit wallet', 'destination', 'approve'] }]
+    : []),
 ]
 
 /** Every page the navigation links to (in-place actions such as Quick Trade are not pages). */

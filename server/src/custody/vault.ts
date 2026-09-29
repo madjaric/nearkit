@@ -29,9 +29,13 @@ export class KeyUnavailableError extends Error {
   }
 }
 
-/** A sealed wallet key as stored (JSON). Every field is ciphertext or public metadata. */
+/**
+ * A sealed wallet key as stored (JSON). Every field is ciphertext or public metadata.
+ * `v` names the additional data both layers were sealed with (the crypto is the same):
+ * 1 = network and account; 2 = network, account and the wallet's owner (signer/envelope.ts).
+ */
 export interface SealedSecret {
-  v: 1
+  v: 1 | 2
   /** KeyWrapper.ref of the KEK that wrapped the DEK. */
   ref: string
   /** The DEK, encrypted by the KEK. */
@@ -87,20 +91,35 @@ export function localKeyWrapper(kek: Buffer): KeyWrapper {
 
 const secretContext = (aad: string) => `nearkit:secret:v1|${aad}`
 
-export async function sealSecret(wrapper: KeyWrapper, secret: Buffer, aad: string): Promise<SealedSecret> {
+export async function sealSecret(wrapper: KeyWrapper, secret: Buffer, aad: string, v: SealedSecret['v'] = 1): Promise<SealedSecret> {
   const dek = randomBytes(32)
   try {
     const s = seal(dek, secret, secretContext(aad))
-    return { v: 1, ref: wrapper.ref, dek: await wrapper.wrap(dek, aad), iv: s.iv.toString('base64'), tag: s.tag.toString('base64'), ct: s.ct.toString('base64') }
+    return { v, ref: wrapper.ref, dek: await wrapper.wrap(dek, aad), iv: s.iv.toString('base64'), tag: s.tag.toString('base64'), ct: s.ct.toString('base64') }
   } finally {
     dek.fill(0)
   }
 }
 
+/**
+ * The KEKs a signer can open keys with: the current one (new keys are sealed with it)
+ * and older ones kept for keys not yet moved (rotation). Each is found by its ref.
+ */
+export interface Keyring {
+  readonly current: KeyWrapper
+  byRef(ref: string): KeyWrapper | null
+}
+
+export function keyring(current: KeyWrapper, previous: readonly KeyWrapper[] = []): Keyring {
+  const all = new Map([current, ...previous].map((w) => [w.ref, w]))
+  return { current, byRef: (ref) => all.get(ref) ?? null }
+}
+
 /** The plain secret. The caller wipes it (`fill(0)`) as soon as it is done. */
-export async function openSecret(wrapper: KeyWrapper, sealed: SealedSecret, aad: string): Promise<Buffer> {
-  if (sealed.v !== 1) throw new KeyUnavailableError('Unknown sealed wallet key format')
-  if (sealed.ref !== wrapper.ref) throw new KeyUnavailableError(`This wallet key was sealed with another key-encryption key (${sealed.ref})`)
+export async function openSecret(keys: KeyWrapper | Keyring, sealed: SealedSecret, aad: string): Promise<Buffer> {
+  if (sealed.v !== 1 && sealed.v !== 2) throw new KeyUnavailableError('Unknown sealed wallet key format')
+  const wrapper = 'byRef' in keys ? keys.byRef(sealed.ref) : sealed.ref === keys.ref ? keys : null
+  if (!wrapper) throw new KeyUnavailableError(`This wallet key was sealed with another key-encryption key (${sealed.ref})`)
   const dek = await wrapper.unwrap(sealed.dek, aad)
   try {
     return unseal(dek, Buffer.from(sealed.iv, 'base64'), Buffer.from(sealed.ct, 'base64'), Buffer.from(sealed.tag, 'base64'), secretContext(aad))
@@ -130,7 +149,7 @@ export function parseSealed(text: string): SealedSecret {
     throw new KeyUnavailableError('A stored wallet key is not readable')
   }
   const v = value as Partial<SealedSecret>
-  if (v?.v !== 1 || [v.ref, v.dek, v.iv, v.tag, v.ct].some((f) => typeof f !== 'string' || !f)) throw new KeyUnavailableError('A stored wallet key is malformed')
+  if ((v?.v !== 1 && v?.v !== 2) || [v.ref, v.dek, v.iv, v.tag, v.ct].some((f) => typeof f !== 'string' || !f)) throw new KeyUnavailableError('A stored wallet key is malformed')
   return v as SealedSecret
 }
 

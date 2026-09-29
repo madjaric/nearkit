@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { base58Decode, base58Encode, base64Decode, base64Encode } from '@/lib/encoding'
-import { nep413Digest } from '@/services/near/nep413'
+import { base58Decode, base58Encode } from '@/lib/encoding'
 import { recoveryRoutes } from '../api/recoveryRoutes'
 import { MAX_ACTIVE_WALLETS_PER_USER } from '../custody/limits'
-import type { RecoveryDescription } from '../custody/recovery'
 import type { TradingWallet } from '../custody/store'
+import type { ChallengeView } from '../signer/core'
+import { exportAsOwner, ownerKeypair } from '../signer/testing'
 import { ALICE } from './testing'
-import { LINKED, ONE, walletBot } from './walletTesting'
+import { ONE, walletBot } from './walletTesting'
 
 type Harness = Awaited<ReturnType<typeof walletBot>>
 
@@ -22,11 +22,6 @@ async function newWallet(h: Harness): Promise<TradingWallet> {
     await h.press(create)
   }
   return (await h.wallet()) as TradingWallet
-}
-
-async function keypair() {
-  const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
-  return { pair, publicKey: `ed25519:${base58Encode(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)))}` }
 }
 
 describe('several NearKit wallets per Telegram user', () => {
@@ -141,7 +136,7 @@ describe('several NearKit wallets per Telegram user', () => {
   })
 
   it('the backup key goes on the wallet it was offered for, and only that one', async () => {
-    const owner = await keypair()
+    const owner = await ownerKeypair()
     const h = await walletBot({ linkedKey: owner.publicKey })
     const a = await newWallet(h)
     const b = await newWallet(h)
@@ -166,27 +161,24 @@ describe('several NearKit wallets per Telegram user', () => {
   })
 
   it('export is per wallet: the key exported for one wallet is that wallet’s alone', async () => {
-    const owner = await keypair()
+    const owner = await ownerKeypair()
     const h = await walletBot({ linkedKey: owner.publicKey })
     const wallets = [await newWallet(h), await newWallet(h), await newWallet(h)]
     const third = wallets[2] as TradingWallet
     await h.press(`cw:sel:${wallets[0]?.id}`) // Main is selected; wallet 3's own Export button is used
     await h.press(`cr:export:${third.id}`)
-    const code = (h.buttons().find((b) => b.url)?.url ?? '').split('#recover=')[1] as string
     expect(h.last()?.text).toContain('Wallet 3')
-    const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined })
-    const d = (await routes['/api/recovery/describe']?.({ code }, {} as never)) as RecoveryDescription
-    expect(d.wallet).toBe(third.accountId)
-    expect(d.message).toContain(third.accountId)
-    const digest = await nep413Digest({ message: d.message, nonce: base64Decode(d.nonce) as Uint8Array, recipient: d.recipient })
-    const signature = base64Encode(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, owner.pair.privateKey, digest)))
-    const out = (await routes['/api/recovery/export']?.({ code, accountId: LINKED, publicKey: owner.publicKey, signature }, {} as never)) as {
-      accountId: string
-      publicKey: string
-      secretKey: string
-    }
-    expect(out.accountId).toBe(third.accountId)
-    const raw = base58Decode(out.secretKey.slice('ed25519:'.length)) as Uint8Array
+    expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkit.vercel.app/recover#wallet=${third.accountId}`)
+    const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
+    const secret = await exportAsOwner(
+      {
+        challenge: async (req) => (await routes['/api/recovery/challenge']?.(req, {} as never)) as ChallengeView,
+        exportKey: async (p) => (await routes['/api/recovery/export']?.(p, {} as never)) as { sealed: unknown },
+      },
+      third.accountId,
+      owner,
+    )
+    const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
     const exportedPublic = `ed25519:${base58Encode(raw.subarray(32))}`
     expect(exportedPublic).toBe(third.publicKey)
     // Nothing of the other wallets: their public keys differ, and the key opens only this one.

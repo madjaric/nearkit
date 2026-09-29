@@ -1,4 +1,5 @@
 import type { BackupKeyParams } from '../custody/recovery'
+import { PolicyViolation } from '../custody/policy'
 import { ownerKeyNow, RECOVERY_INTENT_TTL_MS, RecoveryApiError } from '../custody/recovery'
 import type { Intent, TradingWallet } from '../custody/store'
 import { readWallet } from '../custody/wallets'
@@ -6,6 +7,7 @@ import { bold, code, esc, shortAccount } from '../telegram/html'
 import { btn, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { flowWallet, newWalletButton, showWalletHome, tradingWallet, walletLine } from './tradingWallet'
+import { walletErrorText } from './ui'
 
 /**
  * 🔐 Recovery, per NearKit wallet: the backup key, the key export (in the NearKit web
@@ -145,19 +147,18 @@ async function exportLink(ctx: BotCtx, walletId: string) {
   if (!custody || !w) return showWalletHome(ctx)
   let issued
   try {
-    issued = await custody.recovery.createRequest(ctx.user.id, w.id)
+    issued = await custody.recovery.exportLink(ctx.user.id, w.id)
   } catch (e) {
     if (e instanceof RecoveryApiError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard(back))
     throw e
   }
-  const minutes = Math.round((issued.expiresAt - ctx.deps.now()) / 60_000)
   await ctx.show(
     [
       `🌐 ${bold('Export a NearKit wallet’s key')} · ${walletLine(w)}`,
       '',
-      `1. Open the link below. It works once, for this wallet only, and expires in ${minutes} minutes.`,
+      '1. Open NearKit web with the button below (the same page works without Telegram: nearkit.vercel.app/recover).',
       `2. Connect ${w.ownerAccount ? code(w.ownerAccount) : 'your owner wallet'}, the wallet this one was created with, and sign the message it shows. Signing is free.`,
-      '3. NearKit web shows the private key once, on your screen.',
+      '3. The private key is sealed to that browser and shown once, on your screen. Nothing in between can read it.',
       '',
       'Anyone who sees that key controls the wallet. Never share it or paste it into a chat. NearKit never asks for it.',
     ].join('\n'),
@@ -188,6 +189,13 @@ async function deleteEmpty(ctx: BotCtx, walletId: string) {
   // Re-read now: a deposit may have arrived since the question.
   const view = await readWallet(ctx.deps.near, w)
   if (view.exists !== false) return offerDelete(ctx, w.id)
+  // The signer checks the chain itself and erases its key only if the wallet was never funded.
+  try {
+    await custody.signer.eraseKey({ accountId: w.accountId, reason: 'deleted' })
+  } catch (e) {
+    if (e instanceof PolicyViolation) return offerDelete(ctx, w.id)
+    return ctx.show(`⚠️ ${esc(walletErrorText(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'delete wallet' }))} Nothing was deleted.`, keyboard(back))
+  }
   await custody.store.closeWallet(w.id, 'deleted', { reason: 'never funded' })
   await ctx.show('🗑 Deleted. It was never funded, so nothing was lost.', keyboard([newWalletButton(), btn('« Menu', 'menu:home')]))
 }
@@ -217,6 +225,10 @@ export function recoveryModule(): BotModule {
 }
 
 /** Sent to Telegram when the key was exported in the web app: the owner hears about it either way. */
-export function exportedText(wallet: string, signedBy: string): string {
-  return `🔐 Your NearKit wallet ${code(shortAccount(wallet))} key was just exported in NearKit web, signed by ${code(signedBy)}.\n\nIf this wasn’t you, move your funds now.`
+export function exportedText(wallet: string, owner: string): string {
+  return `🔐 Your NearKit wallet ${code(shortAccount(wallet))} key was just exported in NearKit web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
+}
+
+export function approvedText(wallet: string, destination: string): string {
+  return `✅ ${code(destination)} can now receive withdrawals from your NearKit wallet ${code(shortAccount(wallet))}: approved with its owner wallet.\n\nIf this wasn’t you, move your funds now.`
 }

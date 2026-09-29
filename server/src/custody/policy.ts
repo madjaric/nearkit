@@ -3,7 +3,6 @@ import { accountKind, isForeignToNetwork } from '@/lib/validation'
 import { GAS, MAX_TX_GAS } from '@/services/near/gas'
 import { parseEd25519PublicKey } from '@/services/near/nep413'
 import { MAX_REGISTRATION_YOCTO } from '@/services/near/storage'
-import { CUSTODY_NETWORKS } from './networks'
 
 /**
  * What NearKit's signer may sign for a trading wallet, and nothing else.
@@ -42,8 +41,10 @@ export interface SwapRouteFacts {
   receiver: string
   msg: string
   routeTokens: string[]
-  /** The lowest output the route itself enforces. */
+  /** The lowest output the route itself enforces (after an output-side fee, on the aggregator). */
   minOut: bigint
+  /** Aggregator only: the minimum Rhea signed into the route (the sum of its final minimums). */
+  signedMin?: bigint
 }
 
 export type WalletOperation =
@@ -115,7 +116,6 @@ function expectRegistration(a: WalletAction | undefined, allowed: ReadonlySet<st
 }
 
 function checkEnvelope(plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig): void {
-  if (!CUSTODY_NETWORKS.includes(network.id)) refuse(`NearKit holds no trading-wallet keys on ${network.id}`)
   if (wallet.network !== network.id) refuse(`the wallet is on ${wallet.network}, NearKit is running on ${network.id}`)
   if (plan.length === 0 || plan.length > MAX_TXS) refuse('unexpected number of transactions')
   for (const tx of plan) {
@@ -179,9 +179,71 @@ function checkClassicMsg(r: SwapRouteFacts): void {
   if (minOut !== r.minOut) refuse('the route’s minimum differs from the verified one')
 }
 
-function checkSwap(op: Extract<WalletOperation, { kind: 'swap' }>, plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig): void {
+/** Aggregator-internal registration (`tokens_storage_deposit`) of `users` only, on route tokens only, at Rhea's price per token. */
+function expectAggregatorRegistration(a: WalletAction | undefined, users: ReadonlySet<string>, tokens: ReadonlySet<string>, perToken: bigint, seen: Set<string>): void {
+  if (!a || a.kind !== 'call' || a.method !== 'tokens_storage_deposit') return refuse('expected a registration with Rhea’s aggregator')
+  const user = a.args.user
+  const list = a.args.tokens
+  if (typeof user !== 'string' || !users.has(user)) return refuse('a Rhea registration is for an unexpected account')
+  if (seen.has(user)) refuse('an account is registered with Rhea twice')
+  seen.add(user)
+  if (!Array.isArray(list) || list.length === 0 || list.length > 8 || new Set(list).size !== list.length || list.some((t) => typeof t !== 'string' || !tokens.has(t)))
+    return refuse('a Rhea registration names tokens outside the route')
+  expectCall(a, 'tokens_storage_deposit', { user, tokens: list }, perToken * BigInt(list.length), GAS.AGGREGATOR_STORAGE)
+}
+
+/**
+ * A swap through Rhea's aggregator (mainnet): registrations of the wallet and the
+ * aggregator on route tokens, the wallet and NearKit's fee account inside the aggregator,
+ * then one `ft_transfer_call` of exactly the route's input to the aggregator with the
+ * signed route. The route itself is checked by the signer (signer/routes.ts).
+ */
+function checkAggregatorSwap(
+  op: Extract<WalletOperation, { kind: 'swap' }>,
+  plan: readonly WalletTxPlan[],
+  wallet: PolicyWallet,
+  network: NetworkConfig,
+  feeRecipient: string | null,
+): void {
   const r = op.route
-  // The aggregator is mainnet-only, and NearKit holds no mainnet keys (CUSTODY_NETWORKS).
+  const agg = network.rhea.aggregator
+  if (!agg) return refuse('there is no aggregator on this network')
+  if (r.router !== 'aggregator') refuse('on this network swaps go through Rhea’s aggregator, with NearKit’s fee')
+  if (!feeRecipient) refuse('no NearKit fee account is configured')
+  if (r.receiver !== agg.contract) refuse('the swap goes to a contract that is not Rhea’s aggregator')
+  if (r.nativeIn && r.routeIn !== network.wrapContract) refuse('NEAR must be swapped from the wrap contract')
+  if (r.amountIn <= 0n) refuse('the swap amount is not positive')
+  if (r.minOut <= 0n) refuse('the route has no minimum output')
+  if (r.minOut < op.authorizedMinOut) refuse('the route’s minimum is below the minimum you confirmed')
+
+  const swapTx = plan[plan.length - 1] as WalletTxPlan
+  if (swapTx.receiverId !== r.routeIn) refuse('the swap transaction goes to a different token contract')
+  const registrants = new Set([wallet.accountId, agg.contract])
+  const routeContracts = new Set([...r.routeTokens, network.wrapContract])
+  const users = new Set([wallet.accountId, feeRecipient as string])
+  const tokens = new Set(r.routeTokens)
+  let withRhea = 0
+  for (const tx of plan.slice(0, -1)) {
+    if (tx.receiverId === agg.contract) {
+      if (++withRhea > 1) refuse('the plan registers with Rhea’s aggregator twice')
+      const seen = new Set<string>()
+      for (const a of tx.actions) expectAggregatorRegistration(a, users, tokens, BigInt(agg.tokenStorageDeposit), seen)
+      continue
+    }
+    if (!routeContracts.has(tx.receiverId)) refuse('a registration is on a contract outside the route')
+    for (const a of tx.actions) expectRegistration(a, registrants)
+  }
+  const actions = [...swapTx.actions]
+  expectCall(actions.pop(), 'ft_transfer_call', { receiver_id: agg.contract, amount: r.amountIn.toString(), msg: r.msg }, 1n, GAS.SWAP_CALL)
+  if (r.nativeIn) expectCall(actions.pop(), 'near_deposit', {}, r.amountIn, GAS.NEAR_DEPOSIT)
+  if (actions.length > 2) refuse('the swap transaction has unexpected actions')
+  for (const a of actions) expectRegistration(a, registrants)
+}
+
+function checkSwap(op: Extract<WalletOperation, { kind: 'swap' }>, plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig, feeRecipient: string | null): void {
+  // Mainnet: the aggregator, with NearKit's fee. Testnet (no aggregator): the classic exchange.
+  if (network.rhea.aggregator) return checkAggregatorSwap(op, plan, wallet, network, feeRecipient)
+  const r = op.route
   if (r.router !== 'classic') refuse('only Rhea’s classic router is allowed for trading wallets on this network')
   if (r.receiver !== network.rhea.classic.exchange) refuse('the swap goes to a contract that is not Rhea’s exchange')
   if (r.nativeIn && r.routeIn !== network.wrapContract) refuse('NEAR must be swapped from the wrap contract')
@@ -211,11 +273,15 @@ function checkDestination(to: string, wallet: PolicyWallet, network: NetworkConf
   if (to === wallet.accountId) refuse('the destination is the wallet itself')
 }
 
-export function checkPlan(op: WalletOperation, plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig): void {
+/**
+ * `feeRecipient`: the one account NearKit's fee may go to on this network (the signer's
+ * own configuration), or null where no fee is charged.
+ */
+export function checkPlan(op: WalletOperation, plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig, feeRecipient: string | null = null): void {
   checkEnvelope(plan, wallet, network)
   switch (op.kind) {
     case 'swap':
-      return checkSwap(op, plan, wallet, network)
+      return checkSwap(op, plan, wallet, network, feeRecipient)
     case 'withdraw-near': {
       checkDestination(op.to, wallet, network)
       if (op.amount <= 0n) refuse('the amount is not positive')

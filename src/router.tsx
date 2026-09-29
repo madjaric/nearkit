@@ -30,6 +30,7 @@ export const router = createBrowserRouter([
           { path: 'scanner', lazy: page(() => import('@/pages/ScannerPage')) },
           { path: 'kit', lazy: page(() => import('@/pages/KitPage')) },
           { path: 'telegram', lazy: page(() => import('@/pages/TelegramPage')) },
+          { path: 'recover', lazy: page(() => import('@/pages/RecoverPage')) },
           { path: 'settings', lazy: page(() => import('@/pages/SettingsPage')) },
           { path: 'docs', lazy: page(() => import('@/pages/DocsPage')) },
           // Already in the main chunk for the boot and error screens.

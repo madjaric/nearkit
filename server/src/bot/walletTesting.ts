@@ -1,5 +1,8 @@
+import { recoveryRoutes } from '../api/recoveryRoutes'
 import { botModules } from '../app'
 import type { TradingWallet } from '../custody/store'
+import type { ChallengeView } from '../signer/core'
+import { ownerSign } from '../signer/testing'
 import type { Logger } from '../log'
 import type { Command } from './context'
 import { tradingWallet } from './tradingWallet'
@@ -98,5 +101,11 @@ export async function walletBot(options: { link?: boolean; linkedKey?: string; e
     },
     /** The data of the button whose label contains `label`. */
     button: (label: string) => h.buttons().find((b) => b.text.includes(label))?.data ?? '',
+    /** The owner approves `destination` for the NearKit wallet `wallet` in NearKit web: it signs the signer's message. */
+    async approve(wallet: string, destination: string, owner: { pair: CryptoKeyPair; publicKey: string }) {
+      const routes = recoveryRoutes({ recovery: custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
+      const c = (await routes['/api/recovery/challenge']?.({ kind: 'approve-destination', accountId: wallet, destination }, {} as never)) as ChallengeView
+      return routes['/api/recovery/destination']?.({ challengeId: c.id, publicKey: owner.publicKey, signature: await ownerSign(c, owner.pair) }, {} as never)
+    },
   }
 }

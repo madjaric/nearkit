@@ -10,10 +10,13 @@ import { Store } from '../db/store'
 import { createLogger } from '../log'
 import { createChainAccess, type ChainAccess } from './chain'
 import { AMBIGUOUS_GRACE_BLOCKS, createEngine, type IntentHandler, type PlanOutcome } from './engine'
+import { openWalletKey } from '../signer/envelope'
+import type { SignerStore } from '../signer/store'
+import { TEST_OWNER_KEY, testSigner } from '../signer/testing'
 import { secretKeyText } from './keys'
-import { createLocalSigner, walletAad, type TradingSigner } from './signer'
+import type { TradingSigner } from './signer'
 import { CustodyStore, EXECUTION_LEASE_MS, type TradingWallet } from './store'
-import { localKeyWrapper, openSecret, parseSealed } from './vault'
+import { keyring, localKeyWrapper } from './vault'
 
 const ONE = 10n ** 24n
 const KEK = randomBytes(32)
@@ -24,6 +27,7 @@ let chain: FakeChain
 let store: CustodyStore
 let access: ChainAccess
 let signer: TradingSigner
+let vault: SignerStore
 let wallet: TradingWallet
 let logs: string[]
 let planOverride: ((p: { to: string; amount: string }) => PlanOutcome) | null
@@ -70,9 +74,13 @@ beforeEach(async () => {
   store = new CustodyStore(db, () => clock)
   chain = createFakeChain({ accounts: { 'bob.testnet': { amount: 0n } } })
   access = createChainAccess({ rpc: createRpcClient({ urls: ['https://rpc.test'], fetch: chain.fetch }), fetch: chain.fetch })
-  signer = createLocalSigner({ wrapper: localKeyWrapper(KEK), network: net, store, now: () => clock })
-  const key = await signer.createKey('testnet')
-  wallet = (await store.createWallet({ userId: 101, network: 'testnet', ...key, keyRef: signer.keyRef })).wallet
+  const s = await testSigner(db, { network: net, kek: KEK, fetch: chain.fetch, now: () => clock })
+  signer = s.signer
+  vault = s.store
+  // bob.testnet is the wallet's owner here: withdrawals to it need no approval.
+  const owner = { accountId: 'bob.testnet', publicKey: TEST_OWNER_KEY }
+  const key = await signer.createKey({ userId: 101, owner })
+  wallet = (await store.createWallet({ userId: 101, network: 'testnet', accountId: key.accountId, publicKey: key.publicKey, keyRef: key.keyRef, owner })).wallet
   chain.fund(wallet.accountId, 5n * ONE)
 })
 
@@ -178,7 +186,7 @@ describe('unclear sends and restarts', () => {
     const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: chain.fetch })
     await rpc.call('send_tx', { signed_tx_base64: stored?.signed, wait_until: 'FINAL' })
     // A new process: fresh engine and signer over the same database.
-    signer = createLocalSigner({ wrapper: localKeyWrapper(KEK), network: net, store, now: () => clock })
+    signer = (await testSigner(store.db, { network: net, kek: KEK, fetch: chain.fetch, now: () => clock })).signer
     const settled: string[] = []
     const restarted = engineFor(settled)
     const sentBefore = chain.sent.length
@@ -208,7 +216,7 @@ describe('unclear sends and restarts', () => {
     const nonce = ((await access.keyNonce(wallet.accountId, wallet.publicKey)) ?? 0n) + 1n
     const anchor = await access.anchor()
     const plan = [{ receiverId: 'bob.testnet', actions: [{ kind: 'transfer' as const, deposit: ONE.toString() }], label: 'Withdraw' }]
-    const signed = await signer.sign({ wallet, op: { kind: 'withdraw-near', to: 'bob.testnet', amount: ONE }, plan, index: 0, nonce, blockHash: anchor.hash })
+    const signed = await signer.sign({ wallet, intentId: i.id, step: 0, op: { kind: 'withdraw-near', to: 'bob.testnet', amount: ONE }, plan, nonce, blockHash: anchor.hash })
     await store.recordSigned({
       owner: 'local',
       intentId: i.id,
@@ -293,14 +301,18 @@ describe('secrets', () => {
     chain.onSend('drop')
     await engine.execute((await intent()).id, 101)
     await engine.execute((await intent(100n * ONE)).id, 101)
-    const seed = await openSecret(localKeyWrapper(KEK), parseSealed(wallet.sealedKey as string), walletAad('testnet', wallet.accountId))
+    const sealed = (await vault.key('testnet', wallet.accountId))?.sealedKey as string
+    const seed = await openWalletKey(keyring(localKeyWrapper(KEK)), sealed, { network: 'testnet', accountId: wallet.accountId, publicKey: wallet.publicKey, owner: 'bob.testnet' })
     const secret = secretKeyText(seed)
     const everything = [
       ...logs,
       JSON.stringify(await store.auditOf(wallet.id)),
-      JSON.stringify(store.db.all('SELECT * FROM wallet_intents')),
-      JSON.stringify(store.db.all('SELECT * FROM wallet_txs')),
-      JSON.stringify(store.db.all('SELECT id, user_id, network, account_id, public_key, key_ref, status FROM trading_wallets')),
+      JSON.stringify(await store.db.all('SELECT * FROM wallet_intents')),
+      JSON.stringify(await store.db.all('SELECT * FROM wallet_txs')),
+      JSON.stringify(await store.db.all('SELECT * FROM trading_wallets')),
+      JSON.stringify(await store.db.all('SELECT * FROM signer_events')),
+      JSON.stringify(await store.db.all('SELECT * FROM signer_signatures')),
+      JSON.stringify(await store.db.all('SELECT network, account_id, public_key, owner_account, key_ref, status FROM signer_keys')),
     ].join('\n')
     for (const needle of [secret, secret.slice(8), seed.toString('hex'), seed.toString('base64'), base64Encode(seed), KEK.toString('base64')])
       expect(everything).not.toContain(needle)

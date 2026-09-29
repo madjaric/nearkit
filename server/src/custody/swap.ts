@@ -96,6 +96,7 @@ export function routeFacts(r: RoutedSwap): SwapRouteFacts {
     msg: r.msg,
     routeTokens: r.routeTokens,
     minOut: r.minOut,
+    ...(r.router === 'aggregator' ? { signedMin: r.signedMin } : {}),
   }
 }
 

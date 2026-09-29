@@ -24,8 +24,9 @@ import {
  *    press, a replayed callback or a duplicate update changes nothing.
  * 2. The intent's handler re-checks everything against the chain right now and
  *    returns the exact plan (or a new quote when the price moved; then nothing is sent).
- * 3. For each transaction: sign (policy inside the signer), save the signed bytes
- *    and hash to disk, THEN send. A step is never signed twice.
+ * 3. For each transaction: sign (policy inside the signer, which also signs each
+ *    (intent, step) as one transaction only, ever), save the signed bytes and hash to
+ *    disk, THEN send. A step is never signed twice.
  * 4. An unclear send is never re-signed or blindly re-sent: the chain is asked for
  *    the hash until it is final, or provably can't land: past its expiry height AND
  *    NearKit's key never reached its nonce. When the key's nonce moved but the chain
@@ -179,7 +180,7 @@ export function createEngine(deps: EngineDeps) {
         nonce = (lastNonce !== null && lastNonce >= onChain ? lastNonce : onChain) + 1n
         const anchor = await chain.anchor()
         expiresHeight = anchor.expiresHeight
-        signed = await signer.sign({ wallet, op, plan, index: step, nonce, blockHash: anchor.hash })
+        signed = await signer.sign({ wallet, intentId: intent.id, step, op, plan, nonce, blockHash: anchor.hash })
       } catch (e) {
         log.warn('signing refused', { intent: intent.id, step, error: e })
         const hashes = confirmed.map((c) => c.hash)

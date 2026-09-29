@@ -371,8 +371,19 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
  * migration never runs twice.
  */
 export async function migrate(db: Database, target = Number.POSITIVE_INFINITY): Promise<number> {
-  const list = db.dialect === 'postgres' ? PG_MIGRATIONS : MIGRATIONS
-  const versionOf = async () => Number((await db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'"))?.value ?? '0')
+  return runMigrations(db, db.dialect === 'postgres' ? PG_MIGRATIONS : MIGRATIONS, 'schema_version', target)
+}
+
+export type Migration = { version: number; name: string; sql: string }
+
+/**
+ * Applies `list` up to `target`, each migration in its own transaction, recording the
+ * version under `key` in the meta table. On PostgreSQL every step holds an advisory
+ * lock, so instances starting together migrate one at a time. The signer's tables are
+ * a separate track (signer/schema.ts) with its own key.
+ */
+export async function runMigrations(db: Database, list: readonly Migration[], key: string, target = Number.POSITIVE_INFINITY): Promise<number> {
+  const versionOf = async () => Number((await db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', [key]))?.value ?? '0')
   const lock = async () => {
     if (db.dialect === 'postgres') await db.get("SELECT pg_advisory_xact_lock(hashtext('nearkit:migrate'))")
   }
@@ -388,7 +399,7 @@ export async function migrate(db: Database, target = Number.POSITIVE_INFINITY): 
       const current = await versionOf()
       if (m.version <= current) return current
       await db.exec(m.sql)
-      await db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(m.version)])
+      await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, String(m.version)])
       return m.version
     })
   }

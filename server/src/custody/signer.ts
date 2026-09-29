@@ -1,33 +1,31 @@
-import type { NetworkConfig } from '@/config/networks'
-import { base58Encode, base64Encode } from '@/lib/encoding'
-import {
-  deserializeSignedTransaction,
-  jsonArgs,
-  serializeSignedTransaction,
-  serializeTransaction,
-  transactionDigest,
-  type NearTransaction,
-  type TxAction,
-} from '@/services/near/transaction'
-import { generateKey, implicitAccountId, nearPublicKey, publicKeyOf, secretKeyText, signWithSeed } from './keys'
-import { checkPlan, PolicyViolation, type WalletAction, type WalletOperation, type WalletTxPlan } from './policy'
-import type { CustodyStore, TradingWallet } from './store'
-import { KeyUnavailableError, openSecret, parseSealed, sealSecret, type KeyWrapper } from './vault'
+import { base58Encode } from '@/lib/encoding'
+import type { SealedExport } from '@/lib/exportCrypto'
+import type { ChallengeView, SignerCore, SignerMethod } from '../signer/core'
+import { encodeOp } from '../signer/codec'
+import { SignerUnavailableError } from '../signer/errors'
+import type { WalletOperation, WalletTxPlan } from './policy'
+import type { TradingWallet } from './store'
 
 /**
- * The only code that opens a trading-wallet key. It has no "sign these bytes"
- * entry point: `sign` takes a typed operation with its planned transactions,
- * runs the policy over the whole plan, builds the transaction itself, opens the
- * key just long enough to sign, reads the signed bytes back and compares them to
- * the plan. A KMS-backed signer implements the same interface.
+ * The app's side of NearKit's signer (signer/core.ts). The app never holds a wallet key:
+ * it asks the signer for typed things (a new key bound to its owner, one signature of one
+ * planned step, an owner-signed export or approval) and the signer decides. The transport
+ * is the signer service over authenticated HTTP in production (signer/client.ts), or the
+ * same core in this process on testnet; either way requests and answers cross as JSON,
+ * validated on arrival.
  */
 
+export interface SignerTransport {
+  call(method: SignerMethod, body: Record<string, unknown>): Promise<unknown>
+}
+
 export interface SignRequest {
-  wallet: TradingWallet
+  wallet: Pick<TradingWallet, 'accountId' | 'network'>
+  /** The intent and the step of its plan: the signer signs each (intent, step) once, ever. */
+  intentId: string
+  step: number
   op: WalletOperation
   plan: readonly WalletTxPlan[]
-  /** Which transaction of the plan to sign. */
-  index: number
   nonce: bigint
   blockHash: Uint8Array
 }
@@ -37,146 +35,112 @@ export interface SignedTx {
   base64: string
 }
 
+export interface OwnerProof {
+  challengeId: string
+  /** The owner wallet's key that signed (NEP-413). */
+  publicKey: string
+  signature: string
+}
+
+export type ChallengeRequest =
+  { kind: 'owner-session'; owner: string } | { kind: 'export'; accountId: string; recipientKey: string } | { kind: 'approve-destination'; accountId: string; destination: string }
+
+export interface SignerHealth {
+  ok: boolean
+  paused: boolean
+  network: string
+  keyRef: string
+  kek: string
+  db: string
+}
+
 export interface TradingSigner {
-  /** KEK reference new wallets are sealed with. */
-  readonly keyRef: string
-  createKey(network: string): Promise<{ accountId: string; publicKey: string; sealedKey: string }>
+  createKey(req: { userId: number; owner: { accountId: string; publicKey: string } }): Promise<{ accountId: string; publicKey: string; keyRef: string }>
   sign(req: SignRequest): Promise<SignedTx>
-  /**
-   * Recovery export only. `codeHash` names a request the recovery service already
-   * verified with the owner's wallet signature; each request exports once.
-   */
-  exportSecret(wallet: TradingWallet, codeHash: string): Promise<string>
+  /** Erases the signer's copy once the chain shows it controls nothing: a never-funded wallet, or NearKit's key removed. */
+  eraseKey(req: { accountId: string; reason: 'deleted' | 'revoked' }): Promise<boolean>
+  keyInfo(accountId: string): Promise<{ held: boolean; publicKey: string | null; ownerAccount: string | null; keyRef: string | null }>
+  challenge(req: ChallengeRequest): Promise<ChallengeView>
+  ownerWallets(proof: OwnerProof): Promise<{ ownerAccount: string; wallets: { accountId: string; publicKey: string; createdAt: number }[] }>
+  approveDestination(proof: OwnerProof): Promise<{ accountId: string; destination: string; approvedAt: number }>
+  revokeDestination(req: { accountId: string; destination: string }): Promise<boolean>
+  destinations(accountId: string): Promise<{ ownerAccount: string | null; destinations: { destination: string; approvedAt: number }[] }>
+  /** The key, sealed to the browser key the owner signed for: the app can't open it. */
+  exportKey(proof: OwnerProof): Promise<{ accountId: string; publicKey: string; sealed: SealedExport }>
+  /** Pausing only stops things, so the app may ask for it; only the signer's operator resumes. */
+  pause(reason: string): Promise<void>
+  health(): Promise<SignerHealth>
 }
 
-/** Additional data both encryption layers are bound to. */
-export const walletAad = (network: string, accountId: string) => `${network}:${accountId}`
-
-/** A verified export request must be used within this long. */
-export const EXPORT_WINDOW_MS = 5 * 60_000
-
-export function toTxActions(actions: readonly WalletAction[]): TxAction[] {
-  return actions.map((a): TxAction => {
-    switch (a.kind) {
-      case 'transfer':
-        return { type: 'Transfer', deposit: BigInt(a.deposit) }
-      case 'call':
-        return { type: 'FunctionCall', methodName: a.method, args: jsonArgs(a.args), gas: BigInt(a.gas), deposit: BigInt(a.deposit) }
-      case 'add-key':
-        return { type: 'AddKey', publicKey: a.publicKey, permission: 'FullAccess' }
-      case 'delete-key':
-        return { type: 'DeleteKey', publicKey: a.publicKey }
-    }
-  })
+/** The same core in this process (testnet). Requests and answers are copied as JSON, as over the wire. */
+export function inProcessTransport(core: SignerCore): SignerTransport {
+  const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
+  return { call: async (method, body) => copy(await core.handle(method, copy(body))) }
 }
 
-const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i])
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-function sameAction(a: TxAction, b: TxAction): boolean {
-  if (a.type !== b.type) return false
-  switch (a.type) {
-    case 'Transfer':
-      return a.deposit === (b as typeof a).deposit
-    case 'FunctionCall': {
-      const o = b as typeof a
-      return a.methodName === o.methodName && sameBytes(a.args, o.args) && a.gas === o.gas && a.deposit === o.deposit
-    }
-    case 'AddKey': {
-      const o = b as typeof a
-      return a.publicKey === o.publicKey && a.permission === 'FullAccess' && o.permission === 'FullAccess'
-    }
-    case 'DeleteKey':
-      return a.publicKey === (b as typeof a).publicKey
-  }
+function answer<T>(v: unknown, keys: readonly string[]): T {
+  if (!isObj(v) || keys.some((k) => !(k in v))) throw new SignerUnavailableError('The signer answered something unexpected')
+  return v as T
 }
 
-function sameTransaction(a: NearTransaction, b: NearTransaction): boolean {
-  return (
-    a.signerId === b.signerId &&
-    a.publicKey === b.publicKey &&
-    a.nonce === b.nonce &&
-    a.receiverId === b.receiverId &&
-    sameBytes(a.blockHash, b.blockHash) &&
-    a.actions.length === b.actions.length &&
-    a.actions.every((x, i) => sameAction(x, b.actions[i] as TxAction))
-  )
-}
-
-export function createLocalSigner(deps: { wrapper: KeyWrapper; network: NetworkConfig; store: CustodyStore; now?: () => number }): TradingSigner {
-  const { wrapper, network, store } = deps
-  const now = deps.now ?? Date.now
-
-  async function withSeed<T>(wallet: TradingWallet, act: (seed: Buffer) => T): Promise<T> {
-    if (wallet.status !== 'active' || !wallet.sealedKey) throw new KeyUnavailableError('This NearKit wallet is closed; NearKit no longer holds its key')
-    const seed = await openSecret(wrapper, parseSealed(wallet.sealedKey), walletAad(wallet.network, wallet.accountId))
-    try {
-      // The stored key must be the one on record for this wallet.
-      if (nearPublicKey(publicKeyOf(seed)) !== wallet.publicKey) throw new KeyUnavailableError('The stored key does not match this wallet')
-      return act(seed)
-    } finally {
-      seed.fill(0)
-    }
-  }
-
+export function createSignerClient(transport: SignerTransport): TradingSigner {
+  const call = (method: SignerMethod, body: Record<string, unknown>) => transport.call(method, body)
   return {
-    keyRef: wrapper.ref,
-
-    async createKey(net) {
-      const key = generateKey()
-      try {
-        const accountId = implicitAccountId(key.publicKey)
-        const sealed = await sealSecret(wrapper, key.seed, walletAad(net, accountId))
-        return { accountId, publicKey: nearPublicKey(key.publicKey), sealedKey: JSON.stringify(sealed) }
-      } finally {
-        key.seed.fill(0)
-      }
+    async createKey(req) {
+      const r = answer<{ accountId: string; publicKey: string; keyRef: string }>(await call('create-key', { owner: req.owner, userId: req.userId }), [
+        'accountId',
+        'publicKey',
+        'keyRef',
+      ])
+      return { accountId: String(r.accountId), publicKey: String(r.publicKey), keyRef: String(r.keyRef) }
     },
-
     async sign(req) {
-      const { wallet, op, plan, index } = req
-      const planned = plan[index]
-      try {
-        if (!planned) throw new PolicyViolation('there is no such transaction in the plan')
-        checkPlan(op, plan, { accountId: wallet.accountId, publicKey: wallet.publicKey, network: wallet.network }, network)
-      } catch (e) {
-        if (e instanceof PolicyViolation) await store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'policy-refused', detail: { op: op.kind, reason: e.message } })
-        throw e
-      }
-      const tx: NearTransaction = {
-        signerId: wallet.accountId,
-        publicKey: wallet.publicKey,
-        nonce: req.nonce,
-        receiverId: (planned as WalletTxPlan).receiverId,
-        blockHash: req.blockHash,
-        actions: toTxActions((planned as WalletTxPlan).actions),
-      }
-      const digest = await transactionDigest(serializeTransaction(tx))
-      const signature = await withSeed(wallet, (seed) => signWithSeed(seed, digest))
-      const signed = serializeSignedTransaction(tx, signature)
-      // What goes out is read back and must be exactly the planned transaction.
-      const read = deserializeSignedTransaction(signed)
-      if (!sameTransaction(read.transaction, tx)) throw new PolicyViolation('the signed transaction differs from the plan')
-      return { hash: base58Encode(digest), base64: base64Encode(signed) }
+      const r = answer<{ hash: string; signed: string }>(
+        await call('sign', {
+          accountId: req.wallet.accountId,
+          intentId: req.intentId,
+          step: req.step,
+          op: encodeOp(req.op),
+          plan: req.plan.map((t) => ({ receiverId: t.receiverId, actions: t.actions, label: t.label })),
+          nonce: req.nonce.toString(),
+          blockHash: base58Encode(req.blockHash),
+        }),
+        ['hash', 'signed'],
+      )
+      if (typeof r.hash !== 'string' || typeof r.signed !== 'string') throw new SignerUnavailableError('The signer answered something unexpected')
+      return { hash: r.hash, base64: r.signed }
     },
-
-    async exportSecret(wallet, codeHash) {
-      const req = await store.recovery(codeHash)
-      const fresh = req?.verifiedAt !== null && req?.verifiedAt !== undefined && now() - req.verifiedAt <= EXPORT_WINDOW_MS
-      // Verified by the owner wallet itself: the recovery service checked its signature and key.
-      const byOwner = wallet.ownerAccount !== null && req?.verifiedAccount === wallet.ownerAccount
-      if (!req || req.walletId !== wallet.id || req.userId !== wallet.userId || !fresh || !byOwner) {
-        await store.audit({
-          userId: wallet.userId,
-          walletId: wallet.id,
-          action: 'export-refused',
-          detail: { reason: fresh && !byOwner ? 'not verified by the owner' : 'no verified request' },
-        })
-        throw new KeyUnavailableError('Export needs a fresh request verified with your owner wallet')
-      }
-      if (!(await store.markExported(codeHash))) throw new KeyUnavailableError('This export request was already used')
-      const secret = await withSeed(wallet, (seed) => secretKeyText(seed))
-      await store.audit({ userId: wallet.userId, walletId: wallet.id, action: 'key-exported', detail: { verifiedBy: req.verifiedAccount } })
-      return secret
+    async eraseKey(req) {
+      return Boolean(answer<{ erased: boolean }>(await call('erase-key', { ...req }), ['erased']).erased)
+    },
+    async keyInfo(accountId) {
+      return answer(await call('key-info', { accountId }), ['held', 'publicKey', 'ownerAccount', 'keyRef'])
+    },
+    async challenge(req) {
+      return answer<ChallengeView & Record<string, unknown>>(await call('challenge', { ...req }), ['id', 'kind', 'message', 'nonce', 'recipient', 'expiresAt', 'ownerAccount'])
+    },
+    async ownerWallets(proof) {
+      return answer(await call('owner-wallets', { ...proof }), ['ownerAccount', 'wallets'])
+    },
+    async approveDestination(proof) {
+      return answer(await call('approve-destination', { ...proof }), ['accountId', 'destination', 'approvedAt'])
+    },
+    async revokeDestination(req) {
+      return Boolean(answer<{ revoked: boolean }>(await call('revoke-destination', { ...req }), ['revoked']).revoked)
+    },
+    async destinations(accountId) {
+      return answer(await call('destinations', { accountId }), ['ownerAccount', 'destinations'])
+    },
+    async exportKey(proof) {
+      return answer(await call('export', { ...proof }), ['accountId', 'publicKey', 'sealed'])
+    },
+    async pause(reason) {
+      await call('pause', { reason })
+    },
+    async health() {
+      return answer(await call('health', {}), ['ok', 'paused', 'network', 'keyRef', 'kek', 'db'])
     },
   }
 }

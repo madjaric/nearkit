@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { base58Decode, base58Encode, base64Decode, base64Encode } from '@/lib/encoding'
-import { nep413Digest } from '@/services/near/nep413'
+import { base58Decode, base58Encode, base64Encode } from '@/lib/encoding'
+import { createExportKeyPair, openExport, type SealedExport } from '@/lib/exportCrypto'
 import { recoveryRoutes } from '../api/recoveryRoutes'
-import type { RecoveryDescription } from '../custody/recovery'
 import type { Database } from '../db/database'
+import type { ChallengeView } from '../signer/core'
+import { ownerSign } from '../signer/testing'
 import type { Logger } from '../log'
 import { exportedText } from './recovery'
-import { LINKED, ONE, walletBot } from './walletTesting'
+import { ONE, walletBot } from './walletTesting'
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex')
 const json = (v: unknown) =>
@@ -23,7 +24,7 @@ const dump = async (db: Database) => {
 }
 
 describe('the NearKit wallet key over a whole lifecycle', () => {
-  it('reaches neither Telegram, the logs nor the database in plain form; only the one export response carries it', async () => {
+  it('reaches neither Telegram, the logs, the database nor the API in plain form: only the owner’s browser opens it', async () => {
     const logs: unknown[] = []
     const capture = (level: string) => (msg: string, fields?: Record<string, unknown>) => void logs.push({ level, msg, fields })
     const log: Logger = { debug: capture('debug'), info: capture('info'), warn: capture('warn'), error: capture('error') }
@@ -69,12 +70,17 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
     // The export happens in the web app; Telegram only hears that it happened.
     h.advance(60_000)
     await h.press('cr:export')
-    const code = (h.buttons().find((b) => b.url)?.url ?? '').split('#recover=')[1] as string
-    const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async (r) => void (await h.app.notify(r.userId, exportedText(r.wallet, r.signedBy))) })
-    const d = (await routes['/api/recovery/describe']?.({ code }, {} as never)) as RecoveryDescription
-    const digest = await nep413Digest({ message: d.message, nonce: base64Decode(d.nonce) as Uint8Array, recipient: d.recipient })
-    const signature = base64Encode(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, pair.privateKey, digest)))
-    const out = (await routes['/api/recovery/export']?.({ code, accountId: LINKED, publicKey: ownerKey, signature }, {} as never)) as { secretKey: string }
+    const wallet = (h.buttons().find((b) => b.url)?.url ?? '').split('#wallet=')[1] as string
+    const routes = recoveryRoutes({
+      recovery: h.custody.recovery,
+      onExported: async (r) => void (await h.app.notify(r.userId, exportedText(r.wallet, r.owner))),
+      onDestinationApproved: async () => undefined,
+    })
+    const browser = await createExportKeyPair()
+    const d = (await routes['/api/recovery/challenge']?.({ kind: 'export', accountId: wallet, recipientKey: browser.publicKey }, {} as never)) as ChallengeView
+    const signature = await ownerSign(d, pair)
+    const out = (await routes['/api/recovery/export']?.({ challengeId: d.id, publicKey: ownerKey, signature }, {} as never)) as { sealed: SealedExport }
+    const secretKey = await openExport(browser.privateKey, out.sealed, { challengeId: d.id, network: 'testnet', accountId: wallet })
     const heldDb = await dump(h.db)
 
     h.advance(60_000)
@@ -83,16 +89,16 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
     await h.press(h.button('Remove NearKit’s key'))
     expect(h.last()?.text).toContain('NearKit’s key was removed')
 
-    const raw = base58Decode(out.secretKey.slice('ed25519:'.length)) as Uint8Array
+    const raw = base58Decode(secretKey.slice('ed25519:'.length)) as Uint8Array
     const seed = raw.subarray(0, 32)
-    const forms = [out.secretKey.slice(8), base58Encode(seed), hex(seed), hex(raw), base64Encode(seed), base64Encode(raw), Buffer.from(seed).toString('base64url')]
-    // The scan does see the key where it is allowed: the export response.
-    expect(json(out)).toContain(forms[0])
+    const forms = [secretKey.slice(8), base58Encode(seed), hex(seed), hex(raw), base64Encode(seed), base64Encode(raw), Buffer.from(seed).toString('base64url')]
+    // The scan does see the key where it is allowed: in the owner's browser, after opening the sealed export.
+    expect(json({ secretKey })).toContain(forms[0])
     const telegram = json(h.fake.calls)
     expect(telegram).toContain('was just exported in NearKit web')
     expect(json(logs)).toContain('intent refused before signing')
     expect(json(logs)).toContain('send unclear')
-    const places = { telegram, logs: json(logs), heldDb, finalDb: await dump(h.db), describe: json(d) }
+    const places = { telegram, logs: json(logs), heldDb, finalDb: await dump(h.db), challenge: json(d), exportResponse: json(out) }
     for (const [place, text] of Object.entries(places)) for (const form of forms) expect(text.includes(form), `${place} holds the key`).toBe(false)
   })
 })

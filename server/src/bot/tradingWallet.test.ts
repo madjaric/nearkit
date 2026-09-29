@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ownerKeypair } from '../signer/testing'
 import { ALICE } from './testing'
 import { LINKED, ONE, REG, USDT, walletBot } from './walletTesting'
 
@@ -27,8 +28,11 @@ describe('NearKit wallet: create, deposit, balance', () => {
     expect(w?.accountId).toMatch(/^[0-9a-f]{64}$/)
     expect(await h.custody.store.countWalletsSince(ALICE.id, 0)).toBe(1)
     expect(h.last()?.text).toContain(w?.accountId)
-    // The key is stored sealed, never in the clear.
-    expect(w?.sealedKey).toMatch(/"ct":/)
+    // The key is in the signer's vault, sealed (never in the clear), and bound to its owner.
+    const held = await h.signerVault?.key('testnet', w?.accountId as string)
+    expect(held).toMatchObject({ status: 'active', ownerAccount: 'alice.testnet', publicKey: w?.publicKey })
+    expect(JSON.parse(held?.sealedKey as string)).toMatchObject({ v: 2, ct: expect.any(String) })
+    expect(JSON.stringify(await h.db.all('SELECT * FROM trading_wallets'))).not.toContain('"ct"')
     expect((await h.custody.store.auditOf(w?.id as string)).map((a) => a.action)).toEqual(['wallet-created'])
   })
 
@@ -84,9 +88,10 @@ describe('NearKit wallet: withdraw', () => {
     expect(h.chain.sent[0]?.tx.signerId).toBe(w.accountId)
   })
 
-  it('withdraws to any valid address you type, and refuses what can’t be right', async () => {
-    const h = await walletBot()
-    await h.funded(3n * ONE)
+  it('withdraws to any valid address you type once the owner wallet approves it, and refuses what can’t be right', async () => {
+    const owner = await ownerKeypair()
+    const h = await walletBot({ linkedKey: owner.publicKey })
+    const w = await h.funded(3n * ONE)
     await h.press('cw:wd')
     await h.press(h.button('NEAR ·'))
     await h.say('1')
@@ -100,28 +105,47 @@ describe('NearKit wallet: withdraw', () => {
       expect(h.last()?.text).toContain(why)
     }
     await h.say('bob.testnet')
+    expect(h.last()?.text).toContain('Approve a new destination')
+    expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkit.vercel.app/recover#approve=${w.accountId}&to=bob.testnet`)
+    // Continue before approving: still not approved, nothing is prepared.
+    await h.press('cw:wcont')
+    expect(h.last()?.text).toContain('is not approved yet')
+    await h.approve(w.accountId, 'bob.testnet', owner)
+    await h.press('cw:wcont')
     expect(h.last()?.text).toContain('To <code>bob.testnet</code>')
     expect(h.last()?.text).not.toContain('linked wallet')
     await h.press(h.button('Confirm withdraw'))
     expect(h.chain.accounts.get('bob.testnet')?.amount).toBe(2n * ONE)
+    // Approved once: the next withdrawal there goes straight to the review.
+    h.advance(60_000)
+    await h.press('cw:wd')
+    await h.press(h.button('NEAR ·'))
+    await h.say('0.5')
+    await h.say('bob.testnet')
+    expect(h.last()?.text).toContain('Review withdrawal')
   })
 
   it('warns before sending to an address that has never been used', async () => {
-    const h = await walletBot()
-    await h.funded(3n * ONE)
+    const owner = await ownerKeypair()
+    const h = await walletBot({ linkedKey: owner.publicKey })
+    const w = await h.funded(3n * ONE)
     await h.press('cw:wd')
     await h.press(h.button('NEAR ·'))
     await h.say('1')
     const fresh = 'c'.repeat(64)
     await h.say(fresh)
+    await h.approve(w.accountId, fresh, owner)
+    await h.press('cw:wcont')
     expect(h.last()?.text).toContain('never been used on testnet')
     await h.press(h.button('Confirm withdraw'))
     expect(h.chain.accounts.get(fresh)?.amount).toBe(ONE)
   })
 
   it('withdraws tokens, registering the destination when it needs it (shown on the review)', async () => {
-    const h = await walletBot()
-    await h.funded(ONE, 10_000_000n)
+    const owner = await ownerKeypair()
+    const h = await walletBot({ linkedKey: owner.publicKey })
+    const w = await h.funded(ONE, 10_000_000n)
+    await h.approve(w.accountId, 'bob.testnet', owner)
     await h.press('cw:wd')
     await h.press(h.button('USDT'))
     await h.press(h.button('MAX'))

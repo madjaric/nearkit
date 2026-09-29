@@ -27,16 +27,23 @@ import { startPolling } from './telegram/poller'
 import { createHandoffs } from './trade/handoff'
 import { createChainAccess } from './custody/chain'
 import { createEngine } from './custody/engine'
-import { createLocalSigner } from './custody/signer'
+import { createSignerClient, inProcessTransport } from './custody/signer'
 import { CustodyStore, type Intent } from './custody/store'
-import { localKeyWrapper } from './custody/vault'
+import { keyring, localKeyWrapper } from './custody/vault'
+import { MAX_SLIPPAGE } from '@/lib/fees'
+import { createSignerChain } from './signer/chain'
+import { createSignerCore } from './signer/core'
+import { importLegacyKeys } from './signer/legacy'
+import { createRouteOracle } from './signer/routes'
+import { migrateSigner } from './signer/schema'
+import { SignerStore } from './signer/store'
 import type { CustodyDeps } from './custody/wallets'
 import { withdrawHandler } from './custody/withdraw'
 import { createSwapService } from './custody/swap'
 import { unwrapHandler } from './custody/unwrap'
 import { backupKeyHandler, createRecoveryService, revokeHandler } from './custody/recovery'
 import { recoveryRoutes } from './api/recoveryRoutes'
-import { exportedText, recoveryModule } from './bot/recovery'
+import { approvedText, exportedText, recoveryModule } from './bot/recovery'
 import { btn, keyboard } from './bot/context'
 import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
@@ -123,7 +130,20 @@ export async function startServer(options: { env: Record<string, string | undefi
   let onSettled: (intent: Intent) => Promise<void> = async () => {}
   if (config.custody.enabled && config.custody.kek) {
     const cstore = new CustodyStore(db, now)
-    const signer = createLocalSigner({ wrapper: localKeyWrapper(config.custody.kek), network: config.network, store: cstore, now })
+    // Testnet, one process: the signer runs in this process and its tables share this database.
+    await migrateSigner(db)
+    const moved = await importLegacyKeys(db, now)
+    if (moved) log.info('wallet keys moved into the signer vault', { count: moved })
+    const core = createSignerCore({
+      store: new SignerStore(db, now),
+      keys: keyring(localKeyWrapper(config.custody.kek)),
+      chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: fetchImpl }),
+      oracle: createRouteOracle(config.network, fetchImpl),
+      config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
+      now,
+      log,
+    })
+    const signer = createSignerClient(inProcessTransport(core))
     const chain = createChainAccess({ rpc: near.ctx.rpc, fetch: fetchImpl })
     const swaps = createSwapService(near)
     const engine = createEngine({
@@ -136,7 +156,7 @@ export async function startServer(options: { env: Record<string, string | undefi
         sell: swaps.handler,
         unwrap: unwrapHandler(near),
         'backup-key': backupKeyHandler({ near, custody: cstore }),
-        revoke: revokeHandler({ near, custody: cstore }),
+        revoke: revokeHandler({ near, custody: cstore, signer }),
       },
       log,
       now,
@@ -144,9 +164,9 @@ export async function startServer(options: { env: Record<string, string | undefi
       onSettled: (intent) => onSettled(intent),
       instanceId: instance,
     })
-    const recovery = createRecoveryService({ store, custody: cstore, signer, config, rpc: near.ctx.rpc, now })
+    const recovery = createRecoveryService({ custody: cstore, signer, config })
     custody = { store: cstore, signer, engine, chain, swaps, recovery }
-    log.info('trading wallets on', { network: config.network.id, keyRef: signer.keyRef })
+    log.info('trading wallets on', { network: config.network.id, signer: 'in-process', keyRef: core.keyRef })
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })
   }
@@ -228,11 +248,22 @@ export async function startServer(options: { env: Record<string, string | undefi
         ? recoveryRoutes({
             recovery: custody.recovery,
             // The owner hears about every export in Telegram, whoever did it.
-            onExported: async (r) => void (await bot?.notify(r.userId, exportedText(r.wallet, r.signedBy), keyboard([btn('📤 Withdraw', 'cw:wd'), btn('👛 Wallet', 'cw:home')]))),
+            onExported: async (r) => void (await bot?.notify(r.userId, exportedText(r.wallet, r.owner), keyboard([btn('📤 Withdraw', 'cw:wd'), btn('👛 Wallet', 'cw:home')]))),
+            onDestinationApproved: async (r) =>
+              void (await bot?.notify(r.userId, approvedText(r.wallet, r.destination), keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]))),
           })
         : {}),
     },
-    limits: { '/api/link/describe': 30, '/api/link/confirm': 10, '/api/handoff/describe': 30, '/api/handoff/result': 20, '/api/recovery/describe': 30, '/api/recovery/export': 5 },
+    limits: {
+      '/api/link/describe': 30,
+      '/api/link/confirm': 10,
+      '/api/handoff/describe': 30,
+      '/api/handoff/result': 20,
+      '/api/recovery/challenge': 20,
+      '/api/recovery/wallets': 10,
+      '/api/recovery/export': 5,
+      '/api/recovery/destination': 10,
+    },
     // Public and secret-free: whether the bot and buy alerts run, and the boot count (see Store.recordBoot).
     health: () => ({
       bot: bot ? true : false,
@@ -269,6 +300,14 @@ export async function startServer(options: { env: Record<string, string | undefi
         await store.prune()
         await leases.prune()
         await buybot?.store.prune(7 * 86_400_000)
+        // Keys of wallets closed lately that the signer couldn't erase yet (the chain wasn't sure).
+        if (custody) {
+          const c = custody
+          for (const w of await c.store.closedSince(now() - 7 * 86_400_000)) {
+            if ((await c.signer.keyInfo(w.accountId)).held)
+              await c.signer.eraseKey({ accountId: w.accountId, reason: w.status === 'revoked' ? 'revoked' : 'deleted' }).catch(() => false)
+          }
+        }
       } catch (e) {
         log.warn('prune failed', { error: e })
       }

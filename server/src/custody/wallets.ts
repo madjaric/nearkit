@@ -58,15 +58,21 @@ export async function createTradingWallet(
   }
   if ((await c.store.activeWallets(userId, network)).length >= MAX_ACTIVE_WALLETS_PER_USER) throw new WalletLimitError('active')
   if ((await c.store.countWalletsSince(userId, now - 86_400_000)) >= MAX_WALLET_CREATIONS_PER_DAY) throw new WalletLimitError('day')
-  // Each wallet gets its own key: no master key, so one exported key reveals nothing about another wallet.
-  const key = await c.signer.createKey(network)
+  // Each wallet gets its own key, made and sealed by the signer (bound to its owner): no master
+  // key, so one exported key reveals nothing about another wallet.
+  const key = await c.signer.createKey({ userId, owner })
+  // A key that ends up unused (a lost race, a double tap) is erased: its account was never funded.
+  const discard = () => c.signer.eraseKey({ accountId: key.accountId, reason: 'deleted' }).catch(() => false)
+  let r: { wallet: TradingWallet; created: boolean }
   try {
-    const r = await c.store.createWallet({ userId, network, ...key, keyRef: c.signer.keyRef, owner, createKey })
-    return live(r.wallet, r.created)
+    r = await c.store.createWallet({ userId, network, accountId: key.accountId, publicKey: key.publicKey, keyRef: key.keyRef, owner, createKey })
   } catch (e) {
+    await discard()
     if (e instanceof ActiveWalletLimitError) throw new WalletLimitError('active')
     throw e
   }
+  if (!r.created) await discard()
+  return live(r.wallet, r.created)
 }
 
 /**

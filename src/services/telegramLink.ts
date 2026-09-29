@@ -37,7 +37,8 @@ export function readLinkCode(hash: string): string | null {
   return m ? (m[1] as string) : null
 }
 
-async function post<T>(apiUrl: string, path: string, body: unknown, fetchImpl: typeof fetch): Promise<T> {
+/** POST JSON to the NearKit API; its errors come back as LinkRequestError (status, code, a sentence for people). */
+export async function apiPost<T>(apiUrl: string, path: string, body: unknown, fetchImpl: typeof fetch): Promise<T> {
   let res: Response
   try {
     res = await fetchImpl(`${apiUrl}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -60,7 +61,7 @@ async function post<T>(apiUrl: string, path: string, body: unknown, fetchImpl: t
 }
 
 export const describeLink = (apiUrl: string, code: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
-  post<LinkDescription>(apiUrl, '/api/link/describe', { code }, fetchImpl)
+  apiPost<LinkDescription>(apiUrl, '/api/link/describe', { code }, fetchImpl)
 
 // ─── trades prepared in Telegram ─────────────────────────────────────────────
 
@@ -78,52 +79,25 @@ export function readHandoffId(value: string | null): string | null {
 }
 
 export const describeHandoff = (apiUrl: string, id: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
-  post<HandoffInfo>(apiUrl, '/api/handoff/describe', { id }, fetchImpl)
+  apiPost<HandoffInfo>(apiUrl, '/api/handoff/describe', { id }, fetchImpl)
 
 /** Tells the NearKit server what the wallet signed; it checks each hash on chain before telling Telegram. */
 export const reportHandoff = (apiUrl: string, id: string, txHashes: string[], fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
-  post<{ status: HandoffInfo['status']; outcome: 'traded' | 'no-trade' | 'failed' | null }>(apiUrl, '/api/handoff/result', { id, txHashes }, fetchImpl)
+  apiPost<{ status: HandoffInfo['status']; outcome: 'traded' | 'no-trade' | 'failed' | null }>(apiUrl, '/api/handoff/result', { id, txHashes }, fetchImpl)
 
 export const confirmLink = (
   apiUrl: string,
   body: { code: string; accountId: string; publicKey: string; signature: string },
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
-) => post<LinkResult>(apiUrl, '/api/link/confirm', body, fetchImpl)
+) => apiPost<LinkResult>(apiUrl, '/api/link/confirm', body, fetchImpl)
 
 // ─── NearKit wallet key export ───────────────────────────────────────────────
 
-export interface RecoveryDescription {
-  telegram: { name: string; username: string | null }
-  network: string
-  /** The NearKit wallet whose key would be exported. */
-  wallet: string
-  /** The wallet it was created with: only it can sign the export. */
-  owner: string
-  recipient: string
-  message: string
-  /** Base64 of the 32-byte NEP-413 nonce. */
-  nonce: string
-  expiresAt: number
-}
-
-export interface RecoveryExport {
-  accountId: string
-  publicKey: string
-  /** The private key. Kept in memory only while the page shows it; never stored. */
-  secretKey: string
-}
-
-/** `#recover=<code>` → code; anything else → null. The fragment never reaches a server log. */
+/**
+ * `#recover=<code>`: export links from before recovery moved to /recover. The code means
+ * nothing any more; the page sends the user to /recover instead.
+ */
 export function readRecoverCode(hash: string): string | null {
   const m = /^#recover=([A-Za-z0-9_-]{16,64})$/.exec(hash)
   return m ? (m[1] as string) : null
 }
-
-export const describeRecovery = (apiUrl: string, code: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
-  post<RecoveryDescription>(apiUrl, '/api/recovery/describe', { code }, fetchImpl)
-
-export const exportRecovery = (
-  apiUrl: string,
-  body: { code: string; accountId: string; publicKey: string; signature: string },
-  fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
-) => post<RecoveryExport>(apiUrl, '/api/recovery/export', body, fetchImpl)

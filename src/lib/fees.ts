@@ -40,8 +40,32 @@ export const NEARKIT_FEE_RECEIVED_LABEL = bpsLabel((NEARKIT_FEE_BPS * (10_000 - 
 export const RHEA_APP_FEE_SHARE_LABEL = bpsLabel((NEARKIT_FEE_BPS * RHEA_APP_FEE_SHARE_BPS) / 10_000)
 
 /**
+ * The production fee account (owner decision, 2026-09-29). Mainnet must be configured
+ * with exactly this account: a mainnet build or server set to any other refuses to
+ * trade, and the signer refuses to sign a route whose fee goes anywhere else.
+ */
+export const PRODUCTION_FEE_RECIPIENT = 'nearkitfee.near'
+
+/** Accounts used only in tests and smoke tests: never a fee recipient anywhere. */
+export const TEST_ONLY_ACCOUNTS: readonly string[] = Object.freeze(['testone.near'])
+
+/**
+ * Why `recipient` can't receive NearKit's fee on `network`, or null when it can. Testnet
+ * charges no fee (the classic router has none), so only mainnet has a rule: exactly
+ * PRODUCTION_FEE_RECIPIENT.
+ */
+export function feeRecipientProblem(network: 'mainnet' | 'testnet', recipient: string | null): string | null {
+  if (recipient && TEST_ONLY_ACCOUNTS.includes(recipient)) return `${recipient} is a test account; it never receives the NearKit fee`
+  if (network !== 'mainnet') return null
+  if (!recipient) return `The NearKit fee account is not configured (it must be ${PRODUCTION_FEE_RECIPIENT})`
+  if (recipient !== PRODUCTION_FEE_RECIPIENT) return `The NearKit fee account must be ${PRODUCTION_FEE_RECIPIENT}, not ${recipient}`
+  return null
+}
+
+/**
  * Account that receives the NearKit fee, from VITE_NEARKIT_FEE_RECIPIENT (public, not a
- * secret). Never hardcoded; when unset, fee-bearing mainnet trades are blocked.
+ * secret). On mainnet it must be PRODUCTION_FEE_RECIPIENT (see feeRecipientProblem);
+ * when it isn't, fee-bearing mainnet trades are blocked.
  */
 export const NEARKIT_FEE_RECIPIENT: string | null = ENV.feeRecipient
 

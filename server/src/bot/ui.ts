@@ -3,6 +3,11 @@ import { formatUnits } from '@/lib/amounts'
 import type { PnlLimitation } from '@/types/domain'
 import { toNearKitError } from '@/services/near/errors'
 import type { Logger } from '../log'
+import { PolicyViolation } from '../custody/policy'
+import { KeyUnavailableError } from '../custody/vault'
+import { ChainUncertainError } from '../signer/chain'
+import { AlreadySignedError, DestinationNotApprovedError, SignerPausedError, SignerUnavailableError } from '../signer/errors'
+import { KmsUnavailableError } from '../signer/kms'
 
 /**
  * How the bot writes numbers and errors. One rule above all: an unknown figure is
@@ -67,12 +72,30 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
   }
 }
 
+/** What NearKit's signer refused, in plain words (the signer's reasons are written for people). Null for anything else. */
+export function signerRefusalText(e: unknown): string | null {
+  if (e instanceof DestinationNotApprovedError)
+    return `${e.destination} is not an approved destination for this NearKit wallet. Approve it with the owner wallet in NearKit web first.`
+  if (e instanceof PolicyViolation) return `${e.message.replace(/^NearKit refused to sign: /, 'NearKit’s signer refused this: ')}.`
+  if (e instanceof SignerPausedError) return 'NearKit’s signer is paused right now, so nothing can be signed. Try again later.'
+  if (e instanceof ChainUncertainError) return 'NearKit couldn’t confirm the wallet’s keys on NEAR right now (the RPC providers didn’t agree). Try again in a moment.'
+  if (e instanceof KmsUnavailableError || e instanceof SignerUnavailableError) return 'NearKit’s signer isn’t answering right now. Try again in a moment.'
+  if (e instanceof AlreadySignedError) return e.message.replace(/ Nothing new was signed\.$/, '')
+  if (e instanceof KeyUnavailableError) return 'NearKit no longer holds this wallet’s key.'
+  return null
+}
+
 /**
  * For NearKit wallet actions: a shortfall keeps its numbers (how much is needed, how
  * much the wallet has), because the wallet code writes them for people. Everything
  * else reads like friendlyError.
  */
 export function walletErrorText(e: unknown, opts: { network: 'mainnet' | 'testnet'; side?: 'buy' | 'sell'; log?: Logger; context?: string }): string {
+  const signer = signerRefusalText(e)
+  if (signer) {
+    opts.log?.info(opts.context ?? 'signer refused', { reason: e instanceof Error ? e.message : String(e) })
+    return signer
+  }
   const err = toNearKitError(e)
   if (err.code === 'INSUFFICIENT_BALANCE' || err.code === 'INSUFFICIENT_GAS') {
     opts.log?.info(opts.context ?? 'wallet action refused', { code: err.code })

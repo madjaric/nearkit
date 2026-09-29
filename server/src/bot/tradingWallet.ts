@@ -8,7 +8,7 @@ import { createTradingWallet, readWallet, WalletLimitError, type WalletView } fr
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import { randomToken } from '../ids'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
-import { btn, documented, FLOW_TTL_MS, keyboard, type BotCtx, type BotDeps, type BotModule } from './context'
+import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { amountText, nearText, UNKNOWN, walletErrorText } from './ui'
 import { linkedAccount, nearAvailable, needAccount, showWallet } from './wallet'
@@ -20,9 +20,16 @@ import { linkedAccount, nearAvailable, needAccount, showWallet } from './wallet'
  * one wallet stays on it (switching wallets never redirects a withdrawal or a trade).
  * Balances are read from chain every time. The linked wallet stays what it was: proof
  * of who you are, never controlled by NearKit.
+ *
+ * Withdrawals go to any valid address, with no limit on amounts, but only to the wallet's
+ * owner or to a destination the owner approved with its own signature in NearKit web. The
+ * signer enforces that itself, so someone who got into the Telegram account (or the app)
+ * can't send the funds anywhere else.
  */
 
 const CALLBACK_TTL_MS = 30 * 60_000
+/** How long a withdrawal waits for its destination's approval before it must be started again. */
+const APPROVAL_TTL_MS = 30 * 60_000
 
 interface Asset {
   asset: string
@@ -319,7 +326,36 @@ export function withdrawReviewText(deps: BotDeps, input: WithdrawInput, review: 
   ].join('\n')
 }
 
-async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: string }) {
+/** The wallet's owner, and destinations the owner approved (read from the signer, which enforces them). */
+async function approvedDestination(ctx: BotCtx, w: TradingWallet, to: string): Promise<boolean> {
+  if (w.ownerAccount && to === w.ownerAccount) return true
+  const custody = ctx.deps.custody
+  if (!custody) return false
+  return (await custody.signer.destinations(w.accountId)).destinations.some((d) => d.destination === to)
+}
+
+/** A destination the owner hasn't approved: approve it in NearKit web (owner signature), then continue here. */
+async function askApproval(ctx: BotCtx, w: TradingWallet, flow: WithdrawInput & { walletId: string }, again: boolean) {
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.approve', flow, APPROVAL_TTL_MS)
+  const url = `${ctx.deps.config.webUrl}/recover#approve=${w.accountId}&to=${encodeURIComponent(flow.to)}`
+  await ctx.show(
+    [
+      `🔐 ${bold('Approve a new destination')} · ${walletLine(w)}`,
+      '',
+      again ? `${code(flow.to)} is not approved yet.` : `${code(flow.to)} hasn’t received withdrawals from this wallet before.`,
+      w.ownerAccount
+        ? `Withdrawals go to your owner wallet ${code(w.ownerAccount)} or to destinations it approved, so nobody who gets into this Telegram account can send your funds elsewhere.`
+        : 'This wallet has no recorded owner wallet, so it can’t approve destinations. Add a backup key and move the funds with your own wallet.',
+      '',
+      ...(w.ownerAccount
+        ? [`1. Open NearKit web and connect ${code(w.ownerAccount)}.`, '2. Sign the approval it shows: free, once for this destination.', '3. Come back and tap Continue.']
+        : []),
+    ].join('\n'),
+    keyboard(w.ownerAccount ? [urlBtn('🌐 Approve in NearKit web', url)] : [], [btn('▶️ Continue', 'cw:wcont'), btn('✖ Cancel', 'cw:home')]),
+  )
+}
+
+async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: string }, again = false) {
   const custody = ctx.deps.custody
   const w = await flowWallet(ctx, flow.walletId)
   if (!custody || !w) return closedWallet(ctx)
@@ -338,6 +374,8 @@ async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: s
     await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`, keyboard([btn('✖ Cancel', 'cw:home')]))
     return
   }
+  // A real, reachable address: now, is it the owner, or a destination the owner approved?
+  if (!(await approvedDestination(ctx, w, flow.to))) return askApproval(ctx, w, flow, again)
   await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
   const intent = await custody.store.createIntent({
     walletId: w.id,
@@ -411,6 +449,20 @@ export function tradingWalletModule(): BotModule {
         }
         await reviewAndConfirm(ctx, { ...a, to, linked: to === (await linkedAccount(ctx)) })
       },
+      // Waiting for an approval, the user may type another address instead.
+      'wd.approve': async (ctx, text, data) => {
+        const flow = data as unknown as WithdrawInput & { walletId: string }
+        const w = await flowWallet(ctx, flow.walletId)
+        if (!w) return closedWallet(ctx)
+        let to: string
+        try {
+          to = checkDestinationSyntax(plainText(text, 80), ctx.deps.config.network, w, flow.asset)
+        } catch (e) {
+          await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`)
+          return
+        }
+        await reviewAndConfirm(ctx, { ...flow, to, linked: to === (await linkedAccount(ctx)) })
+      },
       'cw.rename': async (ctx, text, data) => {
         const w = await flowWallet(ctx, String((data as { walletId?: string }).walletId ?? ''))
         await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
@@ -473,6 +525,12 @@ export function tradingWalletModule(): BotModule {
             if (!a) return ctx.answer('That button expired. Open the wallet again.', true)
             await ctx.answer()
             return askDestination(ctx, a)
+          }
+          case 'wcont': {
+            await ctx.answer()
+            const s = await ctx.deps.store.getSession<WithdrawInput & { walletId: string }>(ctx.chat.id, ctx.user.id)
+            if (s?.flow !== 'wd.approve') return ctx.show('That withdrawal isn’t waiting any more. Start it again.', keyboard([btn('📤 Withdraw', 'cw:wd')], walletRow))
+            return reviewAndConfirm(ctx, s.data, true)
           }
           case 'wt': {
             const a = await payload<WithdrawInput & { walletId: string }>(ctx, arg)

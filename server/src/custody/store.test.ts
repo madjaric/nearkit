@@ -15,7 +15,7 @@ let db: SqliteDatabase
 let store: CustodyStore
 
 const USER = 101
-const wallet = (userId = USER, accountId = 'a'.repeat(64)) => ({ userId, network: 'testnet', accountId, publicKey: 'ed25519:K', sealedKey: '{"v":1}', keyRef: 'local:x' })
+const wallet = (userId = USER, accountId = 'a'.repeat(64)) => ({ userId, network: 'testnet', accountId, publicKey: 'ed25519:K', keyRef: 'local:x' })
 
 beforeEach(async () => {
   now = 1_000_000
@@ -28,10 +28,11 @@ beforeEach(async () => {
 })
 
 describe('trading wallets', () => {
-  it('closing erases the sealed key for good; its slot is free again', async () => {
+  it('closing ends a wallet once; its slot is free again (the signer erases the key itself)', async () => {
     const { wallet: w } = await store.createWallet(wallet())
     expect(await store.closeWallet(w.id, 'revoked', { tx: 'h' })).toBe(true)
-    expect(await store.wallet(w.id)).toMatchObject({ status: 'revoked', sealedKey: null, closedAt: now })
+    expect(await store.wallet(w.id)).toMatchObject({ status: 'revoked', closedAt: now })
+    expect(await store.closedSince(now)).toMatchObject([{ id: w.id }])
     expect(await store.closeWallet(w.id, 'deleted')).toBe(false)
     expect(await store.activeWallets(USER, 'testnet')).toEqual([])
     expect(await store.createWallet(wallet(USER, 'd'.repeat(64)))).toMatchObject({ created: true, wallet: { slot: 1 } })

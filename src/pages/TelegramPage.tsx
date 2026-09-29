@@ -1,11 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Eye, EyeOff, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useLocation } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { LogoMark } from '@/components/brand/Brand'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
-import { CopyButton } from '@/components/ui/Copy'
 import { ComingSoon, Skeleton, Tag } from '@/components/ui/Indicators'
 import { Line, Lines, Panel, PanelBody, PanelHeader } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
@@ -18,7 +17,7 @@ import { useNow } from '@/lib/hooks'
 import { useServices } from '@/services/context'
 import { describeError } from '@/services/errors'
 import { useCapabilities, useSession } from '@/services/queries'
-import { confirmLink, describeLink, describeRecovery, exportRecovery, readLinkCode, readRecoverCode, type LinkDescription, type RecoveryDescription } from '@/services/telegramLink'
+import { confirmLink, describeLink, readLinkCode, readRecoverCode, type LinkDescription } from '@/services/telegramLink'
 import { useConnectPrompt } from '@/state/contexts'
 
 const BOT_URL = ENV.telegramBot ? `https://t.me/${ENV.telegramBot}` : null
@@ -153,175 +152,18 @@ function LinkPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
   )
 }
 
-/**
- * Exporting a NearKit wallet's key: the page names the wallet and who asked, the
- * linked wallet signs a message (free, moves nothing), and the key is shown once,
- * masked until revealed. It lives in this component's memory only: never in storage,
- * the URL or the query cache, and it is dropped when the page closes.
- */
-function RecoveryPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
-  const caps = useCapabilities()
-  const services = useServices()
-  const { data: session } = useSession()
-  const { promptConnect } = useConnectPrompt()
-  const now = useNow(1000)
-  const [revealed, setRevealed] = useState(false)
-  const described = useQuery({ queryKey: ['telegram-recovery', code], queryFn: () => describeRecovery(apiUrl, code), retry: false, staleTime: Infinity, gcTime: 0 })
-  const exported = useMutation({
-    mutationFn: async (d: RecoveryDescription) => {
-      const nonce = base64Decode(d.nonce)
-      if (!nonce || nonce.length !== 32) throw new Error('This export request is malformed. Ask the bot for a new link in 🔐 Recovery.')
-      const signed = await services.wallets.signMessage({ message: d.message, recipient: d.recipient, nonce })
-      return exportRecovery(apiUrl, { code, accountId: signed.accountId, publicKey: signed.publicKey, signature: signed.signature })
-    },
-    gcTime: 0,
-  })
-  const reset = exported.reset
-  // Leaving the page drops the key from memory.
-  useEffect(() => () => reset(), [reset])
-
-  const header = <PanelHeader title="Export NearKit wallet key" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
-
-  if (described.isPending) {
-    return (
-      <Panel>
-        {header}
-        <PanelBody className="flex flex-col gap-2">
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-4 w-1/2" />
-        </PanelBody>
-      </Panel>
-    )
-  }
-  if (described.isError && !exported.isSuccess) {
-    return (
-      <Panel>
-        {header}
-        <PanelBody className="flex flex-col gap-3">
-          <p className="text-sm text-neg" role="alert">
-            {describeError(described.error).message}
-          </p>
-          <BotButton />
-        </PanelBody>
-      </Panel>
-    )
-  }
-
-  if (exported.isSuccess) {
-    const key = exported.data.secretKey
-    return (
-      <Panel>
-        {header}
-        <PanelBody className="flex flex-col gap-4">
-          <div className="flex gap-2.5 rounded-sm border border-neg/40 bg-neg/8 px-3 py-2.5 text-xs leading-5 text-fg-2">
-            <ShieldAlert size={15} className="mt-0.5 shrink-0 text-neg" aria-hidden="true" />
-            <p>
-              Anyone who has this key controls <span className="num text-fg">{exported.data.accountId}</span> and everything in it. Don’t share it, screenshot it or paste it into a
-              chat. NearKit never asks for it.
-            </p>
-          </div>
-          <div>
-            <p className="mb-1.5 text-2xs uppercase tracking-legend text-fg-3">Private key</p>
-            <div className="flex items-start gap-2 rounded-sm border border-line-soft bg-well px-3 py-2">
-              <code className="num min-w-0 flex-1 break-all text-xs leading-5 text-fg" aria-label={revealed ? 'Private key' : 'Private key, hidden'}>
-                {revealed ? key : `ed25519:${'•'.repeat(32)}`}
-              </code>
-              <button
-                type="button"
-                onClick={() => setRevealed((r) => !r)}
-                aria-label={revealed ? 'Hide the key' : 'Show the key'}
-                className="inline-grid size-6 shrink-0 place-items-center rounded-xs text-fg-4 transition-colors hover:bg-raised hover:text-fg-2"
-              >
-                {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
-              </button>
-              <CopyButton value={key} label="Copy the key" />
-            </div>
-          </div>
-          <p className="text-xs leading-5 text-fg-3">
-            To use it, import it in a NEAR wallet app (for example Meteor or MyNearWallet: import an account with a private key). Then close this page: the key is not stored
-            anywhere here.
-          </p>
-          <Button
-            variant="secondary"
-            size="lg"
-            block
-            onClick={() => {
-              setRevealed(false)
-              reset()
-            }}
-          >
-            Done: hide the key
-          </Button>
-        </PanelBody>
-      </Panel>
-    )
-  }
-
-  const d = described.data
-  if (!d) return null
-  const who = d.telegram.username ? `@${d.telegram.username}` : d.telegram.name
-  const left = d.expiresAt - now
-  const wrongNetwork = d.network !== caps.network
-  const canSign = session ? session.accountId === d.owner : false
-
+/** An export link from before /recover: nothing to do here any more; the owner wallet alone authorizes an export now. */
+function MovedPanel() {
   return (
     <Panel>
-      {header}
-      <PanelBody className="flex flex-col gap-4">
-        <Lines>
-          <Line label="NearKit wallet">
-            <span className="num break-all">{d.wallet}</span>
-          </Line>
-          <Line label="Telegram account">{who}</Line>
-          <Line label="Network">{d.network}</Line>
-          <Line label="Sign with">
-            <span className="num break-all">{d.owner}</span>
-          </Line>
-          <Line label="Link expires in">{left > 0 ? formatDuration(left) : 'expired'}</Line>
-        </Lines>
-
-        <div className="flex gap-2.5 rounded-sm border border-warn/40 bg-warn/8 px-3 py-2.5 text-xs leading-5 text-fg-2">
-          <ShieldCheck size={15} className="mt-0.5 shrink-0 text-warn" aria-hidden="true" />
-          <p>
-            Only continue if <span className="text-fg">you</span> asked {BOT_NAME} for this export, on a device you trust. Your wallet signs a message, not a transaction: it is
-            free and moves no funds. The key then appears on this screen once.
-          </p>
-        </div>
-
-        <div>
-          <p className="mb-1.5 text-2xs uppercase tracking-legend text-fg-3">Your wallet will sign</p>
-          <pre className="num whitespace-pre-wrap break-words rounded-sm border border-line-soft bg-well px-3 py-2 text-xs leading-5 text-fg-2">{d.message}</pre>
-        </div>
-
-        {wrongNetwork ? (
-          <p className="text-sm text-neg" role="alert">
-            This link is for {d.network}, but this NearKit runs on {caps.networkLabel.toLowerCase()}. Open the link in the {d.network} NearKit.
-          </p>
-        ) : left <= 0 ? (
-          <p className="text-sm text-neg" role="alert">
-            This link expired. Ask {BOT_NAME} for a new one in 🔐 Recovery.
-          </p>
-        ) : !session || !canSign ? (
-          <>
-            {session && !canSign && (
-              <p className="text-sm text-fg-2">
-                {session.accountId} is not this wallet’s owner. Connect {d.owner}, the wallet it was created with.
-              </p>
-            )}
-            <Button variant="primary" size="lg" block onClick={promptConnect}>
-              Connect {d.owner}
-            </Button>
-          </>
-        ) : (
-          <Button variant="primary" size="lg" block loading={exported.isPending} disabled={exported.isPending} onClick={() => exported.mutate(d)}>
-            Sign and show the key
+      <PanelHeader title="Export NearKit wallet key" />
+      <PanelBody className="flex flex-col gap-3">
+        <p className="text-sm text-fg-2">Exporting a key now happens on the Recover page, with your owner wallet’s signature alone: no Telegram link needed.</p>
+        <Link to="/recover" className="inline-flex">
+          <Button variant="primary" size="lg" tabIndex={-1}>
+            Open Recover
           </Button>
-        )}
-        {exported.isError && (
-          <p className="text-sm text-neg" role="alert">
-            {describeError(exported.error).message}
-          </p>
-        )}
+        </Link>
       </PanelBody>
     </Panel>
   )
@@ -382,13 +224,7 @@ export default function TelegramPage() {
       />
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[440px_minmax(0,1fr)]">
-        {recoverCode && TELEGRAM_BOT_LIVE && ENV.apiUrl ? (
-          <RecoveryPanel code={recoverCode} apiUrl={ENV.apiUrl} />
-        ) : code && TELEGRAM_BOT_LIVE && ENV.apiUrl ? (
-          <LinkPanel code={code} apiUrl={ENV.apiUrl} />
-        ) : (
-          <ConnectPanel />
-        )}
+        {recoverCode ? <MovedPanel /> : code && TELEGRAM_BOT_LIVE && ENV.apiUrl ? <LinkPanel code={code} apiUrl={ENV.apiUrl} /> : <ConnectPanel />}
 
         <Panel>
           <PanelHeader title="Commands" meta={BOT_COMMANDS.length} />

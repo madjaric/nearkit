@@ -15,9 +15,15 @@ import { createFakeTelegram } from '../telegram/fake'
 import type { TgChat, TgUpdate, TgUser } from '../telegram/types'
 import { createChainAccess } from '../custody/chain'
 import { createEngine } from '../custody/engine'
-import { createLocalSigner } from '../custody/signer'
+import { createSignerClient, inProcessTransport } from '../custody/signer'
 import { CustodyStore } from '../custody/store'
-import { localKeyWrapper } from '../custody/vault'
+import { keyring, localKeyWrapper } from '../custody/vault'
+import { MAX_SLIPPAGE } from '@/lib/fees'
+import { createSignerChain } from '../signer/chain'
+import { createSignerCore } from '../signer/core'
+import { createRouteOracle } from '../signer/routes'
+import { migrateSigner } from '../signer/schema'
+import { SignerStore } from '../signer/store'
 import type { CustodyDeps } from '../custody/wallets'
 import { withdrawHandler } from '../custody/withdraw'
 import { createSwapService } from '../custody/swap'
@@ -77,10 +83,25 @@ export async function botHarness(
     notify: (userId, html) => notify(userId, html),
   })
   let custody: CustodyDeps | null = null
+  let signerCore: ReturnType<typeof createSignerCore> | null = null
+  let signerVault: SignerStore | null = null
   let settledNotice: Parameters<typeof notifySettled>[1] = async () => false
   if (config.custody.enabled && config.custody.kek) {
     const cstore = new CustodyStore(db, now)
-    const signer = createLocalSigner({ wrapper: localKeyWrapper(config.custody.kek), network: config.network, store: cstore, now })
+    await migrateSigner(db)
+    const signerStore = new SignerStore(db, now)
+    const core = createSignerCore({
+      store: signerStore,
+      keys: keyring(localKeyWrapper(config.custody.kek)),
+      chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: chain.fetch }),
+      oracle: createRouteOracle(config.network, chain.fetch),
+      config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
+      now,
+      log,
+    })
+    signerCore = core
+    signerVault = signerStore
+    const signer = createSignerClient(inProcessTransport(core))
     const access = createChainAccess({ rpc: near.ctx.rpc, fetch: chain.fetch })
     const swaps = createSwapService(near)
     const engine = createEngine({
@@ -93,7 +114,7 @@ export async function botHarness(
         sell: swaps.handler,
         unwrap: unwrapHandler(near),
         'backup-key': backupKeyHandler({ near, custody: cstore }),
-        revoke: revokeHandler({ near, custody: cstore }),
+        revoke: revokeHandler({ near, custody: cstore, signer }),
       },
       log,
       now,
@@ -102,7 +123,7 @@ export async function botHarness(
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => notifySettled(deps, settledNotice, intent),
     })
-    const recovery = createRecoveryService({ store, custody: cstore, signer, config, rpc: near.ctx.rpc, now })
+    const recovery = createRecoveryService({ custody: cstore, signer, config })
     custody = { store: cstore, signer, engine, chain: access, swaps, recovery }
   }
   const deps: BotDeps = {
@@ -142,6 +163,9 @@ export async function botHarness(
     db,
     store,
     chain,
+    /** The signer (in this process, as on testnet) and its own tables. */
+    signerCore,
+    signerVault,
     config,
     deps,
     app,
