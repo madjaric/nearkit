@@ -61,7 +61,8 @@ export interface IntentResult {
   facts?: Record<string, unknown>
 }
 
-export type TxStatus = 'signed' | 'submitted' | 'success' | 'failed' | 'expired'
+/** `unconfirmed`: past expiry, the key's nonce moved, yet the chain returns no such transaction; it may have gone through. */
+export type TxStatus = 'signed' | 'submitted' | 'success' | 'failed' | 'expired' | 'unconfirmed'
 
 export interface WalletTx {
   intentId: string

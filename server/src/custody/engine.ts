@@ -16,9 +16,10 @@ import type { ConfirmRefusal, CustodyStore, Intent, IntentKind, IntentResult, Tr
  * 3. For each transaction: sign (policy inside the signer), save the signed bytes
  *    and hash to disk, THEN send. A step is never signed twice.
  * 4. An unclear send is never re-signed or blindly re-sent: the chain is asked for
- *    the hash until it is final, or provably can't land (past its expiry height, or
- *    its nonce used by another transaction). After a restart the resolver does the
- *    same for anything that was in flight, without sending anything.
+ *    the hash until it is final, or provably can't land: past its expiry height AND
+ *    NearKit's key never reached its nonce. When the key's nonce moved but the chain
+ *    doesn't return the hash, nobody can tell, and NearKit never says "nothing was
+ *    sent" then. After a restart the resolver does the same, without sending anything.
  */
 
 export type PlanOutcome = { kind: 'plan'; op: WalletOperation; plan: WalletTxPlan[] } | { kind: 'requote'; quote: Record<string, unknown>; ttlMs: number }
@@ -66,6 +67,9 @@ export interface EngineDeps {
   onSettled?: (intent: Intent) => Promise<void>
 }
 
+/** Past expiry with the key's nonce moved but no such transaction on chain: wait this long before calling it unconfirmed. */
+export const AMBIGUOUS_GRACE_BLOCKS = 3_000
+
 const succeeded = (r: RpcTxResult) => {
   const s = r.status as Record<string, unknown> | null
   return Boolean(s && typeof s === 'object' && 'SuccessValue' in s)
@@ -84,11 +88,13 @@ export function createEngine(deps: EngineDeps) {
   /** Wallets with a live run in this process; the resolver leaves them alone. */
   const running = new Set<string>()
 
-  const fail = (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Intent => {
-    store.setStatus(intent.id, ['confirmed', 'signing', 'submitted'], 'failed', { result: { ok: false, message, hashes, ...(facts ? { facts } : {}) } })
-    store.audit({ userId: intent.userId, walletId: intent.walletId, action: 'intent-failed', detail: { intent: intent.id, message, hashes } })
-    return store.intent(intent.id) as Intent
+  /** Moves an in-flight intent to failed. `moved` is false when something else settled it first (then nothing is logged or told twice). */
+  const failIntent = (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): { intent: Intent; moved: boolean } => {
+    const moved = store.setStatus(intent.id, ['confirmed', 'signing', 'submitted'], 'failed', { result: { ok: false, message, hashes, ...(facts ? { facts } : {}) } })
+    if (moved) store.audit({ userId: intent.userId, walletId: intent.walletId, action: 'intent-failed', detail: { intent: intent.id, message, hashes } })
+    return { intent: store.intent(intent.id) as Intent, moved }
   }
+  const fail = (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Intent => failIntent(intent, message, hashes, facts).intent
 
   async function finalStatus(hash: string, signerId: string, waitMs: number): Promise<RpcTxResult | null> {
     const stop = now() + waitMs
@@ -102,7 +108,7 @@ export function createEngine(deps: EngineDeps) {
     }
   }
 
-  async function settle(intent: Intent, wallet: TradingWallet, confirmed: ConfirmedTx[]): Promise<Intent> {
+  async function settle(intent: Intent, wallet: TradingWallet, confirmed: ConfirmedTx[]): Promise<{ intent: Intent; moved: boolean }> {
     const handler = deps.handlers[intent.kind]
     const hashes = confirmed.map((c) => c.hash)
     let result: IntentResult
@@ -112,14 +118,15 @@ export function createEngine(deps: EngineDeps) {
       log.warn('summarize failed', { intent: intent.id, error: e })
       result = { ok: confirmed.every((c) => succeeded(c.result)), message: 'Confirmed on chain. Open the transaction for the details.', hashes }
     }
-    store.setStatus(intent.id, ['signing', 'submitted'], result.ok ? 'done' : 'failed', { result })
-    store.audit({
-      userId: intent.userId,
-      walletId: intent.walletId,
-      action: result.ok ? 'intent-done' : 'intent-failed',
-      detail: { intent: intent.id, hashes, facts: result.facts },
-    })
-    return store.intent(intent.id) as Intent
+    const moved = store.setStatus(intent.id, ['signing', 'submitted'], result.ok ? 'done' : 'failed', { result })
+    if (moved)
+      store.audit({
+        userId: intent.userId,
+        walletId: intent.walletId,
+        action: result.ok ? 'intent-done' : 'intent-failed',
+        detail: { intent: intent.id, hashes, facts: result.facts },
+      })
+    return { intent: store.intent(intent.id) as Intent, moved }
   }
 
   async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[]): Promise<ExecuteResult> {
@@ -217,7 +224,7 @@ export function createEngine(deps: EngineDeps) {
         }
       }
     }
-    return { kind: 'finished', intent: await settle(intent, wallet, confirmed) }
+    return { kind: 'finished', intent: (await settle(intent, wallet, confirmed)).intent }
   }
 
   return {
@@ -270,17 +277,23 @@ export function createEngine(deps: EngineDeps) {
         const wallet = store.wallet(intent.walletId)
         if (!wallet) continue
         const txs = store.txsOf(intent.id)
+        const keep = (r: { intent: Intent; moved: boolean }) => {
+          if (r.moved) settled.push(r.intent)
+        }
         if (!txs.length) {
           // Confirmed, then stopped before anything was signed: nothing can have been sent.
-          settled.push(fail(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
+          keep(failIntent(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
           continue
         }
         let unresolved = false
         for (const t of txs) {
-          if (t.status === 'success' || t.status === 'failed' || t.status === 'expired') continue
+          if (t.status === 'success' || t.status === 'failed' || t.status === 'expired' || t.status === 'unconfirmed') continue
           let r: RpcTxResult | null
+          let seen: boolean
           try {
             r = await chain.status(t.hash, t.signerId)
+            // Not final: if the chain knows the hash at all, it landed; wait for its outcome.
+            seen = r !== null || (await chain.seen(t.hash, t.signerId))
           } catch {
             unresolved = true
             continue
@@ -289,23 +302,50 @@ export function createEngine(deps: EngineDeps) {
             store.markTx(intent.id, t.step, succeeded(r) ? 'success' : 'failed', { success: succeeded(r) })
             continue
           }
+          if (seen) {
+            unresolved = true
+            continue
+          }
           const [height, nonce] = await Promise.all([chain.finalHeight().catch(() => null), chain.keyNonce(t.signerId, wallet.publicKey).catch(() => undefined)])
-          if (height !== null && height > t.expiresHeight) store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height and not on chain' })
-          else if (nonce !== undefined && nonce !== null && nonce >= t.nonce) store.markTx(intent.id, t.step, 'failed', { reason: 'its nonce was used by another transaction' })
-          else unresolved = true
+          // Until its expiry height passes, it may still land.
+          if (height === null || height <= t.expiresHeight) {
+            unresolved = true
+            continue
+          }
+          if (nonce !== undefined && nonce !== null && nonce < t.nonce) {
+            // Nonces only go up, so the key never used this one, and past expiry it never can: provably not executed.
+            store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NearKit’s key never used its nonce' })
+          } else if (nonce !== undefined && height > t.expiresHeight + AMBIGUOUS_GRACE_BLOCKS) {
+            // The key's nonce moved (or the key is gone) but the chain returns no such transaction: nobody can tell.
+            store.markTx(intent.id, t.step, 'unconfirmed', { reason: 'the key’s nonce moved but the chain does not return this transaction' })
+          } else {
+            unresolved = true
+          }
         }
         if (unresolved) continue
 
         const all = store.txsOf(intent.id)
         const landed = all.filter((t) => t.status === 'success' || t.status === 'failed')
         const total = stepOf(all[0] as WalletTx)?.total ?? all.length
+        const unknown = all.find((t) => t.status === 'unconfirmed')
+        if (unknown) {
+          // Never "nothing was sent" here: it may have gone through.
+          keep(
+            failIntent(
+              intent,
+              'NearKit couldn’t confirm whether a transaction went through: the chain doesn’t return it, though the wallet’s key was used. Check the wallet’s balance and history before trying again.',
+              [...landed.map((t) => t.hash), unknown.hash],
+            ),
+          )
+          continue
+        }
         const lost = all.find((t) => t.status === 'expired' || (t.status === 'failed' && !(t.outcome && 'success' in t.outcome)))
         if (lost) {
           const msg = landed.length
             ? 'A transaction never reached the chain, so the rest was not sent. Earlier steps went through; see the transactions.'
             : 'The transaction never reached the chain. Nothing was sent.'
-          settled.push(
-            fail(
+          keep(
+            failIntent(
               intent,
               msg,
               landed.map((t) => t.hash),
@@ -327,22 +367,22 @@ export function createEngine(deps: EngineDeps) {
         if (!readable) continue
         const failedEarly = confirmed.slice(0, -1).some((c) => !succeeded(c.result))
         if (failedEarly)
-          settled.push(
-            fail(
+          keep(
+            failIntent(
               intent,
               'A preparation step failed on chain, so the rest was not sent.',
               confirmed.map((c) => c.hash),
             ),
           )
         else if (confirmed.length < total)
-          settled.push(
-            fail(
+          keep(
+            failIntent(
               intent,
               'NearKit restarted between steps, so the rest was not sent. Nothing was traded; try again.',
               confirmed.map((c) => c.hash),
             ),
           )
-        else settled.push(await settle(intent, wallet, confirmed))
+        else keep(await settle(intent, wallet, confirmed))
       }
       for (const i of settled) await deps.onSettled?.(i).catch((e: unknown) => log.warn('settled notice failed', { intent: i.id, error: e }))
       return settled

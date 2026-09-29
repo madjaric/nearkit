@@ -40,9 +40,11 @@ export interface FakeChainOptions {
 /**
  * How a sent transaction behaves: 'apply' (normal), 'timeout' (it lands, but the RPC
  * answers TIMEOUT_ERROR), 'drop' (it never lands and the RPC answers TIMEOUT_ERROR),
- * 'transport' (it never lands and the node can't be reached).
+ * 'transport' (it never lands and the node can't be reached), 'hidden' (it lands,
+ * the RPC times out, and the RPC's status lookup doesn't return it until `reveal()`:
+ * a lagging index).
  */
-export type SendMode = 'apply' | 'timeout' | 'drop' | 'transport'
+export type SendMode = 'apply' | 'timeout' | 'drop' | 'transport' | 'hidden'
 
 const NO_CODE = '11111111111111111111111111111111'
 
@@ -76,6 +78,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
   const runtime = createRuntime(state)
   let sendMode: (tx: NearTransaction) => SendMode = () => 'apply'
   const sent: { hash: string; mode: SendMode; tx: NearTransaction }[] = []
+  const hidden = new Set<string>()
   const header = (height: number) => ({ height, hash: blockHashOf(height), prev_hash: blockHashOf(height - 1), timestamp: height * 1_000_000_000 })
 
   async function sendTx(id: unknown, signedBase64: string): Promise<Response> {
@@ -94,7 +97,8 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     try {
       const { hash, result, tx } = await runtime.execute(signedBase64)
       sent.push({ hash, mode, tx })
-      if (mode === 'timeout') return rpcError(id, 'TIMEOUT_ERROR', 'Timeout')
+      if (mode === 'hidden') hidden.add(hash)
+      if (mode === 'timeout' || mode === 'hidden') return rpcError(id, 'TIMEOUT_ERROR', 'Timeout')
       return json({ jsonrpc: '2.0', id, result })
     } catch (e) {
       if (e instanceof TxRejection) return rpcError(id, 'INVALID_TRANSACTION', e.kind)
@@ -187,7 +191,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
       return json({ jsonrpc: '2.0', id, result: { keys, block_height: state.height.value, block_hash: blockHashOf(state.height.value) } })
     }
     if (method === 'EXPERIMENTAL_tx_status' || method === 'tx') {
-      const tx = txs.get(String(params.tx_hash))
+      const tx = hidden.has(String(params.tx_hash)) ? undefined : txs.get(String(params.tx_hash))
       return tx ? json({ jsonrpc: '2.0', id, result: tx }) : rpcError(id, 'UNKNOWN_TRANSACTION', 'Transaction not found')
     }
     if (method === 'block') {
@@ -246,6 +250,10 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     /** How the next sends behave (see SendMode). */
     onSend(mode: SendMode | ((tx: NearTransaction) => SendMode)) {
       sendMode = typeof mode === 'function' ? mode : () => mode
+    },
+    /** The lagging index catches up: hidden transactions become visible. */
+    reveal() {
+      hidden.clear()
     },
     height: () => state.height.value,
     advance(blocks: number) {

@@ -9,7 +9,7 @@ import { Db } from '../db/sqlite'
 import { Store } from '../db/store'
 import { createLogger } from '../log'
 import { createChainAccess, type ChainAccess } from './chain'
-import { createEngine, type IntentHandler, type PlanOutcome } from './engine'
+import { AMBIGUOUS_GRACE_BLOCKS, createEngine, type IntentHandler, type PlanOutcome } from './engine'
 import { secretKeyText } from './keys'
 import { createLocalSigner, walletAad, type TradingSigner } from './signer'
 import { CustodyStore, type TradingWallet } from './store'
@@ -222,6 +222,62 @@ describe('unclear sends and restarts', () => {
     chain.advance(601)
     expect((await engine.resolvePending()).map((x) => x.status)).toEqual(['failed'])
     expect(chain.sent).toHaveLength(0)
+  })
+})
+
+describe('lagging chain index and a resolver that runs twice', () => {
+  it('a transaction that landed but isn’t returned yet stays pending, even past its expiry, and settles once visible', async () => {
+    const settled: string[] = []
+    const engine = engineFor(settled)
+    chain.onSend('hidden')
+    const i = intent()
+    expect((await engine.execute(i.id, 101)).kind).toBe('pending')
+    // It landed: bob has the NEAR and NearKit's key used the nonce, but the index doesn't show it.
+    expect(chain.accounts.get('bob.testnet')?.amount).toBe(ONE)
+    expect(await engine.resolvePending()).toEqual([])
+    chain.advance(700)
+    expect(await engine.resolvePending()).toEqual([])
+    expect(store.intent(i.id)?.status).toBe('submitted')
+    chain.reveal()
+    expect((await engine.resolvePending()).map((x) => [x.id, x.status])).toEqual([[i.id, 'done']])
+    expect(settled).toEqual([i.id])
+    expect(chain.sent).toHaveLength(1)
+  })
+
+  it('if the index never shows it, NearKit says it can’t confirm, never that nothing was sent', async () => {
+    const engine = engineFor()
+    chain.onSend('hidden')
+    const i = intent()
+    await engine.execute(i.id, 101)
+    chain.advance(700 + AMBIGUOUS_GRACE_BLOCKS)
+    const [done] = await engine.resolvePending()
+    expect(done?.status).toBe('failed')
+    expect(done?.result?.message).toMatch(/couldn’t confirm whether a transaction went through/)
+    expect(done?.result?.message).not.toMatch(/Nothing was sent/)
+    expect(store.txsOf(i.id)[0]?.status).toBe('unconfirmed')
+  })
+
+  it('two resolver runs at once settle an intent once and tell the user once', async () => {
+    const settled: string[] = []
+    const engine = engineFor(settled)
+    chain.onSend('timeout')
+    // The live run gives up waiting before the chain answers.
+    const slow = createEngine({
+      store,
+      signer,
+      chain: { ...access, status: async () => null },
+      handlers: { withdraw },
+      log: createLogger({ sink: () => {} }),
+      now: () => clock,
+      sleep: async (ms) => void (clock += ms),
+      confirmMs: 1_000,
+    })
+    const i = intent()
+    expect((await slow.execute(i.id, 101)).kind).toBe('pending')
+    const [a, b] = await Promise.all([engine.resolvePending(), engine.resolvePending()])
+    expect([...a, ...b].map((x) => x.id)).toEqual([i.id])
+    expect(settled).toEqual([i.id])
+    expect(store.auditOf(wallet.id).filter((e) => e.action === 'intent-done')).toHaveLength(1)
   })
 })
 
