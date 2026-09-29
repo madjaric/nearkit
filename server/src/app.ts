@@ -31,6 +31,7 @@ import { keyring, localKeyWrapper } from './custody/vault'
 import { MAX_SLIPPAGE } from '@/lib/fees'
 import { createSignerChain } from './signer/chain'
 import { httpSignerTransport } from './signer/client'
+import { pinnedFetch } from './signer/tls'
 import { createSignerCore } from './signer/core'
 import { importLegacyKeys } from './signer/legacy'
 import { createRouteOracle } from './signer/routes'
@@ -143,7 +144,7 @@ export async function startServer(options: { env: Record<string, string | undefi
   let onSettled: (intent: Intent) => Promise<void> = async () => {}
   if (config.custody.enabled && config.custody.signer) {
     const cstore = new CustodyStore(db, now)
-    const ops = new OpsSwitches(db, cstore, now)
+    const ops = new OpsSwitches(db, cstore, now, config.ops.hostPaused)
     const signerConfig = config.custody.signer
     let transport
     let signerMode: string
@@ -164,7 +165,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       transport = inProcessTransport(core)
       signerMode = `in-process (${core.keyRef})`
     } else {
-      transport = httpSignerTransport({ url: signerConfig.url, authKey: signerConfig.authKey, fetch: fetchImpl })
+      transport = httpSignerTransport({ url: signerConfig.url, authKey: signerConfig.authKey, fetch: signerConfig.tlsPin ? pinnedFetch(signerConfig.tlsPin) : fetchImpl })
       signerMode = 'service'
     }
     const signer = createSignerClient(transport)
@@ -283,7 +284,7 @@ export async function startServer(options: { env: Record<string, string | undefi
   // What /health reports about the kill switches and the signer, refreshed every 15 s (fails closed to "unknown").
   const health: { pauses: Record<string, boolean> | 'unknown'; signer: string } = { pauses: 'unknown', signer: custody ? 'unknown' : 'off' }
   const refreshHealth = async () => {
-    const switches = new OpsSwitches(db, new CustodyStore(db, now), now)
+    const switches = new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused)
     health.pauses = await switches
       .state()
       .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused }))

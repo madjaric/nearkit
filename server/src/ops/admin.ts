@@ -8,6 +8,7 @@ import { loadEnvFile, loadSecretFiles } from '../env-file'
 import { httpSignerTransport } from '../signer/client'
 import { migrateSigner } from '../signer/schema'
 import { SignerStore } from '../signer/store'
+import { pinnedFetch, type TlsPin } from '../signer/tls'
 import { OpsSwitches, SWITCHES, type SwitchName } from './switches'
 
 /**
@@ -21,6 +22,9 @@ import { OpsSwitches, SWITCHES, type SwitchName } from './switches'
  *   signer-pause <reason>                    stop every signature, export and approval (resume on the signer's host)
  *   events [count]                           the latest security events (no secrets are ever recorded)
  */
+
+/** The signer's own certificate when one is pinned; otherwise the given (or global) fetch. */
+const signerFetch = (signer: { tlsPin: TlsPin | null }, f?: typeof fetch) => (signer.tlsPin ? pinnedFetch(signer.tlsPin) : f)
 
 export async function runOpsAdmin(
   argv: string[],
@@ -37,7 +41,7 @@ export async function runOpsAdmin(
   try {
     await migrate(db)
     const custody = new CustodyStore(db, o.now)
-    const ops = new OpsSwitches(db, custody, o.now)
+    const ops = new OpsSwitches(db, custody, o.now, config.ops.hostPaused)
     const by = `operator${env.USER ? `:${env.USER}` : env.USERNAME ? `:${env.USERNAME}` : ''}`
     const walletOf = async (ref: string) => (await custody.wallet(ref)) ?? (await custody.walletByAccount(config.network.id, ref))
     const [command, target, ...rest] = argv
@@ -45,7 +49,12 @@ export async function runOpsAdmin(
     switch (command) {
       case 'status': {
         const s = await ops.state()
-        for (const name of SWITCHES) out(`${name}: ${s[name].paused ? `PAUSED since ${new Date(s[name].since ?? 0).toISOString()} (${s[name].reason ?? 'no reason'})` : 'running'}`)
+        for (const name of SWITCHES) {
+          const sw = s[name]
+          out(
+            `${name}: ${!sw.paused ? 'running' : sw.since === null ? `PAUSED ${sw.reason ?? ''}`.trim() : `PAUSED since ${new Date(sw.since).toISOString()} (${sw.reason ?? 'no reason'})`}`,
+          )
+        }
         const frozen = await db.all<{ id: string; account_id: string; frozen_reason: string | null }>(
           "SELECT id, account_id, frozen_reason FROM trading_wallets WHERE frozen_at IS NOT NULL AND status = 'active'",
         )
@@ -53,7 +62,7 @@ export async function runOpsAdmin(
         for (const f of frozen) out(`  ${f.id} ${f.account_id} (${f.frozen_reason ?? 'no reason'})`)
         const signer = config.custody.signer
         if (signer?.kind === 'remote') {
-          const h = await createSignerClient(httpSignerTransport({ url: signer.url, authKey: signer.authKey, fetch: o.fetch }))
+          const h = await createSignerClient(httpSignerTransport({ url: signer.url, authKey: signer.authKey, fetch: signerFetch(signer, o.fetch) }))
             .health()
             .catch((e: unknown) => ({ ok: false, paused: null, kek: e instanceof Error ? e.message : 'unavailable' }))
           out(`signer (service): ok ${String(h.ok)} · paused ${String(h.paused)} · KEK ${String(h.kek)}`)
@@ -72,6 +81,10 @@ export async function runOpsAdmin(
           return 2
         }
         await ops.set(target as SwitchName, command === 'pause', reason, by)
+        if (command === 'resume' && (await ops.state())[target as SwitchName].paused) {
+          out(`${target} stays paused: the host holds it (NEARKIT_OPS_PAUSED). Remove it there and restart.`)
+          return 1
+        }
         out(`${target} ${command === 'pause' ? 'paused' : 'resumed'}`)
         return 0
       }
@@ -98,7 +111,7 @@ export async function runOpsAdmin(
           return 2
         }
         const signer = config.custody.signer
-        if (signer?.kind === 'remote') await createSignerClient(httpSignerTransport({ url: signer.url, authKey: signer.authKey, fetch: o.fetch })).pause(why)
+        if (signer?.kind === 'remote') await createSignerClient(httpSignerTransport({ url: signer.url, authKey: signer.authKey, fetch: signerFetch(signer, o.fetch) })).pause(why)
         else if (signer?.kind === 'in-process') {
           await migrateSigner(db)
           const store = new SignerStore(db, o.now)

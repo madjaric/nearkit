@@ -119,6 +119,22 @@ describe('kill switches', () => {
     expect(h.chain.sent).toHaveLength(0)
   })
 
+  it('the host can hold a switch paused from its environment (no shell needed); the database can’t lift it', async () => {
+    const owner = await ownerKeypair()
+    const h = await walletBot({ linkedKey: owner.publicKey, env: { NEARKIT_OPS_PAUSED: 'trading' } })
+    await h.funded(5n * ONE)
+    await h.custody.ops.set('trading', false, 'trying to lift it', 'test')
+    expect((await h.custody.ops.state()).trading).toMatchObject({ paused: true, reason: expect.stringContaining('NEARKIT_OPS_PAUSED') })
+    await h.say('/buy')
+    await h.say('USDT')
+    await h.press(h.button('0.1 NEAR'))
+    expect(h.last()?.text).toContain('Trading from NearKit wallets is paused')
+    expect(h.chain.sent).toHaveLength(0)
+    // Only trading: withdrawing to the owner still works.
+    await withdrawToOwner(h)
+    expect(h.last()?.text).toContain('Withdrawal confirmed')
+  })
+
   it('the operator’s command line: status, pause, resume, freeze, events', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'nearkit-ops-'))
     try {
@@ -154,6 +170,14 @@ describe('kill switches', () => {
       expect(out.map((l) => l.split(' ')[1])).toEqual(['ops-paused', 'wallet-frozen', 'ops-signer-paused', 'ops-resumed', 'wallet-unfrozen'])
       expect(await run(['pause', 'everything', 'x'])).toBe(2)
       expect(await run(['freeze', 'nobody.testnet', 'x'])).toBe(1)
+      // A switch the host holds paused stays paused, and the command line says why.
+      const held = (argv: string[]) => runOpsAdmin(argv, { ...env, NEARKIT_OPS_PAUSED: 'withdrawals' }, (l) => void out.push(l))
+      out.length = 0
+      expect(await held(['status'])).toBe(0)
+      expect(out).toContain('withdrawals: PAUSED on the host (NEARKIT_OPS_PAUSED)')
+      out.length = 0
+      expect(await held(['resume', 'withdrawals', 'try'])).toBe(1)
+      expect(out.join(' ')).toContain('NEARKIT_OPS_PAUSED')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

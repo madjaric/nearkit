@@ -105,7 +105,7 @@ export async function botHarness(
   let stopSigner: (() => Promise<void>) | null = null
   if (config.custody.enabled && config.custody.signer?.kind === 'in-process') {
     const cstore = new CustodyStore(db, now)
-    const ops = new OpsSwitches(db, cstore, now)
+    const ops = new OpsSwitches(db, cstore, now, config.ops.hostPaused)
     let transport
     if (options.remoteSigner) {
       const dir = mkdtempSync(join(tmpdir(), 'nearkit-harness-signer-'))

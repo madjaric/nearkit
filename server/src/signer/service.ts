@@ -9,6 +9,7 @@ import { loadSignerConfig, type SignerServiceConfig } from './config'
 import { createSignerCore } from './core'
 import { createSignerServer } from './http'
 import { awsKmsApi, kmsKeyWrapper, probeKek, type KmsApi } from './kms'
+import { ensureSignerTls } from './tls'
 import { createRouteOracle } from './routes'
 import { migrateSigner } from './schema'
 import { SignerStore } from './store'
@@ -30,7 +31,9 @@ export interface SignerDepsOverrides {
 /** Every secret the signer's logger must never print. */
 export function signerSecrets(env: Record<string, string | undefined>, config: SignerServiceConfig | null): string[] {
   const kek = [env.NEARKIT_SIGNER_KEK, ...(env.NEARKIT_SIGNER_KEK_PREVIOUS ?? '').split(',')].map((s) => s?.trim())
-  return [env.NEARKIT_SIGNER_AUTH_KEY?.trim(), ...kek, ...(config ? databaseSecrets(config.database) : [])].filter((s): s is string => Boolean(s))
+  // On a host outside AWS the KMS is reached with an access key: its secret half is a secret like any other.
+  const aws = [env.AWS_SECRET_ACCESS_KEY?.trim(), env.AWS_SESSION_TOKEN?.trim()]
+  return [env.NEARKIT_SIGNER_AUTH_KEY?.trim(), ...kek, ...aws, ...(config ? databaseSecrets(config.database) : [])].filter((s): s is string => Boolean(s))
 }
 
 export async function buildSigner(config: SignerServiceConfig, o: SignerDepsOverrides = {}) {
@@ -81,7 +84,14 @@ export async function startSignerService(o: SignerDepsOverrides & { env: Record<
   if (kek === 'ok') log.info('signer key-encryption key ready', { keyRef: s.keys.current.ref })
   // Fails closed either way: without the KEK nothing opens. The service still answers health.
   else log.error('signer key-encryption key unavailable', { keyRef: s.keys.current.ref, problem: kek })
-  const tls = config.listen.tls ? { cert: readFileSync(config.listen.tls.certPath), key: readFileSync(config.listen.tls.keyPath) } : null
+  let tls: { cert: Buffer; key: Buffer } | null = null
+  const listenTls = config.listen.tls
+  if (listenTls && 'dir' in listenTls) {
+    const own = ensureSignerTls(listenTls.dir)
+    // Public: the app pins this certificate (NEARKIT_SIGNER_TLS_PIN). The key never leaves this disk.
+    log.info('signer TLS certificate', { created: own.created, fingerprint256: own.fingerprint256, pin: own.pin })
+    tls = { cert: Buffer.from(own.certPem), key: Buffer.from(own.keyPem) }
+  } else if (listenTls) tls = { cert: readFileSync(listenTls.certPath), key: readFileSync(listenTls.keyPath) }
   const server = createSignerServer({ core: s.core, store: s.store, authKey: config.authKey, log, now: o.now, tls })
   const port = await listen(server, config.listen.port, config.listen.host)
   log.info('NearKit signer listening', {

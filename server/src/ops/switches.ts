@@ -19,6 +19,9 @@ import type { Database } from '../db/database'
  *   is signed, exported, approved or erased anywhere. Funds stay where they are; a
  *   wallet with a backup key is still its owner's to move directly on chain.
  *
+ * The host can also hold a switch paused from its environment (NEARKIT_OPS_PAUSED, for a
+ * host without a shell): nothing in the database lifts that; removing it and restarting does.
+ *
  * In every case transactions already sent are still followed to the end (the resolver
  * only reads the chain) and the bot keeps answering.
  */
@@ -37,16 +40,21 @@ const SWITCH_OF: Partial<Record<IntentKind, SwitchName>> = { buy: 'trading', sel
 /** What a frozen wallet may still do: things that only hand control to its owner or stay inside it. */
 const ALLOWED_WHEN_FROZEN: readonly IntentKind[] = ['backup-key', 'revoke', 'unwrap']
 
+export const HOST_PAUSED_REASON = 'on the host (NEARKIT_OPS_PAUSED)'
+
 export class OpsSwitches {
   constructor(
     private readonly db: Database,
     private readonly audit: Pick<CustodyStore, 'audit'>,
     private readonly now: () => number = Date.now,
+    /** Switches the host holds paused (NEARKIT_OPS_PAUSED), whatever the database says. */
+    private readonly hostPaused: readonly SwitchName[] = [],
   ) {}
 
   async state(): Promise<Record<SwitchName, SwitchState>> {
     const rows = await this.db.all<{ name: string; paused: number; reason: string | null; updated_at: number }>('SELECT name, paused, reason, updated_at FROM ops_switches')
     const of = (name: SwitchName): SwitchState => {
+      if (this.hostPaused.includes(name)) return { paused: true, reason: HOST_PAUSED_REASON, since: null }
       const r = rows.find((x) => x.name === name)
       return r && r.paused === 1 ? { paused: true, reason: r.reason, since: r.updated_at } : { paused: false, reason: null, since: r?.updated_at ?? null }
     }

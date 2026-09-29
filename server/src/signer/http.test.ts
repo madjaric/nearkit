@@ -6,12 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { base58Decode, base64Decode } from '@/lib/encoding'
 import { deserializeSignedTransaction, transactionDigest } from '@/services/near/transaction'
 import { createSignerClient, type TradingSigner } from '../custody/signer'
-import { silentLogger } from '../log'
+import { createLogger, silentLogger } from '../log'
 import { signRequest } from './auth'
 import { httpSignerTransport } from './client'
 import { DestinationNotApprovedError, SignerPausedError, SignerUnavailableError } from './errors'
 import { startSignerService } from './service'
 import { TEST_OWNER_KEY } from './testing'
+import { ensureSignerTls, parseTlsPin, pinnedFetch } from './tls'
 
 const AUTH = randomBytes(32)
 const OWNER = 'alice.testnet'
@@ -62,6 +63,39 @@ const withdrawToOwner = (signer: TradingSigner, accountId: string, intentId = 'i
   })
 
 describe('the signer service over HTTP', { timeout: 60_000 }, () => {
+  it('serves TLS with a certificate it makes on its own disk; an app pinned to it talks to it, and the pin is logged', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nearkit-signer-tlsdir-'))
+    dirs.push(dir)
+    const lines: string[] = []
+    const s = await startSignerService({
+      env: {
+        NEAR_NETWORK: 'testnet',
+        NEARKIT_SIGNER_AUTH_KEY: AUTH.toString('base64'),
+        NEARKIT_SIGNER_KEK: randomBytes(32).toString('base64'),
+        NEARKIT_SIGNER_DB_PATH: join(dir, 'signer.sqlite'),
+        NEARKIT_SIGNER_RECIPIENT: 'nearkit.vercel.app',
+        NEARKIT_SIGNER_PORT: '0',
+        NEARKIT_SIGNER_TLS_DIR: join(dir, 'tls'),
+      },
+      log: createLogger({ sink: (line) => lines.push(line) }),
+      fetch: (async () => {
+        throw new Error('offline')
+      }) as typeof fetch,
+    })
+    stops.push(s.stop)
+    const logged = lines.map((l) => JSON.parse(l) as Record<string, unknown>).find((l) => l.msg === 'signer TLS certificate')
+    const pin = ensureSignerTls(join(dir, 'tls')).pin
+    expect(logged).toMatchObject({ pin, created: true })
+    // The key itself never reaches the log.
+    expect(lines.join('\n')).not.toContain('PRIVATE KEY')
+    const url = `https://127.0.0.1:${s.port}`
+    const pinned = createSignerClient(httpSignerTransport({ url, authKey: AUTH, fetch: pinnedFetch(parseTlsPin(pin)!), timeoutMs: 5_000 }))
+    expect(await pinned.health()).toMatchObject({ ok: true, network: 'testnet' })
+    // Nothing that doesn't hold the pin gets an answer.
+    const unpinned = createSignerClient(httpSignerTransport({ url, authKey: AUTH, timeoutMs: 5_000 }))
+    await expect(unpinned.health()).rejects.toBeInstanceOf(SignerUnavailableError)
+  })
+
   it('makes a key and signs for the app, answering only signed requests with signed answers', async () => {
     const s = await service()
     const signer = s.client()

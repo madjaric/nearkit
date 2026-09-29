@@ -1,5 +1,10 @@
+import { randomBytes } from 'node:crypto'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from './config'
+import { ensureSignerTls, parseTlsPin } from './signer/tls'
 
 const TOKEN = '1234567890:AAH-abcdefghijklmnopqrstuvwxyz_0123456'
 
@@ -111,6 +116,23 @@ describe('trading wallets (custody)', () => {
     const { config, issues } = loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_SIGNER_URL: 'https://signer.internal', NEARKIT_SIGNER_AUTH_KEY: AUTH, NEARKIT_DATABASE_URL: PG })
     expect(issues).toEqual([])
     expect(config.custody).toMatchObject({ enabled: false, signer: null, reason: expect.stringMatching(/until the owner turns them on/) })
+  })
+
+  it('the host can hold kill switches paused from its environment; an unknown switch is refused', () => {
+    expect(loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_OPS_PAUSED: 'trading, withdrawals' }).config.ops).toEqual({ hostPaused: ['trading', 'withdrawals'] })
+    expect(loadConfig({ NEAR_NETWORK: 'testnet' }).config.ops).toEqual({ hostPaused: [] })
+    expect(loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_OPS_PAUSED: 'trading,everything' }).issues.map((i) => i.key)).toEqual(['NEARKIT_OPS_PAUSED'])
+  })
+
+  it('pins the signer’s own certificate when given one, over https only; anything that is not a certificate is refused', () => {
+    const pin = ensureSignerTls(mkdtempSync(join(tmpdir(), 'nearkit-app-pin-'))).pin
+    const remote = { NEAR_NETWORK: 'testnet', NEARKIT_SIGNER_URL: 'https://bot-abc123.fh.internal:8790', NEARKIT_SIGNER_AUTH_KEY: randomBytes(32).toString('base64') }
+    const ok = loadConfig({ ...remote, NEARKIT_SIGNER_TLS_PIN: pin })
+    expect(ok.issues).toEqual([])
+    expect(ok.config.custody.signer).toMatchObject({ kind: 'remote', tlsPin: { fingerprint256: parseTlsPin(pin)?.fingerprint256 } })
+    expect(loadConfig(remote).config.custody.signer).toMatchObject({ kind: 'remote', tlsPin: null })
+    expect(loadConfig({ ...remote, NEARKIT_SIGNER_TLS_PIN: 'not-a-certificate' }).issues.map((i) => i.key)).toEqual(['NEARKIT_SIGNER_TLS_PIN'])
+    expect(loadConfig({ ...remote, NEARKIT_SIGNER_URL: 'http://127.0.0.1:8790', NEARKIT_SIGNER_TLS_PIN: pin }).issues.map((i) => i.key)).toEqual(['NEARKIT_SIGNER_TLS_PIN'])
   })
 
   it('refuse to start on mainnet with the switch on and anything missing: signer service, PostgreSQL, the production fee account, TLS', () => {

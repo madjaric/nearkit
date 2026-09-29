@@ -2,6 +2,8 @@ import { resolve } from 'node:path'
 import { parseEnv, type AppEnv, type EnvIssue } from '@/config/env'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
 import { feeRecipientProblem } from '@/lib/fees'
+import { SWITCHES, type SwitchName } from './ops/switches'
+import { parseTlsPin, type TlsPin } from './signer/tls'
 import type { DatabaseConfig } from './db/open'
 import { parseKek } from './custody/vault'
 import type { LogLevel } from './log'
@@ -55,10 +57,12 @@ export interface ServerConfig {
    * and with the switch on but something missing the server refuses to start.
    */
   custody: { enabled: boolean; reason: string | null; signer: CustodySigner | null }
+  /** Kill switches the host holds paused from its environment (NEARKIT_OPS_PAUSED), for hosts without a shell. */
+  ops: { hostPaused: SwitchName[] }
   logLevel: LogLevel
 }
 
-export type CustodySigner = { kind: 'in-process'; kek: Buffer } | { kind: 'remote'; url: string; authKey: Buffer }
+export type CustodySigner = { kind: 'in-process'; kek: Buffer } | { kind: 'remote'; url: string; authKey: Buffer; tlsPin: TlsPin | null }
 
 export type ConfigIssue = EnvIssue
 
@@ -189,13 +193,18 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   if (!blank(kekRaw) && !kek) issue('NEARKIT_WALLET_KEK', 'Must be 32 random bytes in base64 (value not shown). Create one with npm run server:wallet-key')
   if (!blank(kekRaw) && mainnet)
     issue('NEARKIT_WALLET_KEK', 'A key-encryption key in the app’s environment is for testnet only. Mainnet keys live with the signer service and its KMS: remove it')
-  let remote: { url: string; authKey: Buffer } | null = null
+  let remote: { url: string; authKey: Buffer; tlsPin: TlsPin | null } | null = null
   if (!blank(raw.NEARKIT_SIGNER_URL) || !blank(raw.NEARKIT_SIGNER_AUTH_KEY)) {
     const url = blank(raw.NEARKIT_SIGNER_URL) ? null : httpUrl(raw.NEARKIT_SIGNER_URL)
     const authKey = parseAuthKey(raw.NEARKIT_SIGNER_AUTH_KEY)
     if (!url) issue('NEARKIT_SIGNER_URL', 'The signer service’s https:// URL (http:// only for localhost)')
     if (!authKey) issue('NEARKIT_SIGNER_AUTH_KEY', 'Must be 32 random bytes in base64, the same as the signer’s (value not shown)')
-    if (url && authKey) remote = { url: url.origin + url.pathname.replace(/\/$/, ''), authKey }
+    // The signer's own certificate, when it has no certificate from a public authority (signer/tls.ts).
+    const pinRaw = raw.NEARKIT_SIGNER_TLS_PIN
+    const tlsPin = blank(pinRaw) ? null : parseTlsPin(pinRaw)
+    if (!blank(pinRaw) && !tlsPin) issue('NEARKIT_SIGNER_TLS_PIN', 'Must be the signer’s certificate pin: base64 of its DER, as the signer logs it at start')
+    if (tlsPin && url && url.protocol !== 'https:') issue('NEARKIT_SIGNER_TLS_PIN', 'A certificate pin needs an https:// signer URL')
+    if (url && authKey) remote = { url: url.origin + url.pathname.replace(/\/$/, ''), authKey, tlsPin }
   }
   const mainnetSwitch = raw.NEARKIT_MAINNET_CUSTODY?.trim()
   if (!blank(mainnetSwitch) && mainnetSwitch !== 'enabled' && mainnetSwitch !== 'off') issue('NEARKIT_MAINNET_CUSTODY', 'Expected "enabled" or "off"')
@@ -221,6 +230,13 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   } else {
     custody = { enabled: false, reason: 'NearKit trading wallets need NEARKIT_WALLET_KEK (testnet) or the signer service on this server.', signer: null }
   }
+
+  const hostPaused = (raw.NEARKIT_OPS_PAUSED ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const unknownSwitch = hostPaused.filter((s) => !SWITCHES.includes(s as SwitchName))
+  if (unknownSwitch.length) issue('NEARKIT_OPS_PAUSED', `Not a kill switch: ${unknownSwitch.join(', ')} (expected ${SWITCHES.join(', ')})`)
 
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'
   const logLevel: LogLevel = levelRaw === 'debug' || levelRaw === 'warn' || levelRaw === 'error' ? levelRaw : 'info'
@@ -249,6 +265,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         runner: runnerRaw === 'separate' ? 'separate' : 'app',
       },
       custody,
+      ops: { hostPaused: hostPaused.filter((s): s is SwitchName => SWITCHES.includes(s as SwitchName)) },
       logLevel,
     },
     issues,

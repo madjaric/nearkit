@@ -1,14 +1,14 @@
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { keyring, localKeyWrapper, parseSealed } from '../custody/vault'
 import { openDatabase } from '../db/open'
 import { runAdmin } from './admin'
 import { loadSignerConfig } from './config'
 import { openWalletKey } from './envelope'
-import { buildSigner } from './service'
+import { buildSigner, signerSecrets } from './service'
 import { SignerStore } from './store'
 import { TEST_OWNER_KEY } from './testing'
 
@@ -55,6 +55,19 @@ describe('the signer’s configuration fails closed', () => {
     expect(keys({ ...mainnet, NEARKIT_SIGNER_AUTH_KEY: 'short' })).toEqual(['NEARKIT_SIGNER_AUTH_KEY'])
     // On this machine only (a sidecar), no TLS is needed.
     expect(keys({ ...mainnet, NEARKIT_SIGNER_TLS_CERT: undefined, NEARKIT_SIGNER_TLS_KEY: undefined, NEARKIT_SIGNER_HOST: '127.0.0.1' })).toEqual([])
+  })
+
+  it('TLS from its own folder (a certificate the signer makes and keeps) counts as TLS; with a certificate pair as well, it refuses', () => {
+    const noPair = { ...mainnet, NEARKIT_SIGNER_TLS_CERT: undefined, NEARKIT_SIGNER_TLS_KEY: undefined }
+    const { config, issues } = loadSignerConfig({ ...noPair, NEARKIT_SIGNER_TLS_DIR: '/data/tls' })
+    expect(issues).toEqual([])
+    expect(config?.listen.tls).toEqual({ dir: resolve('/data/tls') })
+    expect(keys({ ...mainnet, NEARKIT_SIGNER_TLS_DIR: '/data/tls' })).toEqual(['NEARKIT_SIGNER_TLS_DIR'])
+  })
+
+  it('an AWS secret for the KMS (a host outside AWS) is registered as a secret, so it is never logged', () => {
+    const env = { ...mainnet, AWS_ACCESS_KEY_ID: 'test-access-key-id', AWS_SECRET_ACCESS_KEY: 'aws-secret-value-for-a-test', AWS_SESSION_TOKEN: 'aws-session-value-for-a-test' }
+    expect(signerSecrets(env, loadSignerConfig(env).config)).toEqual(expect.arrayContaining(['aws-secret-value-for-a-test', 'aws-session-value-for-a-test']))
   })
 
   it('the network is never assumed, and no secret is ever repeated in a problem', () => {

@@ -31,7 +31,8 @@ export interface SignerServiceConfig {
   feeRecipient: string | null
   rpc: { urls: string[]; quorum: number }
   maxSlippagePpm: number
-  listen: { host: string; port: number; tls: { certPath: string; keyPath: string } | null }
+  /** TLS from a certificate pair, or from a folder where the signer makes and keeps its own (signer/tls.ts). */
+  listen: { host: string; port: number; tls: { certPath: string; keyPath: string } | { dir: string } | null }
   pause: { byEnv: boolean; file: string | null }
   logLevel: LogLevel
 }
@@ -141,7 +142,13 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
   const cert = raw.NEARKIT_SIGNER_TLS_CERT?.trim()
   const key = raw.NEARKIT_SIGNER_TLS_KEY?.trim()
   if (Boolean(cert) !== Boolean(key)) issue('NEARKIT_SIGNER_TLS_CERT', 'Set both NEARKIT_SIGNER_TLS_CERT and NEARKIT_SIGNER_TLS_KEY, or neither')
-  const tls = cert && key ? { certPath: resolve(cert), keyPath: resolve(key) } : null
+  const tlsDir = raw.NEARKIT_SIGNER_TLS_DIR?.trim()
+  if (tlsDir && (cert || key))
+    issue(
+      'NEARKIT_SIGNER_TLS_DIR',
+      'Set either NEARKIT_SIGNER_TLS_DIR (a certificate the signer makes and keeps there) or NEARKIT_SIGNER_TLS_CERT and NEARKIT_SIGNER_TLS_KEY, not both',
+    )
+  const tls = tlsDir ? { dir: resolve(tlsDir) } : cert && key ? { certPath: resolve(cert), keyPath: resolve(key) } : null
   if (mainnet && !tls && !LOCAL_HOSTS.has(host)) issue('NEARKIT_SIGNER_TLS_CERT', 'On mainnet the signer serves TLS unless it listens on this machine only (127.0.0.1)')
 
   const pausedRaw = raw.NEARKIT_SIGNER_PAUSED?.trim()

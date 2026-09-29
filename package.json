@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "description": "NearKit: the trading toolkit for NEAR. Real wallet, balances, transfers and Rhea swaps; demo mode for simulation.",
   "scripts": {
     "dev": "vite",
