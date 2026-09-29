@@ -195,3 +195,66 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 ## 9. Reference container layout
 
 [`deploy/docker-compose.production.yml`](deploy/docker-compose.production.yml) is a reference, **not** a deployment: the app, the signer and the buy bot from one image, with two Postgres databases, the private network and the health checks. Secrets come from the host's secret store, never from the file.
+
+---
+
+## 10. On FadeHost (the owner's choice, 2026-09-30)
+
+FadeHost runs apps from this GitHub repository (branch `main`, redeployed on every push) in the Europe West region (France). What maps where:
+
+| NearKit service | FadeHost | Build command | Start command | Web address |
+|---|---|---|---|---|
+| App / API + bot | app `nearkit-app` | `npm run server:build` | `npm run server:start` | **On**, with the always-on add-on: its `https://…fadehost.app` is the API the web app calls |
+| Signer | app `nearkit-signer` | `npm run server:build` | `npm run signer:start` | **Off**: reached only over the private network |
+| Buy bot | app `nearkit-buybot` | `npm run server:build` | `npm run buybot` | Off |
+| App database | PostgreSQL 17, public access **off** | | | |
+| Signer database | PostgreSQL 17, public access **off** | | | |
+
+- **Node.** `package.json` pins Node 24 (`engines`), which FadeHost follows. The start scripts need Node 22 or later.
+- **Build tools.** The build needs the dev dependencies (Vite). If the install step leaves them out, use `npm ci --include=dev && npm run server:build` as the build command.
+- **Private network.** Databases and apps talk over FadeHost's WireGuard network, by internal names (`db-<id>`, or `<name>.fh.internal`).
+  - The signer listens on `0.0.0.0:8790` of that network only.
+  - Confirm once at go-live that the app reaches it: the app's `/health` shows `signer: "ok"`.
+- **TLS to the signer, with no certificate to carry.**
+  1. The signer has `NEARKIT_SIGNER_TLS_DIR=/data/tls`, which survives deploys. At its first start it makes its own key and a self-signed certificate there, and logs `signer TLS certificate` with a `pin`, which is public.
+  2. That pin goes into the app's `NEARKIT_SIGNER_TLS_PIN`. The app then trusts that one certificate and nothing else, and every request stays HMAC-signed.
+  3. If `/data/tls` is ever lost, the signer makes a new certificate. The app fails closed until it is re-pinned.
+- **KMS from outside AWS.** FadeHost has no IAM roles, so the signer uses the access key of an IAM user that may use only the NearKit key, and only with NearKit's encryption context:
+
+  ```json
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "NearKitSignerWalletKeys",
+        "Effect": "Allow",
+        "Action": ["kms:Encrypt", "kms:Decrypt"],
+        "Resource": "arn:aws:kms:eu-west-3:<account>:key/<key id>",
+        "Condition": { "StringEquals": { "kms:EncryptionContext:purpose": "nearkit-wallet-dek" } }
+      }
+    ]
+  }
+  ```
+
+  - The key is a symmetric KMS key in `eu-west-3` (Paris, next to FadeHost's France region), with automatic rotation on.
+  - Only the signer's environment holds `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. The signer registers the secret half with its logger, so it is never logged.
+  - Rotate the access key like any credential. Disabling the KMS key remains the emergency brake.
+- **Kill switches without a shell.** FadeHost apps have no shell, so the host-level switches are environment variables, applied with a restart:
+
+  | Switch | Where | Value |
+  |---|---|---|
+  | Trading and/or withdrawals | `nearkit-app` | `NEARKIT_OPS_PAUSED=trading,withdrawals`. The database can't lift it; removing it and restarting does |
+  | Every signature, export and approval | `nearkit-signer` | `NEARKIT_SIGNER_PAUSED=true` |
+  | NearKit wallets entirely | `nearkit-app` | `NEARKIT_MAINNET_CUSTODY=off` |
+
+  `npm run ops` and `npm run signer:admin` need a shell with each service's configuration and the private network. Use them from a machine that joins that network (FadeHost supports Tailscale for your devices), or not at all. Never use `ops signer-pause` without such a machine: only `signer:admin` on the signer's side resumes it.
+- **Environment.** Settings are `KEY=value` lines on each app's Environment page. The non-secret ones follow §3. The secrets the owner enters there, never in the repository or a chat, are:
+
+  | App | Secrets |
+  |---|---|
+  | `nearkit-app` | `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` (the app database), `NEARKIT_SIGNER_AUTH_KEY` |
+  | `nearkit-signer` | `NEARKIT_SIGNER_AUTH_KEY` (the same value), `NEARKIT_SIGNER_DATABASE_URL` (the signer database), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+  | `nearkit-buybot` | `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` (the app database) |
+
+  Each database's connection string names its private host, for example `postgresql://postgres:<password>@db-<id>:5432/<database>`. The signer's goes to the signer only.
+- **One poller.** Telegram allows one poller per bot token. Stop every other copy of the bot, including a local one, before `nearkit-app` starts on the same token.
