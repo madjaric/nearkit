@@ -60,6 +60,8 @@ export function createReferrals(deps: {
   network: NetworkConfig
   /** The account NearKit's fee must have gone to for a trade to earn anything (the production one on mainnet). */
   feeRecipient: string | null
+  /** Where attributions, earnings and claims are recorded as security events (never a secret). */
+  audit?: Pick<CustodyStore, 'audit'>
   now?: () => number
   log?: Logger
 }) {
@@ -96,7 +98,10 @@ export function createReferrals(deps: {
       if ((await rs.attribution(referrer))?.referrerUserId === userId) return { result: 'loop', referrerUserId: referrer }
       if (!(await isNew(userId))) return { result: 'not-new', referrerUserId: referrer }
       const done = await rs.attribute({ referredUserId: userId, referrerUserId: referrer, code })
-      if (done) log.info('referral attributed', { referrer, referred: userId })
+      if (done) {
+        log.info('referral attributed', { referrer, referred: userId })
+        await deps.audit?.audit({ userId, action: 'referral-attributed', detail: { referrer } })
+      }
       return { result: done ? 'attributed' : 'already', referrerUserId: referrer }
     },
 
@@ -129,7 +134,14 @@ export function createReferrals(deps: {
         volume: split.volume,
         txHash: t.txHash,
       })
-      if (recorded) log.info('referral earning', { referrer: a.referrerUserId, token: t.fee.token, referral: split.referral.toString() })
+      if (recorded) {
+        log.info('referral earning', { referrer: a.referrerUserId, token: t.fee.token, referral: split.referral.toString() })
+        await deps.audit?.audit({
+          userId: a.referrerUserId,
+          action: 'referral-earned',
+          detail: { referred: t.userId, token: t.fee.token, referral: split.referral.toString(), source: t.source, id: t.sourceId },
+        })
+      }
       return recorded
     },
 
@@ -170,7 +182,12 @@ export function createReferrals(deps: {
     },
 
     /** Claims everything available in `token`, to be paid to `destination` (the user's linked wallet) after the owner's review. */
-    requestClaim: (userId: number, token: string, destination: string) => rs.createClaim({ referrerUserId: userId, network, token, destination }),
+    async requestClaim(userId: number, token: string, destination: string) {
+      const c = await rs.createClaim({ referrerUserId: userId, network, token, destination })
+      if (c.kind === 'created')
+        await deps.audit?.audit({ userId, action: 'referral-claim-requested', detail: { claim: c.claim.id, token, amount: c.claim.amount.toString(), destination } })
+      return c
+    },
   }
 }
 

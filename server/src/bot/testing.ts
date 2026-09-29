@@ -40,6 +40,7 @@ import type { BotDeps, BotModule } from './context'
 import { notifySettled } from './intents'
 import { walletErrorText } from './ui'
 import { createReferrals } from '../referrals/service'
+import { OpsSwitches } from '../ops/switches'
 
 /**
  * A whole bot wired to fakes: Telegram (fake.ts), NEAR (fakeChain) and an
@@ -104,6 +105,7 @@ export async function botHarness(
   let stopSigner: (() => Promise<void>) | null = null
   if (config.custody.enabled && config.custody.signer?.kind === 'in-process') {
     const cstore = new CustodyStore(db, now)
+    const ops = new OpsSwitches(db, cstore, now)
     let transport
     if (options.remoteSigner) {
       const dir = mkdtempSync(join(tmpdir(), 'nearkit-harness-signer-'))
@@ -166,9 +168,10 @@ export async function botHarness(
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => notifySettled(deps, settledNotice, intent),
       onDone: (intent) => onTradeDone(intent),
+      gate: ops.gate,
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
-    custody = { store: cstore, signer, engine, chain: access, swaps, recovery }
+    custody = { store: cstore, signer, engine, chain: access, swaps, recovery, ops }
   }
   const deps: BotDeps = {
     tg,
@@ -185,7 +188,16 @@ export async function botHarness(
     custody,
     referrals: null,
   }
-  const referrals = createReferrals({ db, store, custody: custody?.store ?? null, network: config.network, feeRecipient: config.env.feeRecipient, now, log })
+  const referrals = createReferrals({
+    db,
+    store,
+    custody: custody?.store ?? null,
+    network: config.network,
+    feeRecipient: config.env.feeRecipient,
+    audit: new CustodyStore(db, now),
+    now,
+    log,
+  })
   deps.referrals = referrals
   onTradeDone = async (intent) => {
     const w = custody ? await custody.store.wallet(intent.walletId) : null

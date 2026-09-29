@@ -5,6 +5,7 @@ import type { Engine } from './engine'
 import type { RecoveryService } from './recovery'
 import type { SwapService } from './swap'
 import type { TradingSigner } from './signer'
+import type { OpsSwitches } from '../ops/switches'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_CREATIONS_PER_DAY } from './limits'
 import { ActiveWalletLimitError, type CustodyStore, type TradingWallet } from './store'
 
@@ -23,6 +24,8 @@ export interface CustodyDeps {
   swaps: SwapService
   /** Key export requests (the web app signs them with the linked wallet). */
   recovery: RecoveryService
+  /** The kill switches: checked before a quote or a withdrawal is offered, and by the engine at Confirm. */
+  ops: OpsSwitches
 }
 
 export class WalletLimitError extends Error {

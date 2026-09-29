@@ -34,6 +34,9 @@ export interface TradingWallet {
   slot: number
   /** A name the user gave it, or null. */
   label: string | null
+  /** Frozen by the operator (npm run ops): no trades or withdrawals; its owner can still add the backup key and export. */
+  frozenAt: number | null
+  frozenReason: string | null
   createdAt: number
   updatedAt: number
   closedAt: number | null
@@ -157,6 +160,8 @@ interface WalletRow {
   slot: number
   label: string | null
   create_key: string | null
+  frozen_at: number | null
+  frozen_reason: string | null
   created_at: number
   updated_at: number
   closed_at: number | null
@@ -175,6 +180,8 @@ const toWallet = (r: WalletRow): TradingWallet => ({
   ownerKey: r.owner_key,
   slot: r.slot,
   label: r.label,
+  frozenAt: r.frozen_at ?? null,
+  frozenReason: r.frozen_reason ?? null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   closedAt: r.closed_at,
@@ -352,6 +359,12 @@ export class CustodyStore {
   async walletByAccount(network: string, accountId: string): Promise<TradingWallet | null> {
     const r = await this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE network = ? AND account_id = ?', [network, accountId])
     return r ? toWallet(r) : null
+  }
+
+  /** Freezes (reason) or unfreezes (null) a wallet. */
+  async setFrozen(walletId: string, reason: string | null): Promise<boolean> {
+    const t = this.now()
+    return (await this.db.run('UPDATE trading_wallets SET frozen_at = ?, frozen_reason = ?, updated_at = ? WHERE id = ?', [reason === null ? null : t, reason, t, walletId])) === 1
   }
 
   /** Wallets closed since `since` (their keys should be erased by the signer). */

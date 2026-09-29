@@ -6,6 +6,7 @@ import { openDatabase } from '../db/open'
 import { migrate } from '../db/schema'
 import { loadEnvFile } from '../env-file'
 import { createTelegramApi } from '../telegram/api'
+import { CustodyStore } from '../custody/store'
 import { checkPayout } from './payout'
 import { ReferralStore, type ClaimStatus } from './store'
 
@@ -112,6 +113,7 @@ export async function runReferralsAdmin(
           return 1
         }
         out(`claim ${claim.id} marked paid`)
+        await new CustodyStore(db).audit({ userId: claim.referrerUserId, action: 'referral-claim-paid', detail: { claim: claim.id, tx: hash, payer } })
         await tell(
           claim.referrerUserId,
           `💸 Your invite earnings were paid to <code>${claim.destination}</code>.\n<a href="${explorerTxUrl(config.network, hash)}">Transaction</a>`,
@@ -132,6 +134,7 @@ export async function runReferralsAdmin(
           return 1
         }
         out(`claim ${id} rejected${forfeit ? '; its earnings are forfeited' : '; its earnings are available again'}`)
+        await new CustodyStore(db).audit({ userId: claim.referrerUserId, action: 'referral-claim-rejected', detail: { claim: id, reason, forfeit } })
         await tell(
           claim.referrerUserId,
           forfeit

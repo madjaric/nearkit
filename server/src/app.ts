@@ -50,6 +50,7 @@ import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
 import { tradingWalletModule } from './bot/tradingWallet'
 import { referralsModule } from './bot/referrals'
+import { OpsSwitches } from './ops/switches'
 import { createReferrals } from './referrals/service'
 import { walletErrorText } from './bot/ui'
 
@@ -140,6 +141,7 @@ export async function startServer(options: { env: Record<string, string | undefi
   let onSettled: (intent: Intent) => Promise<void> = async () => {}
   if (config.custody.enabled && config.custody.signer) {
     const cstore = new CustodyStore(db, now)
+    const ops = new OpsSwitches(db, cstore, now)
     const signerConfig = config.custody.signer
     let transport
     let signerMode: string
@@ -191,17 +193,27 @@ export async function startServer(options: { env: Record<string, string | undefi
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => onSettled(intent),
       onDone: (intent) => onTradeDone(intent),
+      gate: ops.gate,
       instanceId: instance,
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
-    custody = { store: cstore, signer, engine, chain, swaps, recovery }
+    custody = { store: cstore, signer, engine, chain, swaps, recovery, ops }
     log.info('trading wallets on', { network: config.network.id, signer: signerMode })
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })
   }
 
   // Invites and referral earnings: from what NearKit's fee account actually received on chain.
-  const referrals = createReferrals({ db, store, custody: custody?.store ?? null, network: config.network, feeRecipient: config.env.feeRecipient, now, log })
+  const referrals = createReferrals({
+    db,
+    store,
+    custody: custody?.store ?? null,
+    network: config.network,
+    feeRecipient: config.env.feeRecipient,
+    audit: new CustodyStore(db, now),
+    now,
+    log,
+  })
   onTradeDone = async (intent) => {
     const w = custody ? await custody.store.wallet(intent.walletId) : null
     await referrals.recordIntent(intent, w)
@@ -285,6 +297,23 @@ export async function startServer(options: { env: Record<string, string | undefi
     }
   }
 
+  // What /health reports about the kill switches and the signer, refreshed every 15 s (fails closed to "unknown").
+  const health: { pauses: Record<string, boolean> | 'unknown'; signer: string } = { pauses: 'unknown', signer: custody ? 'unknown' : 'off' }
+  const refreshHealth = async () => {
+    const switches = new OpsSwitches(db, new CustodyStore(db, now), now)
+    health.pauses = await switches
+      .state()
+      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused }))
+      .catch(() => 'unknown' as const)
+    if (custody) {
+      const h = await custody.signer.health().catch(() => null)
+      health.signer = h === null ? 'unavailable' : h.paused ? 'paused' : h.ok ? 'ok' : `unhealthy (${h.kek !== 'ok' ? 'KEK' : 'database'})`
+    }
+  }
+  await refreshHealth()
+  const healthTimer = setInterval(() => void refreshHealth(), 15_000)
+  healthTimer.unref()
+
   const onLinked = async (r: { accountId: string; userId: number; previousUserId: number | null }) => {
     if (!bot) return
     await bot.notify(r.userId, linkedText(r.accountId, config.network.label))
@@ -316,11 +345,13 @@ export async function startServer(options: { env: Record<string, string | undefi
       '/api/recovery/export': 5,
       '/api/recovery/destination': 10,
     },
-    // Public and secret-free: whether the bot and buy alerts run, and the boot count (see Store.recordBoot).
+    // Public and secret-free: whether the bot and buy alerts run, the kill switches, the signer, and the boot count (see Store.recordBoot).
     health: () => ({
       bot: bot ? true : false,
       buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : 'needs the bot token',
       wallets: custody ? 'on' : 'off',
+      pauses: health.pauses,
+      signer: health.signer,
       boot: boot.boot,
     }),
     now,
@@ -373,6 +404,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     bot,
     apiPort,
     async stop() {
+      clearInterval(healthTimer)
       clearInterval(housekeeping)
       clearInterval(resolver)
       await buybotRunner?.stop()

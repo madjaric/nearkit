@@ -419,6 +419,23 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE UNIQUE INDEX referral_claims_tx ON referral_claims(tx_hash) WHERE tx_hash IS NOT NULL;
     `,
   },
+  {
+    version: 10,
+    name: 'kill switches: trading and withdrawal pauses, frozen wallets',
+    sql: `
+      -- Operator switches (npm run ops). Unknown or unreadable means paused: they fail closed.
+      CREATE TABLE ops_switches (
+        name TEXT PRIMARY KEY,
+        paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+        reason TEXT,
+        updated_at INTEGER NOT NULL,
+        updated_by TEXT NOT NULL
+      );
+      -- A frozen wallet neither trades nor withdraws; its owner can still add the backup key and export.
+      ALTER TABLE trading_wallets ADD COLUMN frozen_at INTEGER;
+      ALTER TABLE trading_wallets ADD COLUMN frozen_reason TEXT;
+    `,
+  },
 ]
 
 /**

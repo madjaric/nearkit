@@ -244,6 +244,8 @@ async function deposit(ctx: BotCtx) {
 async function withdrawStart(ctx: BotCtx) {
   const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
+  const blocked = await ctx.deps.custody?.ops.blocked('withdraw', w)
+  if (blocked) return ctx.show(`⏸ ${esc(blocked)}`, keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], walletRow))
   const view = await readWallet(ctx.deps.near, w)
   if (!view.exists) return ctx.show(`${walletLine(w)} is empty: nothing to withdraw yet.`, keyboard([btn('📥 Deposit', 'cw:dep')], walletRow))
   const held = await tokensOf(ctx, view)

@@ -102,6 +102,7 @@ export function createRecoveryService(deps: { custody: CustodyStore; signer: Tra
     /** The owner's NearKit wallets on this network, after the owner signed a session message. */
     async ownerWallets(proof: OwnerProof): Promise<{ ownerAccount: string; network: string; wallets: OwnedWalletView[] }> {
       const r = await relay(() => signer.ownerWallets(proof))
+      await custody.audit({ action: 'recovery-session', detail: { owner: r.ownerAccount, signedWith: proof.publicKey, wallets: r.wallets.length } })
       const wallets = await Promise.all(
         r.wallets.map(async (k) => {
           const w = await custody.walletByAccount(network, k.accountId)

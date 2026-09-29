@@ -191,7 +191,9 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         owner_key TEXT,
         slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 10),
         label TEXT,
-        create_key TEXT
+        create_key TEXT,
+        frozen_at BIGINT,
+        frozen_reason TEXT
       );
       CREATE UNIQUE INDEX trading_wallets_slot ON trading_wallets(user_id, network, slot) WHERE status = 'active';
       CREATE UNIQUE INDEX trading_wallets_create_key ON trading_wallets(user_id, create_key) WHERE create_key IS NOT NULL;
@@ -316,6 +318,14 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       CREATE INDEX referral_claims_referrer ON referral_claims(referrer_user_id, requested_at);
       CREATE UNIQUE INDEX referral_claims_open ON referral_claims(referrer_user_id, network, token) WHERE status = 'requested';
       CREATE UNIQUE INDEX referral_claims_tx ON referral_claims(tx_hash) WHERE tx_hash IS NOT NULL;
+
+      CREATE TABLE ops_switches (
+        name TEXT PRIMARY KEY,
+        paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+        reason TEXT,
+        updated_at BIGINT NOT NULL,
+        updated_by TEXT NOT NULL
+      );
     `,
   },
 ]

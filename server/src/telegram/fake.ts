@@ -97,14 +97,12 @@ export function createFakeTelegram(options: { token?: string; username?: string 
             chatId: Number(c.params.chat_id),
             messageId: Number(c.params.message_id ?? 0),
             text: String(c.params.text ?? c.params.caption ?? ''),
-            buttons: (markup?.inline_keyboard ?? [])
-              .flat()
-              .map((b) => ({
-                text: b.text,
-                ...(b.callback_data ? { data: b.callback_data } : {}),
-                ...(b.url ? { url: b.url } : {}),
-                ...(b.copy_text ? { copy: b.copy_text.text } : {}),
-              })),
+            buttons: (markup?.inline_keyboard ?? []).flat().map((b) => ({
+              text: b.text,
+              ...(b.callback_data ? { data: b.callback_data } : {}),
+              ...(b.url ? { url: b.url } : {}),
+              ...(b.copy_text ? { copy: b.copy_text.text } : {}),
+            })),
           }
         })
     },

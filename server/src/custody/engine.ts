@@ -87,6 +87,11 @@ export interface EngineDeps {
    * instance whose update moved it (referral accounting listens here).
    */
   onDone?: (intent: Intent) => Promise<void>
+  /**
+   * The kill switches (ops/switches.ts): why this intent may not run now, or null. Checked
+   * at Confirm, before anything is planned or signed.
+   */
+  gate?: (intent: Intent, wallet: TradingWallet) => Promise<string | null>
   /** This server instance's name in execution leases (unique per process). */
   instanceId?: string
   /** How long an execution lease lasts without renewal. */
@@ -219,6 +224,7 @@ export function createEngine(deps: EngineDeps) {
 
       const sent = await chain.send(signed.base64)
       await store.markTx(intent.id, step, 'submitted')
+      await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-sent', detail: { intent: intent.id, step, hash: signed.hash, answer: sent.kind } })
       let result: RpcTxResult | null = null
       if (sent.kind === 'rejected') {
         // Refused by the node. Ask the chain once anyway before calling it failed.
@@ -275,6 +281,11 @@ export function createEngine(deps: EngineDeps) {
         const wallet = (await store.wallet(intent.walletId)) as TradingWallet
         const handler = deps.handlers[intent.kind]
         if (!handler) return { kind: 'finished', intent: await fail(intent, 'NearKit can’t do that here. Nothing was sent.') }
+        const blocked = deps.gate ? await deps.gate(intent, wallet).catch(() => 'NearKit can’t confirm that this is allowed right now. Try again in a moment.') : null
+        if (blocked) {
+          await store.audit({ userId: intent.userId, walletId: intent.walletId, action: 'intent-blocked', detail: { intent: intent.id, kind: intent.kind, reason: blocked } })
+          return { kind: 'finished', intent: await fail(intent, `${blocked} Nothing was sent.`) }
+        }
         let outcome: PlanOutcome
         try {
           outcome = await handler.plan(intent, wallet)
@@ -362,6 +373,12 @@ export function createEngine(deps: EngineDeps) {
       }
       if (r) {
         await store.markTx(intent.id, t.step, succeeded(r) ? 'success' : 'failed', { success: succeeded(r) })
+        await store.audit({
+          userId: intent.userId,
+          walletId: intent.walletId,
+          action: 'tx-resolved',
+          detail: { intent: intent.id, step: t.step, hash: t.hash, success: succeeded(r) },
+        })
         continue
       }
       if (seen) {

@@ -64,6 +64,11 @@ export async function sendNativeQuote(ctx: BotCtx, params: SwapParams, againData
     await ctx.reply('That NearKit wallet is closed or not yours any more. Nothing was prepared.', keyboard([btn('👛 Wallet', 'cw:home')]))
     return
   }
+  const blocked = await custody.ops.blocked(params.side, wallet)
+  if (blocked) {
+    await ctx.reply(`⏸ ${esc(blocked)}`, keyboard([btn('👛 Wallet', 'cw:home')]))
+    return
+  }
   let quote: SwapQuote
   try {
     quote = await custody.swaps.quote(params, wallet)

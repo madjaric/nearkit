@@ -326,6 +326,8 @@ await step('a buy prepared in Telegram is signed in NearKit, checked on chain an
 await step('a NearKit wallet is created in Telegram: one address even on a double tap, and /health says wallets are on', async () => {
   const health = await fetch(`http://127.0.0.1:${API_PORT}/health`).then((r) => r.json())
   if (health.wallets !== 'on') throw new Error(`wallets: ${health.wallets}`)
+  if (health.signer !== 'ok') throw new Error(`signer: ${health.signer}`)
+  if (health.pauses?.trading !== false || health.pauses?.withdrawals !== false) throw new Error(`pauses: ${JSON.stringify(health.pauses)}`)
   let from = tg.sent.length
   say(TG_USER, '/wallet')
   const offer = await tg.waitFor(TG_USER.id, (x) => x.text.includes('not created yet'), { from })
