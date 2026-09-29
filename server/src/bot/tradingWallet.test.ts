@@ -13,13 +13,16 @@ describe('NearKit wallet: create, deposit, balance', () => {
     await h.say('/wallet')
     expect(h.last()?.text).toContain('not created yet')
     expect(h.last()?.text).toContain(LINKED)
-    expect(h.button('Create NearKit wallet')).toBe('cw:create')
+    // The button carries a one-time key: pressing it twice makes one wallet.
+    expect(h.button('Create NearKit wallet')).toMatch(/^cw:new:[A-Za-z0-9_-]{8,}$/)
   })
 
-  it('creating twice (a double tap) gives one wallet with the same address', async () => {
+  it('creating twice (a double tap, a replayed update) gives one wallet with the same address', async () => {
     const h = await walletBot()
-    await Promise.all([h.press('cw:create'), h.press('cw:create')])
-    await h.press('cw:create')
+    await h.say('/wallet')
+    const create = h.button('Create NearKit wallet')
+    await Promise.all([h.press(create), h.press(create)])
+    await h.press(create)
     const w = await h.wallet()
     expect(w?.accountId).toMatch(/^[0-9a-f]{64}$/)
     expect(await h.custody.store.countWalletsSince(ALICE.id, 0)).toBe(1)

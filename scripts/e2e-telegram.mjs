@@ -328,10 +328,12 @@ await step('a NearKit wallet is created in Telegram: one address even on a doubl
   if (health.wallets !== 'on') throw new Error(`wallets: ${health.wallets}`)
   let from = tg.sent.length
   say(TG_USER, '/wallet')
-  await tg.waitFor(TG_USER.id, (x) => x.text.includes('not created yet'), { from })
+  const offer = await tg.waitFor(TG_USER.id, (x) => x.text.includes('not created yet'), { from })
+  const create = offer.buttons.find((b) => b.text.includes('Create NearKit wallet'))?.callback_data
+  if (!create?.startsWith('cw:new:')) throw new Error(`no one-time Create button: ${create}`)
   from = tg.sent.length
-  press(TG_USER, 'cw:create')
-  press(TG_USER, 'cw:create')
+  press(TG_USER, create)
+  press(TG_USER, create)
   const made = await tg.waitFor(TG_USER.id, (x) => /[0-9a-f]{64}/.test(x.text), { from })
   const address = made.text.match(/[0-9a-f]{64}/)[0]
   await new Promise((r) => setTimeout(r, 300))
@@ -339,7 +341,7 @@ await step('a NearKit wallet is created in Telegram: one address even on a doubl
   if (shown.size !== 1) throw new Error(`more than one wallet address: ${[...shown].join(', ')}`)
   from = tg.sent.length
   press(TG_USER, 'cw:dep')
-  const dep = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Deposit to your NearKit wallet'), { from })
+  const dep = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Deposit'), { from })
   if (!dep.text.includes(address) || !dep.text.includes('NEAR Testnet')) throw new Error(`unexpected deposit screen: ${dep.text.slice(0, 200)}`)
 })
 

@@ -124,7 +124,7 @@ describe('restart', () => {
       const second = await SqliteDatabase.open(path)
       await migrate(second)
       const s2 = new CustodyStore(second, () => now)
-      const reopened = (await s2.activeWallet(101, 'testnet')) as TradingWallet
+      const reopened = (await s2.activeWallets(101, 'testnet'))[0] as TradingWallet
       expect(reopened).toEqual(wallet)
       const signer2 = createLocalSigner({ wrapper: localKeyWrapper(Buffer.from(kek)), network: net, store: s2 })
       const signed = await signer2.sign({

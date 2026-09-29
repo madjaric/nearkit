@@ -2,6 +2,7 @@ import { botModules } from '../app'
 import type { TradingWallet } from '../custody/store'
 import type { Logger } from '../log'
 import type { Command } from './context'
+import { tradingWallet } from './tradingWallet'
 import { ALICE, botHarness } from './testing'
 
 /**
@@ -81,11 +82,12 @@ export async function walletBot(options: { link?: boolean; linkedKey?: string; e
     ...h,
     market,
     custody,
-    wallet: (): Promise<TradingWallet | null> => custody.store.activeWallet(ALICE.id, 'testnet'),
-    /** Creates Alice's NearKit wallet through the bot and funds it from outside. */
+    /** The NearKit wallet Alice trades from (the selected one). */
+    wallet: (): Promise<TradingWallet | null> => tradingWallet(h.deps, ALICE.id),
+    /** Alice's NearKit wallet, created through the bot if she has none, funded from outside. */
     async funded(near = 3n * ONE, usdt = 0n) {
-      await h.press('cw:create')
-      const w = (await custody.store.activeWallet(ALICE.id, 'testnet')) as TradingWallet
+      if (!(await tradingWallet(h.deps, ALICE.id))) await h.press('cw:create')
+      const w = (await tradingWallet(h.deps, ALICE.id)) as TradingWallet
       h.chain.fund(w.accountId, near)
       if (usdt > 0n) {
         const t = h.chain.tokens.get(USDT)

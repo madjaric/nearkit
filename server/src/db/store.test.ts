@@ -24,7 +24,14 @@ describe('users and settings', () => {
     await store.upsertUser(alice)
     await store.upsertUser({ ...alice, username: 'alice2' })
     expect((await store.getUser(101))?.username).toBe('alice2')
-    expect(await store.getSettings(101)).toEqual({ slippagePct: 1, buyPresets: ['0.1', '0.5', '1', '5'], sellPresets: [25, 50, 75, 100], defaultAccount: null, notifyTrades: true })
+    expect(await store.getSettings(101)).toEqual({
+      slippagePct: 1,
+      buyPresets: ['0.1', '0.5', '1', '5'],
+      sellPresets: [25, 50, 75, 100],
+      defaultAccount: null,
+      notifyTrades: true,
+      activeWallet: null,
+    })
     expect(await store.updateSettings(101, { slippagePct: 3, notifyTrades: false })).toMatchObject({ slippagePct: 3, notifyTrades: false })
     expect((await store.getSettings(101)).slippagePct).toBe(3)
   })

@@ -344,6 +344,23 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       );
     `,
   },
+  {
+    version: 8,
+    name: 'multi-wallet: up to 10 active NearKit wallets per user, labels, idempotent creation, the selected wallet',
+    sql: `
+      -- Each active wallet takes one of the user's 10 slots (MAX_ACTIVE_WALLETS_PER_USER, custody/limits.ts):
+      -- the database itself refuses an 11th. A deleted or revoked wallet frees its slot.
+      ALTER TABLE trading_wallets ADD COLUMN slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 10);
+      ALTER TABLE trading_wallets ADD COLUMN label TEXT;
+      -- The Create button's one-time key: a double tap makes one wallet, not two.
+      ALTER TABLE trading_wallets ADD COLUMN create_key TEXT;
+      DROP INDEX trading_wallets_live;
+      CREATE UNIQUE INDEX trading_wallets_slot ON trading_wallets(user_id, network, slot) WHERE status = 'active';
+      CREATE UNIQUE INDEX trading_wallets_create_key ON trading_wallets(user_id, create_key) WHERE create_key IS NOT NULL;
+      -- The wallet Telegram trades from; the lowest slot when unset or no longer active.
+      ALTER TABLE user_settings ADD COLUMN active_wallet TEXT;
+    `,
+  },
 ]
 
 /**

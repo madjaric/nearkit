@@ -32,7 +32,8 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         sell_presets TEXT NOT NULL,
         default_account TEXT,
         notify_trades INTEGER NOT NULL,
-        updated_at BIGINT NOT NULL
+        updated_at BIGINT NOT NULL,
+        active_wallet TEXT
       );
       CREATE TABLE link_requests (
         code_hash TEXT PRIMARY KEY,
@@ -187,9 +188,13 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         updated_at BIGINT NOT NULL,
         closed_at BIGINT,
         owner_account TEXT,
-        owner_key TEXT
+        owner_key TEXT,
+        slot INTEGER NOT NULL DEFAULT 1 CHECK (slot BETWEEN 1 AND 10),
+        label TEXT,
+        create_key TEXT
       );
-      CREATE UNIQUE INDEX trading_wallets_live ON trading_wallets(user_id, network) WHERE status = 'active';
+      CREATE UNIQUE INDEX trading_wallets_slot ON trading_wallets(user_id, network, slot) WHERE status = 'active';
+      CREATE UNIQUE INDEX trading_wallets_create_key ON trading_wallets(user_id, create_key) WHERE create_key IS NOT NULL;
       CREATE UNIQUE INDEX trading_wallets_account ON trading_wallets(network, account_id);
       CREATE TABLE wallet_intents (
         id TEXT PRIMARY KEY,

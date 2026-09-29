@@ -11,7 +11,7 @@ import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotMo
 import { Buckets } from './ratelimit'
 import { sendNativeQuote } from './nativeTrade'
 import { amountText, friendlyError, nearText, UNKNOWN } from './ui'
-import { showWalletHome, tradingWallet } from './tradingWallet'
+import { flowWallet, showWalletHome, tradingWallet } from './tradingWallet'
 import { linkedAccount, needAccount } from './wallet'
 
 /**
@@ -30,8 +30,10 @@ interface TradeState {
   side: Side
   token?: string
   account: string
-  /** From the NearKit wallet, executed here (else: the linked wallet, signed in the web app). */
+  /** From a NearKit wallet, executed here (else: the linked wallet, signed in the web app). */
   native?: boolean
+  /** That NearKit wallet (its ID): the trade stays on it, whatever the user selects meanwhile. */
+  walletId?: string
 }
 
 const CALLBACK_TTL_MS = 30 * 60_000
@@ -109,7 +111,7 @@ async function chooseToken(ctx: BotCtx, state: TradeState, query: string) {
     return
   }
   if (token.contract && looksLikeContract(query.trim().toLowerCase())) await ctx.deps.store.addUserToken(ctx.user.id, ctx.deps.config.network.id, token.contract)
-  await askAmount(ctx, { ...state, native: state.native ?? false, token: token.id }, token)
+  await askAmount(ctx, { ...state, native: state.native ?? false, walletId: state.walletId ?? '', token: token.id }, token)
 }
 
 async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenListing) {
@@ -221,7 +223,7 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
   if (state.native && token.contract) {
     const again = await store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
     const params: SwapParams = { side: state.side, token: token.contract, symbol: token.symbol, decimals: token.decimals, amountIn: state.amount, slippagePct: request.slippagePct }
-    await sendNativeQuote(ctx, params, `tr:again:${again}`)
+    await sendNativeQuote(ctx, params, `tr:again:${again}`, state.walletId ?? '')
     return
   }
   let quote: Quote
@@ -255,7 +257,7 @@ async function startTrade(ctx: BotCtx, side: Side, args: string) {
   const account = nearkit?.accountId ?? (await needAccount(ctx))
   if (!account) return
   const [tokenArg = '', amountArg = ''] = plainText(args, 200).split(' ')
-  const state: TradeState = { side, account, native: nearkit !== null }
+  const state: TradeState = { side, account, native: nearkit !== null, ...(nearkit ? { walletId: nearkit.id } : {}) }
   if (!tokenArg) {
     await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
     await ctx.reply(`${side === 'buy' ? '🟢 Buy' : '🔴 Sell'}: which token? Send its symbol or exact contract ID.`, keyboard([btn('✖ Cancel', 'tr:cancel')]))
@@ -275,7 +277,7 @@ async function startTrade(ctx: BotCtx, side: Side, args: string) {
     }
     amount = formatUnits(fractionOf(held, pct, 100), token.decimals)
   }
-  await quoteAndConfirm(ctx, { ...state, native: state.native ?? false, token: token.id, amount })
+  await quoteAndConfirm(ctx, { ...state, native: state.native ?? false, walletId: state.walletId ?? '', token: token.id, amount })
 }
 
 async function showToken(ctx: BotCtx, args: string) {
@@ -360,7 +362,8 @@ export function tradeModule(): BotModule {
         }
         const payload = await store.getCallback<Required<TradeState> & { amount?: string }>(arg, ctx.user.id)
         if (!payload) return ctx.answer('That button expired. Start again with /buy or /sell.', true)
-        const account = payload.native ? ((await tradingWallet(ctx.deps, ctx.user.id))?.accountId ?? null) : await linkedAccount(ctx)
+        // A native trade stays on the NearKit wallet it started on (if it is still the user's and active).
+        const account = payload.native ? ((await flowWallet(ctx, payload.walletId))?.accountId ?? null) : await linkedAccount(ctx)
         if (!account) {
           await ctx.answer()
           if (payload.native) return showWalletHome(ctx)

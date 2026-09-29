@@ -1,10 +1,12 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { fractionOf, tryParseUnits } from '@/lib/amounts'
 import type { TokenListing } from '@/types/domain'
-import type { Intent, TradingWallet } from '../custody/store'
+import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import { ownerKeyNow } from '../custody/recovery'
+import type { Intent, TradingWallet } from '../custody/store'
 import { createTradingWallet, readWallet, WalletLimitError, type WalletView } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
+import { randomToken } from '../ids'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
 import { btn, documented, FLOW_TTL_MS, keyboard, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
@@ -12,10 +14,12 @@ import { amountText, nearText, UNKNOWN, walletErrorText } from './ui'
 import { linkedAccount, nearAvailable, needAccount, showWallet } from './wallet'
 
 /**
- * The NearKit wallet in Telegram: create it, deposit, see what it holds (read
- * from chain every time), withdraw NEAR or tokens to any valid address. The
- * linked wallet stays what it was: proof of who you are, never controlled by
- * NearKit, one tap away.
+ * NearKit wallets in Telegram: up to MAX_ACTIVE_WALLETS_PER_USER per user, each with its
+ * own key, balance, history and recovery. One of them is selected for trading; every
+ * screen and every confirmation names the wallet it acts on, and a flow started on
+ * one wallet stays on it (switching wallets never redirects a withdrawal or a trade).
+ * Balances are read from chain every time. The linked wallet stays what it was: proof
+ * of who you are, never controlled by NearKit.
  */
 
 const CALLBACK_TTL_MS = 30 * 60_000
@@ -24,11 +28,27 @@ interface Asset {
   asset: string
   symbol: string
   decimals: number
+  /** The wallet this withdrawal started on: every later step acts on it, whatever is selected meanwhile. */
+  walletId: string
 }
 
+/** The wallet Telegram trades from: the one the user selected, else their first (Main). */
 export async function tradingWallet(deps: BotDeps, userId: number): Promise<TradingWallet | null> {
-  return (await deps.custody?.store.activeWallet(userId, deps.config.network.id)) ?? null
+  if (!deps.custody) return null
+  const wallets = await deps.custody.store.activeWallets(userId, deps.config.network.id)
+  if (!wallets.length) return null
+  const chosen = (await deps.store.getSettings(userId)).activeWallet
+  return wallets.find((w) => w.id === chosen) ?? wallets[0] ?? null
 }
+
+/** The wallet a flow or button is bound to, if it is still this user's and active. */
+export async function flowWallet(ctx: BotCtx, walletId: string | undefined): Promise<TradingWallet | null> {
+  if (!walletId || !ctx.deps.custody) return null
+  return ctx.deps.custody.store.ownedWallet(ctx.user.id, walletId)
+}
+
+/** How every screen names a wallet: its name and its short address. */
+export const walletLine = (w: Pick<TradingWallet, 'slot' | 'label' | 'accountId'>) => `${bold(walletName(w))} ${code(shortAccount(w.accountId))}`
 
 const networkName = (deps: BotDeps) => `NEAR ${deps.config.network.label}`
 const walletRow = [btn('👛 Wallet', 'cw:home'), btn('« Menu', 'menu:home')]
@@ -41,6 +61,9 @@ async function tokensOf(ctx: BotCtx, view: WalletView) {
     .map((t) => ({ ...t, token: listed.find((l) => l.id === t.contract) ?? null }))
     .filter((t): t is typeof t & { token: TokenListing } => t.token !== null)
 }
+
+/** A Create button with a fresh one-time key: pressing it twice makes one wallet. */
+export const newWalletButton = (label = '✨ Create NearKit wallet') => btn(label, `cw:new:${randomToken(9)}`)
 
 async function offerCreate(ctx: BotCtx) {
   const linked = await linkedAccount(ctx)
@@ -56,18 +79,16 @@ async function offerCreate(ctx: BotCtx) {
         ? `🔗 Linked wallet ${code(linked)}${near !== null ? ` · ${esc(near)} NEAR` : ''}`
         : 'Link your own wallet first: it proves the NearKit wallet is yours and becomes its backup key.',
     ].join('\n'),
-    keyboard(
-      [linked ? btn('✨ Create NearKit wallet', 'cw:create') : btn('🔗 Link wallet', 'acct:link')],
-      [...(linked ? [btn('🔗 Linked wallet', 'menu:linked')] : []), btn('« Menu', 'menu:home')],
-    ),
+    keyboard([linked ? newWalletButton() : btn('🔗 Link wallet', 'acct:link')], [...(linked ? [btn('🔗 Linked wallet', 'menu:linked')] : []), btn('« Menu', 'menu:home')]),
   )
 }
 
-/** The Wallet button: the NearKit wallet when trading wallets run here, else the linked wallet. */
+/** The Wallet button: the selected NearKit wallet when trading wallets run here, else the linked wallet. */
 export async function showWalletHome(ctx: BotCtx, details = false) {
   if (!ctx.deps.custody) return showWallet(ctx, { details })
   const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return offerCreate(ctx)
+  const count = (await ctx.deps.custody.store.activeWallets(ctx.user.id, ctx.deps.config.network.id)).length
   const view = await readWallet(ctx.deps.near, w)
   const held = await tokensOf(ctx, view)
   const linked = await linkedAccount(ctx)
@@ -76,7 +97,7 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
   const wnear = view.tokens.some((t) => t.contract === ctx.deps.config.network.wrapContract && t.raw > 0n)
   const balance =
     view.exists === false
-      ? ['Empty: send testnet NEAR here to start (📥 Deposit).']
+      ? [`Empty: send ${ctx.deps.config.network.id === 'testnet' ? 'testnet ' : ''}NEAR here to start (📥 Deposit).`]
       : [
           view.near === null ? `NEAR ${UNKNOWN} (couldn’t read the chain)` : `${bold(nearText(view.near))} NEAR`,
           ...held.map((t) =>
@@ -87,7 +108,7 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
         ]
   await ctx.show(
     [
-      `👛 ${bold('NearKit wallet')} · ${esc(ctx.deps.config.network.label)}`,
+      `👛 ${bold(walletName(w))} · ${esc(ctx.deps.config.network.label)}${count > 1 ? ` · ${w.slot} of ${count}` : ''}`,
       code(w.accountId),
       '',
       ...balance,
@@ -97,6 +118,7 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
       ...(details
         ? [
             '',
+            w.ownerAccount ? `Owner ${code(w.ownerAccount)} (the wallet it was created with)` : null,
             `NearKit’s key ${code(w.publicKey)}`,
             view.totalNear !== null ? `NEAR total ${esc(amountText(view.totalNear, NEAR_DECIMALS))} · storage ${esc(amountText(view.storageNear ?? 0n, NEAR_DECIMALS))}` : null,
             'Balances are read from chain every time you open this.',
@@ -109,14 +131,54 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
       [btn('📥 Deposit', 'cw:dep'), btn('📤 Withdraw', 'cw:wd')],
       [btn('🟢 Buy', 'tr:buy'), btn('🔴 Sell', 'tr:sell')],
       wnear ? [btn('🔁 Unwrap wNEAR', 'cu:unwrap')] : [],
-      [btn('🔐 Recovery', 'cr:show'), btn('⚙️ Settings', 'set:show')],
+      [btn(`👛 My wallets (${count})`, 'cw:list'), btn('🔐 Recovery', 'cr:show')],
       [btn('🔄 Refresh', 'cw:home'), btn(details ? '🔎 Less' : '🔎 Details', details ? 'cw:home' : 'cw:details')],
-      [btn('🔗 Linked wallet', 'menu:linked'), btn('« Menu', 'menu:home')],
+      [btn('🔗 Linked wallet', 'menu:linked'), btn('⚙️ Settings', 'set:show'), btn('« Menu', 'menu:home')],
     ),
   )
 }
 
-async function create(ctx: BotCtx) {
+/** Every NearKit wallet of the user: pick the one to trade from, create another, rename. */
+async function showWallets(ctx: BotCtx, note?: string) {
+  const custody = ctx.deps.custody
+  if (!custody) return showWalletHome(ctx)
+  const wallets = await custody.store.activeWallets(ctx.user.id, ctx.deps.config.network.id)
+  if (!wallets.length) return offerCreate(ctx)
+  const selected = await tradingWallet(ctx.deps, ctx.user.id)
+  await ctx.show(
+    [
+      ...(note ? [note, ''] : []),
+      `👛 ${bold('Your NearKit wallets')} · ${wallets.length} of ${MAX_ACTIVE_WALLETS_PER_USER}`,
+      '',
+      ...wallets.map((w) => `${w.id === selected?.id ? '✅' : '▫️'} ${w.slot}. ${walletLine(w)}`),
+      '',
+      'Each wallet has its own key and balance. Trades and withdrawals use the ✅ one; tap another to switch.',
+    ].join('\n'),
+    keyboard(
+      ...wallets.map((w) => [btn(`${w.id === selected?.id ? '✅ ' : ''}${w.slot}. ${walletName(w)}`, `cw:sel:${w.id}`)]),
+      [...(wallets.length < MAX_ACTIVE_WALLETS_PER_USER ? [newWalletButton('➕ New wallet')] : []), ...(selected ? [btn('✏️ Rename', `cw:ren:${selected.id}`)] : [])],
+      [btn('« Wallet', 'cw:home')],
+    ),
+  )
+}
+
+async function selectWallet(ctx: BotCtx, walletId: string) {
+  const w = await flowWallet(ctx, walletId)
+  if (!w) return ctx.answer('That wallet is closed or not yours.', true)
+  await ctx.deps.store.updateSettings(ctx.user.id, { activeWallet: w.id })
+  await ctx.answer(`${walletName(w)} selected`)
+  return showWalletHome(ctx)
+}
+
+async function askRename(ctx: BotCtx, walletId: string) {
+  const w = await flowWallet(ctx, walletId)
+  if (!w) return ctx.answer('That wallet is closed or not yours.', true)
+  await ctx.answer()
+  await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'cw.rename', { walletId: w.id }, FLOW_TTL_MS)
+  await ctx.reply(`✏️ New name for ${walletLine(w)}? Up to ${MAX_WALLET_LABEL} characters. Send “-” for the default name, or /cancel.`)
+}
+
+async function create(ctx: BotCtx, createKey: string) {
   const custody = ctx.deps.custody
   if (!custody) return ctx.answer('NearKit wallets aren’t available on this server.', true)
   const linked = await needAccount(ctx)
@@ -126,18 +188,27 @@ async function create(ctx: BotCtx) {
   let result
   try {
     // The linked wallet it is created with becomes its owner: export, backup key and revoke answer to it alone.
-    result = await createTradingWallet(custody, ctx.user.id, ctx.deps.config.network.id, ctx.deps.now(), { accountId: link.accountId, publicKey: link.publicKey })
+    result = await createTradingWallet(
+      custody,
+      ctx.user.id,
+      ctx.deps.config.network.id,
+      ctx.deps.now(),
+      { accountId: link.accountId, publicKey: link.publicKey },
+      createKey || null,
+    )
   } catch (e) {
-    if (e instanceof WalletLimitError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard(walletRow))
+    if (e instanceof WalletLimitError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard([btn('👛 My wallets', 'cw:list')], walletRow))
     throw e
   }
   const { wallet, created } = result
+  // A new wallet is the one to trade from next: it's what the user just asked for.
+  if (created) await ctx.deps.store.updateSettings(ctx.user.id, { activeWallet: wallet.id })
   await ctx.show(
     [
-      created ? `✅ ${bold('NearKit wallet created')}` : `👛 ${bold('Your NearKit wallet')}`,
+      created ? `✅ ${bold('NearKit wallet created')} · ${walletLine(wallet)}` : `👛 ${walletLine(wallet)}`,
       code(wallet.accountId),
       '',
-      'It’s empty. Send testnet NEAR to this address to start trading here. Tap the address to copy it.',
+      `It’s empty. Send ${ctx.deps.config.network.id === 'testnet' ? 'testnet ' : ''}NEAR to this address to start trading here. Tap the address to copy it.`,
       'Once it’s funded, add your linked wallet as its backup key (🔐 Recovery): then it’s yours even without NearKit.',
     ].join('\n'),
     keyboard([btn('📥 Deposit', 'cw:dep'), btn('👛 Wallet', 'cw:home')]),
@@ -149,7 +220,7 @@ async function deposit(ctx: BotCtx) {
   if (!w) return showWalletHome(ctx)
   await ctx.show(
     [
-      `📥 ${bold('Deposit to your NearKit wallet')}`,
+      `📥 ${bold('Deposit')} · ${walletLine(w)}`,
       '',
       code(w.accountId),
       '',
@@ -167,18 +238,18 @@ async function withdrawStart(ctx: BotCtx) {
   const w = await tradingWallet(ctx.deps, ctx.user.id)
   if (!w) return showWalletHome(ctx)
   const view = await readWallet(ctx.deps.near, w)
-  if (!view.exists) return ctx.show('Your NearKit wallet is empty: nothing to withdraw yet.', keyboard([btn('📥 Deposit', 'cw:dep')], walletRow))
+  if (!view.exists) return ctx.show(`${walletLine(w)} is empty: nothing to withdraw yet.`, keyboard([btn('📥 Deposit', 'cw:dep')], walletRow))
   const held = await tokensOf(ctx, view)
   const put = (a: Asset) => ctx.deps.store.putCallback(a, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
   const nearMax = view.near !== null ? maxNearWithdraw(view.near) : 0n
-  const nearId = nearMax > 0n ? await put({ asset: NATIVE_TOKEN_ID, symbol: 'NEAR', decimals: NEAR_DECIMALS }) : null
-  const heldIds = await Promise.all(held.map((t) => put({ asset: t.contract, symbol: t.token.symbol, decimals: t.token.decimals })))
+  const nearId = nearMax > 0n ? await put({ asset: NATIVE_TOKEN_ID, symbol: 'NEAR', decimals: NEAR_DECIMALS, walletId: w.id }) : null
+  const heldIds = await Promise.all(held.map((t) => put({ asset: t.contract, symbol: t.token.symbol, decimals: t.token.decimals, walletId: w.id })))
   const rows = [
     ...(nearId ? [[btn(`NEAR · ${nearText(view.near ?? 0n)}`, `cw:wa:${nearId}`)]] : []),
     ...held.map((t, i) => [btn(`${t.token.symbol} · ${amountText(t.raw, t.token.decimals)}`, `cw:wa:${heldIds[i]}`)]),
   ]
   if (!rows.length) return ctx.show('Nothing to withdraw: the wallet only holds what it needs for fees.', keyboard(walletRow))
-  await ctx.show(`📤 ${bold('Withdraw')} · what?`, keyboard(...rows, [btn('✖ Cancel', 'cw:home')]))
+  await ctx.show(`📤 ${bold('Withdraw')} from ${walletLine(w)} · what?`, keyboard(...rows, [btn('✖ Cancel', 'cw:home')]))
 }
 
 async function available(ctx: BotCtx, w: TradingWallet, a: Asset): Promise<bigint | null> {
@@ -189,9 +260,11 @@ async function available(ctx: BotCtx, w: TradingWallet, a: Asset): Promise<bigin
   return ctx.deps.near.ctx.reader.balanceOf(a.asset, w.accountId).catch(() => null)
 }
 
+const closedWallet = (ctx: BotCtx) => ctx.show('That NearKit wallet is closed or not yours any more. Nothing was prepared.', keyboard(walletRow))
+
 async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
-  const w = await tradingWallet(ctx.deps, ctx.user.id)
-  if (!w) return showWalletHome(ctx)
+  const w = await flowWallet(ctx, a.walletId)
+  if (!w) return closedWallet(ctx)
   const max = await available(ctx, w, a)
   if (max === null) return ctx.show(`⚠️ ${esc('The NEAR network isn’t answering right now. Try again in a moment.')}`, keyboard(walletRow))
   if (max === 0n) return ctx.show(`Nothing of ${esc(a.symbol)} to withdraw.`, keyboard(walletRow))
@@ -200,7 +273,7 @@ async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
   await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.amount', { ...a, max: max.toString() }, FLOW_TTL_MS)
   await ctx.show(
     [
-      `📤 ${bold(`Withdraw ${a.symbol}`)}`,
+      `📤 ${bold(`Withdraw ${a.symbol}`)} from ${walletLine(w)}`,
       `Available ${bold(`${amountText(max, a.decimals, 6)} ${a.symbol}`)}${a.asset === NATIVE_TOKEN_ID ? ' (a little stays for the network fee)' : ''}`,
       '',
       `How much? Tap or send an amount.`,
@@ -210,12 +283,14 @@ async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
 }
 
 async function askDestination(ctx: BotCtx, a: Asset & { amount: string }) {
+  const w = await flowWallet(ctx, a.walletId)
+  if (!w) return closedWallet(ctx)
   const linked = await linkedAccount(ctx)
   const linkedId = linked ? await ctx.deps.store.putCallback({ ...a, to: linked, linked: true }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS) : null
   await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.to', a, FLOW_TTL_MS)
   await ctx.show(
     [
-      `📤 ${bold(`Withdraw ${amountText(BigInt(a.amount), a.decimals, 6)} ${a.symbol}`)} · where to?`,
+      `📤 ${bold(`Withdraw ${amountText(BigInt(a.amount), a.decimals, 6)} ${a.symbol}`)} from ${walletLine(w)} · where to?`,
       '',
       linked
         ? `Your linked wallet is ready below, or send any NEAR ${esc(ctx.deps.config.network.id)} address.`
@@ -225,11 +300,12 @@ async function askDestination(ctx: BotCtx, a: Asset & { amount: string }) {
   )
 }
 
-export function withdrawReviewText(deps: BotDeps, input: WithdrawInput, review: WithdrawReview): string {
+export function withdrawReviewText(deps: BotDeps, input: WithdrawInput, review: WithdrawReview, wallet: Pick<TradingWallet, 'slot' | 'label' | 'accountId'> | null): string {
   const native = input.asset === NATIVE_TOKEN_ID
   return [
     `📤 ${bold('Review withdrawal')}`,
     '',
+    ...(wallet ? [`From ${walletLine(wallet)}`] : []),
     `Asset ${bold(input.symbol)}${native ? '' : ` · ${code(input.asset)}`}`,
     `Amount ${bold(`${amountText(BigInt(input.amount), input.decimals, 8)} ${input.symbol}`)}`,
     `To ${code(input.to)}${input.linked ? ' · your linked wallet' : ''}`,
@@ -243,15 +319,22 @@ export function withdrawReviewText(deps: BotDeps, input: WithdrawInput, review: 
   ].join('\n')
 }
 
-async function reviewAndConfirm(ctx: BotCtx, input: WithdrawInput) {
+async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: string }) {
   const custody = ctx.deps.custody
-  const w = await tradingWallet(ctx.deps, ctx.user.id)
-  if (!custody || !w) return showWalletHome(ctx)
+  const w = await flowWallet(ctx, flow.walletId)
+  if (!custody || !w) return closedWallet(ctx)
+  const input: WithdrawInput = { asset: flow.asset, symbol: flow.symbol, decimals: flow.decimals, amount: flow.amount, to: flow.to, linked: flow.linked }
   let review: WithdrawReview
   try {
     review = await reviewWithdraw(ctx.deps.near, ctx.deps.config.network, w, input)
   } catch (e) {
-    await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.to', { asset: input.asset, symbol: input.symbol, decimals: input.decimals, amount: input.amount }, FLOW_TTL_MS)
+    await ctx.deps.store.setSession(
+      ctx.chat.id,
+      ctx.user.id,
+      'wd.to',
+      { asset: input.asset, symbol: input.symbol, decimals: input.decimals, amount: input.amount, walletId: w.id },
+      FLOW_TTL_MS,
+    )
     await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`, keyboard([btn('✖ Cancel', 'cw:home')]))
     return
   }
@@ -265,26 +348,33 @@ async function reviewAndConfirm(ctx: BotCtx, input: WithdrawInput) {
     quote: review,
     ttlMs: WITHDRAW_TTL_MS,
   })
-  await ctx.reply(withdrawReviewText(ctx.deps, input, review), intentKeyboard(intent, '✅ Confirm withdraw'))
+  await ctx.reply(withdrawReviewText(ctx.deps, input, review, w), intentKeyboard(intent, '✅ Confirm withdraw'))
 }
 
 registerIntentScreens('withdraw', {
-  review: (deps, intent) => ({
-    text: withdrawReviewText(deps, intent.params as unknown as WithdrawInput, intent.quote as unknown as WithdrawReview),
+  review: async (deps, intent) => ({
+    text: withdrawReviewText(
+      deps,
+      intent.params as unknown as WithdrawInput,
+      intent.quote as unknown as WithdrawReview,
+      (await deps.custody?.store.wallet(intent.walletId)) ?? null,
+    ),
     confirm: '✅ Confirm withdraw',
   }),
-  result: (deps, intent: Intent) => {
+  result: async (deps, intent: Intent) => {
     const input = intent.params as unknown as WithdrawInput
+    const w = (await deps.custody?.store.wallet(intent.walletId)) ?? null
     const r = intent.result
     const links = r?.hashes.length ? txLinks(deps, r.hashes) : null
     const text = r?.ok
       ? [
           `✅ ${bold('Withdrawal confirmed')}`,
+          ...(w ? [`From ${walletLine(w)}`] : []),
           `Sent ${bold(`${amountText(BigInt(input.amount), input.decimals, 8)} ${input.symbol}`)}`,
           `To ${code(input.to)}`,
           ...(links ? [`Tx ${links}`] : []),
         ].join('\n')
-      : [`❌ ${bold('Withdrawal failed')}`, esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')
+      : [`❌ ${bold('Withdrawal failed')}`, ...(w ? [`From ${walletLine(w)}`] : []), esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')
     return { text, markup: keyboard(walletRow) }
   },
   again: () => ({ text: '📤 Withdraw again', data: 'cw:wd' }),
@@ -306,12 +396,12 @@ export function tradingWalletModule(): BotModule {
           await ctx.reply(`⚠️ Send an amount above 0 and at most ${esc(amountText(BigInt(a.max), a.decimals, 6))} ${esc(a.symbol)}, or /cancel.`)
           return
         }
-        await askDestination(ctx, { asset: a.asset, symbol: a.symbol, decimals: a.decimals, amount: parsed.value.toString() })
+        await askDestination(ctx, { asset: a.asset, symbol: a.symbol, decimals: a.decimals, walletId: a.walletId, amount: parsed.value.toString() })
       },
       'wd.to': async (ctx, text, data) => {
         const a = data as unknown as Asset & { amount: string }
-        const w = await tradingWallet(ctx.deps, ctx.user.id)
-        if (!w) return showWalletHome(ctx)
+        const w = await flowWallet(ctx, a.walletId)
+        if (!w) return closedWallet(ctx)
         let to: string
         try {
           to = checkDestinationSyntax(plainText(text, 80), ctx.deps.config.network, w, a.asset)
@@ -320,6 +410,20 @@ export function tradingWalletModule(): BotModule {
           return
         }
         await reviewAndConfirm(ctx, { ...a, to, linked: to === (await linkedAccount(ctx)) })
+      },
+      'cw.rename': async (ctx, text, data) => {
+        const w = await flowWallet(ctx, String((data as { walletId?: string }).walletId ?? ''))
+        await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+        if (!w || !ctx.deps.custody) return closedWallet(ctx)
+        const typed = plainText(text, 200)
+        const label = typed === '-' ? null : typed
+        if (label !== null && (!label || [...label].length > MAX_WALLET_LABEL)) {
+          await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'cw.rename', { walletId: w.id }, FLOW_TTL_MS)
+          await ctx.reply(`⚠️ A name is 1 to ${MAX_WALLET_LABEL} characters. Send another, “-” for the default, or /cancel.`)
+          return
+        }
+        await ctx.deps.custody.store.setLabel(w.id, label)
+        await showWallets(ctx, `✏️ Renamed to ${bold(walletName({ ...w, label }))}.`)
       },
     },
     callbacks: {
@@ -332,8 +436,26 @@ export function tradingWalletModule(): BotModule {
           case 'details':
             await ctx.answer()
             return showWalletHome(ctx, true)
-          case 'create':
-            return create(ctx)
+          case 'list':
+            await ctx.answer()
+            return showWallets(ctx)
+          case 'sel':
+            return selectWallet(ctx, arg)
+          case 'ren':
+            return askRename(ctx, arg)
+          case 'new':
+            return create(ctx, arg)
+          case 'create': {
+            // A Create button sent before a user could have several wallets carries no key:
+            // it only ever made the first wallet. It still does, never a second one; its key
+            // is the user's count of wallets so far, so a double tap (or two instances) makes one.
+            if (!ctx.deps.custody) return create(ctx, '')
+            if (await tradingWallet(ctx.deps, ctx.user.id)) {
+              await ctx.answer()
+              return showWalletHome(ctx)
+            }
+            return create(ctx, `first-${await ctx.deps.custody.store.countWalletsSince(ctx.user.id, 0)}`)
+          }
           case 'dep':
             await ctx.answer()
             return deposit(ctx)
@@ -353,7 +475,7 @@ export function tradingWalletModule(): BotModule {
             return askDestination(ctx, a)
           }
           case 'wt': {
-            const a = await payload<WithdrawInput>(ctx, arg)
+            const a = await payload<WithdrawInput & { walletId: string }>(ctx, arg)
             if (!a) return ctx.answer('That button expired. Open the wallet again.', true)
             await ctx.answer()
             return reviewAndConfirm(ctx, a)

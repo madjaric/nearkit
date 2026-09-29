@@ -5,11 +5,11 @@ import { formatPct } from '@/lib/format'
 import type { Intent } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
 import { UNWRAP_TTL_MS, type UnwrapParams } from '../custody/unwrap'
-import { bold, code, esc, shortAccount } from '../telegram/html'
+import { bold, code, esc } from '../telegram/html'
 import { btn, keyboard, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { refreshPortfolio } from './portfolio'
-import { tradingWallet } from './tradingWallet'
+import { flowWallet, tradingWallet, walletLine } from './tradingWallet'
 import { friendlyError, nearText, UNKNOWN } from './ui'
 
 /**
@@ -35,7 +35,7 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     `${buy ? '🟢' : '🔴'} ${bold(`${buy ? 'Buy' : 'Sell'} ${p.symbol}`)}`,
     code(p.token),
     '',
-    ...(wallet ? [`From your NearKit wallet ${code(shortAccount(wallet.accountId))}`] : []),
+    ...(wallet ? [`From ${walletLine(wallet)}`] : []),
     `You pay ${bold(`${p.amountIn} ${buy ? 'NEAR' : p.symbol}`)}`,
     `You receive ${bold(`≈ ${fmt(BigInt(q.amountOut), outDecimals)} ${outSymbol}`)}`,
     `Minimum ${esc(`${fmt(BigInt(q.minOut), outDecimals)} ${outSymbol}`)} · ${p.slippagePct}% slippage`,
@@ -51,11 +51,19 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
 
 const confirmLabel = (p: SwapParams) => (p.side === 'buy' ? `✅ Confirm buy` : `✅ Confirm sell`)
 
-/** Creates the intent for this quote (replacing older open quotes) and shows it with Confirm. */
-export async function sendNativeQuote(ctx: BotCtx, params: SwapParams, againData: string): Promise<void> {
+/**
+ * Creates the intent for this quote (replacing that wallet's older open quotes) and shows
+ * it with Confirm. `walletId`: the NearKit wallet the trade started on; it stays the one
+ * that trades, whatever the user selects meanwhile.
+ */
+export async function sendNativeQuote(ctx: BotCtx, params: SwapParams, againData: string, walletId: string): Promise<void> {
   const custody = ctx.deps.custody
-  const wallet = await tradingWallet(ctx.deps, ctx.user.id)
-  if (!custody || !wallet) return
+  const wallet = await flowWallet(ctx, walletId)
+  if (!custody) return
+  if (!wallet) {
+    await ctx.reply('That NearKit wallet is closed or not yours any more. Nothing was prepared.', keyboard([btn('👛 Wallet', 'cw:home')]))
+    return
+  }
   let quote: SwapQuote
   try {
     quote = await custody.swaps.quote(params, wallet)
@@ -96,13 +104,14 @@ async function tradeResult(deps: BotDeps, intent: Intent) {
   const text = r?.ok
     ? [
         `✅ ${bold(p.side === 'buy' ? 'Buy confirmed' : 'Sell confirmed')}`,
+        ...(wallet ? [`Wallet ${walletLine(wallet)}`] : []),
         p.side === 'buy' ? `Spent ${bold(near)}` : `Sold ${bold(token)}`,
         p.side === 'buy' ? `Received ${bold(token)}` : `Received ${bold(near)}`,
         `NearKit fee ${esc(fee)}`,
         ...(links ? [`Tx ${links}`] : []),
       ].join('\n')
     : [`❌ ${bold(p.side === 'buy' ? 'Buy failed' : 'Sell failed')}`, esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')
-  const unwrap = !r?.ok && p.side === 'buy' && r?.hashes.length ? [btn('🔁 Unwrap wNEAR', 'cu:unwrap')] : []
+  const unwrap = !r?.ok && p.side === 'buy' && r?.hashes.length ? [btn('🔁 Unwrap wNEAR', `cu:unwrap:${intent.walletId}`)] : []
   return {
     text,
     markup: keyboard([btn(p.side === 'buy' ? `🟢 Buy ${p.symbol} again` : `🔴 Sell ${p.symbol} again`, `tr:start:${again}`), btn('📊 Positions', 'pf:positions')], unwrap, [
@@ -121,10 +130,11 @@ for (const side of ['buy', 'sell'] as const) {
 
 // ─── unwrap ───────────────────────────────────────────────────────────────────
 
-function unwrapReview(deps: BotDeps, intent: Intent): string {
+async function unwrapReview(deps: BotDeps, intent: Intent): Promise<string> {
   const p = intent.params as unknown as UnwrapParams
+  const w = await deps.custody?.store.wallet(intent.walletId)
   return [
-    `🔁 ${bold('Unwrap wNEAR')}`,
+    `🔁 ${bold('Unwrap wNEAR')}${w ? ` · ${walletLine(w)}` : ''}`,
     '',
     `Amount ${bold(`${fmt(BigInt(p.amount), NEAR_DECIMALS)} wNEAR → NEAR`)}`,
     `Network ${esc(`NEAR ${deps.config.network.label}`)}`,
@@ -133,7 +143,7 @@ function unwrapReview(deps: BotDeps, intent: Intent): string {
 }
 
 registerIntentScreens('unwrap', {
-  review: (deps, intent) => ({ text: unwrapReview(deps, intent), confirm: '✅ Confirm unwrap' }),
+  review: async (deps, intent) => ({ text: await unwrapReview(deps, intent), confirm: '✅ Confirm unwrap' }),
   result: (deps, intent) => {
     const p = intent.params as unknown as UnwrapParams
     const r = intent.result
@@ -145,10 +155,10 @@ registerIntentScreens('unwrap', {
   },
 })
 
-/** Offers to unwrap the wallet's whole wNEAR balance. */
-async function startUnwrap(ctx: BotCtx) {
+/** Offers to unwrap a wallet's whole wNEAR balance: the wallet the button was for, else the selected one. */
+async function startUnwrap(ctx: BotCtx, walletId: string) {
   const custody = ctx.deps.custody
-  const wallet = await tradingWallet(ctx.deps, ctx.user.id)
+  const wallet = walletId ? await flowWallet(ctx, walletId) : await tradingWallet(ctx.deps, ctx.user.id)
   const raw = wallet ? await ctx.deps.near.ctx.reader.balanceOf(ctx.deps.config.network.wrapContract, wallet.accountId).catch(() => 0n) : 0n
   if (!custody || !wallet || raw <= 0n) return ctx.show('No wNEAR to unwrap.', keyboard([btn('👛 Wallet', 'cw:home')]))
   await custody.store.cancelQuoted(wallet.id, ['unwrap'])
@@ -160,15 +170,15 @@ async function startUnwrap(ctx: BotCtx) {
     params: { amount: raw.toString() } satisfies UnwrapParams,
     ttlMs: UNWRAP_TTL_MS,
   })
-  await ctx.show(unwrapReview(ctx.deps, intent), intentKeyboard(intent, '✅ Confirm unwrap'))
+  await ctx.show(await unwrapReview(ctx.deps, intent), intentKeyboard(intent, '✅ Confirm unwrap'))
 }
 
 export function nativeTradeModule(): BotModule {
   return {
     callbacks: {
-      cu: async (ctx, action) => {
+      cu: async (ctx, action, arg) => {
         await ctx.answer()
-        if (action === 'unwrap') return startUnwrap(ctx)
+        if (action === 'unwrap') return startUnwrap(ctx, arg)
       },
     },
   }

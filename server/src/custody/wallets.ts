@@ -5,7 +5,8 @@ import type { Engine } from './engine'
 import type { RecoveryService } from './recovery'
 import type { SwapService } from './swap'
 import type { TradingSigner } from './signer'
-import type { CustodyStore, TradingWallet } from './store'
+import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_CREATIONS_PER_DAY } from './limits'
+import { ActiveWalletLimitError, type CustodyStore, type TradingWallet } from './store'
 
 /**
  * Trading wallets as the bot uses them: create one (idempotently), and read one
@@ -24,30 +25,58 @@ export interface CustodyDeps {
   recovery: RecoveryService
 }
 
-/** Wallets one Telegram user may create in a day: abuse protection, not a trading limit. */
-export const MAX_WALLETS_PER_DAY = 3
-
 export class WalletLimitError extends Error {
-  constructor() {
-    super('Too many NearKit wallets created today. Try again tomorrow.')
+  constructor(readonly kind: 'active' | 'day' | 'used') {
+    super(
+      kind === 'active'
+        ? `You have ${MAX_ACTIVE_WALLETS_PER_USER} NearKit wallets, the most at once. Delete an empty one (🔐 Recovery) to make room.`
+        : kind === 'day'
+          ? 'Too many NearKit wallets created today. Try again tomorrow.'
+          : 'That Create button was already used, and the wallet it made is closed. Tap ➕ New wallet to make another.',
+    )
     this.name = 'WalletLimitError'
   }
 }
 
-/** `owner`: the linked wallet (and its verified key) the new wallet answers to for export, backup key and revoke. */
+/**
+ * A new NearKit wallet in the user's next free slot (up to MAX_ACTIVE_WALLETS_PER_USER).
+ * `owner`: the linked wallet (and its verified key) the new wallet answers to for export,
+ * backup key and revoke. `createKey`: the Create button's one-time key, so a double tap
+ * (or a replayed update) makes one wallet.
+ */
 export async function createTradingWallet(
   c: CustodyDeps,
   userId: number,
   network: string,
   now: number,
   owner: { accountId: string; publicKey: string },
+  createKey: string | null = null,
 ): Promise<{ wallet: TradingWallet; created: boolean }> {
-  const existing = await c.store.activeWallet(userId, network)
-  if (existing) return { wallet: existing, created: false }
-  if ((await c.store.countWalletsSince(userId, now - 86_400_000)) >= MAX_WALLETS_PER_DAY) throw new WalletLimitError()
-  // Two presses at once each make a key; the store keeps one wallet and the other key is never saved.
+  if (createKey) {
+    const same = await c.store.walletByCreateKey(userId, createKey)
+    if (same) return live(same, false)
+  }
+  if ((await c.store.activeWallets(userId, network)).length >= MAX_ACTIVE_WALLETS_PER_USER) throw new WalletLimitError('active')
+  if ((await c.store.countWalletsSince(userId, now - 86_400_000)) >= MAX_WALLET_CREATIONS_PER_DAY) throw new WalletLimitError('day')
+  // Each wallet gets its own key: no master key, so one exported key reveals nothing about another wallet.
   const key = await c.signer.createKey(network)
-  return c.store.createWallet({ userId, network, ...key, keyRef: c.signer.keyRef, owner })
+  try {
+    const r = await c.store.createWallet({ userId, network, ...key, keyRef: c.signer.keyRef, owner, createKey })
+    return live(r.wallet, r.created)
+  } catch (e) {
+    if (e instanceof ActiveWalletLimitError) throw new WalletLimitError('active')
+    throw e
+  }
+}
+
+/**
+ * A button's key stays bound to the wallet it made, even once that wallet is closed:
+ * never hand a closed wallet back as if it were usable (its key is erased, so NEAR sent
+ * to it now would be out of reach).
+ */
+function live(wallet: TradingWallet, created: boolean): { wallet: TradingWallet; created: boolean } {
+  if (wallet.status !== 'active') throw new WalletLimitError('used')
+  return { wallet, created }
 }
 
 export interface WalletView {

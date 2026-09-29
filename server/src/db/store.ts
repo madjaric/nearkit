@@ -25,6 +25,8 @@ export interface Settings {
   defaultAccount: string | null
   /** Message the user when a trade prepared here is confirmed or fails. */
   notifyTrades: boolean
+  /** The NearKit wallet Telegram trades from (its ID); the first active one when unset or closed. */
+  activeWallet: string | null
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   sellPresets: [25, 50, 75, 100],
   defaultAccount: null,
   notifyTrades: true,
+  activeWallet: null,
 })
 
 export interface LinkRequest {
@@ -109,10 +112,14 @@ export class Store {
   // ─── settings ─────────────────────────────────────────────────────────────
 
   async getSettings(userId: number): Promise<Settings> {
-    const r = await this.db.get<{ slippage_pct: number; buy_presets: string; sell_presets: string; default_account: string | null; notify_trades: number }>(
-      'SELECT slippage_pct, buy_presets, sell_presets, default_account, notify_trades FROM user_settings WHERE user_id = ?',
-      [userId],
-    )
+    const r = await this.db.get<{
+      slippage_pct: number
+      buy_presets: string
+      sell_presets: string
+      default_account: string | null
+      notify_trades: number
+      active_wallet: string | null
+    }>('SELECT slippage_pct, buy_presets, sell_presets, default_account, notify_trades, active_wallet FROM user_settings WHERE user_id = ?', [userId])
     if (!r) return { ...DEFAULT_SETTINGS, buyPresets: [...DEFAULT_SETTINGS.buyPresets], sellPresets: [...DEFAULT_SETTINGS.sellPresets] }
     return {
       slippagePct: r.slippage_pct,
@@ -120,16 +127,17 @@ export class Store {
       sellPresets: json<number[]>(r.sell_presets, [...DEFAULT_SETTINGS.sellPresets]),
       defaultAccount: r.default_account,
       notifyTrades: r.notify_trades === 1,
+      activeWallet: r.active_wallet,
     }
   }
 
   async updateSettings(userId: number, patch: Partial<Settings>): Promise<Settings> {
     const next = { ...(await this.getSettings(userId)), ...patch }
     await this.db.run(
-      `INSERT INTO user_settings (user_id, slippage_pct, buy_presets, sell_presets, default_account, notify_trades, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO user_settings (user_id, slippage_pct, buy_presets, sell_presets, default_account, notify_trades, active_wallet, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET slippage_pct = excluded.slippage_pct, buy_presets = excluded.buy_presets, sell_presets = excluded.sell_presets,
-         default_account = excluded.default_account, notify_trades = excluded.notify_trades, updated_at = excluded.updated_at`,
-      [userId, next.slippagePct, JSON.stringify(next.buyPresets), JSON.stringify(next.sellPresets), next.defaultAccount, next.notifyTrades ? 1 : 0, this.now()],
+         default_account = excluded.default_account, notify_trades = excluded.notify_trades, active_wallet = excluded.active_wallet, updated_at = excluded.updated_at`,
+      [userId, next.slippagePct, JSON.stringify(next.buyPresets), JSON.stringify(next.sellPresets), next.defaultAccount, next.notifyTrades ? 1 : 0, next.activeWallet, this.now()],
     )
     return next
   }

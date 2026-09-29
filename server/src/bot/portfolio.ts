@@ -32,8 +32,9 @@ export function refreshPortfolio(deps: BotCtx['deps'], accountId: string) {
 }
 
 async function accounts(ctx: BotCtx): Promise<string[]> {
-  const nearkit = (await ctx.deps.custody?.store.activeWallet(ctx.user.id, ctx.deps.config.network.id))?.accountId
-  return [...(nearkit ? [nearkit] : []), ...(await ctx.deps.store.linksOf(ctx.user.id, ctx.deps.config.network.id)).map((l) => l.accountId)]
+  // Every NearKit wallet of the user, then the linked wallets.
+  const nearkit = ((await ctx.deps.custody?.store.activeWallets(ctx.user.id, ctx.deps.config.network.id)) ?? []).map((w) => w.accountId)
+  return [...nearkit, ...(await ctx.deps.store.linksOf(ctx.user.id, ctx.deps.config.network.id)).map((l) => l.accountId)]
 }
 
 async function needAccounts(ctx: BotCtx): Promise<string[] | null> {

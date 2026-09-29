@@ -9,5 +9,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'server/src/**/*.test.ts'],
+    // Server suites also run on PGlite (Postgres in WebAssembly): its first database can take a while to start.
+    hookTimeout: 120_000,
   },
 })

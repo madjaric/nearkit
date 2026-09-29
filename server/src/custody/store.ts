@@ -1,5 +1,6 @@
 import { isUniqueViolation, type Database } from '../db/database'
 import { randomToken } from '../ids'
+import { MAX_ACTIVE_WALLETS_PER_USER } from './limits'
 
 /**
  * What NearKit keeps about trading wallets: the wallet (with its key sealed),
@@ -30,9 +31,21 @@ export interface TradingWallet {
    */
   ownerAccount: string | null
   ownerKey: string | null
+  /** Its place among the user's active wallets, 1..MAX_ACTIVE_WALLETS_PER_USER (1 shows as "Main"). */
+  slot: number
+  /** A name the user gave it, or null. */
+  label: string | null
   createdAt: number
   updatedAt: number
   closedAt: number | null
+}
+
+/** The user already has MAX_ACTIVE_WALLETS_PER_USER active wallets on this network. */
+export class ActiveWalletLimitError extends Error {
+  constructor() {
+    super(`You can have at most ${MAX_ACTIVE_WALLETS_PER_USER} NearKit wallets at once. Delete or empty one first.`)
+    this.name = 'ActiveWalletLimitError'
+  }
 }
 
 export type IntentKind = 'buy' | 'sell' | 'withdraw' | 'unwrap' | 'backup-key' | 'revoke'
@@ -142,6 +155,9 @@ interface WalletRow {
   backup_key: string | null
   owner_account: string | null
   owner_key: string | null
+  slot: number
+  label: string | null
+  create_key: string | null
   created_at: number
   updated_at: number
   closed_at: number | null
@@ -159,6 +175,8 @@ const toWallet = (r: WalletRow): TradingWallet => ({
   backupKey: r.backup_key,
   ownerAccount: r.owner_account,
   ownerKey: r.owner_key,
+  slot: r.slot,
+  label: r.label,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   closedAt: r.closed_at,
@@ -243,8 +261,11 @@ export class CustodyStore {
   // ─── wallets ──────────────────────────────────────────────────────────────
 
   /**
-   * Saves a new wallet unless the user already has a live one on this network, in
-   * which case that one is returned and the new key material is simply never stored.
+   * Saves a new wallet in the user's lowest free slot. `createKey` (the Create button's
+   * one-time key) makes creation idempotent: a double tap, a replayed update or two
+   * instances handling the same press get the same wallet, and the second key material
+   * is simply never stored. The database refuses an 11th active wallet (slot CHECK and
+   * a unique index per active slot), so no race gets past the limit either.
    */
   async createWallet(w: {
     userId: number
@@ -254,25 +275,55 @@ export class CustodyStore {
     sealedKey: string
     keyRef: string
     owner?: { accountId: string; publicKey: string } | null
+    createKey?: string | null
   }): Promise<{ wallet: TradingWallet; created: boolean }> {
-    return this.db.tx(async () => {
-      const existing = await this.activeWallet(w.userId, w.network)
-      if (existing) return { wallet: existing, created: false }
-      const id = randomToken(12)
-      const t = this.now()
-      await this.db.run(
-        `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, owner_account, owner_key, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
-        [id, w.userId, w.network, w.accountId, w.publicKey, w.sealedKey, w.keyRef, w.owner?.accountId ?? null, w.owner?.publicKey ?? null, t, t],
-      )
-      await this.audit({
-        userId: w.userId,
-        walletId: id,
-        action: 'wallet-created',
-        detail: { network: w.network, accountId: w.accountId, publicKey: w.publicKey, keyRef: w.keyRef, owner: w.owner?.accountId ?? null },
+    // A lost race for a slot (another creation took it) just tries the next one.
+    for (let attempt = 0; attempt < MAX_ACTIVE_WALLETS_PER_USER; attempt++) {
+      const result = await this.db.tx(async () => {
+        if (w.createKey) {
+          const same = await this.walletByCreateKey(w.userId, w.createKey)
+          if (same) return { wallet: same, created: false }
+        }
+        const used = new Set((await this.activeWallets(w.userId, w.network)).map((x) => x.slot))
+        const slot = Array.from({ length: MAX_ACTIVE_WALLETS_PER_USER }, (_, i) => i + 1).find((n) => !used.has(n))
+        if (slot === undefined) throw new ActiveWalletLimitError()
+        const id = randomToken(12)
+        const t = this.now()
+        try {
+          await this.db.attempt(() =>
+            this.db.run(
+              `INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, owner_account, owner_key, slot, create_key, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+              [id, w.userId, w.network, w.accountId, w.publicKey, w.sealedKey, w.keyRef, w.owner?.accountId ?? null, w.owner?.publicKey ?? null, slot, w.createKey ?? null, t, t],
+            ),
+          )
+        } catch (e) {
+          if (!isUniqueViolation(e)) throw e
+          // A race lost to another creation: it used this key (then that wallet is the answer)
+          // or took this slot (then try the next free one). Anything else is a real error.
+          if (w.createKey) {
+            const same = await this.walletByCreateKey(w.userId, w.createKey)
+            if (same) return { wallet: same, created: false }
+          }
+          if ((await this.activeWallets(w.userId, w.network)).some((x) => x.slot === slot)) return null
+          throw e
+        }
+        await this.audit({
+          userId: w.userId,
+          walletId: id,
+          action: 'wallet-created',
+          detail: { network: w.network, accountId: w.accountId, publicKey: w.publicKey, keyRef: w.keyRef, owner: w.owner?.accountId ?? null, slot },
+        })
+        return { wallet: (await this.wallet(id)) as TradingWallet, created: true }
       })
-      return { wallet: (await this.wallet(id)) as TradingWallet, created: true }
-    })
+      if (result) return result
+    }
+    throw new ActiveWalletLimitError()
+  }
+
+  async walletByCreateKey(userId: number, createKey: string): Promise<TradingWallet | null> {
+    const r = await this.db.get<WalletRow>('SELECT * FROM trading_wallets WHERE user_id = ? AND create_key = ?', [userId, createKey])
+    return r ? toWallet(r) : null
   }
 
   async wallet(id: string): Promise<TradingWallet | null> {
@@ -280,9 +331,20 @@ export class CustodyStore {
     return r ? toWallet(r) : null
   }
 
-  async activeWallet(userId: number, network: string): Promise<TradingWallet | null> {
-    const r = await this.db.get<WalletRow>("SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active'", [userId, network])
-    return r ? toWallet(r) : null
+  /** The user's active wallets on this network, in slot order (Main first). */
+  async activeWallets(userId: number, network: string): Promise<TradingWallet[]> {
+    return (await this.db.all<WalletRow>("SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active' ORDER BY slot", [userId, network])).map(toWallet)
+  }
+
+  /** The wallet `walletId` if it is `userId`'s and active; null otherwise (another user's, closed or unknown). */
+  async ownedWallet(userId: number, walletId: string): Promise<TradingWallet | null> {
+    const w = await this.wallet(walletId)
+    return w && w.userId === userId && w.status === 'active' ? w : null
+  }
+
+  /** Renames a wallet (null gives it back its default name). */
+  async setLabel(walletId: string, label: string | null): Promise<void> {
+    await this.db.run('UPDATE trading_wallets SET label = ?, updated_at = ? WHERE id = ?', [label, this.now(), walletId])
   }
 
   /** Wallets a user created since `since`, closed ones included. */

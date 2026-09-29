@@ -105,10 +105,10 @@ export function createRecoveryService(deps: {
   }
 
   return {
-    /** From Telegram's Recovery screen: a one-time link to the export page. */
-    async createRequest(userId: number): Promise<{ url: string; expiresAt: number }> {
-      const wallet = await custody.activeWallet(userId, network)
-      if (!wallet) throw new RecoveryApiError(404, 'no-wallet', 'You have no NearKit wallet.')
+    /** From Telegram's Recovery screen: a one-time link to export the key of one wallet, `walletId`, only. */
+    async createRequest(userId: number, walletId: string): Promise<{ url: string; expiresAt: number }> {
+      const wallet = await custody.ownedWallet(userId, walletId)
+      if (!wallet || wallet.network !== network) throw new RecoveryApiError(404, 'no-wallet', 'That NearKit wallet is closed or not yours.')
       if (!wallet.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NearKit wallet has no recorded owner wallet, so its key can’t be exported.')
       if ((await custody.countRecoveriesSince(userId, now() - 3_600_000)) >= MAX_RECOVERY_REQUESTS_PER_HOUR)
         throw new RecoveryApiError(429, 'too-many', 'Too many export links this hour. Use the last one, or try again later.')

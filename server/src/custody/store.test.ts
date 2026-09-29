@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { migrate } from '../db/schema'
 import { SqliteDatabase } from '../db/sqlite'
 import { Store } from '../db/store'
-import { CustodyStore } from './store'
+import type { Database } from '../db/database'
+import { ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES } from '../db/testing'
+import { MAX_ACTIVE_WALLETS_PER_USER, walletName } from './limits'
+import { ActiveWalletLimitError, CustodyStore, type TradingWallet } from './store'
 
 let now = 1_000_000
 let db: SqliteDatabase
@@ -25,30 +28,104 @@ beforeEach(async () => {
 })
 
 describe('trading wallets', () => {
-  it('one live wallet per user and network: creating again returns the same wallet', async () => {
-    const first = await store.createWallet(wallet())
-    const again = await store.createWallet(wallet(USER, 'b'.repeat(64)))
-    expect(first.created).toBe(true)
-    expect(again).toEqual({ wallet: first.wallet, created: false })
-    expect((await store.auditOf(first.wallet.id)).map((a) => a.action)).toEqual(['wallet-created'])
-    // Even a direct insert can't make a second live wallet.
-    await expect(
-      db.run(
-        "INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, created_at, updated_at) VALUES ('x', ?, 'testnet', ?, 'k', 's', 'r', 'active', 1, 1)",
-        [USER, 'c'.repeat(64)],
-      ),
-    ).rejects.toThrow(/UNIQUE/)
-  })
-
-  it('closing erases the sealed key for good; a new wallet can then be created', async () => {
+  it('closing erases the sealed key for good; its slot is free again', async () => {
     const { wallet: w } = await store.createWallet(wallet())
     expect(await store.closeWallet(w.id, 'revoked', { tx: 'h' })).toBe(true)
     expect(await store.wallet(w.id)).toMatchObject({ status: 'revoked', sealedKey: null, closedAt: now })
     expect(await store.closeWallet(w.id, 'deleted')).toBe(false)
-    expect(await store.activeWallet(USER, 'testnet')).toBeNull()
-    expect((await store.createWallet(wallet(USER, 'd'.repeat(64)))).created).toBe(true)
+    expect(await store.activeWallets(USER, 'testnet')).toEqual([])
+    expect(await store.createWallet(wallet(USER, 'd'.repeat(64)))).toMatchObject({ created: true, wallet: { slot: 1 } })
   })
 })
+
+describe.each(TEST_ENGINES)(
+  'multi-wallet on %s',
+  (engine) => {
+    let cs: CustodyStore
+    let edb: Database
+    let n = 0
+    const fresh = () => ({ ...wallet(USER, (n++).toString(16).padStart(64, 'a')), publicKey: `ed25519:K${n}` })
+    beforeEach(async () => {
+      edb = await openTestDatabase(engine)
+      const users = new Store(edb, () => now)
+      await users.upsertUser({ userId: USER, username: 'alice', firstName: 'Alice', languageCode: null })
+      await users.upsertUser({ userId: 202, username: 'bob', firstName: 'Bob', languageCode: null })
+      cs = new CustodyStore(edb, () => now)
+    })
+
+    it(`up to ${MAX_ACTIVE_WALLETS_PER_USER} active wallets per user, each in its own slot; the next is refused`, async () => {
+      const made = []
+      for (let i = 0; i < MAX_ACTIVE_WALLETS_PER_USER; i++) made.push((await cs.createWallet(fresh())).wallet)
+      expect(made.map((w) => w.slot)).toEqual(Array.from({ length: MAX_ACTIVE_WALLETS_PER_USER }, (_, i) => i + 1))
+      expect(new Set(made.map((w) => w.accountId)).size).toBe(MAX_ACTIVE_WALLETS_PER_USER)
+      await expect(cs.createWallet(fresh())).rejects.toThrow(ActiveWalletLimitError)
+      // Another user is not limited by Alice's wallets.
+      expect((await cs.createWallet({ ...fresh(), userId: 202 })).wallet.slot).toBe(1)
+      // Deleting one frees exactly its slot, which the next wallet takes.
+      await cs.closeWallet(made[3]?.id as string, 'deleted')
+      expect((await cs.createWallet(fresh())).wallet.slot).toBe(4)
+      await expect(cs.createWallet(fresh())).rejects.toThrow(ActiveWalletLimitError)
+    })
+
+    it('the database itself refuses an 11th active wallet and two wallets in one slot, whatever the code does', async () => {
+      const insert = (slot: number, account: string) =>
+        edb.run(
+          "INSERT INTO trading_wallets (id, user_id, network, account_id, public_key, sealed_key, key_ref, status, slot, created_at, updated_at) VALUES (?, ?, 'testnet', ?, 'k', 's', 'r', 'active', ?, 1, 1)",
+          [`x${slot}${account.slice(0, 4)}`, USER, account, slot],
+        )
+      await insert(1, 'e'.repeat(64))
+      await expect(insert(1, 'f'.repeat(64))).rejects.toThrow(/UNIQUE|duplicate/i)
+      await expect(insert(MAX_ACTIVE_WALLETS_PER_USER + 1, '1'.repeat(64))).rejects.toThrow(/CHECK|check constraint/i)
+      await expect(insert(0, '2'.repeat(64))).rejects.toThrow(/CHECK|check constraint/i)
+    })
+
+    it('the Create button’s key makes creation idempotent: a double tap or two instances make one wallet', async () => {
+      const [a, b] = await Promise.all([cs.createWallet({ ...fresh(), createKey: 'k1' }), cs.createWallet({ ...fresh(), createKey: 'k1' })])
+      expect(a.wallet.id).toBe(b.wallet.id)
+      expect([a.created, b.created].filter(Boolean)).toHaveLength(1)
+      expect(await cs.activeWallets(USER, 'testnet')).toHaveLength(1)
+      // A new press (a new key) is a new wallet.
+      expect((await cs.createWallet({ ...fresh(), createKey: 'k2' })).wallet.slot).toBe(2)
+    })
+
+    it('racing creations with different keys each get a slot of their own', async () => {
+      const results = await Promise.all([1, 2, 3, 4].map((i) => cs.createWallet({ ...fresh(), createKey: `r${i}` })))
+      expect(results.every((r) => r.created)).toBe(true)
+      expect(results.map((r) => r.wallet.slot).sort()).toEqual([1, 2, 3, 4])
+    })
+
+    it('a wallet is owned: another user, a closed wallet or an unknown ID is refused', async () => {
+      const { wallet: w } = await cs.createWallet(fresh())
+      expect((await cs.ownedWallet(USER, w.id))?.id).toBe(w.id)
+      expect(await cs.ownedWallet(202, w.id)).toBeNull()
+      expect(await cs.ownedWallet(USER, 'nope')).toBeNull()
+      await cs.closeWallet(w.id, 'deleted')
+      expect(await cs.ownedWallet(USER, w.id)).toBeNull()
+    })
+
+    it('each wallet has its own intents: one in flight per wallet, and wallets don’t block each other', async () => {
+      const a = (await cs.createWallet(fresh())).wallet
+      const b = (await cs.createWallet(fresh())).wallet
+      const ia = await cs.createIntent({ walletId: a.id, userId: USER, chatId: USER, kind: 'withdraw', params: {}, ttlMs: 60_000 })
+      const ia2 = await cs.createIntent({ walletId: a.id, userId: USER, chatId: USER, kind: 'withdraw', params: {}, ttlMs: 60_000 })
+      const ib = await cs.createIntent({ walletId: b.id, userId: USER, chatId: USER, kind: 'withdraw', params: {}, ttlMs: 60_000 })
+      expect((await cs.confirmIntent(ia.id, USER)).ok).toBe(true)
+      expect(await cs.confirmIntent(ia2.id, USER)).toMatchObject({ ok: false, reason: 'busy' })
+      expect((await cs.confirmIntent(ib.id, USER)).ok).toBe(true)
+    })
+
+    it('labels: set, shown in place of the default name, and reset', async () => {
+      const w = (await cs.createWallet(fresh())).wallet
+      const w2 = (await cs.createWallet(fresh())).wallet
+      expect([walletName(w), walletName(w2)]).toEqual(['Main', 'Wallet 2'])
+      await cs.setLabel(w2.id, 'Sniping')
+      expect(walletName((await cs.wallet(w2.id)) as TradingWallet)).toBe('Sniping')
+      await cs.setLabel(w2.id, null)
+      expect(walletName((await cs.wallet(w2.id)) as TradingWallet)).toBe('Wallet 2')
+    })
+  },
+  ENGINE_TIMEOUT_MS,
+)
 
 describe('the owner of wallets made before owners were recorded', () => {
   it('is the wallet linked when it was made (the default first), with its current key; a backup key of another wallet is forgotten', async () => {
@@ -70,7 +147,11 @@ describe('the owner of wallets made before owners were recorded', () => {
     await link(303, 'carol.testnet', 'ed25519:C')
     now += 1
     await link(USER, 'main.testnet', 'ed25519:M1')
-    await users.updateSettings(USER, { defaultAccount: 'main.testnet' })
+    // Settings as a v5 database held them (today's Store writes columns that came later).
+    await old.run(
+      "INSERT INTO user_settings (user_id, slippage_pct, buy_presets, sell_presets, default_account, notify_trades, updated_at) VALUES (?, 1, '[]', '[]', 'main.testnet', 1, ?)",
+      [USER, now],
+    )
     now += 1
     await made('a', USER, 'ed25519:F')
     await made('b', 202, null)
@@ -209,7 +290,7 @@ describe('persistence', () => {
     const second = await SqliteDatabase.open(path)
     await migrate(second)
     const s2 = new CustodyStore(second, () => now)
-    expect(await s2.activeWallet(USER, 'testnet')).toEqual(w)
+    expect(await s2.activeWallets(USER, 'testnet')).toEqual([w])
     expect((await s2.allInFlight()).map((x) => [x.id, x.status])).toEqual([[i.id, 'signing']])
     expect((await s2.txsOf(i.id))[0]).toMatchObject({ hash: 'H', status: 'signed', nonce: 3n })
     await first.close()
