@@ -1,30 +1,46 @@
+import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { formatUsd, formatUsdCompact, formatUsdPrice } from '@/lib/format'
-import { bold, esc, link, shortAccount } from '../telegram/html'
+import { bold, code, esc, link, shortAccount } from '../telegram/html'
 
 /**
- * The buy (or sell) alert. Every figure comes from the trade itself (amounts from
- * the chain) or from a named price source; a figure that isn't known is left out,
- * never estimated. Market cap is not shown: circulating supply isn't known on chain.
- * FDV is total supply × this trade's price, and says so.
+ * The NearKit buy (or sell) alert. Every figure comes from the trade itself (amounts from
+ * the chain) or from a named source; a figure that isn't known is left out, never
+ * estimated:
+ * - USD value: the other side's amounts × NearKit's prices (Coinbase for NEAR, Rhea's list).
+ * - NEAR value: exact when the buyer paid NEAR; otherwise converted at those prices and
+ *   marked "≈".
+ * - Market cap is shown as what it is on NEAR, FDV: total supply (from the token contract)
+ *   × this trade's price. Circulating supply isn't known on chain, so nothing called
+ *   "market cap" is invented.
+ * - Holders: NearBlocks' count, when it answers.
+ * - The contract (CA), the buyer and the transaction link are the chain's own.
  */
 
 export interface BuyView {
   side: 'buy' | 'sell'
   symbol: string
   name: string
+  /** The token contract (CA). */
+  token: string
   decimals: number
   /** Tokens bought, or sold. */
   amount: bigint
   /** The other side: what the buyer paid, or what the seller received. */
   paid: { text: string }[]
   paidUsd: number | null
+  /** The other side's value in yoctoNEAR (null when a leg has no price). */
+  valueNear: bigint | null
+  /** True when the other side was NEAR alone (the NEAR value is then exact, and already shown). */
+  paidInNear: boolean
   buyer: string
   buyerUrl: string
   txUrl: string
   /** USD per token at this trade (the other side's USD ÷ tokens). */
   priceUsd: number | null
   fdvUsd: number | null
+  /** Holder count from NearBlocks, when it answered. */
+  holders: number | null
   emoji: string
   emojiCount: number
   networkLabel: string
@@ -57,13 +73,16 @@ export function renderBuy(v: BuyView): string {
   const lines = [
     ...(v.preview ? [`🧪 <b>Preview</b>: not a real ${sell ? 'sale' : 'buy'}. The figures below show the layout only.`, ''] : []),
     header,
-    `${bold(`${v.symbol} ${sell ? 'sell' : 'buy'}`)} · ${esc(v.name)}${v.networkLabel === 'Testnet' ? ' · testnet' : ''}`,
+    `${bold(`$${v.symbol} ${sell ? 'Sell' : 'Buy!'}`)} · ${esc(v.name)}${v.networkLabel === 'Testnet' ? ' · testnet' : ''}`,
     '',
     ...(sell ? [tokens, other] : [other, tokens]),
-    `👤 ${link(v.buyerUrl, shortAccount(v.buyer, 32))}`,
   ]
+  if (!v.paidInNear && v.valueNear !== null) lines.push(`Ⓝ ≈ ${esc(formatUnits(v.valueNear, NEAR_DECIMALS, { maxFraction: 4, group: true }))} NEAR`)
+  lines.push(`👤 ${link(v.buyerUrl, shortAccount(v.buyer, 32))}`)
   if (v.priceUsd !== null) lines.push(`💵 Price ${esc(formatUsdPrice(v.priceUsd))} (this ${sell ? 'sale' : 'buy'})`)
-  if (v.fdvUsd !== null) lines.push(`🏦 FDV ${esc(formatUsdCompact(v.fdvUsd))} (total supply × this price)`)
-  lines.push(`🔗 ${link(v.txUrl, 'Transaction')}`)
+  if (v.fdvUsd !== null) lines.push(`🏦 Market cap (FDV) ${esc(formatUsdCompact(v.fdvUsd))}: total supply × this price`)
+  if (v.holders !== null) lines.push(`👥 Holders ${esc(v.holders.toLocaleString('en-US'))} (NearBlocks)`)
+  lines.push(`📄 CA ${code(v.token)}`)
+  lines.push(`🔗 ${link(v.txUrl, 'Transaction')} · ⚡ NearKit`)
   return lines.join('\n')
 }

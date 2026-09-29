@@ -38,7 +38,13 @@ export interface ServerConfig {
    * Buy alerts. They only read the chain, so they may follow another network than
    * the bot's trading (e.g. mainnet buys while trading is the testnet beta).
    */
-  buybot: { enabled: boolean; network: NetworkConfig; dataUrl: string }
+  buybot: {
+    enabled: boolean
+    network: NetworkConfig
+    dataUrl: string
+    /** 'app': this process follows and posts; 'separate': it only handles /buybot settings, `npm run buybot` posts. */
+    runner: 'app' | 'separate'
+  }
   /**
    * NearKit trading wallets. Their keys live with NearKit's signer: in this process on
    * testnet (a KEK in the environment), or the separate signer service (NEARKIT_SIGNER_URL).
@@ -125,6 +131,8 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
     else allowedOrigins.push(u.origin)
   }
 
+  const runnerRaw = raw.BUYBOT_RUNNER?.trim()
+  if (!blank(runnerRaw) && runnerRaw !== 'app' && runnerRaw !== 'separate') issue('BUYBOT_RUNNER', 'Expected "app" or "separate"')
   const buybotRaw = raw.BUYBOT_ENABLED?.trim()
   if (!blank(buybotRaw) && buybotRaw !== 'true' && buybotRaw !== 'false') issue('BUYBOT_ENABLED', 'Expected "true" or "false"')
   const bbNetRaw = raw.BUYBOT_NETWORK?.trim()
@@ -221,7 +229,12 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
       },
       dbPath,
       database,
-      buybot: { enabled: buybotRaw !== 'false', network: bbNetwork, dataUrl: dataUrl ?? NETWORKS[bbId].discovery.fastnearTxUrl },
+      buybot: {
+        enabled: buybotRaw !== 'false',
+        network: bbNetwork,
+        dataUrl: dataUrl ?? NETWORKS[bbId].discovery.fastnearTxUrl,
+        runner: runnerRaw === 'separate' ? 'separate' : 'app',
+      },
       custody,
       logLevel,
     },

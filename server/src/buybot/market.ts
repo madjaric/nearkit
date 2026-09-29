@@ -3,15 +3,38 @@ import type { Leg } from '@/services/near/flows'
 import type { ServerNear } from '../near'
 
 /**
- * Prices and supply for buy alerts, from NearKit's own market module: NEAR/USD
- * from Coinbase (CoinGecko fallback), token prices from Rhea's price list, supply
- * from the token contract. Anything unknown is null and simply not shown.
+ * Prices, supply and holders for buy alerts: NEAR/USD from Coinbase (CoinGecko
+ * fallback), token prices from Rhea's price list (NearKit's own market module), supply
+ * from the token contract, the holder count from NearBlocks. Anything unknown is null
+ * and simply not shown. Slow or failing sources never hold an alert back for long.
  */
 
 const SUPPLY_TTL_MS = 10 * 60_000
+const HOLDERS_TTL_MS = 10 * 60_000
+const HOLDERS_TIMEOUT_MS = 5_000
 
 export function createBuyMarket(near: ServerNear, now: () => number = Date.now) {
   const supply = new Map<string, { at: number; value: Promise<bigint | null> }>()
+  const holderCounts = new Map<string, { at: number; value: Promise<number | null> }>()
+
+  async function fetchHolders(token: string): Promise<number | null> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), HOLDERS_TIMEOUT_MS)
+    try {
+      const res = await near.ctx.fetch(`${near.ctx.network.discovery.nearblocksUrl}/v1/fts/${encodeURIComponent(token)}/holders/count`, {
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as { holders?: { count?: unknown }[] }
+      const count = body.holders?.[0]?.count
+      return typeof count === 'string' && /^\d{1,12}$/.test(count) ? Number(count) : typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
 
   async function nearUsd(): Promise<number | null> {
     return (await near.market.nearQuote().catch(() => null))?.priceUsd ?? null
@@ -38,6 +61,18 @@ export function createBuyMarket(near: ServerNear, now: () => number = Date.now) 
     nearUsd,
     assetUsd,
     meta,
+    /** How many accounts hold the token, per NearBlocks; null when it doesn't answer. */
+    async holders(token: string): Promise<number | null> {
+      const hit = holderCounts.get(token)
+      if (hit && now() - hit.at < HOLDERS_TTL_MS) return hit.value
+      const value = fetchHolders(token)
+      holderCounts.set(token, { at: now(), value })
+      // A failure is not cached for long: ask again in a minute.
+      void value.then((v) => {
+        if (v === null) holderCounts.set(token, { at: now() - HOLDERS_TTL_MS + 60_000, value })
+      })
+      return value
+    },
     async totalSupply(token: string): Promise<bigint | null> {
       const hit = supply.get(token)
       if (hit && now() - hit.at < SUPPLY_TTL_MS) return hit.value

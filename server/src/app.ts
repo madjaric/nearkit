@@ -17,10 +17,7 @@ import { migrate } from './db/schema'
 import { Store } from './db/store'
 import { createLinkService } from './link/service'
 import { createLogger, type Logger } from './log'
-import { createFollower, createTxIndex } from './buybot/follower'
-import { createBuyMarket } from './buybot/market'
-import { createDeliverer, createProcessor, startBuybot } from './buybot/pipeline'
-import { BuybotStore } from './buybot/store'
+import { buildBuybotDeps, runBuybot } from './buybot/service'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
@@ -221,24 +218,14 @@ export async function startServer(options: { env: Record<string, string | undefi
   onHandoffTraded = async (t) =>
     void (await referrals.recordTrade({ source: 'handoff', sourceId: t.handoff.id, userId: t.handoff.userId, fee: t.fee, txHash: t.txHash, trader: t.handoff.accountId }))
 
-  // Buy alerts read the chain on their own network; they need the bot to post.
-  let buybot: BuybotDeps | null = null
-  if (config.buybot.enabled && config.telegramToken) {
-    const bbNetwork = config.buybot.network
-    const bbNear =
-      bbNetwork === config.network
-        ? near
-        : createServerNear({ env: { ...config.env, network: bbNetwork.id, feeRecipient: null, kitContract: null }, network: bbNetwork }, fetchImpl, now)
-    const bbStore = new BuybotStore(db, now)
-    const index = createTxIndex(config.buybot.dataUrl, fetchImpl)
-    const follower = createFollower({ network: bbNetwork.id, rpc: bbNear.ctx.rpc, index, store: bbStore, log })
-    buybot = { store: bbStore, near: bbNear, market: createBuyMarket(bbNear, now), follower, index }
-  }
+  // Buy alerts read the chain on their own network; they need the bot to post. With
+  // BUYBOT_RUNNER=separate this process only handles the groups' /buybot settings.
+  const buybot: BuybotDeps | null = config.buybot.enabled && config.telegramToken ? buildBuybotDeps(config, db, fetchImpl, now, log, near) : null
 
   let tg: TelegramApi | null = null
   let bot: BotApp | null = null
   let poller: ReturnType<typeof startPolling> | null = null
-  let buybotRunner: ReturnType<typeof startBuybot> | null = null
+  let buybotRunner: ReturnType<typeof runBuybot> | null = null
   if (config.telegramToken) {
     tg = createTelegramApi({ token: config.telegramToken, fetch: fetchImpl, baseUrl: config.telegramApiUrl })
     const me = await tg.getMe()
@@ -282,19 +269,8 @@ export async function startServer(options: { env: Record<string, string | undefi
       lease: { hold: () => leases.acquire('telegram-poller', instance, 60_000), release: () => leases.release('telegram-poller', instance) },
     })
     log.info('Telegram bot polling', { bot: `@${deps.me.username}` })
-    if (buybot) {
-      const bb = buybot
-      const process = createProcessor({ network: bb.near.ctx.network, index: bb.index, finalHeight: () => bb.follower.finalHeight(), store: bb.store, market: bb.market, log })
-      const deliver = createDeliverer({ tg, store: bb.store, market: bb.market, network: bb.near.ctx.network, webUrl: config.webUrl, webNetwork: config.network.id, log, now })
-      buybotRunner = startBuybot({
-        follow: () => bb.follower.step(),
-        process: () => process(),
-        deliver: () => deliver(),
-        log,
-        lease: { hold: () => leases.acquire('buybot-runner', instance, 60_000), release: () => leases.release('buybot-runner', instance) },
-      })
-      log.info('buybot following final blocks', { network: bb.near.ctx.network.id, data: config.buybot.dataUrl })
-    }
+    if (buybot && config.buybot.runner === 'app') buybotRunner = runBuybot({ bb: buybot, tg, config, leases, instance, log, now })
+    else if (buybot) log.info('buybot settings here; alerts are posted by the separate buybot process')
   }
 
   // What /health reports about the kill switches and the signer, refreshed every 15 s (fails closed to "unknown").
@@ -348,7 +324,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     // Public and secret-free: whether the bot and buy alerts run, the kill switches, the signer, and the boot count (see Store.recordBoot).
     health: () => ({
       bot: bot ? true : false,
-      buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : 'needs the bot token',
+      buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : config.buybot.runner === 'separate' ? 'separate process' : 'needs the bot token',
       wallets: custody ? 'on' : 'off',
       pauses: health.pauses,
       signer: health.signer,

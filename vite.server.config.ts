@@ -32,6 +32,7 @@ export default defineConfig({
         'signer-admin': 'server/src/signer/admin.ts',
         'referrals-admin': 'server/src/referrals/admin.ts',
         'ops-admin': 'server/src/ops/admin.ts',
+        buybot: 'server/src/buybot/service.ts',
       },
       output: { entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js', format: 'es' },
     },

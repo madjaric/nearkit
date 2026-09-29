@@ -45,6 +45,8 @@ async function world() {
   chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/ticker', () => ({ price: '5.00' }))
   chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/stats', () => ({ open: '5', last: '5' }))
   chain.route('https://api.rhea.finance/list-token-price', () => ({}))
+  let holdersAnswer: unknown = { holders: [{ count: '286262' }] }
+  chain.route(`https://api.nearblocks.io/v1/fts/${SING}/holders/count`, () => holdersAnswer)
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === 'POST' && init.body) {
       const body = JSON.parse(String(init.body)) as { id: unknown; method: string }
@@ -66,6 +68,8 @@ async function world() {
   const deliver = createDeliverer({ tg, store, market, network: config.network, webUrl: config.webUrl, webNetwork: 'mainnet', log: silentLogger, now: () => now })
   return {
     store,
+    near,
+    now: () => now,
     follower,
     process,
     deliver,
@@ -79,6 +83,8 @@ async function world() {
     serve: (hash: string, served: unknown) => void full.set(hash, served),
     setHead: (h: number) => void (head = h),
     advance: (ms: number) => void (now += ms),
+    /** What NearBlocks answers for the holder count (anything unreadable: no holders line). */
+    setHolders: (v: unknown) => void (holdersAnswer = v),
     config: await store.addConfig({
       chatId: -100777,
       chatTitle: 'SINGULARTY fans',
@@ -125,15 +131,24 @@ describe('buybot pipeline on the transaction index', () => {
     expect(posts).toHaveLength(1)
     const text = posts[0]?.text ?? ''
     expect(posts[0]?.chatId).toBe(-100777)
-    expect(text).toContain('SINGULARTY buy')
+    expect(text).toContain('<b>$SINGULARTY Buy!</b> · Singularity is NEAR')
     expect(text).toContain('1 NEAR')
     expect(text).toContain('($5.00)')
     expect(text).toContain('69,099 SINGULARTY')
     expect(text).toContain('mort1705.tg')
     expect(text).toContain(`https://nearblocks.io/txns/${BUY.transaction.hash}`)
-    // FDV = supply (1e9 tokens) × this buy's price.
-    expect(text).toMatch(/FDV \$72\.\dK \(total supply × this price\)/)
-    expect(posts[0]?.buttons[0]?.url).toBe(`http://localhost:5199/swap?to=${SING}`)
+    // Market cap is FDV on NEAR, and says so: supply (1e9 tokens) × this buy's price.
+    expect(text).toMatch(/Market cap \(FDV\) \$72\.\dK: total supply × this price/)
+    expect(text).toContain('👥 Holders 286,262 (NearBlocks)')
+    expect(text).toContain(`📄 CA <code>${SING}</code>`)
+    expect(text).toContain('⚡ NearKit')
+    // Paid in NEAR: the NEAR value is the amount itself, not repeated as an estimate.
+    expect(text).not.toContain('≈')
+    expect(posts[0]?.buttons).toEqual([
+      { text: '🟢 Buy $SINGULARTY', url: `http://localhost:5199/swap?to=${SING}` },
+      { text: '📈 Chart', url: `https://dexscreener.com/near/${SING}` },
+      { text: '📋 Copy CA', copy: SING },
+    ])
   })
 
   it('waits for a transaction whose receipts are still executing', async () => {
@@ -263,7 +278,7 @@ describe('buybot V2 in the pipeline', () => {
     await w.store.updateConfig(w.config.id, { sells: true })
     const posts = await bothTrades()
     expect(posts).toHaveLength(2)
-    const sell = posts.find((p) => p.text.includes('SINGULARTY sell'))?.text ?? ''
+    const sell = posts.find((p) => p.text.includes('$SINGULARTY Sell'))?.text ?? ''
     expect(sell.startsWith('🔴')).toBe(true)
     expect(sell).toContain('NEAR')
     expect(sell).toContain('(this sale)')
@@ -284,6 +299,44 @@ describe('buybot V2 in the pipeline', () => {
     expect(next.tgFake.messages()).toHaveLength(1)
   })
 
+  it('a holder count NearBlocks can’t give, or a price nobody has, is left out: never guessed', async () => {
+    w.setHolders({ data: null, errors: [{ message: 'Server Error' }] })
+    const [post] = await bothTrades()
+    expect(post?.text).not.toContain('Holders')
+    const next = await world()
+    next.setHolders({ holders: [{ count: 'lots' }] })
+    await next.follower.step()
+    next.publish(BUY)
+    next.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await next.follower.step()
+    await next.process()
+    await next.deliver()
+    expect(next.tgFake.messages()[0]?.text).not.toContain('Holders')
+  })
+
+  it('a restart picks up where it left off: nothing is posted twice, nothing is lost', async () => {
+    await w.follower.step()
+    w.publish(BUY)
+    w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    // "Crash" after detection, before delivery: a new processor and deliverer on the same database.
+    expect(await w.process()).toBe(1)
+    const restarted = createDeliverer({
+      tg: createTelegramApi({ token: w.tgFake.token, fetch: w.tgFake.fetch, sleep: async () => {} }),
+      store: w.store,
+      market: createBuyMarket(w.near),
+      network: w.near.ctx.network,
+      webUrl: 'http://localhost:5199',
+      webNetwork: 'mainnet',
+      log: silentLogger,
+      now: w.now,
+    })
+    expect(await restarted()).toBe(1)
+    expect(await restarted()).toBe(0)
+    expect(await w.deliver()).toBe(0)
+    expect(w.tgFake.messages()).toHaveLength(1)
+  })
+
   it('caps the emoji at the chat’s maximum', async () => {
     // 1 NEAR at 0.1 NEAR per emoji would be 10; the cap is 4.
     await w.store.updateConfig(w.config.id, { stepNear: 10n ** 23n, maxEmoji: 4 })
@@ -296,7 +349,7 @@ describe('buybot V2 in the pipeline', () => {
     await bothTrades()
     const post = w.tgFake.calls.find((c) => c.method === 'sendAnimation')
     expect(post?.params).toMatchObject({ chat_id: -100777, animation: 'gif-1', parse_mode: 'HTML' })
-    expect(String(post?.params.caption)).toContain('SINGULARTY buy')
+    expect(String(post?.params.caption)).toContain('$SINGULARTY Buy!')
 
     const next = await world()
     await next.store.updateConfig(next.config.id, { media: { kind: 'photo', fileId: 'gone' } })

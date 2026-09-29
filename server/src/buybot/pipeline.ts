@@ -101,11 +101,12 @@ export async function buyView(
   market: BuyMarket,
   network: NetworkConfig,
 ): Promise<BuyView> {
-  const [paidUsd, value, supply, metas] = await Promise.all([
+  const [paidUsd, value, supply, metas, holders] = await Promise.all([
     market.usdOf(event.paid),
     market.valueInNear(event.paid),
     market.totalSupply(cfg.token),
     Promise.all(event.paid.map((p) => market.meta(p.asset))),
+    market.holders(cfg.token),
   ])
   const tokens = Number(event.amount) / 10 ** cfg.decimals
   const priceUsd = paidUsd !== null && tokens > 0 ? paidUsd / tokens : null
@@ -114,6 +115,7 @@ export async function buyView(
     side: event.side,
     symbol: cfg.symbol,
     name: cfg.name,
+    token: cfg.token,
     decimals: cfg.decimals,
     amount: event.amount,
     paid: event.paid.map((p, i) => {
@@ -121,11 +123,14 @@ export async function buyView(
       return { text: m ? `${formatUnits(p.amount, m.decimals, { maxFraction: 4, group: true })} ${m.symbol}` : `${p.amount} (raw) ${p.asset}` }
     }),
     paidUsd,
+    valueNear: value,
+    paidInNear: event.paid.length > 0 && event.paid.every((p) => p.asset === 'near'),
     buyer: event.buyer,
     buyerUrl: explorerAccountUrl(network, event.buyer),
     txUrl: explorerTxUrl(network, event.txHash),
     priceUsd,
     fdvUsd,
+    holders,
     emoji: cfg.emoji,
     emojiCount:
       cfg.unit === 'USD' ? emojiCount(paidUsd, cfg.stepUsd, cfg.maxEmoji) : emojiCount(value === null ? null : Number(value) / 1e24, Number(cfg.stepNear) / 1e24, cfg.maxEmoji),
@@ -133,10 +138,21 @@ export async function buyView(
   }
 }
 
-export function tradeKeyboard(cfg: BuybotConfig, webUrl: string, webNetwork: string): InlineKeyboard | undefined {
-  // A trade link only when the web app runs on the buybot's network.
-  if (cfg.network !== webNetwork) return undefined
-  return { inline_keyboard: [[{ text: `Trade ${cfg.symbol} on NearKit`, url: `${webUrl}/swap?to=${encodeURIComponent(cfg.token)}` }]] }
+/**
+ * Buy $TOKEN (NearKit's swap, only when the web app trades on the buybot's network), a
+ * price chart (DexScreener, by the token's contract) and a one-tap copy of the contract.
+ */
+export function tradeKeyboard(cfg: BuybotConfig, webUrl: string, webNetwork: string): InlineKeyboard {
+  const buy = cfg.network === webNetwork ? [{ text: `🟢 Buy $${cfg.symbol}`, url: `${webUrl}/swap?to=${encodeURIComponent(cfg.token)}` }] : []
+  return {
+    inline_keyboard: [
+      ...(buy.length ? [buy] : []),
+      [
+        { text: '📈 Chart', url: `https://dexscreener.com/${cfg.network === 'mainnet' ? 'near' : 'near-testnet'}/${encodeURIComponent(cfg.token)}` },
+        { text: '📋 Copy CA', copy_text: { text: cfg.token } },
+      ],
+    ],
+  }
 }
 
 export function createDeliverer(deps: {
@@ -169,8 +185,7 @@ export function createDeliverer(deps: {
       }
       const html = renderBuy(await buyView(event, cfg, deps.market, deps.network))
       try {
-        const markup = tradeKeyboard(cfg, deps.webUrl, deps.webNetwork)
-        const opts = { ...(markup ? { reply_markup: markup } : {}), disable_notification: cfg.silent }
+        const opts = { reply_markup: tradeKeyboard(cfg, deps.webUrl, deps.webNetwork), disable_notification: cfg.silent }
         let msg
         if (cfg.media && html.length <= CAPTION_LIMIT) {
           try {
@@ -221,7 +236,20 @@ export function startBuybot(deps: {
   /** With several instances only the lease holder follows and posts (an alert goes out once). */
   lease?: { hold(): Promise<boolean>; release(): Promise<void> }
 }) {
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  // Sleeps end early on stop, so shutting down never waits out a pause.
+  const wakers = new Set<() => void>()
+  const sleep =
+    deps.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer)
+          wakers.delete(done)
+          resolve()
+        }
+        const timer = setTimeout(done, ms)
+        wakers.add(done)
+      }))
   let running = true
   const loop = async (name: string, body: () => Promise<number>) => {
     let backoff = 1000
@@ -253,6 +281,7 @@ export function startBuybot(deps: {
   return {
     async stop() {
       running = false
+      for (const wake of [...wakers]) wake()
       await Promise.all([follow, pipeline])
       await deps.lease?.release().catch(() => undefined)
     },
