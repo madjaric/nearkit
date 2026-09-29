@@ -49,6 +49,8 @@ import { btn, keyboard } from './bot/context'
 import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
 import { tradingWalletModule } from './bot/tradingWallet'
+import { referralsModule } from './bot/referrals'
+import { createReferrals } from './referrals/service'
 import { walletErrorText } from './bot/ui'
 
 /**
@@ -78,6 +80,7 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     nativeTradeModule(),
     recoveryModule(),
     intentsModule(),
+    referralsModule(),
   ]
 }
 
@@ -114,6 +117,9 @@ export async function startServer(options: { env: Record<string, string | undefi
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   // Trade results reach the user through the bot once it is running; they respect /settings.
   let notifyUser: (userId: number, html: string) => Promise<void> = async () => {}
+  // Referral accounting hears about settled trades (bound once referrals exist, below).
+  let onTradeDone: (intent: Intent) => Promise<void> = async () => {}
+  let onHandoffTraded: NonNullable<Parameters<typeof createHandoffs>[0]['onTraded']> = async () => {}
   const handoffs = createHandoffs({
     db,
     network: config.network,
@@ -125,6 +131,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       return { symbol: m.symbol, decimals: m.decimals }
     },
     notify: (userId, html) => notifyUser(userId, html),
+    onTraded: (t) => onHandoffTraded(t),
   })
   log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: describeDatabase(config.database), bot: Boolean(config.telegramToken) })
 
@@ -183,6 +190,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       now,
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => onSettled(intent),
+      onDone: (intent) => onTradeDone(intent),
       instanceId: instance,
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
@@ -191,6 +199,15 @@ export async function startServer(options: { env: Record<string, string | undefi
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })
   }
+
+  // Invites and referral earnings: from what NearKit's fee account actually received on chain.
+  const referrals = createReferrals({ db, store, custody: custody?.store ?? null, network: config.network, feeRecipient: config.env.feeRecipient, now, log })
+  onTradeDone = async (intent) => {
+    const w = custody ? await custody.store.wallet(intent.walletId) : null
+    await referrals.recordIntent(intent, w)
+  }
+  onHandoffTraded = async (t) =>
+    void (await referrals.recordTrade({ source: 'handoff', sourceId: t.handoff.id, userId: t.handoff.userId, fee: t.fee, txHash: t.txHash, trader: t.handoff.accountId }))
 
   // Buy alerts read the chain on their own network; they need the bot to post.
   let buybot: BuybotDeps | null = null
@@ -215,7 +232,21 @@ export async function startServer(options: { env: Record<string, string | undefi
     const me = await tg.getMe()
     const webhook = await tg.getWebhookInfo()
     if (webhook.url) throw new Error('A webhook is set for this bot, so long polling cannot run. Remove the webhook (deleteWebhook) or stop the other deployment first.')
-    const deps: BotDeps = { tg, store, config, near, link, log, now, me: { id: me.id, username: me.username ?? 'NearKitBot' }, features: new Set(), buybot, handoffs, custody }
+    const deps: BotDeps = {
+      tg,
+      store,
+      config,
+      near,
+      link,
+      log,
+      now,
+      me: { id: me.id, username: me.username ?? 'NearKitBot' },
+      features: new Set(),
+      buybot,
+      handoffs,
+      custody,
+      referrals,
+    }
     let list: () => { name: string; command: Command }[] = () => []
     bot = createBotApp(
       deps,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig } from '../config'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.rpc.json'
 import aggSell from '@/services/near/fixtures/flows/aggregator-sell.rpc.json'
+import aggBuy from '@/services/near/fixtures/flows/aggregator-buy-with-rhea.rpc.json'
 import type { RpcTxResult } from '@/services/near/rpc'
 import { createFakeChain, type FakeChain } from '@/services/real/testing/fakeChain'
 import { migrate } from '../db/schema'
@@ -20,6 +21,7 @@ let db: SqliteDatabase
 let chain: FakeChain
 let handoffs: Handoffs
 let sent: { userId: number; html: string }[]
+let traded: Parameters<NonNullable<Parameters<typeof createHandoffs>[0]['onTraded']>>[0][]
 
 beforeEach(async () => {
   now = 1_000_000
@@ -27,9 +29,10 @@ beforeEach(async () => {
   await migrate(db)
   const store = new Store(db, () => now)
   await store.upsertUser({ userId: 7, username: 'm', firstName: 'M', languageCode: null })
-  chain = createFakeChain({ tokens: { [SING]: { symbol: 'SINGULARTY', decimals: 18, boundsMin: 1n } } })
+  chain = createFakeChain({ tokens: { [SING]: { symbol: 'SINGULARTY', decimals: 18, boundsMin: 1n }, 'token.rhealab.near': { symbol: 'RHEA', decimals: 18, boundsMin: 1n } } })
   chain.settle(BUY.transaction.hash, BUY)
   chain.settle(REFUNDED.transaction.hash, REFUNDED)
+  chain.settle((aggBuy as unknown as RpcTxResult).transaction.hash, aggBuy as unknown as RpcTxResult)
   const { config } = loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_WEB_URL: 'http://localhost:5199' })
   const near = createServerNear(config, chain.fetch, () => now)
   sent = []
@@ -44,7 +47,9 @@ beforeEach(async () => {
       return { symbol: m.symbol, decimals: m.decimals }
     },
     notify: async (userId, html) => void sent.push({ userId, html }),
+    onTraded: async (t) => void traded.push(t),
   })
+  traded = []
 })
 
 const prepare = (accountId: string, side: 'buy' | 'sell' = 'buy') =>
@@ -71,6 +76,29 @@ describe('trade handoffs', () => {
     // A second report changes nothing and sends nothing.
     expect(await handoffs.report(handoff.id, [BUY.transaction.hash])).toEqual({ status: 'confirmed', outcome: 'traded' })
     expect(sent).toHaveLength(1)
+  })
+
+  it('passes on the app fee the chain reports for a traded handoff (referral accounting), with the account it went to', async () => {
+    const tx = aggBuy as unknown as RpcTxResult
+    const { handoff } = await handoffs.create({
+      userId: 7,
+      chatId: 7,
+      accountId: 'alijay3637.tg',
+      side: 'buy',
+      tokenIn: 'near',
+      tokenOut: 'token.rhealab.near',
+      amountIn: '1',
+      slippagePct: 1,
+    })
+    expect(await handoffs.report(handoff.id, [tx.transaction.hash])).toEqual({ status: 'confirmed', outcome: 'traded' })
+    // This real mainnet trade paid its app fee to another app (intents.tg): 80% of it, Rhea kept 20%.
+    expect(traded).toEqual([
+      { handoff: expect.objectContaining({ id: handoff.id }), fee: { token: 'wrap.near', raw: '3051167925170260218148', recipient: 'intents.tg' }, txHash: tx.transaction.hash },
+    ])
+    // A handoff that didn't trade reports nothing.
+    const { handoff: refunded } = await prepare('pulamica.near', 'sell')
+    await handoffs.report(refunded.id, [REFUNDED.transaction.hash])
+    expect(traded).toHaveLength(1)
   })
 
   it('refuses a transaction signed by someone else', async () => {

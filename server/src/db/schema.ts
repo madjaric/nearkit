@@ -361,6 +361,64 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       ALTER TABLE user_settings ADD COLUMN active_wallet TEXT;
     `,
   },
+  {
+    version: 9,
+    name: 'referrals: codes, permanent attribution, idempotent earnings, owner-paid claims',
+    sql: `
+      -- Referrals: one permanent code per user; one permanent referrer per referred user.
+      CREATE TABLE referral_codes (
+        user_id INTEGER PRIMARY KEY REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        code TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE referrals (
+        referred_user_id INTEGER PRIMARY KEY REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        referrer_user_id INTEGER NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        code TEXT NOT NULL,
+        attributed_at INTEGER NOT NULL,
+        CHECK (referred_user_id <> referrer_user_id)
+      );
+      CREATE INDEX referrals_referrer ON referrals(referrer_user_id, attributed_at);
+      -- One earning per fee-bearing trade (source, source_id), whatever retries or replays.
+      -- Amounts are raw units of the fee token, as decimal text.
+      CREATE TABLE referral_earnings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        referrer_user_id INTEGER NOT NULL,
+        referred_user_id INTEGER NOT NULL,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        received_raw TEXT NOT NULL,
+        referral_raw TEXT NOT NULL,
+        net_raw TEXT NOT NULL,
+        volume_raw TEXT NOT NULL,
+        tx_hash TEXT,
+        created_at INTEGER NOT NULL,
+        claim_id TEXT,
+        forfeited_at INTEGER
+      );
+      CREATE UNIQUE INDEX referral_earnings_source ON referral_earnings(source, source_id);
+      CREATE INDEX referral_earnings_referrer ON referral_earnings(referrer_user_id, network, token);
+      -- A claim: the owner pays it from NearKit's account (no hot wallet) and records the transaction.
+      CREATE TABLE referral_claims (
+        id TEXT PRIMARY KEY,
+        referrer_user_id INTEGER NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        amount_raw TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('requested', 'paid', 'rejected')),
+        requested_at INTEGER NOT NULL,
+        settled_at INTEGER,
+        tx_hash TEXT,
+        note TEXT
+      );
+      CREATE INDEX referral_claims_referrer ON referral_claims(referrer_user_id, requested_at);
+      CREATE UNIQUE INDEX referral_claims_open ON referral_claims(referrer_user_id, network, token) WHERE status = 'requested';
+      CREATE UNIQUE INDEX referral_claims_tx ON referral_claims(tx_hash) WHERE tx_hash IS NOT NULL;
+    `,
+  },
 ]
 
 /**

@@ -12,8 +12,11 @@ import { mulBps, toYocto } from './amounts'
  *   (the router share in src/config/networks.ts), so NearKit's account receives the rest.
  * - It is never the whole cost of a trade: Rhea's own protocol fee, pool fees and NEAR
  *   gas are separate, and quotes show them on their own lines.
- * - Referrals (not live): `feeLedger` splits a collected fee into router share, what
- *   NearKit received, a referrer's share of that, and NearKit's net revenue.
+ * - Referrals: a referrer earns NEARKIT_FEE.referralShareBps (20%) of what NearKit receives
+ *   on the trades of users they invited: 0.08% of those trades' volume, out of NearKit's
+ *   0.40%, which leaves NearKit 0.32%. The trader pays exactly the same 0.50% either way.
+ *   `feeLedger` splits a collected fee into router share, what NearKit received, a
+ *   referrer's share of that, and NearKit's net revenue.
  * - Testnet collects no fee (the classic router has no app fee). Without a configured
  *   fee account, fee-bearing mainnet trades are blocked.
  * Transfers (Split, Consolidate, Batch Send) carry no NearKit fee. The future $KIT buy and
@@ -22,8 +25,8 @@ import { mulBps, toYocto } from './amounts'
 export const NEARKIT_FEE = {
   /** Basis points of a swap the user pays as NearKit's fee: 50 = 0.50%. */
   bps: 50,
-  /** Basis points of what NearKit receives that would go to a referrer. 0: referrals are off. */
-  referralShareBps: 0,
+  /** Basis points of what NearKit receives (after Rhea's share) that go to the referrer of the trader: 2000 = 20%. */
+  referralShareBps: 2000,
 } as const
 
 export const NEARKIT_FEE_BPS: number = NEARKIT_FEE.bps
@@ -77,18 +80,33 @@ export interface FeeLedger {
   routerShare: bigint
   /** What reached NearKit's fee account. */
   received: bigint
-  /** Owed to a referrer out of what NearKit received (0 while referrals are off). */
+  /** Owed to a referrer out of what NearKit received (0 when the trader has no referrer). */
   referral: bigint
   /** NearKit's revenue. */
   net: bigint
 }
 
-/** Splits a collected fee for accounting. Every share rounds down; the parts add up to `gross`. */
-export function feeLedger(gross: bigint, routerShareBps: number, referralShareBps: number = NEARKIT_FEE.referralShareBps): FeeLedger {
+/**
+ * Splits a collected fee for accounting. Every share rounds down; the parts add up to
+ * `gross`. `referralShareBps`: 0 for a trader without a referrer, NEARKIT_FEE.referralShareBps
+ * for one with.
+ */
+export function feeLedger(gross: bigint, routerShareBps: number, referralShareBps = 0): FeeLedger {
   const routerShare = (gross * BigInt(routerShareBps)) / 10_000n
   const received = gross - routerShare
   const referral = (received * BigInt(referralShareBps)) / 10_000n
   return { gross, routerShare, received, referral, net: received - referral }
+}
+
+/**
+ * A referred trade, from what NearKit's fee account actually received on chain (Rhea's
+ * `earn_app_fee`, already after Rhea's share): the referrer's share, NearKit's net, and the
+ * gross fee and volume it implies (in the fee token's raw units). Rounds down.
+ */
+export function referralSplit(received: bigint, routerShareBps: number): { referral: bigint; net: bigint; gross: bigint; volume: bigint } {
+  const referral = (received * BigInt(NEARKIT_FEE.referralShareBps)) / 10_000n
+  const gross = routerShareBps < 10_000 ? (received * 10_000n) / BigInt(10_000 - routerShareBps) : received
+  return { referral, net: received - referral, gross, volume: (gross * 10_000n) / BigInt(NEARKIT_FEE_BPS) }
 }
 
 /** Display-only fee on a float amount. */

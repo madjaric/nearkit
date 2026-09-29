@@ -74,6 +74,17 @@ function amountOf(data: Record<string, unknown> | undefined, tokenKey: string): 
   return typeof token === 'string' && typeof raw === 'string' && /^\d+$/.test(raw) ? { token, raw } : null
 }
 
+/**
+ * NearKit's fee as Rhea's aggregator reported it on chain (`earn_app_fee`): the fee token,
+ * the amount credited to the fee account (its share, after Rhea's) and that account. Null
+ * when the transaction carried no app fee (testnet, a refund, another route).
+ */
+export function appFeeEarned(result: RpcTxResult, aggregator: string): (TokenAmount & { recipient: string }) | null {
+  const data = eventsOf(result, aggregator).find((e) => e.event === 'earn_app_fee')?.data
+  const fee = amountOf(data, 'token')
+  return fee && typeof data?.receipt === 'string' ? { ...fee, recipient: data.receipt } : null
+}
+
 /** Hash from a wallet result (FinalExecutionOutcome), or null when there is none. */
 export function extractHash(walletResult: unknown): string | null {
   if (typeof walletResult === 'string' && walletResult.length > 0) return walletResult

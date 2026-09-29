@@ -31,6 +31,7 @@
     "signer:start": "node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/signer.js",
     "signer:admin": "node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/signer-admin.js",
     "signer:auth-key": "node scripts/signer-auth-key.mjs",
+    "referrals": "node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/referrals-admin.js",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

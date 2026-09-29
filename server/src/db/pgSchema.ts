@@ -267,6 +267,55 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         update_id BIGINT PRIMARY KEY,
         at BIGINT NOT NULL
       );
+
+      CREATE TABLE referral_codes (
+        user_id BIGINT PRIMARY KEY REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        code TEXT NOT NULL UNIQUE,
+        created_at BIGINT NOT NULL
+      );
+      CREATE TABLE referrals (
+        referred_user_id BIGINT PRIMARY KEY REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        referrer_user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        code TEXT NOT NULL,
+        attributed_at BIGINT NOT NULL,
+        CHECK (referred_user_id <> referrer_user_id)
+      );
+      CREATE INDEX referrals_referrer ON referrals(referrer_user_id, attributed_at);
+      CREATE TABLE referral_earnings (
+        id BIGSERIAL PRIMARY KEY,
+        source TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        referrer_user_id BIGINT NOT NULL,
+        referred_user_id BIGINT NOT NULL,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        received_raw TEXT NOT NULL,
+        referral_raw TEXT NOT NULL,
+        net_raw TEXT NOT NULL,
+        volume_raw TEXT NOT NULL,
+        tx_hash TEXT,
+        created_at BIGINT NOT NULL,
+        claim_id TEXT,
+        forfeited_at BIGINT
+      );
+      CREATE UNIQUE INDEX referral_earnings_source ON referral_earnings(source, source_id);
+      CREATE INDEX referral_earnings_referrer ON referral_earnings(referrer_user_id, network, token);
+      CREATE TABLE referral_claims (
+        id TEXT PRIMARY KEY,
+        referrer_user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        amount_raw TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('requested', 'paid', 'rejected')),
+        requested_at BIGINT NOT NULL,
+        settled_at BIGINT,
+        tx_hash TEXT,
+        note TEXT
+      );
+      CREATE INDEX referral_claims_referrer ON referral_claims(referrer_user_id, requested_at);
+      CREATE UNIQUE INDEX referral_claims_open ON referral_claims(referrer_user_id, network, token) WHERE status = 'requested';
+      CREATE UNIQUE INDEX referral_claims_tx ON referral_claims(tx_hash) WHERE tx_hash IS NOT NULL;
     `,
   },
 ]

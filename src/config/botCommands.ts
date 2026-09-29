@@ -24,6 +24,7 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'accounts', description: 'linked accounts and the default one', section: 'Account', scope: 'private' },
   { name: 'unlink', description: 'remove a linked account', section: 'Account', scope: 'private' },
   { name: 'settings', description: 'slippage, buy and sell buttons, trade alerts', section: 'Account', scope: 'private' },
+  { name: 'referral', description: 'your invite link, what it earned, and payouts', section: 'Account', scope: 'private' },
   { name: 'buy', usage: '[token] [NEAR amount]', description: 'buy a token with NEAR, right here from your NearKit wallet', section: 'Trading', scope: 'private' },
   { name: 'sell', usage: '[token] [amount or %]', description: 'sell a token for NEAR, right here from your NearKit wallet', section: 'Trading', scope: 'private' },
   { name: 'quote', usage: '[token] [NEAR amount]', description: 'price a buy through Rhea without signing anything', section: 'Trading', scope: 'private' },

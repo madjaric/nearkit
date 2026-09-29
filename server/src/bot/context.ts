@@ -11,6 +11,7 @@ import type { CustodyDeps } from '../custody/wallets'
 import type { BuyMarket } from '../buybot/market'
 import type { Follower, TxIndex } from '../buybot/follower'
 import type { ForceReply, InlineButton, InlineKeyboard, TgChat, TgChatMemberUpdated, TgMessage, TgUser } from '../telegram/types'
+import type { Referrals } from '../referrals/service'
 
 /** Everything a bot handler may use. Handlers never see the bot token. */
 export interface BotDeps {
@@ -30,6 +31,8 @@ export interface BotDeps {
   buybot: BuybotDeps | null
   /** NearKit trading wallets; null when they are off here (mainnet, or no key-encryption key). */
   custody: CustodyDeps | null
+  /** Invites and referral earnings; null when off. */
+  referrals: Referrals | null
 }
 
 export interface BuybotDeps {
@@ -93,6 +96,8 @@ export const btn = (text: string, data: string): InlineButton => {
   return { text, callback_data: data }
 }
 export const urlBtn = (text: string, url: string): InlineButton => ({ text, url })
+/** A button that copies `value` in one tap (Telegram shows "copied"). */
+export const copyBtn = (text: string, value: string): InlineButton => ({ text, copy_text: { text: value.slice(0, 256) } })
 export const keyboard = (...rows: (InlineButton | null)[][]): InlineKeyboard => ({
   inline_keyboard: rows.map((r) => r.filter((b): b is InlineButton => b !== null)).filter((r) => r.length),
 })

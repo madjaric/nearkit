@@ -3,6 +3,7 @@ import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule, type Co
 import { help, SAFETY, welcome } from './texts'
 import { tradingWallet, showWalletHome } from './tradingWallet'
 import { linkedAccount, nearAvailable, showWallet } from './wallet'
+import { referralStart } from './referrals'
 
 /**
  * /start, /help, /cancel and the main menu. `commandList` is resolved lazily so
@@ -17,7 +18,8 @@ export async function mainMenu(ctx: BotCtx) {
     [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
     [has('positions') ? btn('📊 Positions', 'pf:positions') : null, has('pnl') ? btn('📈 PnL', 'pf:pnl') : null],
     [has('balance') ? btn('👛 Wallet', 'menu:wallet') : null, btn('⚙️ Settings', 'set:show')],
-    [has('buybot') ? btn('📣 Buybot', 'menu:buybot') : null, btn('❓ Help', 'menu:help')],
+    [has('buybot') ? btn('📣 Buybot', 'menu:buybot') : null, has('referral') ? btn('🎁 Invite', 'ref:show') : null],
+    [btn('❓ Help', 'menu:help')],
   )
 }
 
@@ -55,6 +57,8 @@ export function coreModule(commandList: () => { name: string; command: Command }
       })
       return
     }
+    // An invite: attribute a new user to whoever shared it, then the usual welcome.
+    if (payload.startsWith('ref_')) await referralStart(ctx, payload.slice(4))
     const deep = payload && startPayloads[payload]
     if (deep) return deep(ctx)
     await home(ctx, false)

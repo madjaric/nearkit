@@ -26,7 +26,12 @@ export default defineConfig({
     sourcemap: true,
     minify: false,
     rollupOptions: {
-      input: { main: 'server/src/main.ts', signer: 'server/src/signer/main.ts', 'signer-admin': 'server/src/signer/admin.ts' },
+      input: {
+        main: 'server/src/main.ts',
+        signer: 'server/src/signer/main.ts',
+        'signer-admin': 'server/src/signer/admin.ts',
+        'referrals-admin': 'server/src/referrals/admin.ts',
+      },
       output: { entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js', format: 'es' },
     },
   },

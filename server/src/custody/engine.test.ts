@@ -238,6 +238,39 @@ describe('unclear sends and restarts', () => {
   })
 })
 
+describe('the done hook (referral accounting)', () => {
+  it('fires once when an intent becomes done, live or in the background; never for a failure', async () => {
+    const done: string[] = []
+    const withHook = (confirmMs = 5_000, blind = false) =>
+      createEngine({
+        store,
+        signer,
+        chain: blind ? { ...access, status: async () => null } : access,
+        handlers: { withdraw },
+        log: createLogger({ sink: () => {} }),
+        now: () => clock,
+        sleep: async (ms) => void (clock += ms),
+        confirmMs,
+        onDone: async (i) => void done.push(i.id),
+      })
+    const live = await intent()
+    await withHook().execute(live.id, 101)
+    await withHook().execute(live.id, 101)
+    expect(done).toEqual([live.id])
+    // Settled by the resolver after a timeout: once, there.
+    chain.onSend('timeout')
+    const later = await intent()
+    expect((await withHook(1_000, true).execute(later.id, 101)).kind).toBe('pending')
+    chain.onSend('apply')
+    await Promise.all([withHook().resolvePending(), withHook().resolvePending()])
+    expect(done.filter((id) => id === later.id)).toHaveLength(1)
+    // A refused intent is never "done".
+    const refused = await intent(100n * ONE, 60_000, 'evil.testnet')
+    await withHook().execute(refused.id, 101)
+    expect(done).not.toContain(refused.id)
+  })
+})
+
 describe('lagging chain index and a resolver that runs twice', () => {
   it('a transaction that landed but isn’t returned yet stays pending, even past its expiry, and settles once visible', async () => {
     const settled: string[] = []

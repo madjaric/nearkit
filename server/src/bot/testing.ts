@@ -39,6 +39,7 @@ import { createBotApp } from './app'
 import type { BotDeps, BotModule } from './context'
 import { notifySettled } from './intents'
 import { walletErrorText } from './ui'
+import { createReferrals } from '../referrals/service'
 
 /**
  * A whole bot wired to fakes: Telegram (fake.ts), NEAR (fakeChain) and an
@@ -81,6 +82,8 @@ export async function botHarness(
   const near = createServerNear(config, chain.fetch, now)
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   let notify: (userId: number, html: string) => Promise<void> = async () => {}
+  let onHandoffTraded: NonNullable<Parameters<typeof createHandoffs>[0]['onTraded']> = async () => {}
+  let onTradeDone: (intent: import('../custody/store').Intent) => Promise<void> = async () => {}
   const handoffs = createHandoffs({
     db,
     network: config.network,
@@ -92,6 +95,7 @@ export async function botHarness(
       return { symbol: m.symbol, decimals: m.decimals }
     },
     notify: (userId, html) => notify(userId, html),
+    onTraded: (t) => onHandoffTraded(t),
   })
   let custody: CustodyDeps | null = null
   let signerCore: ReturnType<typeof createSignerCore> | null = null
@@ -161,6 +165,7 @@ export async function botHarness(
       confirmMs: 2_000,
       explain: (e) => walletErrorText(e, { network: config.network.id }),
       onSettled: (intent) => notifySettled(deps, settledNotice, intent),
+      onDone: (intent) => onTradeDone(intent),
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
     custody = { store: cstore, signer, engine, chain: access, swaps, recovery }
@@ -178,7 +183,16 @@ export async function botHarness(
     features: new Set(),
     buybot: null,
     custody,
+    referrals: null,
   }
+  const referrals = createReferrals({ db, store, custody: custody?.store ?? null, network: config.network, feeRecipient: config.env.feeRecipient, now, log })
+  deps.referrals = referrals
+  onTradeDone = async (intent) => {
+    const w = custody ? await custody.store.wallet(intent.walletId) : null
+    await referrals.recordIntent(intent, w)
+  }
+  onHandoffTraded = async (t) =>
+    void (await referrals.recordTrade({ source: 'handoff', sourceId: t.handoff.id, userId: t.handoff.userId, fee: t.fee, txHash: t.txHash, trader: t.handoff.accountId }))
   if (options.buybot) {
     const follower = { step: async () => 'idle' as const, finalHeight: async () => 5000 } as unknown as Follower
     const index = { recent: async () => ({ txs: [], resumeToken: null }), transactions: async () => new Map() } as unknown as TxIndex

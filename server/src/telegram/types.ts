@@ -84,6 +84,8 @@ export interface InlineButton {
   text: string
   callback_data?: string
   url?: string
+  /** Copies the text to the user's clipboard (Bot API 7.11). */
+  copy_text?: { text: string }
 }
 
 export interface InlineKeyboard {

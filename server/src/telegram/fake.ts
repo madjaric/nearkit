@@ -17,7 +17,7 @@ export interface FakeTelegram {
   fetch: typeof fetch
   calls: FakeCall[]
   /** Delivered sendMessage / editMessageText calls, flattened to what a user would see. */
-  messages(): { chatId: number; text: string; buttons: { text: string; data?: string; url?: string }[]; method: string; messageId: number }[]
+  messages(): { chatId: number; text: string; buttons: { text: string; data?: string; url?: string; copy?: string }[]; method: string; messageId: number }[]
   push(update: Omit<TgUpdate, 'update_id'>): TgUpdate
   failNext(method: string, error: { code: number; description: string; retryAfter?: number }): void
   members: Map<string, TgChatMember>
@@ -91,13 +91,20 @@ export function createFakeTelegram(options: { token?: string; username?: string 
       return calls
         .filter((c) => !c.failed && ['sendMessage', 'editMessageText', 'sendPhoto', 'sendAnimation', 'sendVideo'].includes(c.method))
         .map((c) => {
-          const markup = c.params.reply_markup as { inline_keyboard?: { text: string; callback_data?: string; url?: string }[][] } | undefined
+          const markup = c.params.reply_markup as { inline_keyboard?: { text: string; callback_data?: string; url?: string; copy_text?: { text: string } }[][] } | undefined
           return {
             method: c.method,
             chatId: Number(c.params.chat_id),
             messageId: Number(c.params.message_id ?? 0),
             text: String(c.params.text ?? c.params.caption ?? ''),
-            buttons: (markup?.inline_keyboard ?? []).flat().map((b) => ({ text: b.text, ...(b.callback_data ? { data: b.callback_data } : {}), ...(b.url ? { url: b.url } : {}) })),
+            buttons: (markup?.inline_keyboard ?? [])
+              .flat()
+              .map((b) => ({
+                text: b.text,
+                ...(b.callback_data ? { data: b.callback_data } : {}),
+                ...(b.url ? { url: b.url } : {}),
+                ...(b.copy_text ? { copy: b.copy_text.text } : {}),
+              })),
           }
         })
     },

@@ -6,6 +6,7 @@ import { RpcError, type RpcClient, type RpcTxResult } from '@/services/near/rpc'
 import type { Database } from '../db/database'
 import { randomToken } from '../ids'
 import { bold, esc, link } from '../telegram/html'
+import { appFeeEarned } from '@/services/near/outcome'
 
 /**
  * A trade prepared in Telegram and signed in the NearKit web app. The bot hands
@@ -110,6 +111,8 @@ export function createHandoffs(deps: {
   now?: () => number
   describeToken: (id: string) => Promise<{ symbol: string; decimals: number }>
   notify: (userId: number, html: string) => Promise<void>
+  /** A handoff that traded: the fee NearKit's account received on chain, if any (referral accounting). */
+  onTraded?: (t: { handoff: Handoff; fee: { token: string; raw: string; recipient: string } | null; txHash: string }) => Promise<void>
 }) {
   const now = deps.now ?? Date.now
   const get = async (id: string): Promise<Handoff | null> => {
@@ -167,7 +170,7 @@ export function createHandoffs(deps: {
       for (const hash of hashes as string[]) {
         const result = await readTx(h, hash)
         if (result.transaction.signer_id !== h.accountId) throw new HandoffError(403, 'signer', `That transaction wasn’t signed by ${h.accountId}.`)
-        txs.push({ hash, tx: fromRpc(result), failed: !('SuccessValue' in (result.status as object)) })
+        txs.push({ hash, raw: result, tx: fromRpc(result), failed: !('SuccessValue' in (result.status as object)) })
       }
       // The swap is the last transaction (registrations come first). Read what the account got from it.
       const last = txs[txs.length - 1] as (typeof txs)[number]
@@ -216,6 +219,11 @@ export function createHandoffs(deps: {
         html = `⚠️ ${bold('Confirmed, but no swap went through')}: the route was refunded, so the tokens stayed where they were.\n${links}`
       }
       await deps.notify(h.userId, html).catch(() => undefined)
+      if (trade && deps.onTraded) {
+        const agg = deps.network.rhea.aggregator
+        const fee = agg ? appFeeEarned(last.raw, agg.contract) : null
+        await deps.onTraded({ handoff: h, fee, txHash: last.hash }).catch(() => undefined)
+      }
       return { status, outcome }
     },
   }

@@ -82,6 +82,11 @@ export interface EngineDeps {
   confirmMs?: number
   /** An intent the resolver settled in the background (after a timeout or a restart). */
   onSettled?: (intent: Intent) => Promise<void>
+  /**
+   * An intent that just became done, live or in the background: called once, by the
+   * instance whose update moved it (referral accounting listens here).
+   */
+  onDone?: (intent: Intent) => Promise<void>
   /** This server instance's name in execution leases (unique per process). */
   instanceId?: string
   /** How long an execution lease lasts without renewal. */
@@ -149,7 +154,9 @@ export function createEngine(deps: EngineDeps) {
         action: result.ok ? 'intent-done' : 'intent-failed',
         detail: { intent: intent.id, hashes, facts: result.facts },
       })
-    return { intent: (await store.intent(intent.id)) as Intent, moved }
+    const after = (await store.intent(intent.id)) as Intent
+    if (moved && result.ok) await deps.onDone?.(after).catch((e: unknown) => log.warn('done hook failed', { intent: intent.id, error: e }))
+    return { intent: after, moved }
   }
 
   async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[], owner: string): Promise<ExecuteResult> {

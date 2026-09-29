@@ -237,7 +237,7 @@ export function createSwapService(near: ServerNear) {
             token: params.token,
             tokenAmount: trade.amount.toString(),
             nearAmount: other?.amount.toString() ?? null,
-            fee: verdict.swap?.appFee ? { token: verdict.swap.appFee.token, raw: verdict.swap.appFee.raw } : null,
+            fee: verdict.swap?.appFee ? { token: verdict.swap.appFee.token, raw: verdict.swap.appFee.raw, recipient: verdict.swap.appFee.recipient } : null,
             gasBurnt: gas.toString(),
           },
         }
