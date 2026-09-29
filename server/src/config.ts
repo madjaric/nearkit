@@ -1,6 +1,8 @@
 import { resolve } from 'node:path'
 import { parseEnv, type AppEnv, type EnvIssue } from '@/config/env'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
+import { CUSTODY_NETWORKS } from './custody/networks'
+import { parseKek } from './custody/vault'
 import type { LogLevel } from './log'
 
 /**
@@ -29,6 +31,11 @@ export interface ServerConfig {
    * the bot's trading (e.g. mainnet buys while trading is the testnet beta).
    */
   buybot: { enabled: boolean; network: NetworkConfig; dataUrl: string }
+  /**
+   * NearKit trading wallets (keys NearKit holds, sealed). Only on the networks in
+   * CUSTODY_NETWORKS (testnet), and only with a key-encryption key configured.
+   */
+  custody: { enabled: boolean; reason: string | null; kek: Buffer | null }
   logLevel: LogLevel
 }
 
@@ -126,6 +133,21 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   const dataUrl = blank(raw.BUYBOT_DATA_URL) ? NETWORKS[bbId].discovery.fastnearTxUrl : (httpUrl(raw.BUYBOT_DATA_URL)?.origin ?? null)
   if (dataUrl === null) issue('BUYBOT_DATA_URL', 'Must be an https:// URL (http:// only for localhost)')
 
+  // SECRET: the testnet wallet key-encryption key. Its value is never shown, even in an issue.
+  const kekRaw = raw.NEARKIT_WALLET_KEK
+  const kek = blank(kekRaw) ? null : parseKek(kekRaw)
+  if (!blank(kekRaw) && !kek) issue('NEARKIT_WALLET_KEK', 'Must be 32 random bytes in base64 (value not shown). Create one with npm run server:wallet-key')
+  const custodyNetwork = CUSTODY_NETWORKS.includes(network.id)
+  const custody = {
+    enabled: custodyNetwork && kek !== null,
+    reason: !custodyNetwork
+      ? `NearKit trading wallets are testnet-only in this build; they are off on ${network.id}.`
+      : kek === null
+        ? 'NearKit trading wallets need NEARKIT_WALLET_KEK on this server.'
+        : null,
+    kek: custodyNetwork ? kek : null,
+  }
+
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'
   const logLevel: LogLevel = levelRaw === 'debug' || levelRaw === 'warn' || levelRaw === 'error' ? levelRaw : 'info'
 
@@ -145,6 +167,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
       },
       dbPath: resolve(blank(raw.NEARKIT_DB_PATH) ? `server/data/nearkit-${network.id}.sqlite` : raw.NEARKIT_DB_PATH.trim()),
       buybot: { enabled: buybotRaw !== 'false', network: bbNetwork, dataUrl: dataUrl ?? NETWORKS[bbId].discovery.fastnearTxUrl },
+      custody,
       logLevel,
     },
     issues,

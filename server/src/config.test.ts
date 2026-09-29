@@ -84,3 +84,28 @@ describe('server config', () => {
     expect(issues).toEqual([])
   })
 })
+
+describe('trading wallets (custody)', () => {
+  const KEK = Buffer.alloc(32, 7).toString('base64')
+
+  it('run on testnet with a 32-byte key-encryption key, and are off without one', () => {
+    const on = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WALLET_KEK: KEK }).config.custody
+    expect(on).toMatchObject({ enabled: true, reason: null })
+    expect(on.kek?.equals(Buffer.alloc(32, 7))).toBe(true)
+    expect(loadConfig({ NEAR_NETWORK: 'testnet' }).config.custody).toMatchObject({ enabled: false, kek: null, reason: expect.stringMatching(/NEARKIT_WALLET_KEK/) })
+  })
+
+  it('are off on mainnet even with a key: custody is testnet-only in this build', () => {
+    const { config, issues } = loadConfig({ NEAR_NETWORK: 'mainnet', NEARKIT_WALLET_KEK: KEK })
+    expect(issues).toEqual([])
+    expect(config.custody).toMatchObject({ enabled: false, kek: null, reason: expect.stringMatching(/testnet-only/) })
+  })
+
+  it('refuse a malformed key without ever repeating it', () => {
+    const bad = 'c2hvcnQta2V5LXNob3J0LWtleQ=='
+    const { config, issues } = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WALLET_KEK: bad })
+    expect(issues.map((i) => i.key)).toEqual(['NEARKIT_WALLET_KEK'])
+    expect(JSON.stringify(issues)).not.toContain(bad)
+    expect(config.custody.enabled).toBe(false)
+  })
+})

@@ -4,15 +4,21 @@ import { loadEnvFile } from './env-file'
 import { createLogger } from './log'
 
 /**
- * Entry point: `npm run server`. Reads `server/.env.local` (git-ignored) for
- * anything the host environment doesn't set, then starts the bot and the API.
- * Only the NAMES of loaded variables are ever printed.
+ * Entry point: `npm run server`. Reads `server/.env.local` and
+ * `server/.env.wallet.local` (both git-ignored) for anything the host environment
+ * doesn't set, then starts the bot and the API. Only the NAMES of loaded
+ * variables are ever printed.
  */
 
 const envFile = resolve(process.env.NEARKIT_ENV_FILE ?? 'server/.env.local')
 const loaded = loadEnvFile(envFile)
-const boot = createLogger({ secrets: process.env.TELEGRAM_BOT_TOKEN ? [process.env.TELEGRAM_BOT_TOKEN] : [] })
+// The trading-wallet key-encryption key sits in its own git-ignored file (npm run server:wallet-key).
+const walletFile = resolve(process.env.NEARKIT_WALLET_ENV_FILE ?? 'server/.env.wallet.local')
+const walletLoaded = loadEnvFile(walletFile)
+const secrets = [process.env.TELEGRAM_BOT_TOKEN, process.env.NEARKIT_WALLET_KEK].filter((s): s is string => Boolean(s))
+const boot = createLogger({ secrets })
 if (loaded.length) boot.info('loaded settings from env file', { file: envFile, keys: loaded })
+if (walletLoaded.length) boot.info('loaded settings from env file', { file: walletFile, keys: walletLoaded })
 
 try {
   const server = await startServer({ env: process.env })

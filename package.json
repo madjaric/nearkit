@@ -26,6 +26,7 @@
     "server:build": "vite build -c vite.server.config.ts --logLevel warn",
     "server": "npm run server:build && node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/main.js",
     "server:start": "node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/main.js",
+    "server:wallet-key": "node scripts/wallet-kek.mjs",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

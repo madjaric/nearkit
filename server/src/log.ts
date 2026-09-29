@@ -2,13 +2,16 @@
  * Structured logging with redaction. Every line passes through `redact` after it
  * is serialized, so a secret can't slip out through an error message, a URL or a
  * nested field. The Telegram API puts the bot token in every request URL; that
- * is why anything shaped like a bot token is removed even if unconfigured.
+ * is why anything shaped like a bot token is removed even if unconfigured, and
+ * the same goes for anything shaped like a NEAR secret key.
  */
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 }
 const BOT_TOKEN = /\b\d{5,16}:[A-Za-z0-9_-]{30,}\b/g
+/** A NEAR secret key (seed ‖ public key, 64 bytes in base58). Public keys are ~44 characters and stay readable. */
+const NEAR_SECRET_KEY = /ed25519:[1-9A-HJ-NP-Za-km-z]{80,90}/g
 
 export function redact(text: string, secrets: readonly string[]): string {
   let out = text
@@ -16,7 +19,7 @@ export function redact(text: string, secrets: readonly string[]): string {
     if (secret.trim().length < 8) continue
     out = out.split(secret).join('[REDACTED]')
   }
-  return out.replace(BOT_TOKEN, '[REDACTED]')
+  return out.replace(BOT_TOKEN, '[REDACTED]').replace(NEAR_SECRET_KEY, '[REDACTED]')
 }
 
 export interface Logger {

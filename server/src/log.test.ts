@@ -15,6 +15,12 @@ describe('redaction', () => {
   it('ignores empty secrets and leaves ordinary text alone', () => {
     expect(redact('swap 1.5 NEAR at 12:30', ['', '   '])).toBe('swap 1.5 NEAR at 12:30')
   })
+
+  it('removes anything shaped like a NEAR secret key, and keeps public keys readable', () => {
+    const secret = 'ed25519:' + '3'.repeat(40) + 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMN'.repeat(1) + '9'.repeat(9)
+    const pub = 'ed25519:Anu7LYDfpLtkP7E16LT9imXF694BdQaa9ufVkQiwTQxC'
+    expect(redact(`export ${secret} for ${pub}`, [])).toBe(`export [REDACTED] for ${pub}`)
+  })
 })
 
 describe('logger', () => {

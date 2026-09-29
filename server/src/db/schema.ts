@@ -199,6 +199,96 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       ALTER TABLE buybot_events ADD COLUMN side TEXT NOT NULL DEFAULT 'buy';
     `,
   },
+  {
+    version: 5,
+    name: 'trading wallets: sealed keys, transaction intents, signed transactions, audit, recovery',
+    sql: `
+      -- A NearKit trading wallet: a NEAR implicit account whose key NearKit holds, sealed.
+      -- sealed_key is envelope ciphertext (custody/vault.ts); the key that opens it is never
+      -- in this database. It is erased (NULL) when the wallet is revoked or deleted.
+      CREATE TABLE trading_wallets (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES telegram_users(user_id),
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        public_key TEXT NOT NULL,
+        sealed_key TEXT,
+        key_ref TEXT NOT NULL,
+        status TEXT NOT NULL,
+        backup_key TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        closed_at INTEGER
+      );
+      -- One live wallet per Telegram user and network, however often "create" is pressed.
+      CREATE UNIQUE INDEX trading_wallets_live ON trading_wallets(user_id, network) WHERE status = 'active';
+      CREATE UNIQUE INDEX trading_wallets_account ON trading_wallets(network, account_id);
+      -- One confirmation in Telegram = one intent. Its status only moves forward.
+      CREATE TABLE wallet_intents (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT NOT NULL REFERENCES trading_wallets(id),
+        user_id INTEGER NOT NULL,
+        chat_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        params TEXT NOT NULL,
+        quote TEXT,
+        status TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        result TEXT,
+        replaced_by TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX wallet_intents_wallet ON wallet_intents(wallet_id, status);
+      CREATE INDEX wallet_intents_open ON wallet_intents(status, updated_at);
+      -- Every transaction NearKit signs, saved BEFORE it is sent: the idempotency record.
+      -- A signed transaction is public data (it is broadcast), never a secret.
+      CREATE TABLE wallet_txs (
+        intent_id TEXT NOT NULL REFERENCES wallet_intents(id),
+        step INTEGER NOT NULL,
+        hash TEXT NOT NULL UNIQUE,
+        signer_id TEXT NOT NULL,
+        receiver_id TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        -- The transaction can't land once the chain passes this height.
+        expires_height INTEGER NOT NULL,
+        signed TEXT NOT NULL,
+        plan TEXT NOT NULL,
+        status TEXT NOT NULL,
+        outcome TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (intent_id, step)
+      );
+      CREATE INDEX wallet_txs_status ON wallet_txs(status);
+      -- Append-only security log: public facts only (IDs, accounts, hashes, amounts).
+      CREATE TABLE custody_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        user_id INTEGER,
+        wallet_id TEXT,
+        action TEXT NOT NULL,
+        detail TEXT
+      );
+      CREATE INDEX custody_audit_wallet ON custody_audit(wallet_id, id);
+      -- Key export in the web app: a one-time code (stored as SHA-256) and the exact message to sign.
+      CREATE TABLE recovery_requests (
+        code_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        wallet_id TEXT NOT NULL REFERENCES trading_wallets(id),
+        network TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        verified_at INTEGER,
+        verified_account TEXT,
+        exported_at INTEGER
+      );
+      CREATE INDEX recovery_requests_user ON recovery_requests(user_id, created_at);
+    `,
+  },
 ]
 
 export function migrate(db: Db): number {

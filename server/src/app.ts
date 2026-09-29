@@ -54,7 +54,8 @@ export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
 
 export async function startServer(options: { env: Record<string, string | undefined>; fetch?: typeof fetch; log?: Logger; now?: () => number }): Promise<RunningServer> {
   const { config, issues } = loadConfig(options.env)
-  const log = options.log ?? createLogger({ level: config.logLevel, secrets: config.telegramToken ? [config.telegramToken] : [] })
+  const secrets = [config.telegramToken, options.env.NEARKIT_WALLET_KEK?.trim()].filter((s): s is string => Boolean(s))
+  const log = options.log ?? createLogger({ level: config.logLevel, secrets })
   if (issues.length) {
     for (const i of issues) log.error('configuration problem', { key: i.key, problem: i.message })
     throw new Error(`Configuration has ${issues.length} problem(s); see the log above`)
