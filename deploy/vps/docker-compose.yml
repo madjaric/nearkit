@@ -1,0 +1,148 @@
+# NearKit production on one VPS (DEPLOYMENT.md §11), under /opt/nearkit.
+#
+#   internet ──443──► caddy ──► app ──(signer-link, internal)──► signer ──► AWS KMS
+#                                │                                  │
+#                           app-data (internal)               signer-data (internal)
+#                             app-db ◄── buybot                 signer-db
+#
+# - Only caddy publishes ports (80, 443). Nothing else is reachable from outside the host.
+# - The signer is reachable from the app alone, over an internal network, with TLS pinned
+#   by the app and every request HMAC-signed. It has its own outbound network (KMS, RPC)
+#   shared with no other container, and its own database on its own internal network.
+# - Secrets are files in /opt/nearkit/secrets (owner 1000, mode 400), mounted only into the
+#   containers that need them. None is in this file, an env file or the image.
+# - The node services run as uid 1000, read-only, with no capabilities.
+
+name: nearkit
+
+x-node: &node
+  image: nearkit-server:${NEARKIT_IMAGE_TAG:?set NEARKIT_IMAGE_TAG to the built commit}
+  user: '1000:1000'
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+
+x-postgres: &postgres
+  image: postgres:17-alpine
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  healthcheck:
+    test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+    interval: 10s
+    timeout: 5s
+    retries: 10
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443', '443:443/udp']
+    environment:
+      API_HOST: ${API_HOST:?set API_HOST to the API host name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge]
+    depends_on: [app]
+
+  app:
+    <<: *node
+    command: ['node', '--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist-server/main.js']
+    env_file: [app.env]
+    environment:
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      NEARKIT_DATABASE_URL_FILE: /run/secrets/app_database_url
+      NEARKIT_SIGNER_AUTH_KEY_FILE: /run/secrets/signer_auth_key
+    secrets: [telegram_bot_token, app_database_url, signer_auth_key]
+    networks: [edge, app-data, signer-link]
+    depends_on:
+      app-db: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8787/health').then(r=>r.json()).then(h=>process.exit(h.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  signer:
+    <<: *node
+    command: ['node', '--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist-server/signer.js']
+    env_file: [signer.env]
+    environment:
+      NEARKIT_SIGNER_AUTH_KEY_FILE: /run/secrets/signer_auth_key
+      NEARKIT_SIGNER_DATABASE_URL_FILE: /run/secrets/signer_database_url
+      # The KMS access key, as an AWS shared-credentials file: never an environment value.
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws_credentials
+      AWS_EC2_METADATA_DISABLED: 'true'
+    secrets: [signer_auth_key, signer_database_url, aws_credentials]
+    volumes:
+      # Its own TLS key and certificate (made once, kept across restarts; the app pins it).
+      - ./data/signer-tls:/data/tls
+      # Host kill switch: `touch /opt/nearkit/control/signer.paused` stops all signing.
+      - ./control:/run/nearkit:ro
+    networks: [signer-link, signer-data, signer-egress]
+    depends_on:
+      signer-db: { condition: service_healthy }
+    # Started once the KMS key and its access key exist: `docker compose --profile signer up -d`.
+    profiles: [signer]
+
+  buybot:
+    <<: *node
+    command: ['node', '--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist-server/buybot.js']
+    env_file: [buybot.env]
+    environment:
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      NEARKIT_DATABASE_URL_FILE: /run/secrets/app_database_url
+    secrets: [telegram_bot_token, app_database_url]
+    networks: [edge, app-data]
+    depends_on:
+      app-db: { condition: service_healthy }
+
+  app-db:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: nearkit
+      POSTGRES_USER: nearkit
+      POSTGRES_PASSWORD_FILE: /run/secrets/app_db_password
+    secrets: [app_db_password]
+    volumes: [app-db:/var/lib/postgresql/data]
+    networks: [app-data]
+
+  signer-db:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: nearkit_signer
+      POSTGRES_USER: nearkit_signer
+      POSTGRES_PASSWORD_FILE: /run/secrets/signer_db_password
+    secrets: [signer_db_password]
+    volumes: [signer-db:/var/lib/postgresql/data]
+    networks: [signer-data]
+
+networks:
+  # Outbound, and caddy <-> app. The app's API is public anyway (through caddy).
+  edge: {}
+  # app and buybot <-> app-db. No outbound.
+  app-data: { internal: true }
+  # app <-> signer: the only way to the signer.
+  signer-link: { internal: true }
+  # signer <-> signer-db. No outbound.
+  signer-data: { internal: true }
+  # The signer's own outbound (KMS, RPC), shared with no other container.
+  signer-egress: {}
+
+volumes:
+  caddy-data: {}
+  caddy-config: {}
+  app-db: {}
+  signer-db: {}
+
+secrets:
+  telegram_bot_token: { file: ./secrets/telegram_bot_token }
+  app_database_url: { file: ./secrets/app_database_url }
+  app_db_password: { file: ./secrets/app_db_password }
+  signer_auth_key: { file: ./secrets/signer_auth_key }
+  signer_database_url: { file: ./secrets/signer_database_url }
+  signer_db_password: { file: ./secrets/signer_db_password }
+  aws_credentials: { file: ./secrets/aws_credentials }

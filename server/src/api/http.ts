@@ -95,7 +95,16 @@ export function createApiServer(options: ApiOptions): Server {
         status = 204
         return send(res, 204, null, cors)
       }
-      const ip = req.socket.remoteAddress ?? 'unknown'
+      // Behind our own reverse proxy, the client is the address it recorded last; anything a
+      // client wrote into the header before it counts for nothing. Otherwise the header is ignored.
+      const forwarded = config.api.trustProxy
+        ? String(req.headers['x-forwarded-for'] ?? '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .at(-1)
+        : undefined
+      const ip = forwarded ?? req.socket.remoteAddress ?? 'unknown'
       if (!general.take(ip) || !(perRoute.get(path)?.take(ip) ?? true)) throw new HttpError(429, 'rate-limited', 'Too many requests. Wait a minute and try again.')
       if (req.method === 'GET' && path === '/health') {
         status = 200

@@ -1,0 +1,25 @@
+# The public HTTPS front of NearKit's API (Let's Encrypt, renewed by Caddy). Only the
+# API is served; the signer is never behind this.
+{
+	# No admin endpoint: nothing can reconfigure Caddy at runtime.
+	admin off
+}
+
+{$API_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# Request bodies are small JSON; the app caps them too.
+	request_body {
+		max_size 64KB
+	}
+
+	reverse_proxy app:8787
+}

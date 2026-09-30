@@ -89,4 +89,48 @@ describe('API', () => {
     for (let i = 0; i < 25; i++) statuses.push((await post('/api/link/confirm', { code: 'B'.repeat(22), accountId: 'a.testnet', publicKey: 'k', signature: 's' })).status)
     expect(statuses).toContain(429)
   })
+
+  it('ignores X-Forwarded-For unless told a proxy is in front: a spoofed header escapes no limit', async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < 25; i++)
+      statuses.push(
+        (
+          await fetch(base + '/api/link/confirm', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', origin: ORIGIN, 'x-forwarded-for': `198.51.100.${i}` },
+            body: JSON.stringify({ code: 'B'.repeat(22), accountId: 'a.testnet', publicKey: 'k', signature: 's' }),
+          })
+        ).status,
+      )
+    expect(statuses).toContain(429)
+  })
+
+  it('behind its reverse proxy (NEARKIT_API_TRUST_PROXY), each client has its own limit, by the address the proxy saw', async () => {
+    const { config: proxied } = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_API_TRUST_PROXY: 'true' })
+    const behind = createApiServer({ config: proxied, log: silentLogger, routes: linkRoutes({ link, onLinked: async () => {} }), limits: { '/api/link/confirm': 20 } })
+    const url = `http://127.0.0.1:${await listen(behind, 0, '127.0.0.1')}`
+    try {
+      const confirm = (client: string) =>
+        fetch(url + '/api/link/confirm', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: ORIGIN, 'x-forwarded-for': client },
+          body: JSON.stringify({ code: 'B'.repeat(22), accountId: 'a.testnet', publicKey: 'k', signature: 's' }),
+        })
+      const noisy: number[] = []
+      for (let i = 0; i < 25; i++) noisy.push((await confirm('203.0.113.7')).status)
+      expect(noisy).toContain(429)
+      // Another client is unaffected by the first one's limit.
+      expect((await confirm('203.0.113.8')).status).not.toBe(429)
+      // The proxy's own address is the last entry: what a client wrote before it counts for nothing.
+      expect((await confirm('203.0.113.8, 203.0.113.7')).status).toBe(429)
+    } finally {
+      await new Promise<void>((resolve) => behind.close(() => resolve()))
+    }
+  })
+
+  it('the proxy setting is true or false, nothing else', () => {
+    expect(loadConfig({ NEAR_NETWORK: 'testnet' }).config.api.trustProxy).toBe(false)
+    expect(loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_API_TRUST_PROXY: 'true' }).config.api.trustProxy).toBe(true)
+    expect(loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_API_TRUST_PROXY: 'yes' }).issues.map((i) => i.key)).toEqual(['NEARKIT_API_TRUST_PROXY'])
+  })
 })

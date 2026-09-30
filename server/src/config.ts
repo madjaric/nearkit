@@ -30,7 +30,11 @@ export interface ServerConfig {
   webUrl: string
   /** NEP-413 `recipient` a link signature must name: the web app's host. */
   linkRecipient: string
-  api: { host: string; port: number; publicUrl: string; allowedOrigins: string[] }
+  /**
+   * trustProxy: the API is reached only through one reverse proxy of ours (e.g. Caddy), so a
+   * client's address is the last X-Forwarded-For entry (the one the proxy wrote), for rate limits.
+   */
+  api: { host: string; port: number; publicUrl: string; allowedOrigins: string[]; trustProxy: boolean }
   /** SQLite file path (kept for the SQLite engine and logs). */
   dbPath: string
   /**
@@ -238,6 +242,9 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   const unknownSwitch = hostPaused.filter((s) => !SWITCHES.includes(s as SwitchName))
   if (unknownSwitch.length) issue('NEARKIT_OPS_PAUSED', `Not a kill switch: ${unknownSwitch.join(', ')} (expected ${SWITCHES.join(', ')})`)
 
+  const trustProxyRaw = raw.NEARKIT_API_TRUST_PROXY?.trim()
+  if (!blank(trustProxyRaw) && trustProxyRaw !== 'true' && trustProxyRaw !== 'false') issue('NEARKIT_API_TRUST_PROXY', 'Expected "true" or "false"')
+
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'
   const logLevel: LogLevel = levelRaw === 'debug' || levelRaw === 'warn' || levelRaw === 'error' ? levelRaw : 'info'
 
@@ -255,6 +262,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         port: Number.isInteger(port) ? port : 8787,
         publicUrl: publicApi ? publicApi.origin + publicApi.pathname.replace(/\/$/, '') : `http://localhost:${Number.isInteger(port) ? port : 8787}`,
         allowedOrigins,
+        trustProxy: trustProxyRaw === 'true',
       },
       dbPath,
       database,
