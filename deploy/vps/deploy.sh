@@ -8,10 +8,12 @@ cd /opt/nearkit
 git -C src fetch --quiet origin
 git -C src checkout --quiet --detach "$commit"
 sha=$(git -C src rev-parse --short=12 HEAD)
-cp src/deploy/vps/docker-compose.yml src/deploy/vps/Caddyfile .
+cp src/deploy/vps/docker-compose.yml src/deploy/vps/Caddyfile src/deploy/vps/openbao.hcl .
 install -m 755 src/deploy/vps/set-secret bin/set-secret
 install -m 755 src/deploy/vps/deploy.sh bin/deploy
 install -m 755 src/deploy/vps/backup.sh bin/backup
+install -m 755 src/deploy/vps/openbao-init bin/openbao-init
+install -m 755 src/deploy/vps/openbao-unseal bin/openbao-unseal
 install -m 644 src/deploy/vps/nearkit-backup.service src/deploy/vps/nearkit-backup.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now nearkit-backup.timer >/dev/null

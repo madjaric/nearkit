@@ -1,14 +1,17 @@
 # NearKit production on one VPS (DEPLOYMENT.md §11), under /opt/nearkit.
 #
-#   internet ──443──► caddy ──► app ──(signer-link, internal)──► signer ──► AWS KMS
+#   internet ──443──► caddy ──► app ──(signer-link, internal)──► signer ──(kms-link, internal)──► openbao
 #                                │                                  │
 #                           app-data (internal)               signer-data (internal)
 #                             app-db ◄── buybot                 signer-db
 #
 # - Only caddy publishes ports (80, 443). Nothing else is reachable from outside the host.
 # - The signer is reachable from the app alone, over an internal network, with TLS pinned
-#   by the app and every request HMAC-signed. It has its own outbound network (KMS, RPC)
-#   shared with no other container, and its own database on its own internal network.
+#   by the app and every request HMAC-signed. It has its own outbound network (RPC) shared
+#   with no other container, and its own database on its own internal network.
+# - OpenBao holds the key-encryption key (transit). Only the signer reaches it, over its
+#   own internal network with pinned TLS; it has no outbound access at all. Its storage
+#   is sealed until the owner's unseal key is entered (openbao-unseal).
 # - Secrets are files in /opt/nearkit/secrets (owner 1000, mode 400), mounted only into the
 #   containers that need them. None is in this file, an env file or the image.
 # - The node services run as uid 1000, read-only, with no capabilities.
@@ -73,20 +76,41 @@ services:
     environment:
       NEARKIT_SIGNER_AUTH_KEY_FILE: /run/secrets/signer_auth_key
       NEARKIT_SIGNER_DATABASE_URL_FILE: /run/secrets/signer_database_url
-      # The KMS access key, as an AWS shared-credentials file: never an environment value.
-      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws_credentials
-      AWS_EC2_METADATA_DISABLED: 'true'
-    secrets: [signer_auth_key, signer_database_url, aws_credentials]
+      # Its OpenBao token: encrypt and decrypt with the wallet key, nothing else.
+      NEARKIT_OPENBAO_TOKEN_FILE: /run/secrets/openbao_token
+    secrets: [signer_auth_key, signer_database_url, openbao_token]
     volumes:
       # Its own TLS key and certificate (made once, kept across restarts; the app pins it).
       - ./data/signer-tls:/data/tls
       # Host kill switch: `touch /opt/nearkit/control/signer.paused` stops all signing.
       - ./control:/run/nearkit:ro
-    networks: [signer-link, signer-data, signer-egress]
+    networks: [signer-link, signer-data, signer-egress, kms-link]
     depends_on:
       signer-db: { condition: service_healthy }
-    # Started once the KMS key and its access key exist: `docker compose --profile signer up -d`.
+      openbao: { condition: service_started }
+    # Started once OpenBao is set up (openbao-init): `docker compose --profile signer up -d`.
     profiles: [signer]
+
+  openbao:
+    image: quay.io/openbao/openbao:2.6.3
+    user: '100:1000'
+    restart: unless-stopped
+    command: ['server', '-config=/openbao/config/openbao.hcl']
+    environment:
+      SKIP_SETCAP: 'true'
+      SKIP_CHOWN: 'true'
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    # No core dumps: they could hold key material.
+    ulimits: { core: 0 }
+    volumes:
+      - ./openbao.hcl:/openbao/config/openbao.hcl:ro
+      - ./data/openbao:/openbao/data
+      - ./data/openbao-logs:/openbao/logs
+      - ./data/openbao-tls:/openbao/tls:ro
+    networks: [kms-link]
 
   buybot:
     <<: *node
@@ -129,8 +153,10 @@ networks:
   signer-link: { internal: true }
   # signer <-> signer-db. No outbound.
   signer-data: { internal: true }
-  # The signer's own outbound (KMS, RPC), shared with no other container.
+  # The signer's own outbound (RPC), shared with no other container.
   signer-egress: {}
+  # signer <-> openbao, and nothing else: OpenBao has no other network, hence no outbound.
+  kms-link: { internal: true }
 
 volumes:
   caddy-data: {}
@@ -145,4 +171,4 @@ secrets:
   signer_auth_key: { file: ./secrets/signer_auth_key }
   signer_database_url: { file: ./secrets/signer_database_url }
   signer_db_password: { file: ./secrets/signer_db_password }
-  aws_credentials: { file: ./secrets/aws_credentials }
+  openbao_token: { file: ./secrets/openbao_token }

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# After any restart of OpenBao (or of the server), NearKit's wallets stay closed until the
+# OWNER unseals it, in their own terminal:
+#
+#   ssh -t -i ~/.ssh/nearkit_prod_ed25519 root@<host> /opt/nearkit/bin/openbao-unseal
+#
+# The key is read hidden and passed on stdin: never an argument, never stored or logged.
+set -euo pipefail
+cd "${NEARKIT_DIR:-/opt/nearkit}"
+id=$(docker compose ps -q openbao)
+[ -n "$id" ] || { echo "OpenBao is not running (docker compose up -d openbao)."; exit 1; }
+read -rsp "OpenBao unseal key (hidden), then Enter: " key
+echo
+printf '%s' "$key" | docker exec -i -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt "$id" bao write -format=json sys/unseal key=- \
+  | python3 -c "import sys, json; d = json.load(sys.stdin).get('data', {}); print('OpenBao is still SEALED: check the key.' if d.get('sealed') else 'OpenBao is unsealed. The signer opens wallet keys again.')"
+unset key

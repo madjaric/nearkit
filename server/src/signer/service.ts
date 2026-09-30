@@ -9,6 +9,7 @@ import { loadSignerConfig, type SignerServiceConfig } from './config'
 import { createSignerCore } from './core'
 import { createSignerServer } from './http'
 import { awsKmsApi, kmsKeyWrapper, probeKek, type KmsApi } from './kms'
+import { openBaoTransitApi } from './openbao'
 import { ensureSignerTls } from './tls'
 import { createRouteOracle } from './routes'
 import { migrateSigner } from './schema'
@@ -33,7 +34,8 @@ export function signerSecrets(env: Record<string, string | undefined>, config: S
   const kek = [env.NEARKIT_SIGNER_KEK, ...(env.NEARKIT_SIGNER_KEK_PREVIOUS ?? '').split(',')].map((s) => s?.trim())
   // On a host outside AWS the KMS is reached with an access key: its secret half is a secret like any other.
   const aws = [env.AWS_SECRET_ACCESS_KEY?.trim(), env.AWS_SESSION_TOKEN?.trim()]
-  return [env.NEARKIT_SIGNER_AUTH_KEY?.trim(), ...kek, ...aws, ...(config ? databaseSecrets(config.database) : [])].filter((s): s is string => Boolean(s))
+  const openbao = [env.NEARKIT_OPENBAO_TOKEN?.trim()]
+  return [env.NEARKIT_SIGNER_AUTH_KEY?.trim(), ...kek, ...aws, ...openbao, ...(config ? databaseSecrets(config.database) : [])].filter((s): s is string => Boolean(s))
 }
 
 export async function buildSigner(config: SignerServiceConfig, o: SignerDepsOverrides = {}) {
@@ -43,7 +45,14 @@ export async function buildSigner(config: SignerServiceConfig, o: SignerDepsOver
   await migrateSigner(db)
   const store = new SignerStore(db, now)
   let wrappers: KeyWrapper[]
-  if (config.kek.kind === 'kms') {
+  // OpenBao's periodic token is kept alive by the running service (startSignerService).
+  let renewKmsToken: (() => Promise<number>) | null = null
+  if (config.kek.kind === 'openbao') {
+    const { addr, mount, key, token, tlsPin } = config.kek
+    const api = openBaoTransitApi({ addr, mount, key, token, tlsPin })
+    renewKmsToken = () => api.renewToken()
+    wrappers = [kmsKeyWrapper(api)]
+  } else if (config.kek.kind === 'kms') {
     const reach = o.kmsApi ?? awsKmsApi
     wrappers = await Promise.all([config.kek.current, ...config.kek.previous].map(async (arn) => kmsKeyWrapper(await reach(arn))))
   } else {
@@ -67,7 +76,7 @@ export async function buildSigner(config: SignerServiceConfig, o: SignerDepsOver
     now,
     log,
   })
-  return { db, store, keys, core, log }
+  return { db, store, keys, core, log, renewKmsToken }
 }
 
 export async function startSignerService(o: SignerDepsOverrides & { env: Record<string, string | undefined> }) {
@@ -84,6 +93,21 @@ export async function startSignerService(o: SignerDepsOverrides & { env: Record<
   if (kek === 'ok') log.info('signer key-encryption key ready', { keyRef: s.keys.current.ref })
   // Fails closed either way: without the KEK nothing opens. The service still answers health.
   else log.error('signer key-encryption key unavailable', { keyRef: s.keys.current.ref, problem: kek })
+  // OpenBao's periodic token lives while it is renewed: now, then twice a day.
+  let renewal: ReturnType<typeof setInterval> | null = null
+  const renewKmsToken = s.renewKmsToken
+  if (renewKmsToken) {
+    const renew = async () => {
+      try {
+        log.info('OpenBao token renewed', { hours: Math.round((await renewKmsToken()) / 3600) })
+      } catch (e) {
+        log.warn('OpenBao token renewal failed; wallet keys open while the token lasts', { error: e })
+      }
+    }
+    await renew()
+    renewal = setInterval(() => void renew(), 12 * 3_600_000)
+    renewal.unref()
+  }
   let tls: { cert: Buffer; key: Buffer } | null = null
   const listenTls = config.listen.tls
   if (listenTls && 'dir' in listenTls) {
@@ -110,6 +134,7 @@ export async function startSignerService(o: SignerDepsOverrides & { env: Record<
     store: s.store,
     async stop() {
       clearInterval(prune)
+      if (renewal) clearInterval(renewal)
       await new Promise<void>((resolve) => server.close(() => resolve()))
       await s.db.close()
       log.info('NearKit signer stopped')

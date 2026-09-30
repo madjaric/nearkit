@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# One-time OpenBao setup for NearKit (DEPLOYMENT.md §11). Run by the OWNER, in their own
+# terminal (never by an assistant, never with output captured):
+#
+#   ssh -t -i ~/.ssh/nearkit_prod_ed25519 root@<host> /opt/nearkit/bin/openbao-init
+#
+# - Initializes OpenBao with one unseal key and shows it ONCE, on this terminal only. It is
+#   never written to this server. Without it, after any restart of OpenBao, no NearKit
+#   wallet key can be opened (backup keys and exports still work).
+# - Creates the transit key for wallet data keys (derived per wallet, not exportable, not
+#   deletable), the audit log, and two tokens written straight to files: the signer's
+#   (encrypt and decrypt on that key only) and the backups' (raft snapshots only).
+# - Revokes the root token. A new one needs the unseal key (bao operator generate-root).
+set -euo pipefail
+cd "${NEARKIT_DIR:-/opt/nearkit}"
+id=$(docker compose ps -q openbao)
+[ -n "$id" ] || { echo "OpenBao is not running (docker compose up -d openbao)."; exit 1; }
+bao() { docker exec -i -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt -e BAO_TOKEN "$id" bao "$@"; }
+field() { python3 -c "import sys, json; print(json.load(sys.stdin)$1)"; }
+
+export BAO_TOKEN=
+status=$(bao status -format=json || true)
+if [ "$(printf '%s' "$status" | field "['initialized']")" = "True" ]; then
+  echo "OpenBao is already initialized. Nothing was changed."
+  exit 1
+fi
+
+init=$(bao operator init -key-shares=1 -key-threshold=1 -format=json)
+unseal=$(printf '%s' "$init" | field "['unseal_keys_b64'][0]")
+BAO_TOKEN=$(printf '%s' "$init" | field "['root_token']")
+unset init
+
+cat <<EOF
+
+  OpenBao UNSEAL KEY (shown once; it is not stored on this server):
+
+      $unseal
+
+  Store it now in your password manager, and keep a second copy offline.
+  After any restart of OpenBao, NearKit's wallets stay closed until it is entered
+  (/opt/nearkit/bin/openbao-unseal).
+
+EOF
+while true; do
+  read -rp "Type STORED once it is stored safely: " answer
+  [ "$answer" = "STORED" ] && break
+done
+clear || true
+
+printf '%s' "$unseal" | BAO_TOKEN= bao write -format=json sys/unseal key=- >/dev/null
+unset unseal
+
+bao audit enable file file_path=/openbao/logs/audit.log >/dev/null
+bao secrets enable transit >/dev/null
+bao write -f transit/keys/nearkit-wallets type=aes256-gcm96 derived=true exportable=false allow_plaintext_backup=false auto_rotate_period=8760h >/dev/null
+bao write transit/keys/nearkit-wallets/config deletion_allowed=false >/dev/null
+bao policy write nearkit-signer - >/dev/null <<'EOF'
+path "transit/encrypt/nearkit-wallets" { capabilities = ["update"] }
+path "transit/decrypt/nearkit-wallets" { capabilities = ["update"] }
+path "auth/token/renew-self" { capabilities = ["update"] }
+path "auth/token/lookup-self" { capabilities = ["read"] }
+EOF
+bao policy write nearkit-backup - >/dev/null <<'EOF'
+path "sys/storage/raft/snapshot" { capabilities = ["read"] }
+path "auth/token/renew-self" { capabilities = ["update"] }
+EOF
+
+umask 077
+bao token create -orphan -no-default-policy -policy=nearkit-signer -period=768h -display-name=nearkit-signer -field=token > secrets/.openbao_token.new
+chown 1000:1000 secrets/.openbao_token.new
+chmod 400 secrets/.openbao_token.new
+mv -f secrets/.openbao_token.new secrets/openbao_token
+bao token create -orphan -no-default-policy -policy=nearkit-backup -period=768h -display-name=nearkit-backup -field=token > secrets/.openbao_backup_token.new
+chmod 400 secrets/.openbao_backup_token.new
+mv -f secrets/.openbao_backup_token.new secrets/openbao_backup_token
+
+bao token revoke -self >/dev/null
+unset BAO_TOKEN
+echo "OpenBao is initialized, unsealed and set up for NearKit. The root token is revoked."

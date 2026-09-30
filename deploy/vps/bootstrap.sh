@@ -49,11 +49,39 @@ cat > /etc/docker/daemon.json <<'EOF'
 EOF
 systemctl restart docker
 
+echo "== no swap: OpenBao's key material must never reach a disk"
+swapoff -a
+sed -i -E 's@^([^#].*[[:space:]]swap[[:space:]].*)$@# \1  # off for NearKit@' /etc/fstab
+
 echo "== layout under /opt/nearkit"
 install -d -m 755 /opt/nearkit /opt/nearkit/bin /opt/nearkit/control
 install -d -m 700 /opt/nearkit/secrets
 # The signer (uid 1000) keeps its TLS key and certificate here.
-install -d -m 700 -o 1000 -g 1000 /opt/nearkit/data /opt/nearkit/data/signer-tls
+install -d -m 755 /opt/nearkit/data
+install -d -m 700 -o 1000 -g 1000 /opt/nearkit/data/signer-tls
+# OpenBao (uid 100) keeps its sealed storage, audit log and TLS here.
+install -d -m 700 -o 100 -g 1000 /opt/nearkit/data/openbao /opt/nearkit/data/openbao-logs /opt/nearkit/data/openbao-tls
+if [ ! -s /opt/nearkit/data/openbao-tls/openbao.key ]; then
+  # OpenBao's own certificate (OpenSSL), for the internal network; the signer pins it.
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj /CN=openbao \
+    -addext 'subjectAltName=DNS:openbao,DNS:localhost,IP:127.0.0.1' -addext 'basicConstraints=critical,CA:TRUE' \
+    -addext 'keyUsage=critical,digitalSignature,keyCertSign' -addext 'extendedKeyUsage=serverAuth' \
+    -keyout /opt/nearkit/data/openbao-tls/openbao.key -out /opt/nearkit/data/openbao-tls/openbao.crt 2>/dev/null
+  echo "made OpenBao's TLS certificate"
+fi
+chown 100:1000 /opt/nearkit/data/openbao-tls/openbao.key /opt/nearkit/data/openbao-tls/openbao.crt
+chmod 400 /opt/nearkit/data/openbao-tls/openbao.key
+chmod 444 /opt/nearkit/data/openbao-tls/openbao.crt
+cat > /etc/logrotate.d/nearkit-openbao <<'EOF'
+/opt/nearkit/data/openbao-logs/audit.log {
+  daily
+  rotate 30
+  compress
+  missingok
+  notifempty
+  copytruncate
+}
+EOF
 
 echo "== secrets made here (never printed)"
 secret() { # name, generator

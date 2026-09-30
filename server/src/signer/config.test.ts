@@ -11,6 +11,7 @@ import { openWalletKey } from './envelope'
 import { buildSigner, signerSecrets } from './service'
 import { SignerStore } from './store'
 import { TEST_OWNER_KEY } from './testing'
+import { ensureSignerTls } from './tls'
 
 const AUTH = randomBytes(32).toString('base64')
 const ARN = 'arn:aws:kms:eu-central-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab'
@@ -63,6 +64,30 @@ describe('the signer’s configuration fails closed', () => {
     expect(issues).toEqual([])
     expect(config?.listen.tls).toEqual({ dir: resolve('/data/tls') })
     expect(keys({ ...mainnet, NEARKIT_SIGNER_TLS_DIR: '/data/tls' })).toEqual(['NEARKIT_SIGNER_TLS_DIR'])
+  })
+
+  it('mainnet with the KEK in OpenBao transit instead of AWS: accepted, and exclusive with the other KEKs', () => {
+    const openbao = {
+      ...mainnet,
+      NEARKIT_KMS_KEY_ARN: undefined,
+      NEARKIT_OPENBAO_ADDR: 'https://openbao:8200',
+      NEARKIT_OPENBAO_TOKEN: 'openbao-token-for-a-test',
+      NEARKIT_OPENBAO_TLS_PIN: ensureSignerTls(mkdtempSync(join(tmpdir(), 'nearkit-bao-pin-'))).pin,
+    }
+    const { config, issues } = loadSignerConfig(openbao)
+    expect(issues).toEqual([])
+    expect(config?.kek).toMatchObject({ kind: 'openbao', addr: 'https://openbao:8200', mount: 'transit', key: 'nearkit-wallets', tlsPin: { fingerprint256: expect.any(String) } })
+    // Exactly one KEK.
+    expect(keys({ ...openbao, NEARKIT_KMS_KEY_ARN: ARN })).toEqual(['NEARKIT_OPENBAO_ADDR'])
+    expect(keys({ ...openbao, NEARKIT_SIGNER_KEK: randomBytes(32).toString('base64') })).toEqual(['NEARKIT_OPENBAO_ADDR'])
+    // Its token, a TLS address off this machine on mainnet, and a real pin.
+    expect(keys({ ...openbao, NEARKIT_OPENBAO_TOKEN: undefined })).toEqual(['NEARKIT_OPENBAO_TOKEN'])
+    expect(keys({ ...openbao, NEARKIT_OPENBAO_ADDR: 'http://openbao:8200' })).toEqual(['NEARKIT_OPENBAO_ADDR'])
+    expect(keys({ ...openbao, NEARKIT_OPENBAO_TLS_PIN: 'not-a-certificate' })).toEqual(['NEARKIT_OPENBAO_TLS_PIN'])
+    expect(keys({ ...openbao, NEARKIT_OPENBAO_TRANSIT_KEY: '../sys' })).toEqual(['NEARKIT_OPENBAO_TRANSIT_KEY'])
+    // The token is a secret: registered for redaction, never repeated in a problem.
+    expect(signerSecrets(openbao, config)).toContain('openbao-token-for-a-test')
+    expect(JSON.stringify(loadSignerConfig({ ...openbao, NEARKIT_OPENBAO_ADDR: 'http://openbao:8200' }).issues)).not.toContain('openbao-token-for-a-test')
   })
 
   it('an AWS secret for the KMS (a host outside AWS) is registered as a secret, so it is never logged', () => {

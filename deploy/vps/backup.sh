@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Hourly logical backups of both NearKit databases (DEPLOYMENT.md §11), run by the
-# nearkit-backup timer. Dumps stay on this server, root-only; Hostinger's weekly server
-# backups include them. Keeps every dump for 48 hours, then the midnight (UTC) dump of each
-# day for 30 days. The signer's dump holds only KMS-sealed keys.
+# Hourly backups (DEPLOYMENT.md §11), run by the nearkit-backup timer: both databases
+# (pg_dump) and OpenBao's storage (a raft snapshot). They stay on this server, root-only;
+# Hostinger's weekly server backups include them. Keeps every backup for 48 hours, then the
+# midnight (UTC) one of each day for 30 days. None opens a wallet key by itself: the signer's
+# dump holds data keys sealed by OpenBao, and OpenBao's snapshot is sealed by its master
+# key, which only the owner's unseal key opens.
 set -euo pipefail
 dir=/opt/nearkit/backups
 umask 077
@@ -17,7 +19,22 @@ for spec in app-db:nearkit:nearkit signer-db:nearkit_signer:nearkit_signer; do
   docker compose exec -T "$service" pg_restore --list < "$out.partial" > /dev/null
   mv "$out.partial" "$out"
 done
-find "$dir" -name '*.dump' -mmin +2880 ! -name '*T00*' -delete
-find "$dir" -name '*.dump' -mtime +30 -delete
+bao=$(docker compose ps -q openbao 2>/dev/null || true)
+if [ -n "$bao" ] && [ -s secrets/openbao_backup_token ]; then
+  BAO_TOKEN=$(cat secrets/openbao_backup_token)
+  export BAO_TOKEN
+  x() { docker exec -i -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt -e BAO_TOKEN "$bao" "$@"; }
+  # Renewing keeps the backup token alive; the snapshot fails while OpenBao is sealed.
+  if x bao token renew >/dev/null 2>&1 && x bao operator raft snapshot save /tmp/openbao.snap >/dev/null 2>&1; then
+    x cat /tmp/openbao.snap > "$dir/openbao-$stamp.snap.partial"
+    mv "$dir/openbao-$stamp.snap.partial" "$dir/openbao-$stamp.snap"
+  else
+    echo "OpenBao snapshot skipped: sealed or unavailable"
+  fi
+  x rm -f /tmp/openbao.snap >/dev/null 2>&1 || true
+  unset BAO_TOKEN
+fi
+find "$dir" \( -name '*.dump' -o -name '*.snap' \) -mmin +2880 ! -name '*T00*' -delete
+find "$dir" \( -name '*.dump' -o -name '*.snap' \) -mtime +30 -delete
 find "$dir" -name '*.partial' -mmin +60 -delete
 echo "backed up at $stamp"

@@ -6,6 +6,7 @@ import type { DatabaseConfig } from '../db/open'
 import type { LogLevel } from '../log'
 import { parseAuthKey } from './auth'
 import { parseKeyArn } from './kms'
+import { parseTlsPin, type TlsPin } from './tls'
 
 /**
  * The signer service's configuration (server/src/signer/main.ts), from its own
@@ -25,7 +26,11 @@ export interface SignerServiceConfig {
   /** SECRET: the shared request-signing key. Never logged. */
   authKey: Buffer
   database: DatabaseConfig
-  kek: { kind: 'kms'; current: string; previous: string[] } | { kind: 'local'; current: Buffer; previous: Buffer[] }
+  kek:
+    | { kind: 'kms'; current: string; previous: string[] }
+    | { kind: 'local'; current: Buffer; previous: Buffer[] }
+    /** OpenBao transit (openbao.ts). The token is SECRET: never logged. */
+    | { kind: 'openbao'; addr: string; mount: string; key: string; token: string; tlsPin: TlsPin | null }
   /** NEP-413 recipient owner signatures must name: the NearKit web app's host. */
   recipient: string
   feeRecipient: string | null
@@ -64,7 +69,31 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
   let kek: SignerServiceConfig['kek'] | null = null
   const arn = raw.NEARKIT_KMS_KEY_ARN?.trim()
   const localKek = raw.NEARKIT_SIGNER_KEK?.trim()
-  if (arn) {
+  const baoAddr = raw.NEARKIT_OPENBAO_ADDR?.trim()
+  if (baoAddr) {
+    // The KEK in OpenBao transit, self-hosted (openbao.ts).
+    if (arn || localKek) issue('NEARKIT_OPENBAO_ADDR', 'Set one key-encryption key: OpenBao, an AWS KMS key, or (testnet) a local KEK')
+    let url: URL | null = null
+    try {
+      url = new URL(baoAddr)
+    } catch {
+      url = null
+    }
+    if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) issue('NEARKIT_OPENBAO_ADDR', 'Must be OpenBao’s https:// address')
+    else if (url.protocol === 'http:' && (mainnet || !LOCAL_HOSTS.has(url.hostname)))
+      issue('NEARKIT_OPENBAO_ADDR', 'OpenBao is reached over https:// (http:// only on this machine, and never on mainnet)')
+    const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/
+    const mount = raw.NEARKIT_OPENBAO_TRANSIT_MOUNT?.trim() || 'transit'
+    const key = raw.NEARKIT_OPENBAO_TRANSIT_KEY?.trim() || 'nearkit-wallets'
+    if (!NAME.test(mount)) issue('NEARKIT_OPENBAO_TRANSIT_MOUNT', 'A transit mount name: lowercase letters, digits, - and _')
+    if (!NAME.test(key)) issue('NEARKIT_OPENBAO_TRANSIT_KEY', 'A transit key name: lowercase letters, digits, - and _')
+    const token = raw.NEARKIT_OPENBAO_TOKEN?.trim() ?? ''
+    if (token.length < 16 || /\s/.test(token)) issue('NEARKIT_OPENBAO_TOKEN', 'The signer’s OpenBao token (value not shown)')
+    const pinRaw = raw.NEARKIT_OPENBAO_TLS_PIN
+    const tlsPin = blank(pinRaw) ? null : parseTlsPin(pinRaw)
+    if (!blank(pinRaw) && !tlsPin) issue('NEARKIT_OPENBAO_TLS_PIN', 'Must be OpenBao’s certificate: base64 of its DER')
+    if (url && token) kek = { kind: 'openbao', addr: url.origin, mount, key, token, tlsPin }
+  } else if (arn) {
     const parsed = parseKeyArn(arn)
     const previous = (raw.NEARKIT_KMS_PREVIOUS_KEY_ARNS ?? '')
       .split(',')
@@ -85,7 +114,10 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
     if (mainnet) issue('NEARKIT_SIGNER_KEK', 'A key-encryption key in the environment is for testnet only; mainnet needs NEARKIT_KMS_KEY_ARN')
     if (current && previous.every((p) => p)) kek = { kind: 'local', current, previous: previous as Buffer[] }
   } else {
-    issue('NEARKIT_KMS_KEY_ARN', mainnet ? 'Mainnet needs a KMS key (NEARKIT_KMS_KEY_ARN)' : 'Set NEARKIT_KMS_KEY_ARN, or NEARKIT_SIGNER_KEK on testnet')
+    issue(
+      'NEARKIT_KMS_KEY_ARN',
+      mainnet ? 'Mainnet needs a KMS: NEARKIT_OPENBAO_ADDR or NEARKIT_KMS_KEY_ARN' : 'Set NEARKIT_OPENBAO_ADDR or NEARKIT_KMS_KEY_ARN, or NEARKIT_SIGNER_KEK on testnet',
+    )
   }
 
   let database: DatabaseConfig | null = null
