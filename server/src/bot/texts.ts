@@ -20,6 +20,18 @@ export function welcome(config: Pick<ServerConfig, 'network'>, wallet: { account
   ].join('\n')
 }
 
+/** The first screen for someone with no NearKit wallet yet, where one can be made right away: creating comes first, linking is optional. */
+export function noWalletYet(config: Pick<ServerConfig, 'network'>, linked: { accountId: string; near: string | null } | null): string {
+  return [
+    `👜 ${bold('No NearKit wallet yet')}`,
+    ...(linked ? [`🔗 Linked wallet ${code(linked.accountId)}${linked.near !== null ? ` · ${esc(linked.near)} NEAR` : ''}`] : []),
+    '',
+    'Create a wallet instantly and start trading.',
+    '🔒 NearKit never asks for your seed phrase or private key.',
+    ...(config.network.id === 'testnet' ? [esc(networkNote(config))] : []),
+  ].join('\n')
+}
+
 export function feeNote(config: Pick<ServerConfig, 'network'>): string {
   return config.network.id === 'mainnet'
     ? `NearKit fee ${NEARKIT_FEE_LABEL} per swap (NearKit keeps ${NEARKIT_FEE_RECEIVED_LABEL}, Rhea the rest), plus Rhea’s own fee and gas.`

@@ -1,7 +1,7 @@
 import { bold } from '../telegram/html'
 import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule, type Command } from './context'
-import { help, SAFETY, welcome } from './texts'
-import { tradingWallet, showWalletHome } from './tradingWallet'
+import { help, noWalletYet, SAFETY, welcome } from './texts'
+import { newWalletButton, showWalletHome, telegramApprovalsOn, tradingWallet } from './tradingWallet'
 import { linkedAccount, nearAvailable, showWallet } from './wallet'
 import { referralStart } from './referrals'
 
@@ -10,11 +10,24 @@ import { referralStart } from './referrals'
  * /help lists exactly the commands the running bot has, nothing more.
  */
 
-export async function mainMenu(ctx: BotCtx) {
+/**
+ * Whether someone with no NearKit wallet can create one right now: this server runs NearKit
+ * wallets, and either they have a linked wallet (it becomes the owner) or the signer checks
+ * the Mini App approvals a wallet with no owner wallet needs (the same rule as creating one).
+ */
+async function canCreateWallet(ctx: BotCtx, linked: boolean): Promise<boolean> {
+  return ctx.deps.custody !== null && ctx.deps.custody !== undefined && (linked || (await telegramApprovalsOn(ctx.deps)))
+}
+
+/** The main menu. With no NearKit wallet yet, Create wallet leads (when one can be made), Link wallet is the alternative. */
+export async function mainMenu(ctx: BotCtx, known?: { create: boolean }) {
   const has = (name: string) => ctx.deps.features.has(name)
-  const linked = (await linkedAccount(ctx)) !== null || (await tradingWallet(ctx.deps, ctx.user.id)) !== null
+  const wallet = (await tradingWallet(ctx.deps, ctx.user.id)) !== null
+  const linked = (await linkedAccount(ctx)) !== null
+  const create = !wallet && (known?.create ?? (await canCreateWallet(ctx, linked)))
   return keyboard(
-    linked ? [] : [btn('🔗 Link wallet', 'acct:link')],
+    create ? [newWalletButton('💼 Create wallet')] : [],
+    linked || wallet ? [] : [btn('🔗 Link wallet', 'acct:link')],
     [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
     [has('positions') ? btn('📊 Positions', 'pf:positions') : null, has('pnl') ? btn('📈 PnL', 'pf:pnl') : null],
     [has('balance') ? btn('👛 Wallet', 'menu:wallet') : null, btn('⚙️ Settings', 'set:show')],
@@ -23,13 +36,21 @@ export async function mainMenu(ctx: BotCtx) {
   )
 }
 
-/** The first screen: who is trading, with how much NEAR, and every action one tap away. */
+/**
+ * The first screen: who is trading, with how much NEAR, and every action one tap away. With
+ * no NearKit wallet yet (and one can be made), it leads to creating one; linking is optional.
+ */
 async function home(ctx: BotCtx, edit: boolean) {
   const nearkit = (await tradingWallet(ctx.deps, ctx.user.id))?.accountId ?? null
-  const account = nearkit ?? (await linkedAccount(ctx))
-  const text = [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account), nearkit: nearkit !== null } : null), SAFETY].join('\n')
-  if (edit) await ctx.show(text, await mainMenu(ctx))
-  else await ctx.reply(text, await mainMenu(ctx))
+  const linked = await linkedAccount(ctx)
+  const create = nearkit === null && (await canCreateWallet(ctx, linked !== null))
+  const account = nearkit ?? linked
+  const text = create
+    ? noWalletYet(ctx.deps.config, linked ? { accountId: linked, near: await nearAvailable(ctx, linked) } : null)
+    : [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account), nearkit: nearkit !== null } : null), SAFETY].join('\n')
+  const menu = await mainMenu(ctx, { create })
+  if (edit) await ctx.show(text, menu)
+  else await ctx.reply(text, menu)
 }
 
 async function buybotInfo(ctx: BotCtx) {
