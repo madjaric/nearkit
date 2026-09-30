@@ -127,11 +127,18 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
     state.native ? `From your NearKit wallet ${code(shortAccount(state.account))}` : `Wallet ${code(state.account)}`,
     `Balance ${balance === null ? UNKNOWN : bold(`${fmt(balance, decimals, 4)} ${esc(unit)}`)}`,
   ]
+  const network = ctx.deps.config.network
   if (!buy && state.native) {
     const gas = await balanceOf(ctx, state.account, NATIVE_TOKEN_ID).catch(() => null)
-    if (gas !== null && gas < sellReserve())
-      head.push(`⚠️ Selling needs about ${esc(nearText(sellReserve()))} NEAR available for gas (mostly refunded). Deposit a little NEAR first.`)
+    if (gas !== null && gas < sellReserve(network))
+      head.push(
+        `⚠️ Selling needs up to ${esc(nearText(sellReserve(network)))} NEAR available, mostly gas the network holds while the swap runs and gives back within seconds. Deposit NEAR first.`,
+      )
   }
+  if (buy && state.native && balance !== null && balance < buyReserve(network))
+    head.push(
+      `⚠️ Buying needs up to ${esc(nearText(buyReserve(network)))} NEAR available besides the amount, mostly gas the network holds while the swap runs and gives back within seconds. The quote shows the exact amount.`,
+    )
 
   if (!buy && balance === 0n) {
     await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
@@ -145,7 +152,7 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
     const ids = await Promise.all(buttons.map((p) => put(p)))
     const presets = buttons.map((p, i) => btn(`${p} NEAR`, `tr:amt:${ids[i]}`))
     // MAX keeps NEAR back for gas bought upfront and registrations; everything is checked again before signing.
-    const reserve = state.native ? buyReserve() : GAS_RESERVE_YOCTO
+    const reserve = state.native ? buyReserve(network) : GAS_RESERVE_YOCTO
     const max = balance !== null && balance > reserve ? balance - reserve : null
     const maxId = max !== null ? await put(formatUnits(max, NEAR_DECIMALS)) : null
     rows = [presets, [...(max !== null && maxId ? [btn(`MAX · ${fmt(max, NEAR_DECIMALS, 2)}`, `tr:amt:${maxId}`)] : []), btn('✏️ Custom', 'tr:custom')]]

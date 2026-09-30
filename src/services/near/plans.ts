@@ -1,5 +1,5 @@
 import type { PlannedAction, PlannedTransaction, TokenRef } from '@/types/operations'
-import { estimateUpfrontYocto, GAS } from './gas'
+import { GAS, gasCostBoundYocto, gasPurchaseYocto, type GasAction, type GasTx } from './gas'
 import type { ConnectorTransaction } from './wallet'
 
 /**
@@ -97,13 +97,36 @@ export function txStorageYocto(tx: Pick<PlannedTransaction, 'actions'>): bigint 
   return sumBig(tx.actions.map((a) => (a.kind === 'call' && STORAGE_METHODS.has(a.method) ? BigInt(a.deposit) : 0n)))
 }
 
+/** Yocto a transaction attaches in all: registrations, NEAR it moves or wraps, 1-yocto security deposits. */
+export function txDepositYocto(tx: { actions: readonly GasAction[] }): bigint {
+  return sumBig(tx.actions.map((a) => ('deposit' in a ? BigInt(a.deposit) : 0n)))
+}
+
 /**
  * Yocto a transaction needs beyond the amount it moves and its storage: the NEP-642
  * gas purchase (mostly refunded) and 1-yocto security deposits.
  */
-export function txUpfrontYocto(tx: Pick<PlannedTransaction, 'actions' | 'gas'>): bigint {
+export function txUpfrontYocto(tx: GasTx): bigint {
   const security = sumBig(tx.actions.map((a) => (a.kind === 'call' && a.deposit === '1' ? 1n : 0n)))
-  return estimateUpfrontYocto({ transactions: 1, actions: tx.actions.length, attachedGas: BigInt(tx.gas), deposits: 0n }) + security
+  return gasPurchaseYocto(tx) + security
+}
+
+/**
+ * The most NEAR a plan needs available at once when its transactions go one after another, each
+ * sent only once the one before is final and its gas refund has landed (the custody engine checks
+ * that before every later step). A transaction needs its deposits and its gas purchase when the
+ * chain accepts it; each one before it has spent its deposits and at most `gasCostBoundYocto`.
+ */
+export function peakNeedYocto(txs: readonly GasTx[]): bigint {
+  let spent = 0n
+  let peak = 0n
+  for (const tx of txs) {
+    const deposits = txDepositYocto(tx)
+    const need = spent + deposits + gasPurchaseYocto(tx)
+    if (need > peak) peak = need
+    spent += deposits + gasCostBoundYocto(tx)
+  }
+  return peak
 }
 
 /** Plan warnings for registrations that cost more than usual, naming the contract and the account. */

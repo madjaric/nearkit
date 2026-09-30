@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createRpcClient } from '@/services/near/rpc'
+import { createFakeChain } from '@/services/real/testing/fakeChain'
 import { blockHashOf } from '@/services/real/testing/fakeRuntime'
 import { createChainAccess } from './chain'
 
@@ -65,5 +66,19 @@ describe('anchoring', () => {
     const e = endpoints({}, { head: 200_000, oldest: 150_000 })
     const a = await access(['https://a'], e.fetchImpl).anchor()
     expect(a).toMatchObject({ height: 200_000, expiresHeight: 286_400 })
+  })
+})
+
+describe('what a wallet can spend', () => {
+  const chainWith = (amount: bigint, storageUsage: number) => {
+    const chain = createFakeChain({ accounts: { 'alice.testnet': { amount, storageUsage } } })
+    return createChainAccess({ rpc: createRpcClient({ urls: ['https://rpc.test'], fetch: chain.fetch }), fetch: chain.fetch })
+  }
+
+  it('is the balance less the storage the account must keep; nothing for an account that does not exist', async () => {
+    // A zero-balance account (≤ 770 bytes) keeps nothing back; a larger one keeps 1e19 yocto per byte.
+    expect(await chainWith(5n * 10n ** 24n, 182).available('alice.testnet')).toBe(5n * 10n ** 24n)
+    expect(await chainWith(5n * 10n ** 24n, 1000).available('alice.testnet')).toBe(5n * 10n ** 24n - 1000n * 10n ** 19n)
+    expect(await chainWith(5n * 10n ** 24n, 182).available('ghost.testnet')).toBeNull()
   })
 })

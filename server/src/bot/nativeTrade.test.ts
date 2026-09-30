@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NETWORKS } from '@/config/networks'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { formatUnits } from '@/lib/amounts'
 import type { SwapQuote } from '../custody/swap'
@@ -6,10 +7,20 @@ import { buyReserve } from '../custody/swap'
 import { ALICE } from './testing'
 import { ONE, USDT, WRAP, walletBot } from './walletTesting'
 
-const usdtOf = (h: Awaited<ReturnType<typeof walletBot>>, account: string) => h.chain.tokens.get(USDT)?.balances.get(account) ?? 0n
-const nearOf = (h: Awaited<ReturnType<typeof walletBot>>, account: string) => h.chain.accounts.get(account)?.amount ?? 0n
+type Harness = Awaited<ReturnType<typeof walletBot>>
+const usdtOf = (h: Harness, account: string) => h.chain.tokens.get(USDT)?.balances.get(account) ?? 0n
+const nearOf = (h: Harness, account: string) => h.chain.accounts.get(account)?.amount ?? 0n
 /** Transactions that reached the chain (not dropped). */
-const landed = (h: Awaited<ReturnType<typeof walletBot>>) => h.chain.sent.filter((s) => s.mode === 'apply' || s.mode === 'timeout')
+const landed = (h: Harness) => h.chain.sent.filter((s) => s.mode === 'apply' || s.mode === 'timeout')
+/** The intent behind the Confirm button on screen. */
+const shownIntent = (h: Harness) => h.button('Confirm buy').slice('cx:ok:'.length)
+const shownNeed = async (h: Harness) => BigInt(((await h.custody.store.intent(shownIntent(h)))?.quote as unknown as SwapQuote).need ?? '0')
+/** Sets the wallet's NEAR to exactly `yocto`. */
+const setNear = (h: Harness, account: string, yocto: bigint) => {
+  const a = h.chain.accounts.get(account)
+  if (!a) throw new Error('no such account')
+  a.amount = yocto
+}
 
 describe('Buy from the NearKit wallet, entirely in Telegram', () => {
   it('buy by ticker: a compact quote, one Confirm, the result read from chain', async () => {
@@ -28,9 +39,11 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
       'NearKit fee none on testnet',
       'Network fee ≈',
       'Registration 0.0025 NEAR',
+      'of it is gas held while the swap runs, back within seconds',
       'Route NEAR → USDT · Rhea',
     ])
       expect(quote).toContain(part)
+    expect(quote).not.toContain('Deposit at least')
     // No browser, no web hand-off: the button runs the trade here.
     expect(h.buttons().some((b) => b.url)).toBe(false)
     const confirm = h.button('Confirm buy')
@@ -66,7 +79,7 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     const w = await h.funded(2n * ONE)
     await h.say('/buy USDT')
     const max = h.button('MAX')
-    expect(h.buttons().find((b) => b.data === max)?.text).toContain(formatUnits(2n * ONE - buyReserve(), 24, { maxFraction: 2, group: true }))
+    expect(h.buttons().find((b) => b.data === max)?.text).toContain(formatUnits(2n * ONE - buyReserve(NETWORKS.testnet), 24, { maxFraction: 2, group: true }))
     await h.press(max)
     await h.press(h.button('Confirm buy'))
     expect(h.last()?.text).toContain('Buy confirmed')
@@ -80,16 +93,79 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     expect(h.last()?.text).toContain('This belongs to NEAR mainnet while NearKit is using testnet.')
     await h.say('/buy USDT 1')
     expect(h.last()?.text).toContain('Not enough NEAR for this trade plus gas.')
-    // Enough for the amount, not for the gas bought upfront: refused at Confirm, nothing sent.
+    // The amount screen says up front that a buy needs NEAR for gas besides the amount.
+    await h.say('/buy USDT')
+    expect(h.last()?.text).toContain('⚠️ Buying needs up to')
+    await h.say('/cancel')
+    // Enough for the amount, not for the gas held upfront: the quote says so, and Confirm sends nothing.
     await h.say('/buy USDT 0.1')
+    expect(h.last()?.text).toContain('⚠️ Your NearKit wallet has 0.2 NEAR. Deposit at least')
     await h.press(h.button('Confirm buy'))
-    expect(h.last()?.text).toContain('Buy failed')
-    expect(h.last()?.text).toMatch(/NEAR available/)
+    const refused = h.last()?.text ?? ''
+    expect(refused).toContain('Buy failed')
+    expect(refused).toMatch(
+      /This buy needs [\d.]+ NEAR available and your NearKit wallet has 0\.2 NEAR: 0\.1 NEAR to swap, [\d.]+ NEAR for one-time registrations and [\d.]+ NEAR for gas/,
+    )
+    expect(refused).toContain('Deposit at least')
+    expect(refused).toContain('Nothing was sent.')
     expect(h.chain.sent).toHaveLength(0)
     h.market.noRoute = true
     await h.say('/buy USDT 0.1')
     expect(h.last()?.text).toContain('No route is available for this pair right now.')
     expect(h.chain.sent).toHaveLength(0)
+  })
+})
+
+describe('NEAR a buy needs: its steps one after another, gas refunded in between', () => {
+  it('a first buy goes through with exactly the NEAR its plan needs at its peak; 1 yocto less is refused and sends nothing', async () => {
+    for (const short of [1n, 0n]) {
+      const h = await walletBot()
+      const w = await h.funded(3n * ONE)
+      await h.say('/buy USDT 0.1')
+      const need = await shownNeed(h)
+      expect(need).toBeGreaterThan(ONE / 10n)
+      setNear(h, w.accountId, need - short)
+      await h.press(h.button('Confirm buy'))
+      if (short) {
+        expect(h.last()?.text).toContain('Buy failed')
+        expect(h.last()?.text).toContain('Deposit at least 0.0001 NEAR more.')
+        expect(h.chain.sent).toHaveLength(0)
+      } else {
+        expect(h.last()?.text).toContain('Buy confirmed')
+        // Registration on USDT, then wrap + swap.
+        expect(landed(h).map((s) => s.tx.receiverId)).toEqual([USDT, WRAP])
+        expect(usdtOf(h, w.accountId)).toBe(400_000n)
+      }
+    }
+  })
+
+  it('the swap is signed only once the registration’s gas refund has landed', async () => {
+    const h = await walletBot()
+    const w = await h.funded(3n * ONE)
+    await h.say('/buy USDT 0.1')
+    setNear(h, w.accountId, await shownNeed(h))
+    // The refund arrives only after a few more reads of the wallet's balance.
+    h.chain.lateRefunds(3)
+    await h.press(h.button('Confirm buy'))
+    expect(h.last()?.text).toContain('Buy confirmed')
+    expect(landed(h).map((s) => s.tx.receiverId)).toEqual([USDT, WRAP])
+  })
+
+  it('a refund that doesn’t land in time stops the plan before the swap: the registration went through, nothing more was signed', async () => {
+    const h = await walletBot()
+    const w = await h.funded(3n * ONE)
+    await h.say('/buy USDT 0.1')
+    setNear(h, w.accountId, await shownNeed(h))
+    const id = shownIntent(h)
+    h.chain.lateRefunds(10_000)
+    await h.press(h.button('Confirm buy'))
+    const text = h.last()?.text ?? ''
+    expect(text).toContain('Buy failed')
+    expect(text).toMatch(
+      /The next step needs [\d.]+ NEAR available and your NearKit wallet has [\d.]+ NEAR, so it wasn’t sent\. Earlier steps went through; see the transactions\./,
+    )
+    expect(landed(h).map((s) => s.tx.receiverId)).toEqual([USDT])
+    expect(await h.custody.store.txsOf(id)).toHaveLength(1)
   })
 })
 

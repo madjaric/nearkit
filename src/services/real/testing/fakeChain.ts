@@ -74,6 +74,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     validity: options.validity ?? 86_400,
     wrapContract: options.wrapContract ?? 'wrap.testnet',
     exchange: options.exchange ?? null,
+    refunds: { lag: 0, pending: [] },
   }
   const runtime = createRuntime(state)
   let sendMode: (tx: NearTransaction) => SendMode = () => 'apply'
@@ -148,6 +149,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
   async function handleRpc(body: { id?: unknown; method?: string; params?: Record<string, unknown> }): Promise<Response> {
     const { id, method, params = {} } = body
     if (method === 'query' && params.request_type === 'view_account') {
+      runtime.read(String(params.account_id))
       const a = accounts.get(String(params.account_id))
       if (!a) return rpcError(id, 'UNKNOWN_ACCOUNT', `account ${String(params.account_id)} does not exist while viewing`)
       return json({
@@ -254,6 +256,10 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     /** The lagging index catches up: hidden transactions become visible. */
     reveal() {
       hidden.clear()
+    },
+    /** Gas refunds land only after the signer's balance was read `reads` more times (0: at once). */
+    lateRefunds(reads: number) {
+      state.refunds.lag = reads
     },
     height: () => state.height.value,
     advance(blocks: number) {

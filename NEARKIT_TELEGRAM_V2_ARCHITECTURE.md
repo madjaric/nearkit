@@ -177,24 +177,47 @@ quoted ──Confirm──▶ confirmed ──fresh checks OK──▶ signing �
 - **Token entry:** ticker or exact contract. The exact contract is authoritative and read from chain, so brand-new tokens work. A token of the other network is refused in plain words.
 - **Amounts:**
   - Buy has the preset NEAR buttons, **MAX** and custom.
-  - MAX keeps back what the swap needs available: gas bought upfront for a 300 TGas swap plus registrations. That is about 0.36 NEAR under NearKit's gas model, most of it refunded after execution.
+  - MAX keeps back what the largest first buy needs besides its amount: every registration, and the gas the network holds while the swap runs. That is about 0.39 NEAR on mainnet; all of it but the network fee stays in the wallet.
   - Sell has 25/50/75/100% (exact raw amounts, so 100% sells everything) and custom. The screen warns when there isn't enough NEAR for gas.
 - **Quote (compact):**
   - you pay, you receive, and the minimum with its slippage;
   - price impact;
   - NearKit fee (0.50%, "none on testnet");
   - network fee and first-time registrations;
+  - what the wallet needs available, and how much of it is gas held while the swap runs. When the wallet has less, how much to deposit;
   - route;
   - validity (60 s).
 - **Every confirmation names the wallet** it trades from.
 - **At Confirm:**
   - A fresh route is fetched, bound to the wallet and verified.
   - It is sent only if **its minimum is at least the minimum the user confirmed** and no cost the user didn't see was added. Otherwise the new quote is shown ("Quote changed. Review the new price.") and nothing is sent.
-  - The wallet's input balance and the NEAR for registrations and gas are checked right before signing.
+  - The wallet's input balance and the NEAR the plan needs at its peak are checked right before signing (see "NEAR a trade needs" below).
 - **Result:**
   - Read from the chain's own record (`flows.ts`): spent, received, NearKit fee and transaction link. Nothing is invented; unknown figures show as —.
   - A swap the exchange refunds is a failed buy: the NEAR came back as wNEAR, and **Unwrap** is offered.
 - **Without a NearKit wallet:** the non-custodial web hand-off stays; the user's own wallet signs in NearKit web.
+
+#### NEAR a trade needs
+
+- **The rule (NEP-642, protocol 85+):** when the chain accepts a transaction, it holds its attached gas and execution fees at 0.001 NEAR per TGas. After execution it refunds everything but the gas actually burnt, at the real gas price (a tenth of that today). The swap call attaches 300 TGas (the route's receipts burn about 85 TGas), so a swap transaction needs about 0.31–0.32 NEAR available for a few seconds. It really costs about 0.008 NEAR.
+- **Steps go one after another.** Registrations, then Rhea registrations, then wrap and swap; each step is sent only once the one before is final. So a plan needs the largest step's gas once, not every step's gas summed:
+  - the peak is the amount;
+  - plus every registration deposit;
+  - plus each earlier step's gas, counted as if it burnt all of it at twice the minimum gas price (real steps burn a quarter of it or less at the minimum);
+  - plus the swap's own held gas.
+
+  `peakNeedYocto` computes this. `txGas` computes a transaction's gas exactly as nearcore's `tx_cost` does. It matches mainnet to the unit on NearKit's real transactions.
+- **The engine checks each later step before signing it:** the wallet must be able to pay that step's deposits and held gas. If the previous step's refund is still on its way, the engine waits for it (up to 20 s). If the wallet still can't pay, it stops cleanly: "Earlier steps went through". Nothing more is signed.
+- **Measured on mainnet (2026-09-30)** for the production wallet, buying 0.05 NEAR of USDT, route NEAR → RHEA → USDt (four transactions):
+
+  | | NEAR available |
+  |---|---|
+  | NearKit requires (first buy, 0.02375 NEAR of registrations) | 0.413929 |
+  | The chain itself (typical burns between steps) | ≈ 0.3984 |
+  | Before this rule, every step's gas summed | 0.481603 |
+  | A repeat buy, everything registered | 0.362274 |
+
+  Whatever the trade size, a wallet that trades keeps about 0.31 NEAR idle as gas float.
 
 ### 2.6 Withdrawals to any address, approved by the owner
 

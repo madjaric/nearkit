@@ -1,9 +1,11 @@
 import { base58Decode } from '@/lib/encoding'
+import { accountState } from '@/services/near/account'
 import { createRpcClient, RpcError, type RpcClient, type RpcTxResult } from '@/services/near/rpc'
 
 /**
  * What the trading-wallet engine asks the chain: a key's nonce, a block to anchor
- * a transaction to, sending signed bytes, and a transaction's final status.
+ * a transaction to, what a wallet can spend, sending signed bytes, and a
+ * transaction's final status.
  *
  * Anchoring: a NEAR transaction stays valid for `transaction_validity_period`
  * blocks (86,400: about a day) after the block it names. NearKit names a final
@@ -32,6 +34,8 @@ export interface ChainAccess {
   keyNonce(accountId: string, publicKey: string): Promise<bigint | null>
   anchor(): Promise<Anchor>
   finalHeight(): Promise<number>
+  /** NEAR the account can spend in the final state (its balance less the storage it must keep), or null when it doesn't exist. */
+  available(accountId: string): Promise<bigint | null>
   send(signedBase64: string): Promise<SendResult>
   /** Final status, or null when the chain doesn't know the hash (yet). Throws when it can't be asked. */
   status(hash: string, signerId: string): Promise<RpcTxResult | null>
@@ -105,6 +109,11 @@ export function createChainAccess(opts: { rpc: RpcClient; fetch?: typeof fetch; 
 
     async finalHeight() {
       return (await block({ finality: 'final' })).header.height
+    },
+
+    async available(accountId) {
+      const state = await accountState(rpc, accountId, 'final')
+      return state.exists ? state.availableYocto : null
     },
 
     async send(signedBase64) {

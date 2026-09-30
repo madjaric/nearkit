@@ -1,5 +1,5 @@
 import { NEAR_DECIMALS } from '@/config/networks'
-import { formatUnits } from '@/lib/amounts'
+import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPct } from '@/lib/format'
 import type { Intent } from '../custody/store'
@@ -30,6 +30,9 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
   const wallet = await deps.custody?.store.wallet(intent.walletId)
   const fee = q.fee.charged && q.fee.amountRaw !== null ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `none on ${deps.config.network.id}`
   const registration = BigInt(q.registration)
+  const need = q.need !== undefined ? BigInt(q.need) : null
+  const available = q.available !== undefined ? BigInt(q.available) : null
+  const up = (yocto: bigint) => formatUnitsUp(yocto, NEAR_DECIMALS, 4)
   const seconds = Math.max(0, Math.round((intent.expiresAt - deps.now()) / 1000))
   return [
     `${buy ? '🟢' : '🔴'} ${bold(`${buy ? 'Buy' : 'Sell'} ${p.symbol}`)}`,
@@ -43,6 +46,12 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     `NearKit fee ${esc(fee)}`,
     `Network fee ≈ ${esc(nearText(BigInt(q.networkFeeNear)))} NEAR`,
     ...(registration > 0n ? [`Registration ${esc(nearText(registration, 5))} NEAR · first time with a token here`] : []),
+    ...(need !== null
+      ? [`Needs ${bold(`${up(need)} NEAR`)} available · ${up(need - (buy ? BigInt(q.amountInRaw) : 0n) - registration)} of it is gas held while the swap runs, back within seconds`]
+      : []),
+    ...(need !== null && available !== null && available < need
+      ? [`⚠️ Your NearKit wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
+      : []),
     `Route ${esc(q.path.join(' → '))} · Rhea`,
     '',
     `⏱ Valid for ${seconds}s. Right before sending, NearKit checks the price again; if you’d get less than the minimum, it asks you first.`,

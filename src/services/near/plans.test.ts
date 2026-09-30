@@ -9,11 +9,14 @@ import {
   MAX_TXS_PER_APPROVAL,
   storageDepositAction,
   toConnectorTransaction,
+  peakNeedYocto,
+  txDepositYocto,
   txStorageYocto,
   txUpfrontYocto,
   type TransferLineInput,
 } from './plans'
-import { GAS } from './gas'
+import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
+import { GAS, gasCostBoundYocto, gasPurchaseYocto } from './gas'
 
 const USDC: TokenRef = { id: 'usdc.testnet', symbol: 'USDC', decimals: 6, contract: 'usdc.testnet' }
 const MIN_STORAGE = 1_250_000_000_000_000_000_000n
@@ -140,17 +143,62 @@ describe('toConnectorTransaction', () => {
 })
 
 describe('transaction costs', () => {
-  it('counts registrations as storage and only gas plus 1-yocto deposits as upfront', () => {
-    const tx = {
-      gas: (10n * 10n ** 12n + 10n * 10n ** 12n + 30n * 10n ** 12n).toString(),
-      actions: [
-        storageDepositAction('bob.near', 1250n),
-        { kind: 'call' as const, method: 'tokens_storage_deposit', args: {}, gas: (30n * 10n ** 12n).toString(), deposit: '5000' },
-        ftTransferAction('bob.near', 7n),
-      ],
-    }
+  const tx = {
+    receiverId: 'aggregatedex.near',
+    actions: [
+      storageDepositAction('bob.near', 1250n),
+      { kind: 'call' as const, method: 'tokens_storage_deposit', args: {}, gas: (30n * 10n ** 12n).toString(), deposit: '5000' },
+      ftTransferAction('bob.near', 7n),
+    ],
+  }
+
+  it('counts registrations as storage, every deposit as deposits, and gas plus 1-yocto deposits as upfront', () => {
     expect(txStorageYocto(tx)).toBe(6250n)
-    // 50 TGas attached + 3 × 0.8 + 0.5 TGas overhead, bought at 1e9 yocto/gas, plus the 1-yocto deposit.
-    expect(txUpfrontYocto(tx)).toBe((50n * 10n ** 12n + 3n * 800_000_000_000n + 500_000_000_000n) * 10n ** 9n + 1n)
+    expect(txDepositYocto(tx)).toBe(6251n)
+    // The gas the chain holds when it accepts the transaction (NEP-642), plus the 1-yocto deposit.
+    expect(txUpfrontYocto(tx)).toBe(gasPurchaseYocto(tx) + 1n)
+  })
+})
+
+describe('peak NEAR a plan needs, its transactions sent one after another', () => {
+  const NEAR = 10n ** 24n
+  const WALLET = '9'.repeat(64)
+  const amount = NEAR / 20n // 0.05 NEAR
+  // A first mainnet buy of USDT: register on USDT, register tokens with Rhea, then wrap and swap.
+  const firstBuy = buildSwapTransactions({
+    signerId: WALLET,
+    wrap: { contract: 'wrap.near', amount, registerDeposit: 1_250_000_000_000_000_000_000n },
+    registrations: [{ contract: 'usdt.tether-token.near', accountId: WALLET, deposit: 1_250_000_000_000_000_000_000n }],
+    aggregatorDeposits: {
+      contract: 'aggregatedex.near',
+      entries: [
+        { user: WALLET, tokens: ['wrap.near', 'usdt.tether-token.near'], deposit: 10n ** 22n },
+        { user: 'nearkitfee.near', tokens: ['wrap.near'], deposit: 5n * 10n ** 21n },
+      ],
+    },
+    swap: { tokenContract: 'wrap.near', receiverId: 'aggregatedex.near', amount, msg: 'x'.repeat(1900) },
+    label: 'NEAR → USDT',
+  })
+
+  it('a single transaction needs its deposits and its gas purchase', () => {
+    const [only] = firstBuy.slice(-1)
+    if (!only) throw new Error('no tx')
+    expect(peakNeedYocto([only])).toBe(txDepositYocto(only) + gasPurchaseYocto(only))
+  })
+
+  it('earlier steps are final, refunded and counted at most their deposits and gas cost bound, so the swap’s purchase is held once', () => {
+    expect(firstBuy.map((t) => t.receiverId)).toEqual(['usdt.tether-token.near', 'aggregatedex.near', 'wrap.near'])
+    const [reg, agg, swap] = firstBuy as [(typeof firstBuy)[0], (typeof firstBuy)[0], (typeof firstBuy)[0]]
+    const expected = txDepositYocto(reg) + gasCostBoundYocto(reg) + txDepositYocto(agg) + gasCostBoundYocto(agg) + txDepositYocto(swap) + gasPurchaseYocto(swap)
+    expect(peakNeedYocto(firstBuy)).toBe(expected)
+    // Summing every step's purchase instead (the old check) asks for the registrations' 0.07 NEAR of gas again.
+    const summed = firstBuy.reduce((s, t) => s + txDepositYocto(t) + gasPurchaseYocto(t), 0n)
+    expect(summed - peakNeedYocto(firstBuy)).toBeGreaterThan(55n * 10n ** 21n)
+  })
+
+  it('the peak can be an earlier step', () => {
+    const big = { receiverId: 'a.near', actions: [{ kind: 'call' as const, method: 'm', args: {}, gas: (300n * 10n ** 12n).toString(), deposit: '0' }] }
+    const small = { receiverId: 'b.near', actions: [{ kind: 'call' as const, method: 'm', args: {}, gas: (10n * 10n ** 12n).toString(), deposit: '0' }] }
+    expect(peakNeedYocto([big, small])).toBe(gasPurchaseYocto(big))
   })
 })

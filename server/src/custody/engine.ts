@@ -1,4 +1,8 @@
+import { NEAR_DECIMALS } from '@/config/networks'
+import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { toNearKitError } from '@/services/near/errors'
+import { gasPurchaseYocto } from '@/services/near/gas'
+import { txDepositYocto } from '@/services/near/plans'
 import type { RpcTxResult } from '@/services/near/rpc'
 import { randomToken } from '../ids'
 import type { Logger } from '../log'
@@ -96,7 +100,15 @@ export interface EngineDeps {
   instanceId?: string
   /** How long an execution lease lasts without renewal. */
   leaseMs?: number
+  /** How long a later step waits for the wallet to be able to pay for it (REFUND_WAIT_MS). */
+  refundWaitMs?: number
 }
+
+/**
+ * A later step waits at most this long for the step before to refund its gas. Refunds land a
+ * block or two after the receipts that make them, so this only runs out when something is wrong.
+ */
+export const REFUND_WAIT_MS = 20_000
 
 /** Past expiry with the key's nonce moved but no such transaction on chain: wait this long before calling it unconfirmed. */
 export const AMBIGUOUS_GRACE_BLOCKS = 3_000
@@ -141,6 +153,35 @@ export function createEngine(deps: EngineDeps) {
     }
   }
 
+  /**
+   * Waits until the wallet can pay for a later step: its deposits and the gas the chain holds when
+   * it accepts it (NEP-642). Right after the step before, part of that gas may still be on its way
+   * back. Null when the step can go, or when the balance can't be read (the chain itself refuses
+   * what can't be paid for); otherwise why it can't.
+   */
+  async function fundsFor(intent: Intent, accountId: string, tx: WalletTxPlan, keep: () => Promise<boolean>): Promise<string | null> {
+    const need = txDepositYocto(tx) + gasPurchaseYocto(tx)
+    const stop = now() + (deps.refundWaitMs ?? REFUND_WAIT_MS)
+    let wait = 500
+    for (;;) {
+      let available: bigint | null
+      try {
+        available = await chain.available(accountId)
+      } catch (e) {
+        log.warn('balance unreadable before a later step; the chain checks it', { intent: intent.id, error: e })
+        return null
+      }
+      if (available !== null && available >= need) return null
+      if (now() >= stop) {
+        const has = available === null ? 'no NEAR' : `${formatUnits(available, NEAR_DECIMALS, { maxFraction: 4 })} NEAR`
+        return `The next step needs ${formatUnitsUp(need, NEAR_DECIMALS, 4)} NEAR available and your NearKit wallet has ${has}, so it wasn’t sent.`
+      }
+      if (!(await keep())) throw new LeaseLostError(intent.id)
+      await sleep(wait)
+      wait = Math.min(wait * 2, 4000)
+    }
+  }
+
   async function settle(intent: Intent, wallet: TradingWallet, confirmed: ConfirmedTx[]): Promise<{ intent: Intent; moved: boolean }> {
     const handler = deps.handlers[intent.kind]
     const hashes = confirmed.map((c) => c.hash)
@@ -172,6 +213,21 @@ export function createEngine(deps: EngineDeps) {
       // Only the lease holder signs: if another instance took the intent over, stop here.
       if (!(await keep())) throw new LeaseLostError(intent.id)
       const tx = plan[step] as WalletTxPlan
+      // The plan's funds were checked before the first step, counting on each step's gas refund.
+      if (step > 0) {
+        const short = await fundsFor(intent, wallet.accountId, tx, keep)
+        if (short) {
+          log.warn('a later step can’t be paid for; stopping', { intent: intent.id, step })
+          return {
+            kind: 'finished',
+            intent: await fail(
+              intent,
+              `${short} Earlier steps went through; see the transactions.`,
+              confirmed.map((c) => c.hash),
+            ),
+          }
+        }
+      }
       let signed
       let expiresHeight: number
       let nonce: bigint

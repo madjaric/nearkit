@@ -1,13 +1,12 @@
-import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
-import { formatUnits } from '@/lib/amounts'
+import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/networks'
+import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { detectTrades, fromRpc } from '@/services/near/flows'
-import { estimateUpfrontYocto, GAS } from '@/services/near/gas'
 import { classifyOutcome } from '@/services/near/outcome'
-import { txStorageYocto, txUpfrontYocto } from '@/services/near/plans'
+import { peakNeedYocto, txStorageYocto } from '@/services/near/plans'
 import { HIGH_REGISTRATION_YOCTO } from '@/services/near/storage'
 import { aggregatorFee, grossOf } from '@/services/rhea/fees'
 import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
@@ -50,6 +49,13 @@ export interface SwapQuote {
   fee: { charged: boolean; bps: number; amountRaw: string | null; token: string | null; routerShareBps: number | null }
   /** Registrations this trade needs first (yocto), shown on the quote. */
   registration: string
+  /**
+   * NEAR the wallet must have available when the trade starts (yocto): the amount, the
+   * registrations and the gas the network holds while it runs (peakNeedYocto of its plan).
+   */
+  need?: string
+  /** NEAR the wallet had available when quoted (yocto); absent when it couldn't be read. */
+  available?: string
   networkFeeNear: string
   quotedAt: number
   expiresAt: number
@@ -61,19 +67,65 @@ export const SWAP_QUOTE_TTL_MS = 60_000
 const SWAP_BURN_YOCTO = 5n * 10n ** 21n
 const WRAP_BURN_YOCTO = 5n * 10n ** 20n
 
+/** Stand-ins for the reserves' plans: only the size of each transaction matters. */
+const RESERVE_WALLET = '0'.repeat(64)
+const RESERVE_TOKEN = 'token.near'
+const RESERVE_ROUTER = 'router.near'
+/** Twice the longest aggregator route message seen on mainnet (about 2 KB). */
+const RESERVE_MSG = 'x'.repeat(4096)
+
 /**
- * NEAR a buy keeps back beyond its amount: gas bought upfront for the swap and a
- * registration (mostly refunded after), plus two registrations. MAX uses it.
+ * The largest plan a first trade can have: every registration at the high price, Rhea entries
+ * for three route tokens and two fee tokens, a long route message. Amount 0: a buy's amount
+ * adds to its peak one for one.
  */
-export function buyReserve(): bigint {
-  const swapTx = estimateUpfrontYocto({ transactions: 1, actions: 3, attachedGas: GAS.STORAGE_DEPOSIT + GAS.NEAR_DEPOSIT + GAS.SWAP_CALL, deposits: 1n })
-  const regTx = estimateUpfrontYocto({ transactions: 1, actions: 1, attachedGas: GAS.STORAGE_DEPOSIT, deposits: 0n })
-  return swapTx + regTx + 2n * HIGH_REGISTRATION_YOCTO + 10n ** 21n
+function reservePlan(network: NetworkConfig, side: 'buy' | 'sell'): PlannedTransaction[] {
+  const per = network.rhea.aggregator ? BigInt(network.rhea.aggregator.tokenStorageDeposit) : 0n
+  const wrap = network.wrapContract
+  const input = side === 'buy' ? wrap : RESERVE_TOKEN
+  return buildSwapTransactions({
+    signerId: RESERVE_WALLET,
+    wrap: side === 'buy' ? { contract: wrap, amount: 0n, registerDeposit: HIGH_REGISTRATION_YOCTO } : null,
+    registrations: [{ contract: side === 'buy' ? RESERVE_TOKEN : wrap, accountId: RESERVE_WALLET, deposit: HIGH_REGISTRATION_YOCTO }],
+    aggregatorDeposits: per
+      ? {
+          contract: RESERVE_ROUTER,
+          entries: [
+            { user: RESERVE_WALLET, tokens: [wrap, RESERVE_TOKEN, 'mid.near'], deposit: 3n * per },
+            { user: 'fee.near', tokens: [wrap, RESERVE_TOKEN], deposit: 2n * per },
+          ],
+        }
+      : null,
+    swap: { tokenContract: input, receiverId: RESERVE_ROUTER, amount: 0n, msg: RESERVE_MSG },
+    label: 'reserve',
+  })
 }
 
-/** NEAR a sell needs available for gas bought upfront (mostly refunded). */
-export function sellReserve(): bigint {
-  return estimateUpfrontYocto({ transactions: 1, actions: 1, attachedGas: GAS.SWAP_CALL, deposits: 1n }) + HIGH_REGISTRATION_YOCTO
+/**
+ * NEAR a buy needs available besides its amount, at most (a first buy with every registration):
+ * mostly gas the network holds while the swap runs. MAX keeps it back.
+ */
+export function buyReserve(network: NetworkConfig): bigint {
+  return peakNeedYocto(reservePlan(network, 'buy'))
+}
+
+/** NEAR a sell needs available, at most: registrations and the gas held while the swap runs. */
+export function sellReserve(network: NetworkConfig): bigint {
+  return peakNeedYocto(reservePlan(network, 'sell'))
+}
+
+/** The requirement in words: what it is made of and how much is missing. */
+function fundsText(side: 'buy' | 'sell', need: bigint, nearIn: bigint, registration: bigint, available: bigint): string {
+  const up = (y: bigint) => formatUnitsUp(y, NEAR_DECIMALS, 4)
+  const parts = [
+    ...(nearIn ? [`${formatUnits(nearIn, NEAR_DECIMALS)} NEAR to swap`] : []),
+    ...(registration ? [`${formatUnitsUp(registration, NEAR_DECIMALS, 5)} NEAR for one-time registrations`] : []),
+  ]
+  const gas = `${up(need - nearIn - registration)} NEAR for gas, which the network holds while the swap runs and gives back within seconds, all but the network fee`
+  return (
+    `This ${side} needs ${up(need)} NEAR available and your NearKit wallet has ${formatUnits(available, NEAR_DECIMALS, { maxFraction: 4 })} NEAR: ` +
+    `${parts.length ? `${parts.join(', ')} and ${gas}` : gas}. Deposit at least ${up(need - available)} NEAR more.`
+  )
 }
 
 export const requestOf = (p: SwapParams, walletAccount: string): QuoteRequest => ({
@@ -138,8 +190,8 @@ export function createSwapService(near: ServerNear) {
     return { txs, registration: txs.reduce((s, t) => s + txStorageYocto(t), 0n) }
   }
 
-  async function toQuote(r: RoutedSwap, registration: bigint): Promise<SwapQuote> {
-    const [symbols, impact] = await Promise.all([mapLimit(r.routeTokens, 4, symbolOf), impactOf(r)])
+  async function toQuote(r: RoutedSwap, registration: bigint, txs: PlannedTransaction[], wallet: TradingWallet): Promise<SwapQuote> {
+    const [symbols, impact, state] = await Promise.all([mapLimit(r.routeTokens, 4, symbolOf), impactOf(r), accountState(ctx.rpc, wallet.accountId, 'final').catch(() => null)])
     const path = symbols.map((s, i) => ((i === 0 && r.tokenIn.contract === null) || (i === symbols.length - 1 && r.tokenOut.contract === null) ? 'NEAR' : s))
     let fee: SwapQuote['fee'] = { charged: false, bps: NEARKIT_FEE_BPS, amountRaw: null, token: null, routerShareBps: null }
     if (r.fee) {
@@ -164,16 +216,21 @@ export function createSwapService(near: ServerNear) {
       priceImpactPct: impact,
       fee,
       registration: registration.toString(),
+      need: peakNeedYocto(txs).toString(),
+      ...(state ? { available: state.availableYocto.toString() } : {}),
       networkFeeNear: burn.toString(),
       quotedAt: r.quotedAt,
       expiresAt: r.quotedAt + SWAP_QUOTE_TTL_MS,
     }
   }
 
-  /** The wallet must hold the input, and the NEAR for registrations and gas bought upfront. */
-  async function checkFunds(r: RoutedSwap, wallet: TradingWallet, txs: PlannedTransaction[]) {
+  /**
+   * The wallet must hold the input, and at the plan's peak the NEAR for registrations and the gas
+   * the network holds upfront. Steps go one after another, each once the one before is refunded.
+   */
+  async function checkFunds(r: RoutedSwap, side: 'buy' | 'sell', wallet: TradingWallet, txs: PlannedTransaction[]) {
     const storage = txs.reduce((s, t) => s + txStorageYocto(t), 0n)
-    const upfront = txs.reduce((s, t) => s + txUpfrontYocto(t), 0n)
+    const need = peakNeedYocto(txs)
     const [state, held] = await Promise.all([
       accountState(ctx.rpc, wallet.accountId, 'final'),
       r.tokenIn.contract ? ctx.reader.balanceOf(r.tokenIn.contract, wallet.accountId) : Promise.resolve(null),
@@ -182,13 +239,7 @@ export function createSwapService(near: ServerNear) {
     if (held !== null && held < r.amountIn)
       throw new NearKitError('INSUFFICIENT_BALANCE', `Your NearKit wallet holds ${formatUnits(held, r.tokenIn.decimals, { maxFraction: 6 })} ${r.tokenIn.symbol}.`)
     const nearIn = r.tokenIn.contract === null ? r.amountIn : 0n
-    const need = nearIn + storage + upfront
-    if (state.availableYocto < need) {
-      throw new NearKitError(
-        r.tokenIn.contract === null ? 'INSUFFICIENT_BALANCE' : 'INSUFFICIENT_GAS',
-        `This needs ${formatUnits(need, NEAR_DECIMALS, { maxFraction: 4 })} NEAR available${nearIn ? ` (${formatUnits(nearIn, NEAR_DECIMALS, { maxFraction: 4 })} to swap, the rest for gas bought upfront and mostly refunded)` : ' for gas bought upfront (mostly refunded)'}. Your NearKit wallet has ${formatUnits(state.availableYocto, NEAR_DECIMALS, { maxFraction: 4 })} NEAR.`,
-      )
-    }
+    if (state.availableYocto < need) throw new NearKitError(nearIn ? 'INSUFFICIENT_BALANCE' : 'INSUFFICIENT_GAS', fundsText(side, need, nearIn, storage, state.availableYocto))
   }
 
   const handler: IntentHandler = {
@@ -204,8 +255,8 @@ export function createSwapService(near: ServerNear) {
       const { txs, registration } = await plan(r, wallet)
       // Less than the confirmed minimum, or a cost the user didn't see: ask again, send nothing.
       if (r.minOut < BigInt(shown.minOut) || registration > BigInt(shown.registration))
-        return { kind: 'requote', quote: { ...(await toQuote(r, registration)) }, ttlMs: SWAP_QUOTE_TTL_MS }
-      await checkFunds(r, wallet, txs)
+        return { kind: 'requote', quote: { ...(await toQuote(r, registration, txs, wallet)) }, ttlMs: SWAP_QUOTE_TTL_MS }
+      await checkFunds(r, params.side, wallet, txs)
       return { kind: 'plan', op: { kind: 'swap', route: routeFacts(r), authorizedMinOut: BigInt(shown.minOut) }, plan: toWalletPlan(txs) }
     },
 
@@ -254,8 +305,8 @@ export function createSwapService(near: ServerNear) {
     /** A quote for the Telegram review: the route bound to the wallet, and what it needs registered first. */
     async quote(params: SwapParams, wallet: TradingWallet): Promise<SwapQuote> {
       const r = await router.route(requestOf(params, wallet.accountId), wallet.accountId, false)
-      const { registration } = await plan(r, wallet)
-      return toQuote(r, registration)
+      const { txs, registration } = await plan(r, wallet)
+      return toQuote(r, registration, txs, wallet)
     },
   }
 }

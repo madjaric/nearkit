@@ -1,4 +1,5 @@
 import { base58Decode, base58Encode, base64Encode, hexDecode } from '@/lib/encoding'
+import { FEES, GAS_BUY_PRICE, MIN_GAS_PRICE } from '@/services/near/gas'
 import type { RpcOutcomeWithId, RpcReceipt, RpcTxResult } from '@/services/near/rpc'
 import { deserializeSignedTransaction, transactionDigest, type NearTransaction, type TxAction } from '@/services/near/transaction'
 import type { FakeToken } from './fakeChain'
@@ -10,7 +11,9 @@ import type { FakeToken } from './fakeChain'
  * exactly as it reads the real chain.
  *
  * - Checks: signature (ed25519 over SHA-256), full-access key, nonce, expiry of
- *   the anchor block, enough NEAR for deposits and gas.
+ *   the anchor block, enough NEAR for the deposits and the gas the chain holds
+ *   upfront (NEP-642, `gasHeld`). All of that gas but FAKE_GAS_BURN comes back after
+ *   execution, at once or (`refunds.lag`) only after a few reads of the balance.
  * - Accounts: Transfer (creating implicit accounts), AddKey, DeleteKey.
  * - NEP-141/145 tokens: storage_deposit, ft_transfer, ft_transfer_call; the wrap
  *   contract also near_deposit / near_withdraw with its legacy text logs.
@@ -36,10 +39,52 @@ export interface RuntimeState {
   validity: number
   wrapContract: string
   exchange: { contract: string; rate: (tokenIn: string, tokenOut: string, amountIn: bigint) => bigint } | null
+  /** Gas refunds land after `lag` more reads of the signer's balance (0: with the transaction). */
+  refunds: { lag: number; pending: { account: string; amount: bigint; reads: number }[] }
 }
 
 /** Gas NearKit's fake chain burns per transaction: 0.0003 NEAR. */
 export const FAKE_GAS_BURN = 3n * 10n ** 20n
+
+/**
+ * What the chain holds for a transaction's gas when it accepts it, counted the way nearcore's
+ * tx_cost does (written from nearcore, not from NearKit's estimate, so a test fails if NearKit
+ * asks for less than the chain): send fees at the gas price, attached gas and execution fees at
+ * the NEP-642 purchase floor. A transfer to an implicit account also pays for creating it.
+ */
+export function gasHeld(tx: NearTransaction): bigint {
+  const toSelf = tx.signerId === tx.receiverId
+  let burnt = FEES.receipt.send
+  let bought = FEES.receipt.exec
+  for (const a of tx.actions) {
+    switch (a.type) {
+      case 'FunctionCall': {
+        const bytes = BigInt(new TextEncoder().encode(a.methodName).length + a.args.length)
+        burnt += FEES.functionCall.send + bytes * (toSelf ? FEES.functionCallByte.sendSir : FEES.functionCallByte.sendNotSir)
+        bought += a.gas + FEES.functionCall.exec + bytes * FEES.functionCallByte.exec
+        break
+      }
+      case 'Transfer':
+        burnt += FEES.transfer.send
+        bought += FEES.transfer.exec
+        if (implicitKeyOf(tx.receiverId) !== null) {
+          burnt += FEES.createAccount.send + FEES.addFullAccessKey.send
+          bought += FEES.createAccount.exec + FEES.addFullAccessKey.exec
+        }
+        break
+      case 'AddKey':
+        // Full-access key fees; a function-call key costs a little more per method name byte.
+        burnt += FEES.addFullAccessKey.send
+        bought += FEES.addFullAccessKey.exec
+        break
+      case 'DeleteKey':
+        burnt += FEES.deleteKey.send
+        bought += FEES.deleteKey.exec
+        break
+    }
+  }
+  return burnt * MIN_GAS_PRICE + bought * GAS_BUY_PRICE
+}
 
 export class TxRejection extends Error {
   constructor(readonly kind: string) {
@@ -125,6 +170,13 @@ export function createRuntime(state: RuntimeState) {
     if (!key) throw new Panic(`AccountDoesNotExist: ${id}`)
     accounts.set(id, { amount, keys: { [key]: 'full' } })
     nonces.set(nonceKey(id, key), BigInt(state.height.value) * 1_000_000n)
+  }
+
+  /** A gas refund: now, or queued until the signer's balance has been read `refunds.lag` more times. */
+  function refund(id: string, amount: bigint) {
+    if (amount <= 0n) return
+    if (state.refunds.lag > 0) state.refunds.pending.push({ account: id, amount, reads: state.refunds.lag })
+    else credit(id, amount)
   }
 
   function tokenOf(id: string): FakeToken {
@@ -326,6 +378,19 @@ export function createRuntime(state: RuntimeState) {
   }
 
   return {
+    /** The balance of `id` is being read: queued refunds whose time has come land first. */
+    read(id: string) {
+      const { pending } = state.refunds
+      for (const r of [...pending]) {
+        if (r.account !== id) continue
+        if (r.reads > 0) r.reads -= 1
+        else {
+          pending.splice(pending.indexOf(r), 1)
+          credit(r.account, r.amount)
+        }
+      }
+    },
+
     /** Executes a signed transaction; throws TxRejection when the chain would refuse it outright. */
     async execute(signedBase64: string): Promise<{ hash: string; result: RpcTxResult; tx: NearTransaction }> {
       let decoded
@@ -352,11 +417,13 @@ export function createRuntime(state: RuntimeState) {
       if (anchor === null || anchor > state.height.value) throw new TxRejection('InvalidChain')
       if (state.height.value - anchor > state.validity) throw new TxRejection('Expired')
       const deposits = tx.actions.reduce((s, a) => s + (a.type === 'Transfer' || a.type === 'FunctionCall' ? a.deposit : 0n), 0n)
-      if (signer.amount < deposits + FAKE_GAS_BURN) throw new TxRejection('NotEnoughBalance')
+      const gas = gasHeld(tx)
+      const held = gas > FAKE_GAS_BURN ? gas : FAKE_GAS_BURN
+      if (signer.amount < deposits + held) throw new TxRejection('NotEnoughBalance')
 
-      // Accepted: the nonce is used and the gas is paid whatever the actions do.
+      // Accepted: the nonce is used and the gas is bought whatever the actions do; all but the burn comes back.
       nonces.set(nonceKey(tx.signerId, tx.publicKey), tx.nonce)
-      signer.amount -= deposits + FAKE_GAS_BURN
+      signer.amount -= deposits + held
       state.height.value += 1
 
       const restore = snapshot()
@@ -395,6 +462,8 @@ export function createRuntime(state: RuntimeState) {
         trail.length = 0
         logs.length = 0
       }
+
+      refund(tx.signerId, held - FAKE_GAS_BURN)
 
       const first: Exec = {
         predecessor: tx.signerId,
