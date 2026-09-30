@@ -30,6 +30,8 @@ import { createSignerCore } from '../signer/core'
 import { createRouteOracle } from '../signer/routes'
 import { migrateSigner } from '../signer/schema'
 import { SignerStore } from '../signer/store'
+import { telegramSigner } from '../signer/testing'
+import { createTelegramApprovals } from '../custody/telegramApprovals'
 import type { CustodyDeps } from '../custody/wallets'
 import { withdrawHandler } from '../custody/withdraw'
 import { createSwapService } from '../custody/swap'
@@ -54,6 +56,9 @@ export const GROUP: TgChat = { id: -100555, type: 'supergroup', title: 'Test gro
 /** Test-only key-encryption key for trading wallets. */
 export const TEST_KEK = Buffer.alloc(32, 42).toString('base64')
 
+/** The harness bot (getMe): Telegram signs its Mini App launches for this id. */
+export const BOT_ME = { id: 1111111111, username: 'NearKitBot' }
+
 export async function botHarness(
   options: {
     env?: Record<string, string>
@@ -68,6 +73,8 @@ export async function botHarness(
     remoteSigner?: boolean
     /** Where the bot and the engine log (silent by default). */
     log?: Logger
+    /** False: the signer checks no Mini App approvals (a server without them set up). */
+    telegramApprovals?: boolean
   } = {},
 ) {
   const log = options.log ?? silentLogger
@@ -99,6 +106,8 @@ export async function botHarness(
     onTraded: (t) => onHandoffTraded(t),
   })
   let custody: CustodyDeps | null = null
+  // Telegram, as far as the Mini App goes: a stand-in key signing launches for the harness bot.
+  const telegram = await telegramSigner(BOT_ME.id)
   let signerCore: ReturnType<typeof createSignerCore> | null = null
   let signerVault: SignerStore | null = null
   let settledNotice: Parameters<typeof notifySettled>[1] = async () => false
@@ -122,6 +131,7 @@ export async function botHarness(
         fetch: chain.fetch,
         now,
         log,
+        telegram: options.telegramApprovals === false ? null : telegram.check,
       })
       stopSigner = async () => {
         await service.stop()
@@ -138,7 +148,13 @@ export async function botHarness(
         keys: keyring(localKeyWrapper(config.custody.signer.kek)),
         chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: chain.fetch }),
         oracle: createRouteOracle(config.network, chain.fetch),
-        config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
+        config: {
+          network: config.network,
+          feeRecipient: null,
+          recipient: config.linkRecipient,
+          maxSlippagePpm: MAX_SLIPPAGE * 10_000,
+          telegram: options.telegramApprovals === false ? null : telegram.check,
+        },
         now,
         log,
       })
@@ -171,7 +187,8 @@ export async function botHarness(
       gate: ops.gate,
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
-    custody = { store: cstore, signer, engine, chain: access, swaps, recovery, ops }
+    const approvals = createTelegramApprovals({ custody: cstore, signer, network: config.network.id, botUsername: BOT_ME.username })
+    custody = { store: cstore, signer, engine, chain: access, swaps, recovery, ops, telegram: approvals }
   }
   const deps: BotDeps = {
     tg,
@@ -182,7 +199,7 @@ export async function botHarness(
     handoffs,
     log,
     now,
-    me: { id: 1111111111, username: 'NearKitBot' },
+    me: BOT_ME,
     features: new Set(),
     buybot: null,
     custody,
@@ -228,6 +245,8 @@ export async function botHarness(
     db,
     store,
     chain,
+    /** Telegram's stand-in: signs the Mini App launch data a user's approval carries. */
+    telegram,
     /** The signer (in this process, as on testnet, or the separate service) and its own tables. */
     signerCore,
     signerVault,

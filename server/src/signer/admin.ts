@@ -54,7 +54,13 @@ export async function runAdmin(argv: string[], env: Record<string, string | unde
         let failed = 0
         for (const k of await s.store.activeKeys()) {
           try {
-            const r = await resealWalletKey(s.keys, k.sealedKey as string, { network: k.network, accountId: k.accountId, publicKey: k.publicKey, owner: k.ownerAccount })
+            const r = await resealWalletKey(s.keys, k.sealedKey as string, {
+              network: k.network,
+              accountId: k.accountId,
+              publicKey: k.publicKey,
+              owner: k.ownerAccount,
+              controller: k.userId,
+            })
             if (!r.changed) {
               kept++
               continue

@@ -89,6 +89,7 @@ Every server process fails closed on its configuration: a missing or doubtful cr
 | `NEARKIT_KMS_KEY_ARN` | `arn:aws:kms:<region>:<account>:key/<id>` | An exact key ARN, not an alias. `NEARKIT_KMS_PREVIOUS_KEY_ARNS` during a rotation |
 | `NEARKIT_SIGNER_DATABASE_URL` | secret `postgres://…` | Its own database and credentials |
 | `NEARKIT_SIGNER_RECIPIENT` | the web app's host | What every owner signature must name |
+| `NEARKIT_SIGNER_TELEGRAM_BOT_ID` | the bot's numeric id (public) | The signer checks approvals given in the bot's Mini App with Telegram's own key. Without it, wallets with no owner wallet can't approve withdrawal addresses, so the app creates none (a linked wallet is then required) |
 | `NEARKIT_FEE_RECIPIENT` | `nearkitfee.near` | Exactly this on mainnet |
 | `NEARKIT_SIGNER_RPC_URLS`, `NEARKIT_SIGNER_RPC_QUORUM` | ≥ 2 providers, quorum ≥ 2 | Security facts need agreeing providers |
 | `NEARKIT_SIGNER_MAX_SLIPPAGE_PCT` | owner decision (default 50) | A swap's minimum may not sit further below the signer's own Rhea quote. Lower means safer against a compromised app, but refuses trades with more slippage |
@@ -105,6 +106,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 ### 3.4 Web (Vercel)
 
 - `VITE_NEAR_NETWORK`, `VITE_NEARKIT_FEE_RECIPIENT=nearkitfee.near`, `VITE_ENABLE_MAINNET_EXECUTION`, `VITE_NEARKIT_API_URL`, `VITE_TELEGRAM_BOT`, optionally `VITE_NEAR_RPC_URL`.
+- The bot's Mini App is the web app's `/tg` page. In BotFather: `/mybots` → the bot → **Bot Settings** → **Configure Mini App** → **Enable Mini App**, URL `https://<web host>/tg`. Approvals of wallets with no owner wallet open it with `t.me/<bot>?startapp=<digest>`. `vercel.json` lets only Telegram's web client frame `/tg`; every other page stays unframeable.
 - On mainnet any fee account but `nearkitfee.near` blocks trading, and the reason is shown.
 - The tracked mainnet profile `.env.mainnet` keeps execution **off**.
 

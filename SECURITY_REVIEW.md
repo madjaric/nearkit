@@ -203,8 +203,50 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 | R6 | A root compromise of the VPS while OpenBao is unsealed exposes wallet keys | INFRASTRUCTURE / SECURITY | Keys-only SSH, firewall, unattended upgrades, isolated read-only containers. Watch OpenBao's audit log for decrypt volume. Stopping OpenBao is the emergency brake. A dedicated OpenBao host, or a cloud KMS or HSM, would narrow it (§5) |
 | R7 | Losing the signer database loses every key without a backup key or export | INFRASTRUCTURE | Hourly verified dumps plus the server's weekly backups. Copies off the server are still to do. Encourage backup keys in the product |
 | R8 | The unseal key: after a restart, wallets stay locked until the owner unseals OpenBao. If the key is lost, every wallet key without a backup key or export is lost | OWNER ACTION | Keep the unseal key in a password manager plus an offline copy. Be reachable to unseal after restarts |
+| R9 | A wallet with no owner wallet is controlled by its Telegram account: whoever holds that account can approve an address in the Mini App and withdraw, or bind their own owner (§5b). NearKit's app alone can do neither | PRODUCT / SECURITY | Accepted with the optional-link model: say so where wallets are created, and offer "make your linked wallet the owner" in Recovery |
 
 ---
+
+## 5b. Wallets with no owner wallet (2026-09-30)
+
+Linking an external wallet is optional. A wallet created without one is controlled by the Telegram account that created it.
+
+**The authorization model for its withdrawals:**
+1. **Controller fixed in the signer.** The signer records the Telegram user who asked for the key. It seals the key to that user (envelope v3: `nearkit:wallet:v3|network|account|controller:telegram:<id>`), so a rewritten controller in any database leaves the key unopenable, not usable.
+2. **Addresses approved with Telegram's signature, not NearKit's.**
+   - A new withdrawal address is approved in NearKit's Mini App.
+   - The Mini App opens with `startapp=<digest>`, where the digest is SHA-256 of the signer's request: kind, network, wallet, address, request id, expiry (`src/lib/telegramApproval.ts`).
+   - Telegram signs the launch data, including that start parameter and the user who opened it, with its Ed25519 key, for NearKit's bot only (third-party validation, `server/src/signer/telegram.ts`).
+3. **The signer checks all of it itself before recording an approval.** It checks, as `tg-approve` in `core.ts`:
+   - Telegram's signature, under Telegram's published key and NearKit's bot id from the signer's own configuration;
+   - that the user who opened the Mini App is the wallet's controller;
+   - that the start parameter is the digest of a live request, recomputed from the stored row, so an edited row fails;
+   - that the launch falls inside the request's lifetime;
+   - that the request is used once, with five attempts at most.
+4. **Re-verified at every withdrawal.** The approval is stored with Telegram's signed data. `authorize` checks the signature, the user and the digest again whenever it is used.
+5. **Everything else as before:** the typed-plan policy, one signature per (intent, step), request authentication and replay protection, the RPC quorum, the kill switches and the audit logs. Every request, approval, refusal and binding is a `signer_events` row.
+
+**Why it stays secure:**
+- **NearKit's app can't forge an approval.** It relays Telegram's signature; making one needs Telegram's private key. A compromised app can ask for a request and show the user a link, but the Mini App page shows the address it would approve, checked against the signed digest. The app can't withdraw to an address the user didn't approve, can't export the key (no owner wallet), and can't bind itself as owner, which needs the same Telegram-signed approval.
+- **Telegram's signature binds exactly one request.** A launch captured for one request approves nothing else, and a launch by another Telegram account counts for nothing.
+- **The Mini App page is served by the web app, a separate trust domain from the app server.** It refuses a request that doesn't hash to the start parameter, so a lying API is caught in the page.
+
+**Owner binding (optional, later):**
+- It needs the controller's Telegram-signed approval naming that owner.
+- The signer reseals the key from v3 to v2 with compare-and-set on "no owner yet": once, one way, never replaced.
+- Telegram approvals end at binding, and from then on the wallet follows the owned rules (§1).
+
+**Tests:**
+- `server/src/signer/unowned.test.ts`: approvals; refusals for another account, another request, stale, used and expired launches, and a tampered row; bind and hijack attempts; owner powers; fail-closed without Telegram.
+- `server/src/signer/telegram.test.ts`, including aiogram's independent vector.
+- `server/src/signer/kms.test.ts`: v3 sealing and one-way binding.
+- `server/src/bot/unowned.test.ts`: create, deposit, trade and withdraw without linking; link after creation; hijacks; export permissions; owned wallets unchanged.
+
+**Remains (R9):**
+- Whoever controls the Telegram account controls a wallet with no owner wallet. They can approve an address and withdraw, or bind their own wallet as owner. That is the product's choice for these wallets (Telegram-based control).
+- Mitigations: users who want an independent key link a wallet and make it the owner. Every approval and binding is announced in Telegram.
+- R3 applies to such wallets too: a compromised app could create a new wallet controlled by another Telegram account. Existing wallets are unaffected.
+- A compromised web origin together with a compromised app could make the page approve on opening (R5).
 
 ## 5. KMS: OpenBao on the VPS versus AWS KMS
 

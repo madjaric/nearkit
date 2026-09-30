@@ -1,12 +1,14 @@
 import { resolve } from 'node:path'
 import { NETWORKS, type NetworkConfig, type NetworkId } from '@/config/networks'
 import { feeRecipientProblem, MAX_SLIPPAGE } from '@/lib/fees'
+import { hexDecode } from '@/lib/encoding'
 import { parseKek } from '../custody/vault'
 import type { DatabaseConfig } from '../db/open'
 import type { LogLevel } from '../log'
 import { parseAuthKey } from './auth'
 import { parseKeyArn } from './kms'
 import { parseTlsPin, type TlsPin } from './tls'
+import { TELEGRAM_LAUNCH_KEYS, type TelegramCheck } from './telegram'
 
 /**
  * The signer service's configuration (server/src/signer/main.ts), from its own
@@ -36,6 +38,11 @@ export interface SignerServiceConfig {
   feeRecipient: string | null
   rpc: { urls: string[]; quorum: number }
   maxSlippagePpm: number
+  /**
+   * NearKit's bot and Telegram's key, to check approvals given in its Mini App (wallets with no
+   * owner wallet). Null: nothing can be approved for such a wallet, so the app creates none.
+   */
+  telegram: TelegramCheck | null
   /** TLS from a certificate pair, or from a folder where the signer makes and keeps its own (signer/tls.ts). */
   listen: { host: string; port: number; tls: { certPath: string; keyPath: string } | { dir: string } | null }
   pause: { byEnv: boolean; file: string | null }
@@ -183,6 +190,16 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
   const tls = tlsDir ? { dir: resolve(tlsDir) } : cert && key ? { certPath: resolve(cert), keyPath: resolve(key) } : null
   if (mainnet && !tls && !LOCAL_HOSTS.has(host)) issue('NEARKIT_SIGNER_TLS_CERT', 'On mainnet the signer serves TLS unless it listens on this machine only (127.0.0.1)')
 
+  // The bot's numeric id is public (the digits before ":" in its token); Telegram's key is from its documentation.
+  let telegram: TelegramCheck | null = null
+  const botRaw = raw.NEARKIT_SIGNER_TELEGRAM_BOT_ID?.trim()
+  if (!blank(botRaw)) {
+    const env = blank(raw.NEARKIT_SIGNER_TELEGRAM_ENV) ? 'production' : raw.NEARKIT_SIGNER_TELEGRAM_ENV.trim()
+    if (!/^\d{5,16}$/.test(botRaw)) issue('NEARKIT_SIGNER_TELEGRAM_BOT_ID', 'The numeric id of NearKit’s bot: the digits before ":" in its token (not secret)')
+    else if (env !== 'production' && env !== 'test') issue('NEARKIT_SIGNER_TELEGRAM_ENV', 'Expected "production" (default) or "test" (Telegram’s test servers)')
+    else telegram = { botId: Number(botRaw), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS[env]) as Uint8Array }
+  }
+
   const pausedRaw = raw.NEARKIT_SIGNER_PAUSED?.trim()
   if (!blank(pausedRaw) && pausedRaw !== 'true' && pausedRaw !== 'false') issue('NEARKIT_SIGNER_PAUSED', 'Expected "true" or "false"')
   const levelRaw = raw.LOG_LEVEL?.trim() ?? 'info'
@@ -199,6 +216,7 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
       feeRecipient,
       rpc: { urls, quorum },
       maxSlippagePpm: Math.round(slippage * 10_000),
+      telegram,
       listen: { host, port, tls },
       pause: { byEnv: pausedRaw === 'true', file: blank(raw.NEARKIT_SIGNER_PAUSE_FILE) ? null : resolve(raw.NEARKIT_SIGNER_PAUSE_FILE.trim()) },
       logLevel,

@@ -372,6 +372,21 @@ export class CustodyStore {
     return (await this.db.all<WalletRow>("SELECT * FROM trading_wallets WHERE status IN ('revoked', 'deleted') AND closed_at >= ? ORDER BY closed_at", [since])).map(toWallet)
   }
 
+  /**
+   * A wallet with no owner wallet got its first owner (the signer bound it, and resealed its
+   * key to it). Only if it has none here yet: an owner is never replaced.
+   */
+  async setOwner(walletId: string, owner: string, ownerKey: string | null): Promise<boolean> {
+    return (
+      (await this.db.run('UPDATE trading_wallets SET owner_account = ?, owner_key = ?, updated_at = ? WHERE id = ? AND owner_account IS NULL', [
+        owner,
+        ownerKey,
+        this.now(),
+        walletId,
+      ])) === 1
+    )
+  }
+
   async setBackupKey(walletId: string, publicKey: string | null): Promise<void> {
     await this.db.run('UPDATE trading_wallets SET backup_key = ?, updated_at = ? WHERE id = ?', [publicKey, this.now(), walletId])
   }

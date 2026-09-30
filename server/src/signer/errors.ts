@@ -35,7 +35,23 @@ export class AlreadySignedError extends Error {
   }
 }
 
-export type ChallengeProblem = 'unknown' | 'expired' | 'used' | 'locked' | 'bad-signature' | 'not-owner' | 'rate-limited' | 'wallet'
+export type ChallengeProblem =
+  | 'unknown'
+  | 'expired'
+  | 'used'
+  | 'locked'
+  | 'bad-signature'
+  | 'not-owner'
+  | 'rate-limited'
+  | 'wallet'
+  /** A Telegram approval for a wallet that has an owner wallet (its owner approves instead). */
+  | 'owned'
+  /** A Telegram approval by another account than the one that controls the wallet. */
+  | 'not-controller'
+  /** A Telegram approval opened outside its request's lifetime. */
+  | 'stale'
+  /** This signer can't check Telegram's signature (not configured). */
+  | 'telegram-off'
 
 /** An owner-signed request that doesn't hold up. */
 export class ChallengeError extends Error {

@@ -7,6 +7,8 @@ import NotFoundPage, { BootScreen, RouteError } from '@/pages/system'
 const page = (load: () => Promise<{ default: ComponentType }>) => async () => ({ Component: (await load()).default })
 
 export const router = createBrowserRouter([
+  // NearKit's Telegram Mini App: its own page, without the app's navigation (Telegram shows it inside the chat).
+  { path: 'tg', lazy: page(() => import('@/pages/TelegramApprovePage')), hydrateFallbackElement: <BootScreen />, errorElement: <RouteError /> },
   {
     element: <AppShell />,
     hydrateFallbackElement: <BootScreen />,

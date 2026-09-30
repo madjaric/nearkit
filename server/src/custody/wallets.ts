@@ -5,6 +5,7 @@ import type { Engine } from './engine'
 import type { RecoveryService } from './recovery'
 import type { SwapService } from './swap'
 import type { TradingSigner } from './signer'
+import type { TelegramApprovals } from './telegramApprovals'
 import type { OpsSwitches } from '../ops/switches'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_CREATIONS_PER_DAY } from './limits'
 import { ActiveWalletLimitError, type CustodyStore, type TradingWallet } from './store'
@@ -24,6 +25,8 @@ export interface CustodyDeps {
   swaps: SwapService
   /** Key export requests (the web app signs them with the linked wallet). */
   recovery: RecoveryService
+  /** Approvals in NearKit's Mini App, for wallets with no owner wallet (Telegram signs them). */
+  telegram: TelegramApprovals
   /** The kill switches: checked before a quote or a withdrawal is offered, and by the engine at Confirm. */
   ops: OpsSwitches
 }
@@ -44,15 +47,16 @@ export class WalletLimitError extends Error {
 /**
  * A new NearKit wallet in the user's next free slot (up to MAX_ACTIVE_WALLETS_PER_USER).
  * `owner`: the linked wallet (and its verified key) the new wallet answers to for export,
- * backup key and revoke. `createKey`: the Create button's one-time key, so a double tap
- * (or a replayed update) makes one wallet.
+ * backup key and revoke; null for a wallet with no owner wallet, controlled by the user's
+ * Telegram account. `createKey`: the Create button's one-time key, so a double tap (or a
+ * replayed update) makes one wallet.
  */
 export async function createTradingWallet(
   c: CustodyDeps,
   userId: number,
   network: string,
   now: number,
-  owner: { accountId: string; publicKey: string },
+  owner: { accountId: string; publicKey: string } | null,
   createKey: string | null = null,
 ): Promise<{ wallet: TradingWallet; created: boolean }> {
   if (createKey) {
@@ -61,8 +65,8 @@ export async function createTradingWallet(
   }
   if ((await c.store.activeWallets(userId, network)).length >= MAX_ACTIVE_WALLETS_PER_USER) throw new WalletLimitError('active')
   if ((await c.store.countWalletsSince(userId, now - 86_400_000)) >= MAX_WALLET_CREATIONS_PER_DAY) throw new WalletLimitError('day')
-  // Each wallet gets its own key, made and sealed by the signer (bound to its owner): no master
-  // key, so one exported key reveals nothing about another wallet.
+  // Each wallet gets its own key, made and sealed by the signer (bound to its owner, or with none
+  // to the user's Telegram account): no master key, so one exported key reveals nothing about another wallet.
   const key = await c.signer.createKey({ userId, owner })
   // A key that ends up unused (a lost race, a double tap) is erased: its account was never funded.
   const discard = () => c.signer.eraseKey({ accountId: key.accountId, reason: 'deleted' }).catch(() => false)

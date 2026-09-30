@@ -11,6 +11,9 @@ import { runMigrations, type Migration } from '../db/schema'
  * - signer_challenges: one-time messages the owner wallet signs (export, destinations).
  * - signer_destinations: withdrawal destinations the owner approved, with the signed
  *   approval itself, re-verified whenever it is used.
+ * - signer_tg_requests / signer_tg_approvals: for wallets with no owner wallet, what the
+ *   controlling Telegram account is asked to approve in NearKit's Mini App, and the approvals
+ *   it gave, each with Telegram's signed launch data, re-verified whenever it is used.
  * - signer_signatures: one signed transaction per (intent, step), ever.
  * - signer_events: the signer's own audit log (no secrets).
  * - signer_state: the signer pause switch.
@@ -115,6 +118,41 @@ const SQLITE: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'telegram-approvals',
+    sql: `
+      CREATE TABLE signer_tg_requests (
+        id TEXT PRIMARY KEY,
+        digest TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL CHECK (kind IN ('destination', 'bind-owner')),
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        target TEXT NOT NULL,
+        target_key TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        used_at INTEGER
+      );
+      CREATE INDEX signer_tg_requests_account ON signer_tg_requests(network, account_id, created_at);
+
+      CREATE TABLE signer_tg_approvals (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        request_id TEXT NOT NULL UNIQUE,
+        request_expires_at INTEGER NOT NULL,
+        init_data TEXT NOT NULL,
+        approved_at INTEGER NOT NULL,
+        revoked_at INTEGER
+      );
+      CREATE UNIQUE INDEX signer_tg_approvals_live ON signer_tg_approvals(network, account_id, destination) WHERE revoked_at IS NULL;
+    `,
+  },
 ]
 
 const POSTGRES: readonly Migration[] = [
@@ -214,6 +252,41 @@ const POSTGRES: readonly Migration[] = [
         value TEXT NOT NULL,
         updated_at BIGINT NOT NULL
       );
+    `,
+  },
+  {
+    version: 2,
+    name: 'telegram-approvals',
+    sql: `
+      CREATE TABLE signer_tg_requests (
+        id TEXT PRIMARY KEY,
+        digest TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL CHECK (kind IN ('destination', 'bind-owner')),
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        user_id BIGINT NOT NULL,
+        target TEXT NOT NULL,
+        target_key TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        used_at BIGINT
+      );
+      CREATE INDEX signer_tg_requests_account ON signer_tg_requests(network, account_id, created_at);
+
+      CREATE TABLE signer_tg_approvals (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        user_id BIGINT NOT NULL,
+        request_id TEXT NOT NULL UNIQUE,
+        request_expires_at BIGINT NOT NULL,
+        init_data TEXT NOT NULL,
+        approved_at BIGINT NOT NULL,
+        revoked_at BIGINT
+      );
+      CREATE UNIQUE INDEX signer_tg_approvals_live ON signer_tg_approvals(network, account_id, destination) WHERE revoked_at IS NULL;
     `,
   },
 ]

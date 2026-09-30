@@ -8,12 +8,15 @@ import { btn, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { flowWallet, newWalletButton, showWalletHome, tradingWallet, walletLine } from './tradingWallet'
 import { walletErrorText } from './ui'
+import { linkedAccount } from './wallet'
 
 /**
  * 🔐 Recovery, per NearKit wallet: the backup key, the key export (in the NearKit web
- * app only) and removing NearKit's access. Keys are never shown or asked for in
- * Telegram. Every button carries the wallet it was shown for, so an old button never
- * acts on another wallet the user selected since.
+ * app only) and removing NearKit's access, which answer to the wallet's owner wallet. A
+ * wallet with no owner wallet can get one here (linking is optional): the user's linked
+ * wallet, approved in NearKit's Mini App (Telegram signs it), bound for good. Keys are never
+ * shown or asked for in Telegram. Every button carries the wallet it was shown for, so an
+ * old button never acts on another wallet the user selected since.
  */
 
 const back = [btn('« Wallet', 'cw:home')]
@@ -23,9 +26,67 @@ async function recoveryWallet(ctx: BotCtx, walletId: string): Promise<TradingWal
   return walletId ? flowWallet(ctx, walletId) : tradingWallet(ctx.deps, ctx.user.id)
 }
 
+/** A wallet with no owner wallet: everything works without one; an owner wallet (optional) adds the owner's powers. */
+async function showUnowned(ctx: BotCtx, w: TradingWallet) {
+  const view = await readWallet(ctx.deps.near, w)
+  const linked = await linkedAccount(ctx)
+  await ctx.show(
+    [
+      `🔐 ${bold('Recovery')} · ${walletLine(w)}`,
+      '',
+      `${bold('No owner wallet')}: this Telegram account controls this wallet. Deposits, trades and withdrawals all work without one.`,
+      '',
+      'An owner wallet is optional: your own NEAR wallet, bound to this one for good. It adds',
+      '• a backup key, so your wallet controls this one even without NearKit;',
+      '• the key export, in NearKit web;',
+      '• withdrawals only to it, or to addresses it approves.',
+      '',
+      linked ? `Your linked wallet ${code(linked)} can become its owner: you approve that in Telegram.` : 'Link a NEAR wallet (optional), then make it the owner here.',
+    ].join('\n'),
+    keyboard(
+      linked ? [btn(`🔐 Make ${shortAccount(linked, 28)} the owner`, `cr:bind:${w.id}`)] : [btn('🔗 Link a NEAR wallet', 'acct:link')],
+      view.exists === false ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
+      back,
+    ),
+  )
+}
+
+/** The user's linked wallet becomes the owner of a wallet with no owner wallet: approved in the Mini App, bound by the signer. */
+async function offerBind(ctx: BotCtx, walletId: string) {
+  const custody = ctx.deps.custody
+  const w = await recoveryWallet(ctx, walletId)
+  if (!custody || !w) return showWalletHome(ctx)
+  if (w.ownerAccount) return showRecovery(ctx, w.id)
+  const linked = await linkedAccount(ctx)
+  const link = linked ? await ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
+  if (!link || link.userId !== ctx.user.id) return showRecovery(ctx, w.id)
+  let r
+  try {
+    r = await custody.telegram.request(w, { kind: 'bind-owner', accountId: w.accountId, owner: link.accountId, ownerKey: link.publicKey })
+  } catch (e) {
+    if (e instanceof RecoveryApiError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], back))
+    throw e
+  }
+  await ctx.show(
+    [
+      `🔐 ${bold(`Make ${link.accountId} the owner`)} · ${walletLine(w)}`,
+      '',
+      `${code(link.accountId)} becomes this NearKit wallet’s owner wallet, for good:`,
+      '• withdrawals then go only to it, or to addresses it approves in NearKit web;',
+      '• it can add itself as the backup key, and export the key.',
+      'An owner wallet can’t be changed or removed later.',
+      '',
+      'Approve it in NearKit’s mini app, right here in Telegram. It shows this wallet and the owner, and Telegram signs your approval.',
+      '⏱ Open for 10 minutes.',
+    ].join('\n'),
+    keyboard([urlBtn('✅ Approve in Telegram', custody.telegram.link(r))], back),
+  )
+}
+
 async function showRecovery(ctx: BotCtx, walletId = '') {
   const w = await recoveryWallet(ctx, walletId)
   if (!w) return showWalletHome(ctx)
+  if (!w.ownerAccount) return showUnowned(ctx, w)
   const view = await readWallet(ctx.deps.near, w)
   const owner = w.ownerAccount
   const mine = await ownerKeyNow(ctx.deps.store, w)
@@ -208,6 +269,8 @@ export function recoveryModule(): BotModule {
         switch (action) {
           case 'show':
             return showRecovery(ctx, arg)
+          case 'bind':
+            return offerBind(ctx, arg)
           case 'backup':
             return offerBackup(ctx, arg)
           case 'export':
@@ -227,6 +290,22 @@ export function recoveryModule(): BotModule {
 /** Sent to Telegram when the key was exported in the web app: the owner hears about it either way. */
 export function exportedText(wallet: string, owner: string): string {
   return `🔐 Your NearKit wallet ${code(shortAccount(wallet))} key was just exported in NearKit web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
+}
+
+/** Sent to Telegram when an approval given in the Mini App counted (Telegram signed it). */
+export function telegramApprovedText(r: { kind: 'destination' | 'bind-owner'; accountId: string; target: string; walletId: string }): {
+  text: string
+  markup: ReturnType<typeof keyboard>
+} {
+  if (r.kind === 'destination')
+    return {
+      text: `✅ ${code(r.target)} can now receive withdrawals from your NearKit wallet ${code(shortAccount(r.accountId))}: approved in Telegram.\n\nIf this wasn’t you, move your funds now.`,
+      markup: keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]),
+    }
+  return {
+    text: `🔐 ${code(r.target)} is now the owner of your NearKit wallet ${code(shortAccount(r.accountId))}, for good.\n\nWithdrawals now go to it or to addresses it approves in NearKit web, and it can add the backup key or export the key (🔐 Recovery).`,
+    markup: keyboard([btn('🔐 Recovery', `cr:show:${r.walletId}`), btn('👛 Wallet', 'cw:home')]),
+  }
 }
 
 export function approvedText(wallet: string, destination: string): string {

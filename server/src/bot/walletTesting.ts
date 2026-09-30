@@ -1,12 +1,15 @@
 import { recoveryRoutes } from '../api/recoveryRoutes'
+import { telegramRoutes } from '../api/telegramRoutes'
 import { botModules } from '../app'
 import type { TradingWallet } from '../custody/store'
 import type { ChallengeView } from '../signer/core'
 import { ownerSign } from '../signer/testing'
 import type { Logger } from '../log'
 import type { Command } from './context'
+import { telegramApprovedText } from './recovery'
 import { tradingWallet } from './tradingWallet'
 import { ALICE, botHarness } from './testing'
+import type { TgUser } from '../telegram/types'
 
 /**
  * A bot with NearKit wallets on, over the fake chain: Alice has a linked wallet,
@@ -26,7 +29,16 @@ export const REG = 1_250_000_000_000_000_000_000n
 const FIND_PATH = 'https://smartroutertest.refburrow.top/findPath'
 
 export async function walletBot(
-  options: { link?: boolean; linkedKey?: string; extraKeys?: Record<string, 'full' | 'function-call'>; log?: Logger; remoteSigner?: boolean; env?: Record<string, string> } = {},
+  options: {
+    link?: boolean
+    linkedKey?: string
+    extraKeys?: Record<string, 'full' | 'function-call'>
+    log?: Logger
+    remoteSigner?: boolean
+    env?: Record<string, string>
+    /** False: the signer checks no Mini App approvals. */
+    telegramApprovals?: boolean
+  } = {},
 ) {
   const linkedKey = options.linkedKey ?? LINKED_KEY
   /** USDT (6 decimals) per NEAR, times 1e6: 4_000_000 = 4 USDT. */
@@ -37,6 +49,7 @@ export async function walletBot(
   const h = await botHarness({
     custody: true,
     remoteSigner: options.remoteSigner,
+    telegramApprovals: options.telegramApprovals,
     env: options.env,
     log: options.log,
     chain: {
@@ -85,6 +98,13 @@ export async function walletBot(
     await h.store.updateSettings(ALICE.id, { defaultAccount: LINKED })
   }
   const custody = h.deps.custody as NonNullable<typeof h.deps.custody>
+  const tgRoutes = telegramRoutes({
+    approvals: custody.telegram,
+    onApproved: async (r) => {
+      const n = telegramApprovedText(r)
+      await h.app.notify(r.userId, n.text, n.markup)
+    },
+  })
   return {
     ...h,
     market,
@@ -102,6 +122,28 @@ export async function walletBot(
         t?.registered.add(w.accountId)
       }
       return w
+    },
+    /** `user` links `accountId` (its key `publicKey`) in NearKit web, and makes it their default account. */
+    async link(accountId: string, publicKey: string, user: TgUser = ALICE) {
+      const code = `link-${accountId}-${user.id}`
+      await h.store.createLinkRequest({ codeHash: code, userId: user.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+      await h.store.completeLink({ codeHash: code, network: 'testnet', accountId, userId: user.id, publicKey })
+      await h.store.updateSettings(user.id, { defaultAccount: accountId })
+    },
+    /**
+     * `user` opens the Mini App link the bot showed last (\u2705 Approve in Telegram) and taps
+     * Approve: Telegram signs the launch, the page sends it to NearKit's API.
+     */
+    async approveInTelegram(user: TgUser = ALICE) {
+      const url = [...h.fake.messages()]
+        .reverse()
+        .flatMap((m) => m.buttons ?? [])
+        .map((b) => b.url ?? '')
+        .find((u) => u.includes('startapp='))
+      const digest = url ? new URL(url).searchParams.get('startapp') : null
+      if (!digest) throw new Error('no Mini App link was shown')
+      const initData = await h.telegram.launch({ userId: user.id, startParam: digest, authDate: Math.floor(h.deps.now() / 1000) })
+      return tgRoutes['/api/telegram/approve']?.({ initData }, {} as never)
     },
     /** The data of the button whose label contains `label`. */
     button: (label: string) => h.buttons().find((b) => b.text.includes(label))?.data ?? '',

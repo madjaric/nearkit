@@ -21,10 +21,13 @@ import { linkedAccount, nearAvailable, needAccount, showWallet } from './wallet'
  * Balances are read from chain every time. The linked wallet stays what it was: proof
  * of who you are, never controlled by NearKit.
  *
- * Withdrawals go to any valid address, with no limit on amounts, but only to the wallet's
- * owner or to a destination the owner approved with its own signature in NearKit web. The
- * signer enforces that itself, so someone who got into the Telegram account (or the app)
- * can't send the funds anywhere else.
+ * Withdrawals go to any valid address, with no limit on amounts. A wallet with an owner
+ * wallet withdraws to it or to a destination it approved with its own signature in NearKit
+ * web, so someone who got into the Telegram account (or the app) can't send the funds
+ * anywhere else. A wallet with no owner wallet (linking one is optional) is controlled by
+ * the Telegram account that created it: a new address is approved once in NearKit's Mini
+ * App, and Telegram signs that approval, so NearKit's app alone can't add one. The signer
+ * enforces both itself.
  */
 
 const CALLBACK_TTL_MS = 30 * 60_000
@@ -72,9 +75,19 @@ async function tokensOf(ctx: BotCtx, view: WalletView) {
 /** A Create button with a fresh one-time key: pressing it twice makes one wallet. */
 export const newWalletButton = (label = '✨ Create NearKit wallet') => btn(label, `cw:new:${randomToken(9)}`)
 
+/**
+ * Whether the signer checks approvals in this bot's Mini App. A wallet with no owner wallet
+ * withdraws only to addresses approved there, so without it none is created.
+ */
+export async function telegramApprovalsOn(deps: BotDeps): Promise<boolean> {
+  const h = await deps.custody?.signer.health().catch(() => null)
+  return h !== null && h !== undefined && h.telegram === deps.me.id
+}
+
 async function offerCreate(ctx: BotCtx) {
   const linked = await linkedAccount(ctx)
   const near = linked ? await nearAvailable(ctx, linked) : null
+  const open = linked !== null || (await telegramApprovalsOn(ctx.deps))
   await ctx.show(
     [
       bold('👛 Wallet'),
@@ -83,10 +96,12 @@ async function offerCreate(ctx: BotCtx) {
       'Trade right here in Telegram: no browser and no wallet pop-up for each trade. It’s a separate wallet: you move in only what you want to trade.',
       '',
       linked
-        ? `🔗 Linked wallet ${code(linked)}${near !== null ? ` · ${esc(near)} NEAR` : ''}`
-        : 'Link your own wallet first: it proves the NearKit wallet is yours and becomes its backup key.',
+        ? `🔗 Linked wallet ${code(linked)}${near !== null ? ` · ${esc(near)} NEAR` : ''}: it becomes the new wallet’s owner wallet.`
+        : open
+          ? 'No other wallet needed: this Telegram account controls it. Linking your own NEAR wallet is optional, now or later: it adds a backup key and key export.'
+          : 'Link your own wallet first: it proves the NearKit wallet is yours and becomes its backup key.',
     ].join('\n'),
-    keyboard([linked ? newWalletButton() : btn('🔗 Link wallet', 'acct:link')], [...(linked ? [btn('🔗 Linked wallet', 'menu:linked')] : []), btn('« Menu', 'menu:home')]),
+    keyboard([open ? newWalletButton() : btn('🔗 Link wallet', 'acct:link')], [...(linked ? [btn('🔗 Linked wallet', 'menu:linked')] : []), btn('« Menu', 'menu:home')]),
   )
 }
 
@@ -101,6 +116,13 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
   const linked = await linkedAccount(ctx)
   const mine = await ownerKeyNow(ctx.deps.store, w)
   const backup = mine !== null && view.keys?.includes(mine)
+  const ownership = w.ownerAccount
+    ? backup
+      ? '🔐 Backup key: your own wallet can control this one ✓'
+      : view.exists
+        ? '🔐 Backup key: not added yet'
+        : null
+    : '🔐 No owner wallet: this Telegram account controls it'
   const wnear = view.tokens.some((t) => t.contract === ctx.deps.config.network.wrapContract && t.raw > 0n)
   const balance =
     view.exists === false
@@ -120,8 +142,8 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
       '',
       ...balance,
       '',
-      backup ? '🔐 Backup key: your own wallet can control this one ✓' : view.exists ? '🔐 Backup key: not added yet' : null,
-      linked ? `🔗 Linked wallet ${code(linked)}` : '🔗 No linked wallet',
+      ownership,
+      linked ? `🔗 Linked wallet ${code(linked)}` : '🔗 No linked wallet (optional)',
       ...(details
         ? [
             '',
@@ -188,23 +210,31 @@ async function askRename(ctx: BotCtx, walletId: string) {
 async function create(ctx: BotCtx, createKey: string) {
   const custody = ctx.deps.custody
   if (!custody) return ctx.answer('NearKit wallets aren’t available on this server.', true)
-  const linked = await needAccount(ctx)
-  const link = linked ? await ctx.deps.store.linkOf(ctx.deps.config.network.id, linked) : null
-  if (!link) return
-  await ctx.answer()
-  // All of a user's NearKit wallets answer to one owner: the wallet the first was created
-  // with. A wallet linked later (perhaps by someone holding this Telegram account) never
-  // becomes the owner of a new one; the first wallet's owner does.
-  const existing = (await custody.store.activeWallets(ctx.user.id, ctx.deps.config.network.id)).find((w) => w.ownerAccount)
-  let owner = { accountId: link.accountId, publicKey: link.publicKey }
-  if (existing?.ownerAccount && existing.ownerAccount !== link.accountId) {
-    const ownerLink = await ctx.deps.store.linkOf(ctx.deps.config.network.id, existing.ownerAccount)
-    owner = { accountId: existing.ownerAccount, publicKey: ownerLink?.userId === ctx.user.id ? ownerLink.publicKey : (existing.ownerKey ?? link.publicKey) }
+  const network = ctx.deps.config.network.id
+  const linked = await linkedAccount(ctx)
+  const link = linked ? await ctx.deps.store.linkOf(network, linked) : null
+  // All of a user's owned NearKit wallets answer to one owner: the wallet the first was created
+  // with (or bound to). A wallet linked later (perhaps by someone holding this Telegram account)
+  // never becomes the owner of a new one; that owner does. With no owner yet, a linked wallet
+  // becomes the owner; with none linked, the new wallet has no owner wallet (linking is optional).
+  const existing = (await custody.store.activeWallets(ctx.user.id, network)).find((w) => w.ownerAccount)
+  let owner: { accountId: string; publicKey: string } | null = null
+  if (existing?.ownerAccount) {
+    const ownerLink = await ctx.deps.store.linkOf(network, existing.ownerAccount)
+    owner = { accountId: existing.ownerAccount, publicKey: ownerLink?.userId === ctx.user.id ? ownerLink.publicKey : (existing.ownerKey ?? link?.publicKey ?? '') }
+  } else if (link && link.userId === ctx.user.id) {
+    owner = { accountId: link.accountId, publicKey: link.publicKey }
   }
+  // No owner wallet: the signer must check Telegram approvals, or nothing could ever be withdrawn.
+  if (!owner && !(await telegramApprovalsOn(ctx.deps))) {
+    await ctx.answer()
+    return void (await needAccount(ctx))
+  }
+  await ctx.answer()
   let result
   try {
     // Export, the backup key, revoking and withdrawal destinations answer to that owner alone.
-    result = await createTradingWallet(custody, ctx.user.id, ctx.deps.config.network.id, ctx.deps.now(), owner, createKey || null)
+    result = await createTradingWallet(custody, ctx.user.id, network, ctx.deps.now(), owner, createKey || null)
   } catch (e) {
     if (e instanceof WalletLimitError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard([btn('👛 My wallets', 'cw:list')], walletRow))
     throw e
@@ -218,7 +248,9 @@ async function create(ctx: BotCtx, createKey: string) {
       code(wallet.accountId),
       '',
       `It’s empty. Send ${ctx.deps.config.network.id === 'testnet' ? 'testnet ' : ''}NEAR to this address to start trading here. Tap the address to copy it.`,
-      'Once it’s funded, add your linked wallet as its backup key (🔐 Recovery): then it’s yours even without NearKit.',
+      wallet.ownerAccount
+        ? 'Once it’s funded, add your owner wallet as its backup key (🔐 Recovery): then it’s yours even without NearKit.'
+        : 'This Telegram account controls it: deposits, trades and withdrawals need nothing else. Linking your own NEAR wallet later is optional (🔐 Recovery).',
     ].join('\n'),
     keyboard([btn('📥 Deposit', 'cw:dep'), btn('👛 Wallet', 'cw:home')]),
   )
@@ -338,24 +370,51 @@ async function approvedDestination(ctx: BotCtx, w: TradingWallet, to: string): P
   return (await custody.signer.destinations(w.accountId)).destinations.some((d) => d.destination === to)
 }
 
-/** A destination the owner hasn't approved: approve it in NearKit web (owner signature), then continue here. */
+/**
+ * A destination not approved yet. With an owner wallet: approve it in NearKit web (the owner
+ * signs). With none: approve it in NearKit's Mini App (Telegram signs). Then continue here.
+ */
 async function askApproval(ctx: BotCtx, w: TradingWallet, flow: WithdrawInput & { walletId: string }, again: boolean) {
   await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.approve', flow, APPROVAL_TTL_MS)
+  const custody = ctx.deps.custody
+  if (!w.ownerAccount && custody) {
+    let r
+    try {
+      r = await custody.telegram.request(w, { kind: 'destination', accountId: w.accountId, destination: flow.to })
+    } catch (e) {
+      // It has an owner wallet after all (bound meanwhile): its owner approves.
+      const now = await flowWallet(ctx, w.id)
+      if (now?.ownerAccount) return askApproval(ctx, now, flow, again)
+      return ctx.show(`⚠️ ${errorText(ctx, e)}`, keyboard(walletRow))
+    }
+    await ctx.show(
+      [
+        `🔐 ${bold('Approve a new address')} · ${walletLine(w)}`,
+        '',
+        again ? `${code(flow.to)} is not approved yet.` : `${code(flow.to)} hasn’t received withdrawals from this wallet before.`,
+        'Approve it once in NearKit’s mini app, right here in Telegram. It shows the address and this wallet, and Telegram signs your approval: NearKit’s servers can’t add an address without it.',
+        '',
+        '1. Tap Approve in Telegram and check the address.',
+        '2. Come back and tap Continue.',
+        '⏱ The approval is open for 10 minutes.',
+      ].join('\n'),
+      keyboard([urlBtn('✅ Approve in Telegram', custody.telegram.link(r))], [btn('▶️ Continue', 'cw:wcont'), btn('✖ Cancel', 'cw:home')]),
+    )
+    return
+  }
   const url = `${ctx.deps.config.webUrl}/recover#approve=${w.accountId}&to=${encodeURIComponent(flow.to)}`
   await ctx.show(
     [
       `🔐 ${bold('Approve a new destination')} · ${walletLine(w)}`,
       '',
       again ? `${code(flow.to)} is not approved yet.` : `${code(flow.to)} hasn’t received withdrawals from this wallet before.`,
-      w.ownerAccount
-        ? `Withdrawals go to your owner wallet ${code(w.ownerAccount)} or to destinations it approved, so nobody who gets into this Telegram account can send your funds elsewhere.`
-        : 'This wallet has no recorded owner wallet, so it can’t approve destinations. Add a backup key and move the funds with your own wallet.',
+      `Withdrawals go to your owner wallet ${code(w.ownerAccount ?? '')} or to destinations it approved, so nobody who gets into this Telegram account can send your funds elsewhere.`,
       '',
-      ...(w.ownerAccount
-        ? [`1. Open NearKit web and connect ${code(w.ownerAccount)}.`, '2. Sign the approval it shows: free, once for this destination.', '3. Come back and tap Continue.']
-        : []),
+      `1. Open NearKit web and connect ${code(w.ownerAccount ?? '')}.`,
+      '2. Sign the approval it shows: free, once for this destination.',
+      '3. Come back and tap Continue.',
     ].join('\n'),
-    keyboard(w.ownerAccount ? [urlBtn('🌐 Approve in NearKit web', url)] : [], [btn('▶️ Continue', 'cw:wcont'), btn('✖ Cancel', 'cw:home')]),
+    keyboard([urlBtn('🌐 Approve in NearKit web', url)], [btn('▶️ Continue', 'cw:wcont'), btn('✖ Cancel', 'cw:home')]),
   )
 }
 

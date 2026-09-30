@@ -32,6 +32,8 @@ describe('the signer’s tables', () => {
         'signer_request_nonces',
         'signer_signatures',
         'signer_state',
+        'signer_tg_approvals',
+        'signer_tg_requests',
       ])
       expect(b).toEqual(a)
       // Again: nothing changes.

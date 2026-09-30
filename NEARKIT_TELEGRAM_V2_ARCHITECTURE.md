@@ -219,6 +219,20 @@ quoted ──Confirm──▶ confirmed ──fresh checks OK──▶ signing �
 
   Whatever the trade size, a wallet that trades keeps about 0.31 NEAR idle as gas float.
 
+### 2.5b Wallets with or without an owner wallet (linking is optional)
+
+- **Create, deposit, trade and withdraw need no other wallet.** A user who never links one gets a NearKit wallet **with no owner wallet**. The Telegram account that created it controls it, and the signer seals its key to that account (envelope v3). The user is never told to link a wallet to get their funds out.
+- **Withdrawals from a wallet with no owner wallet** go to any valid NEAR address. A new address is approved once, in NearKit's Mini App inside Telegram:
+  - the bot asks the signer for a request, and shows `t.me/<bot>?startapp=<digest>`;
+  - the page (`/tg`, served by the web app) shows the request only if it hashes to the digest Telegram signed;
+  - on Approve, Telegram's signed launch data goes to the signer, which checks Telegram's Ed25519 signature for this bot, the Telegram account that controls the wallet, the digest of exactly this request, its lifetime, and that it is used once.
+
+  Approvals are stored with Telegram's signature and re-verified at every withdrawal. NearKit's app relays them and can't make one.
+- **No owner powers without an owner wallet:** no key export, no backup key, no removing NearKit's key. The signer refuses them.
+- **Linking later is optional.** In 🔐 Recovery, the linked wallet can become the owner of a wallet with no owner wallet. The Telegram account approves that in the Mini App; the signer then reseals the key to the owner (envelope v2), once and one way. From then on the wallet is an owned wallet: the Telegram approvals end, only the owner's signed approvals count, and the owner can export and add the backup key.
+- **Owned wallets are unchanged.** A wallet created while a wallet is linked is owned by it. A user's later wallets inherit their existing owner. Telegram can never approve anything for an owned wallet.
+- **A server whose signer checks no Mini App approvals** creates no wallet without an owner wallet: the user is asked to link one (fail-safe).
+
 ### 2.6 Withdrawals to any address, approved by the owner
 
 - **Flow:** wallet, asset, amount (25%, 50%, MAX, custom), destination (the owner wallet, marked, or any typed address), then review.

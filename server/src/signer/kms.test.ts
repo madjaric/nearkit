@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { generateKey, implicitAccountId, nearPublicKey } from '../custody/keys'
 import { keyring, KeyUnavailableError, localKeyWrapper, parseSealed, sealSecret } from '../custody/vault'
-import { aadV1, openWalletKey, resealWalletKey, sealWalletKey, type KeyBinding } from './envelope'
+import { aadV1, bindOwnerKey, openWalletKey, resealWalletKey, sealWalletKey, type KeyBinding } from './envelope'
 import { kmsKeyWrapper, KmsUnavailableError, parseKeyArn, probeKek, type KmsApi } from './kms'
 
 const ARN = 'arn:aws:kms:eu-central-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab'
@@ -147,5 +147,67 @@ describe('rotation and migration', () => {
     const a = newKey()
     const sealed = await sealWalletKey(keys, a.seed, a.binding)
     await expect(openWalletKey(keys, sealed, { ...a.binding, publicKey: newKey().binding.publicKey })).rejects.toThrow(/does not match/)
+  })
+})
+
+describe('wallets with no owner wallet: sealed to the Telegram account that controls them', () => {
+  const unowned = () => {
+    const k = newKey(null)
+    return { seed: k.seed, binding: { ...k.binding, controller: 101 } as KeyBinding }
+  }
+
+  it('opens only for that Telegram account: not another one, not an owner wallet, not with no binding', async () => {
+    const kms = fakeKms()
+    const keys = keyring(kmsKeyWrapper(kms.api))
+    const { seed, binding } = unowned()
+    const sealed = await sealWalletKey(keys, seed, binding)
+    expect(parseSealed(sealed)).toMatchObject({ v: 3, ref: `kms:${ARN}` })
+    expect((await openWalletKey(keys, sealed, binding)).equals(seed)).toBe(true)
+    // A rewritten controller or owner in a database makes the key unopenable, never usable by someone else.
+    await expect(openWalletKey(keys, sealed, { ...binding, controller: 102 })).rejects.toThrow(KeyUnavailableError)
+    await expect(openWalletKey(keys, sealed, { ...binding, controller: null, owner: 'mallory.testnet' })).rejects.toThrow(KeyUnavailableError)
+    await expect(openWalletKey(keys, sealed, { ...binding, controller: null })).rejects.toThrow(KeyUnavailableError)
+  })
+
+  it('a new key is always bound to an owner wallet or to a Telegram account', async () => {
+    const keys = keyring(localKeyWrapper(randomBytes(32)))
+    const { seed, binding } = newKey(null)
+    await expect(sealWalletKey(keys, seed, binding)).rejects.toThrow(KeyUnavailableError)
+    await expect(sealWalletKey(keys, seed, { ...binding, controller: 0 })).rejects.toThrow(KeyUnavailableError)
+  })
+
+  it('binding its first owner moves it to the owner sealing: from then on only that owner binding opens it', async () => {
+    const keys = keyring(localKeyWrapper(randomBytes(32)))
+    const { seed, binding } = unowned()
+    const sealed = await sealWalletKey(keys, seed, binding)
+    const owned = await bindOwnerKey(keys, sealed, binding, 'alice.testnet')
+    expect(parseSealed(owned)).toMatchObject({ v: 2 })
+    const asOwned: KeyBinding = { ...binding, owner: 'alice.testnet', controller: null }
+    expect((await openWalletKey(keys, owned, asOwned)).equals(seed)).toBe(true)
+    await expect(openWalletKey(keys, owned, binding)).rejects.toThrow(KeyUnavailableError)
+    await expect(openWalletKey(keys, owned, { ...asOwned, owner: 'mallory.testnet' })).rejects.toThrow(KeyUnavailableError)
+    // An owned key is never bound again.
+    await expect(bindOwnerKey(keys, owned, asOwned, 'mallory.testnet')).rejects.toThrow(KeyUnavailableError)
+  })
+
+  it('rotation rewraps a controller-bound key’s data key without opening the key', async () => {
+    const oldKms = fakeKms(ARN)
+    const newKms = fakeKms(ARN2)
+    const { seed, binding } = unowned()
+    const sealed = await sealWalletKey(keyring(kmsKeyWrapper(oldKms.api)), seed, binding)
+    const moved = await resealWalletKey(keyring(kmsKeyWrapper(newKms.api), [kmsKeyWrapper(oldKms.api)]), sealed, binding)
+    expect(parseSealed(moved.sealed)).toMatchObject({ v: 3, ref: `kms:${ARN2}` })
+    expect(parseSealed(moved.sealed).ct).toBe(parseSealed(sealed).ct)
+    expect((await openWalletKey(keyring(kmsKeyWrapper(newKms.api)), moved.sealed, binding)).equals(seed)).toBe(true)
+  })
+
+  it('a key made before owners were recorded, whose Telegram account is known, moves to the controller sealing', async () => {
+    const local = localKeyWrapper(randomBytes(32))
+    const { seed, binding } = unowned()
+    const v1 = JSON.stringify(await sealSecret(local, seed, aadV1(binding.network, binding.accountId)))
+    const moved = await resealWalletKey(keyring(local), v1, binding)
+    expect(parseSealed(moved.sealed)).toMatchObject({ v: 3 })
+    expect((await openWalletKey(keyring(local), moved.sealed, binding)).equals(seed)).toBe(true)
+    await expect(openWalletKey(keyring(local), moved.sealed, { ...binding, controller: 102 })).rejects.toThrow(KeyUnavailableError)
   })
 })

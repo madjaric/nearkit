@@ -11,7 +11,10 @@ export interface SignerKey {
   network: string
   accountId: string
   publicKey: string
-  /** The owner wallet the key is bound to (in its sealing too). Null only for keys made before owners were recorded. */
+  /**
+   * The owner wallet the key is bound to (in its sealing too). Null for a wallet with no owner
+   * wallet: its key is bound to the Telegram account that controls it (`userId`) instead.
+   */
   ownerAccount: string | null
   /** The owner key proven when the wallet was created (informational: approvals re-check keys on chain). */
   ownerKey: string | null
@@ -62,6 +65,42 @@ export interface Destination {
   nonce: string
   recipient: string
   signature: string
+  approvedAt: number
+  revokedAt: number | null
+}
+
+export type TelegramRequestKind = 'destination' | 'bind-owner'
+
+/** Something a wallet's Telegram account is asked to approve in NearKit's Mini App (a wallet with no owner wallet). */
+export interface TelegramRequest {
+  id: string
+  /** The Mini App's start parameter: Telegram signs it into the launch (src/lib/telegramApproval.ts). */
+  digest: string
+  kind: TelegramRequestKind
+  network: string
+  accountId: string
+  /** The Telegram user who controls the wallet, from the signer's own key record. */
+  userId: number
+  /** The withdrawal address, or the account that becomes the wallet's owner. */
+  target: string
+  /** bind-owner: the owner's key as its link proved it (informational: owner requests re-check keys on chain). */
+  targetKey: string | null
+  attempts: number
+  createdAt: number
+  expiresAt: number
+  usedAt: number | null
+}
+
+/** A withdrawal address the controlling Telegram account approved, with Telegram's signed launch data, re-verified at every use. */
+export interface TelegramApproval {
+  id: string
+  network: string
+  accountId: string
+  destination: string
+  userId: number
+  requestId: string
+  requestExpiresAt: number
+  initData: string
   approvedAt: number
   revokedAt: number | null
 }
@@ -176,6 +215,62 @@ const toDestination = (r: DestinationRow): Destination => ({
   revokedAt: r.revoked_at,
 })
 
+interface TelegramRequestRow {
+  id: string
+  digest: string
+  kind: TelegramRequestKind
+  network: string
+  account_id: string
+  user_id: number
+  target: string
+  target_key: string | null
+  attempts: number
+  created_at: number
+  expires_at: number
+  used_at: number | null
+}
+
+const toTelegramRequest = (r: TelegramRequestRow): TelegramRequest => ({
+  id: r.id,
+  digest: r.digest,
+  kind: r.kind,
+  network: r.network,
+  accountId: r.account_id,
+  userId: Number(r.user_id),
+  target: r.target,
+  targetKey: r.target_key,
+  attempts: r.attempts,
+  createdAt: Number(r.created_at),
+  expiresAt: Number(r.expires_at),
+  usedAt: r.used_at === null ? null : Number(r.used_at),
+})
+
+interface TelegramApprovalRow {
+  id: string
+  network: string
+  account_id: string
+  destination: string
+  user_id: number
+  request_id: string
+  request_expires_at: number
+  init_data: string
+  approved_at: number
+  revoked_at: number | null
+}
+
+const toTelegramApproval = (r: TelegramApprovalRow): TelegramApproval => ({
+  id: r.id,
+  network: r.network,
+  accountId: r.account_id,
+  destination: r.destination,
+  userId: Number(r.user_id),
+  requestId: r.request_id,
+  requestExpiresAt: Number(r.request_expires_at),
+  initData: r.init_data,
+  approvedAt: Number(r.approved_at),
+  revokedAt: r.revoked_at === null ? null : Number(r.revoked_at),
+})
+
 interface SignatureRow {
   intent_id: string
   step: number
@@ -244,6 +339,20 @@ export class SignerStore {
     )
   }
 
+  /**
+   * A wallet with no owner wallet gets its first owner, with its key resealed to that owner.
+   * Only if it still has no owner and its key is still exactly `before`: an owned wallet is
+   * never bound again.
+   */
+  async bindOwner(network: string, accountId: string, before: string, after: string, owner: string, ownerKey: string | null): Promise<boolean> {
+    return (
+      (await this.db.run(
+        "UPDATE signer_keys SET owner_account = ?, owner_key = ?, sealed_key = ?, updated_at = ? WHERE network = ? AND account_id = ? AND status = 'active' AND owner_account IS NULL AND sealed_key = ?",
+        [owner, ownerKey, after, this.now(), network, accountId, before],
+      )) === 1
+    )
+  }
+
   /** Replaces a sealed key with its resealed form (rotation). Only if it is still exactly `before`. */
   async resealed(network: string, accountId: string, before: string, after: string, keyRef: string): Promise<boolean> {
     return (
@@ -269,6 +378,7 @@ export class SignerStore {
     const t = this.now()
     await this.db.run('DELETE FROM signer_request_nonces WHERE expires_at < ?', [t])
     await this.db.run('DELETE FROM signer_challenges WHERE expires_at < ?', [t - 7 * 86_400_000])
+    await this.db.run('DELETE FROM signer_tg_requests WHERE expires_at < ?', [t - 7 * 86_400_000])
   }
 
   // ─── challenges ───────────────────────────────────────────────────────────
@@ -348,6 +458,86 @@ export class SignerStore {
         destination,
       ])) === 1
     )
+  }
+
+  // ─── Telegram approvals (wallets with no owner wallet) ─────────────────────
+
+  async createTelegramRequest(r: Omit<TelegramRequest, 'attempts' | 'createdAt' | 'usedAt'>): Promise<TelegramRequest> {
+    await this.db.run(
+      `INSERT INTO signer_tg_requests (id, digest, kind, network, account_id, user_id, target, target_key, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [r.id, r.digest, r.kind, r.network, r.accountId, r.userId, r.target, r.targetKey, this.now(), r.expiresAt],
+    )
+    return (await this.telegramRequestByDigest(r.digest)) as TelegramRequest
+  }
+
+  async telegramRequestByDigest(digest: string): Promise<TelegramRequest | null> {
+    const r = await this.db.get<TelegramRequestRow>('SELECT * FROM signer_tg_requests WHERE digest = ?', [digest])
+    return r ? toTelegramRequest(r) : null
+  }
+
+  async bumpTelegramAttempt(id: string): Promise<void> {
+    await this.db.run('UPDATE signer_tg_requests SET attempts = attempts + 1 WHERE id = ?', [id])
+  }
+
+  /** Marks a request used, once: only if unused and unexpired. */
+  async useTelegramRequest(id: string): Promise<boolean> {
+    const t = this.now()
+    return (await this.db.run('UPDATE signer_tg_requests SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at >= ?', [t, id, t])) === 1
+  }
+
+  async countTelegramRequestsSince(network: string, accountId: string, since: number): Promise<number> {
+    return (
+      (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM signer_tg_requests WHERE network = ? AND account_id = ? AND created_at >= ?', [network, accountId, since]))?.n ??
+      0
+    )
+  }
+
+  /** Records an approval. An address already approved keeps its first approval (returned). */
+  async addTelegramApproval(a: Omit<TelegramApproval, 'id' | 'approvedAt' | 'revokedAt'>): Promise<TelegramApproval> {
+    try {
+      await this.db.attempt(() =>
+        this.db.run(
+          `INSERT INTO signer_tg_approvals (id, network, account_id, destination, user_id, request_id, request_expires_at, init_data, approved_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [randomToken(12), a.network, a.accountId, a.destination, a.userId, a.requestId, a.requestExpiresAt, a.initData, this.now()],
+        ),
+      )
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e
+    }
+    return (await this.liveTelegramApproval(a.network, a.accountId, a.destination)) as TelegramApproval
+  }
+
+  async liveTelegramApproval(network: string, accountId: string, destination: string): Promise<TelegramApproval | null> {
+    const r = await this.db.get<TelegramApprovalRow>('SELECT * FROM signer_tg_approvals WHERE network = ? AND account_id = ? AND destination = ? AND revoked_at IS NULL', [
+      network,
+      accountId,
+      destination,
+    ])
+    return r ? toTelegramApproval(r) : null
+  }
+
+  async telegramApprovals(network: string, accountId: string): Promise<TelegramApproval[]> {
+    return (
+      await this.db.all<TelegramApprovalRow>('SELECT * FROM signer_tg_approvals WHERE network = ? AND account_id = ? AND revoked_at IS NULL ORDER BY approved_at', [
+        network,
+        accountId,
+      ])
+    ).map(toTelegramApproval)
+  }
+
+  /** Revokes one address (`destination`) or all of a wallet's Telegram approvals. Returns how many. */
+  async revokeTelegramApprovals(network: string, accountId: string, destination?: string): Promise<number> {
+    const t = this.now()
+    return destination === undefined
+      ? this.db.run('UPDATE signer_tg_approvals SET revoked_at = ? WHERE network = ? AND account_id = ? AND revoked_at IS NULL', [t, network, accountId])
+      : this.db.run('UPDATE signer_tg_approvals SET revoked_at = ? WHERE network = ? AND account_id = ? AND destination = ? AND revoked_at IS NULL', [
+          t,
+          network,
+          accountId,
+          destination,
+        ])
   }
 
   // ─── signatures ───────────────────────────────────────────────────────────

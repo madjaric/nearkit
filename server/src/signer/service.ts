@@ -14,6 +14,7 @@ import { ensureSignerTls } from './tls'
 import { createRouteOracle } from './routes'
 import { migrateSigner } from './schema'
 import { SignerStore } from './store'
+import type { TelegramCheck } from './telegram'
 
 /**
  * The signer as a running service: its database (migrated), its KEKs (KMS or, on
@@ -27,6 +28,8 @@ export interface SignerDepsOverrides {
   log?: Logger
   /** How to reach a KMS key (tests pass a stand-in; production uses AWS). */
   kmsApi?: (arn: string) => Promise<KmsApi>
+  /** Telegram's key and the bot, instead of the configured ones (tests pass a stand-in for Telegram's key). */
+  telegram?: TelegramCheck | null
 }
 
 /** Every secret the signer's logger must never print. */
@@ -70,6 +73,7 @@ export async function buildSigner(config: SignerServiceConfig, o: SignerDepsOver
       feeRecipient: config.feeRecipient,
       recipient: config.recipient,
       maxSlippagePpm: config.maxSlippagePpm,
+      telegram: o.telegram !== undefined ? o.telegram : config.telegram,
       // The host's own switches, read on every request: an env flag, or a file an operator creates.
       pausedByHost: () => pause.byEnv || (pause.file !== null && existsSync(pause.file)),
     },

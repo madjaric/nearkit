@@ -32,10 +32,11 @@ export class KeyUnavailableError extends Error {
 /**
  * A sealed wallet key as stored (JSON). Every field is ciphertext or public metadata.
  * `v` names the additional data both layers were sealed with (the crypto is the same):
- * 1 = network and account; 2 = network, account and the wallet's owner (signer/envelope.ts).
+ * 1 = network and account; 2 = network, account and the wallet's owner; 3 = network, account
+ * and the Telegram account that controls a wallet with no owner wallet (signer/envelope.ts).
  */
 export interface SealedSecret {
-  v: 1 | 2
+  v: 1 | 2 | 3
   /** KeyWrapper.ref of the KEK that wrapped the DEK. */
   ref: string
   /** The DEK, encrypted by the KEK. */
@@ -117,7 +118,7 @@ export function keyring(current: KeyWrapper, previous: readonly KeyWrapper[] = [
 
 /** The plain secret. The caller wipes it (`fill(0)`) as soon as it is done. */
 export async function openSecret(keys: KeyWrapper | Keyring, sealed: SealedSecret, aad: string): Promise<Buffer> {
-  if (sealed.v !== 1 && sealed.v !== 2) throw new KeyUnavailableError('Unknown sealed wallet key format')
+  if (sealed.v !== 1 && sealed.v !== 2 && sealed.v !== 3) throw new KeyUnavailableError('Unknown sealed wallet key format')
   const wrapper = 'byRef' in keys ? keys.byRef(sealed.ref) : sealed.ref === keys.ref ? keys : null
   if (!wrapper) throw new KeyUnavailableError(`This wallet key was sealed with another key-encryption key (${sealed.ref})`)
   const dek = await wrapper.unwrap(sealed.dek, aad)
@@ -149,7 +150,8 @@ export function parseSealed(text: string): SealedSecret {
     throw new KeyUnavailableError('A stored wallet key is not readable')
   }
   const v = value as Partial<SealedSecret>
-  if ((v?.v !== 1 && v?.v !== 2) || [v.ref, v.dek, v.iv, v.tag, v.ct].some((f) => typeof f !== 'string' || !f)) throw new KeyUnavailableError('A stored wallet key is malformed')
+  if ((v?.v !== 1 && v?.v !== 2 && v?.v !== 3) || [v.ref, v.dek, v.iv, v.tag, v.ct].some((f) => typeof f !== 'string' || !f))
+    throw new KeyUnavailableError('A stored wallet key is malformed')
   return v as SealedSecret
 }
 

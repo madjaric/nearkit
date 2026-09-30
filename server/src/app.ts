@@ -43,7 +43,11 @@ import { createSwapService } from './custody/swap'
 import { unwrapHandler } from './custody/unwrap'
 import { backupKeyHandler, createRecoveryService, revokeHandler } from './custody/recovery'
 import { recoveryRoutes } from './api/recoveryRoutes'
-import { approvedText, exportedText, recoveryModule } from './bot/recovery'
+import { telegramRoutes } from './api/telegramRoutes'
+import { approvedText, exportedText, recoveryModule, telegramApprovedText } from './bot/recovery'
+import { createTelegramApprovals } from './custody/telegramApprovals'
+import { TELEGRAM_LAUNCH_KEYS } from './signer/telegram'
+import { hexDecode } from '@/lib/encoding'
 import { btn, keyboard } from './bot/context'
 import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
@@ -158,7 +162,14 @@ export async function startServer(options: { env: Record<string, string | undefi
         keys: keyring(localKeyWrapper(signerConfig.kek)),
         chain: createSignerChain({ rpcUrls: config.network.rpcUrls, quorum: 1, fetch: fetchImpl }),
         oracle: createRouteOracle(config.network, fetchImpl),
-        config: { network: config.network, feeRecipient: null, recipient: config.linkRecipient, maxSlippagePpm: MAX_SLIPPAGE * 10_000 },
+        config: {
+          network: config.network,
+          feeRecipient: null,
+          recipient: config.linkRecipient,
+          maxSlippagePpm: MAX_SLIPPAGE * 10_000,
+          // One process: the signer checks Mini App approvals for this process's own bot (its id is the token's public prefix).
+          telegram: config.telegramToken ? { botId: Number(config.telegramToken.split(':')[0]), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS.production) as Uint8Array } : null,
+        },
         now,
         log,
       })
@@ -200,7 +211,9 @@ export async function startServer(options: { env: Record<string, string | undefi
       instanceId: instance,
     })
     const recovery = createRecoveryService({ custody: cstore, signer, config })
-    custody = { store: cstore, signer, engine, chain, swaps, recovery, ops }
+    // Mini App links name the bot; its username is known once the bot token answers (getMe below).
+    const telegram = createTelegramApprovals({ custody: cstore, signer, network: config.network.id, botUsername: () => botUsername })
+    custody = { store: cstore, signer, engine, chain, swaps, recovery, ops, telegram }
     log.info('trading wallets on', { network: config.network.id, signer: signerMode })
   } else {
     log.info('trading wallets off', { reason: config.custody.reason })
@@ -229,6 +242,7 @@ export async function startServer(options: { env: Record<string, string | undefi
   const buybot: BuybotDeps | null = config.buybot.enabled && config.telegramToken ? buildBuybotDeps(config, db, fetchImpl, now, log, near) : null
 
   let tg: TelegramApi | null = null
+  let botUsername = config.telegramBotUsername ?? 'NearKitBot'
   let bot: BotApp | null = null
   let poller: ReturnType<typeof startPolling> | null = null
   let buybotRunner: ReturnType<typeof runBuybot> | null = null
@@ -239,6 +253,13 @@ export async function startServer(options: { env: Record<string, string | undefi
       throw new Error(`The bot token belongs to @${me.username ?? '?'}, not @${config.telegramBotUsername} (TELEGRAM_BOT_USERNAME).`)
     const webhook = await tg.getWebhookInfo()
     if (webhook.url) throw new Error('A webhook is set for this bot, so long polling cannot run. Remove the webhook (deleteWebhook) or stop the other deployment first.')
+    botUsername = me.username ?? botUsername
+    if (custody) {
+      // Wallets with no owner wallet withdraw only to addresses approved in this bot's Mini App: the signer must check them.
+      const h = await custody.signer.health().catch(() => null)
+      if (h && h.telegram !== me.id)
+        log.warn('the signer checks no Mini App approvals for this bot: new wallets need a linked wallet as their owner', { signerBot: h.telegram, bot: me.id })
+    }
     const deps: BotDeps = {
       tg,
       store,
@@ -318,6 +339,16 @@ export async function startServer(options: { env: Record<string, string | undefi
               void (await bot?.notify(r.userId, approvedText(r.wallet, r.destination), keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]))),
           })
         : {}),
+      ...(custody
+        ? telegramRoutes({
+            approvals: custody.telegram,
+            // The wallet's Telegram user hears about every approval given in the Mini App.
+            onApproved: async (r) => {
+              const n = telegramApprovedText(r)
+              await bot?.notify(r.userId, n.text, n.markup)
+            },
+          })
+        : {}),
     },
     limits: {
       '/api/link/describe': 30,
@@ -328,6 +359,8 @@ export async function startServer(options: { env: Record<string, string | undefi
       '/api/recovery/wallets': 10,
       '/api/recovery/export': 5,
       '/api/recovery/destination': 10,
+      '/api/telegram/request': 30,
+      '/api/telegram/approve': 10,
     },
     // Public and secret-free: whether the bot and buy alerts run, the kill switches, the signer, and the boot count (see Store.recordBoot).
     health: () => ({

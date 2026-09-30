@@ -1,6 +1,7 @@
 import type { NetworkConfig } from '@/config/networks'
 import { base58Decode, base58Encode, base64Decode, base64Encode } from '@/lib/encoding'
 import { exportKeyFingerprint, sealExport } from '@/lib/exportCrypto'
+import { telegramApprovalDigest } from '@/lib/telegramApproval'
 import { accountKind, isForeignToNetwork } from '@/lib/validation'
 import { parseEd25519PublicKey, verifyNep413 } from '@/services/near/nep413'
 import { deserializeSignedTransaction, serializeSignedTransaction, serializeTransaction, transactionDigest, type NearTransaction } from '@/services/near/transaction'
@@ -11,12 +12,13 @@ import { randomBytesArray, randomToken } from '../ids'
 import { silentLogger, type Logger } from '../log'
 import type { SignerChain } from './chain'
 import { BadRequestError, decodeOp, decodePlan, int, obj, str, uint } from './codec'
-import { openWalletKey, sealWalletKey } from './envelope'
+import { bindOwnerKey, openWalletKey, sealWalletKey, type KeyBinding } from './envelope'
 import { AlreadySignedError, ChallengeError, DestinationNotApprovedError, SignerPausedError } from './errors'
 import { probeKek } from './kms'
 import { challengeMessage, readMessage } from './messages'
 import { verifySwapRoute, type RouteOracle } from './routes'
-import type { Challenge, ChallengeKind, SignerKey, SignerStore } from './store'
+import type { Challenge, ChallengeKind, SignerKey, SignerStore, TelegramRequest, TelegramRequestKind } from './store'
+import { verifyTelegramLaunch, type TelegramCheck } from './telegram'
 import { sameTransaction, toTxActions } from './tx'
 
 /**
@@ -37,6 +39,12 @@ import { sameTransaction, toTxActions } from './tx'
  *   written here, signed by a full-access key of the owner wallet (checked on chain by a
  *   quorum of RPC providers), within minutes, once. An export is sealed to the browser key
  *   named in the signed message: nothing in between sees the key.
+ * - Wallets with no owner wallet: the Telegram account that created one controls it, and its
+ *   key is sealed to that account. A withdrawal address, and the wallet's first owner, are
+ *   approved in NearKit's Mini App: the signer checks Telegram's own signature on the launch
+ *   (signer/telegram.ts), bound to the exact request it wrote. The app can relay an approval
+ *   but never make one. Such a wallet has none of an owner's powers (export, backup key,
+ *   removing NearKit's key) until an owner wallet is bound, once and one way.
  * - A pause switch refuses all of that at once (fail closed); health says why.
  */
 
@@ -52,6 +60,8 @@ export interface SignerConfig {
   challengeTtlMs?: number
   /** The host's own pause switch (environment or file), checked on every request. */
   pausedByHost?: () => boolean
+  /** NearKit's bot and Telegram's key, for approvals in the Mini App (wallets with no owner wallet). Null: none can be approved. */
+  telegram?: TelegramCheck | null
 }
 
 export interface SignerDeps {
@@ -66,6 +76,10 @@ export interface SignerDeps {
 
 export const CHALLENGE_TTL_MS = 5 * 60_000
 export const MAX_CHALLENGE_ATTEMPTS = 5
+/** How long a Telegram approval request stays open: enough to open the Mini App and read it. */
+export const TELEGRAM_REQUEST_TTL_MS = 10 * 60_000
+/** Clock difference tolerated between Telegram's launch date and the signer's clock. */
+const TELEGRAM_SKEW_MS = 60_000
 const CHALLENGES_PER_WINDOW = 20
 const CHALLENGE_WINDOW_MS = 10 * 60_000
 const HEALTH_CACHE_MS = 60_000
@@ -94,8 +108,44 @@ const viewOf = (c: Challenge): ChallengeView => ({
   destination: c.destination,
 })
 
+export interface TelegramRequestView {
+  id: string
+  /** The Mini App's start parameter. */
+  digest: string
+  kind: TelegramRequestKind
+  network: string
+  accountId: string
+  /** The withdrawal address, or the account that becomes the owner. */
+  target: string
+  expiresAt: number
+}
+
+const telegramView = (r: TelegramRequest): TelegramRequestView => ({
+  id: r.id,
+  digest: r.digest,
+  kind: r.kind,
+  network: r.network,
+  accountId: r.accountId,
+  target: r.target,
+  expiresAt: r.expiresAt,
+})
+
 export type SignerMethod =
-  'create-key' | 'sign' | 'erase-key' | 'key-info' | 'challenge' | 'owner-wallets' | 'approve-destination' | 'revoke-destination' | 'destinations' | 'export' | 'pause' | 'health'
+  | 'create-key'
+  | 'sign'
+  | 'erase-key'
+  | 'key-info'
+  | 'challenge'
+  | 'owner-wallets'
+  | 'approve-destination'
+  | 'revoke-destination'
+  | 'destinations'
+  | 'export'
+  | 'tg-request'
+  | 'tg-request-view'
+  | 'tg-approve'
+  | 'pause'
+  | 'health'
 
 export const SIGNER_METHODS: readonly SignerMethod[] = [
   'create-key',
@@ -108,6 +158,9 @@ export const SIGNER_METHODS: readonly SignerMethod[] = [
   'revoke-destination',
   'destinations',
   'export',
+  'tg-request',
+  'tg-request-view',
+  'tg-approve',
   'pause',
   'health',
 ]
@@ -141,8 +194,17 @@ export function createSignerCore(deps: SignerDeps) {
     return key
   }
 
+  /** What a key is sealed to: its owner wallet, or (with none) the Telegram account that controls it. */
+  const bindingOf = (key: SignerKey): KeyBinding => ({
+    network: key.network,
+    accountId: key.accountId,
+    publicKey: key.publicKey,
+    owner: key.ownerAccount,
+    controller: key.ownerAccount ? null : key.userId,
+  })
+
   async function withSeed<T>(key: SignerKey, act: (seed: Buffer) => T): Promise<T> {
-    const seed = await openWalletKey(keys, key.sealedKey as string, { network: key.network, accountId: key.accountId, publicKey: key.publicKey, owner: key.ownerAccount })
+    const seed = await openWalletKey(keys, key.sealedKey as string, bindingOf(key))
     try {
       return act(seed)
     } finally {
@@ -172,12 +234,45 @@ export function createSignerCore(deps: SignerDeps) {
     return (await chain.permission(key.ownerAccount, d.publicKey)) === 'full'
   }
 
+  function telegram(): TelegramCheck {
+    if (!config.telegram)
+      throw new ChallengeError('telegram-off', 'Approvals in Telegram aren’t set up on this NearKit server, so nothing can be approved for a wallet without an owner wallet.')
+    return config.telegram
+  }
+
+  /**
+   * An address the controlling Telegram account approved (a wallet with no owner wallet),
+   * re-verified in full: Telegram's signature on the stored launch, the Telegram account, and
+   * that what Telegram signed is exactly this wallet's request for this address.
+   */
+  async function telegramApprovalHolds(key: SignerKey, destination: string): Promise<boolean> {
+    if (!config.telegram || key.ownerAccount || !key.userId) return false
+    const a = await store.liveTelegramApproval(network.id, key.accountId, destination)
+    if (!a || a.userId !== key.userId) return false
+    const launch = await verifyTelegramLaunch(a.initData, config.telegram)
+    if (!launch || launch.userId !== key.userId) return false
+    const digest = await telegramApprovalDigest({
+      id: a.requestId,
+      kind: 'destination',
+      network: network.id,
+      accountId: key.accountId,
+      target: destination,
+      expiresAt: a.requestExpiresAt,
+    })
+    return launch.startParam === digest
+  }
+
   async function authorize(key: SignerKey, op: WalletOperation, plan: readonly WalletTxPlan[], step: number): Promise<void> {
     switch (op.kind) {
       case 'withdraw-near':
       case 'withdraw-token':
-        if (key.ownerAccount && op.to === key.ownerAccount) return
-        if (!(await approvalHolds(key, op.to))) throw new DestinationNotApprovedError(op.to)
+        if (key.ownerAccount) {
+          if (op.to === key.ownerAccount) return
+          if (!(await approvalHolds(key, op.to))) throw new DestinationNotApprovedError(op.to)
+          return
+        }
+        // No owner wallet: only addresses its Telegram account approved in the Mini App.
+        if (!(await telegramApprovalHolds(key, op.to))) throw new DestinationNotApprovedError(op.to)
         return
       case 'add-backup-key':
         if (!key.ownerAccount) throw new PolicyViolation('this wallet has no recorded owner, so no backup key can be added')
@@ -240,20 +335,30 @@ export function createSignerCore(deps: SignerDeps) {
 
   const methods: Record<SignerMethod, (body: unknown) => Promise<unknown>> = {
     async 'create-key'(body) {
-      const b = obj(body, 'the request', ['owner', 'userId'])
-      const o = obj(b.owner, 'the owner', ['accountId', 'publicKey'])
-      const ownerAccount = account(o.accountId, 'the owner account')
-      const ownerKey = str(o.publicKey, 'the owner key', 128)
-      if (!parseEd25519PublicKey(ownerKey)) throw new BadRequestError('malformed request: the owner key is not an ed25519 key')
+      // No owner: a wallet with no owner wallet, sealed to the Telegram account that asks for it.
+      const b = obj(body, 'the request', ['userId'], ['owner'])
+      let ownerAccount: string | null = null
+      let ownerKey: string | null = null
+      if (b.owner !== undefined && b.owner !== null) {
+        const o = obj(b.owner, 'the owner', ['accountId', 'publicKey'])
+        ownerAccount = account(o.accountId, 'the owner account')
+        ownerKey = str(o.publicKey, 'the owner key', 128)
+        if (!parseEd25519PublicKey(ownerKey)) throw new BadRequestError('malformed request: the owner key is not an ed25519 key')
+      }
       const userId = int(b.userId, 'userId', Number.MAX_SAFE_INTEGER)
+      if (!ownerAccount && userId === 0) throw new BadRequestError('malformed request: a wallet with no owner wallet needs the Telegram account that controls it')
       await open()
       const k = generateKey()
       try {
         const accountId = implicitAccountId(k.publicKey)
         const publicKey = nearPublicKey(k.publicKey)
-        const sealedKey = await sealWalletKey(keys, k.seed, { network: network.id, accountId, publicKey, owner: ownerAccount })
+        const sealedKey = await sealWalletKey(keys, k.seed, { network: network.id, accountId, publicKey, owner: ownerAccount, controller: ownerAccount ? null : userId })
         await store.insertKey({ network: network.id, accountId, publicKey, ownerAccount, ownerKey, userId, walletId: null, sealedKey, keyRef: keys.current.ref })
-        await store.event('key-created', { network: network.id, accountId, detail: { owner: ownerAccount, keyRef: keys.current.ref, userId } })
+        await store.event('key-created', {
+          network: network.id,
+          accountId,
+          detail: { owner: ownerAccount, ...(ownerAccount ? {} : { controlledBy: 'telegram' }), keyRef: keys.current.ref, userId },
+        })
         return { accountId, publicKey, keyRef: keys.current.ref }
       } finally {
         k.seed.fill(0)
@@ -331,8 +436,8 @@ export function createSignerCore(deps: SignerDeps) {
       const b = obj(body, 'the request', ['accountId'])
       const key = await store.key(network.id, str(b.accountId, 'accountId', 64))
       return key
-        ? { held: key.status === 'active', publicKey: key.publicKey, ownerAccount: key.ownerAccount, keyRef: key.keyRef }
-        : { held: false, publicKey: null, ownerAccount: null, keyRef: null }
+        ? { held: key.status === 'active', publicKey: key.publicKey, ownerAccount: key.ownerAccount, ownerKey: key.ownerKey, keyRef: key.keyRef }
+        : { held: false, publicKey: null, ownerAccount: null, ownerKey: null, keyRef: null }
     },
 
     async challenge(body) {
@@ -415,10 +520,12 @@ export function createSignerCore(deps: SignerDeps) {
 
     async 'revoke-destination'(body) {
       const b = obj(body, 'the request', ['accountId', 'destination'])
-      // Revoking only takes permission away: it needs no owner signature.
+      // Revoking only takes permission away: it needs no owner signature (nor Telegram's).
       const accountId = str(b.accountId, 'accountId', 64)
       const destination = str(b.destination, 'destination', 64)
-      const revoked = await store.revokeDestination(network.id, accountId, destination)
+      const byOwner = await store.revokeDestination(network.id, accountId, destination)
+      const byTelegram = (await store.revokeTelegramApprovals(network.id, accountId, destination)) > 0
+      const revoked = byOwner || byTelegram
       if (revoked) await store.event('destination-revoked', { network: network.id, accountId, detail: { destination } })
       return { revoked }
     },
@@ -427,8 +534,13 @@ export function createSignerCore(deps: SignerDeps) {
       const b = obj(body, 'the request', ['accountId'])
       const key = await store.key(network.id, str(b.accountId, 'accountId', 64))
       if (!key) return { ownerAccount: null, destinations: [] }
+      // The approvals that count for this wallet: its owner's, or (with no owner) its Telegram account's.
+      if (!key.ownerAccount) {
+        const list = await store.telegramApprovals(network.id, key.accountId)
+        return { ownerAccount: null, destinations: list.map((a) => ({ destination: a.destination, approvedAt: a.approvedAt, approvedBy: 'telegram' })) }
+      }
       const list = await store.destinations(network.id, key.accountId)
-      return { ownerAccount: key.ownerAccount, destinations: list.map((d) => ({ destination: d.destination, approvedAt: d.approvedAt })) }
+      return { ownerAccount: key.ownerAccount, destinations: list.map((d) => ({ destination: d.destination, approvedAt: d.approvedAt, approvedBy: 'owner' })) }
     },
 
     async export(body) {
@@ -442,6 +554,100 @@ export function createSignerCore(deps: SignerDeps) {
       await store.event('key-exported', { network: network.id, accountId: key.accountId, detail: { owner: c.ownerAccount, key: publicKey, challenge: c.id } })
       log.info('key exported to its owner', { account: key.accountId, owner: c.ownerAccount })
       return { accountId: key.accountId, publicKey: key.publicKey, sealed }
+    },
+
+    async 'tg-request'(body) {
+      const b = obj(body, 'the request', ['kind', 'accountId', 'target'], ['targetKey'])
+      const kind = b.kind
+      if (kind !== 'destination' && kind !== 'bind-owner') throw new BadRequestError('malformed request: the kind is unknown')
+      const accountId = str(b.accountId, 'accountId', 64)
+      const target = account(b.target, kind === 'destination' ? 'the destination' : 'the owner')
+      let targetKey: string | null = null
+      if (kind === 'bind-owner') {
+        targetKey = str(b.targetKey, 'the owner key', 128)
+        if (!parseEd25519PublicKey(targetKey)) throw new BadRequestError('malformed request: the owner key is not an ed25519 key')
+      }
+      if (target === accountId) throw new BadRequestError(`malformed request: ${kind === 'destination' ? 'the destination' : 'the owner'} is the wallet itself`)
+      await open()
+      telegram()
+      const key = await liveKey(accountId)
+      if (key.ownerAccount) throw new ChallengeError('owned', `This NearKit wallet has an owner wallet, ${key.ownerAccount}: approve with it in NearKit web instead.`)
+      if (!key.userId) throw new ChallengeError('wallet', 'This NearKit wallet has no Telegram account on record, so nothing can be approved for it.')
+      if ((await store.countTelegramRequestsSince(network.id, accountId, now() - CHALLENGE_WINDOW_MS)) >= CHALLENGES_PER_WINDOW)
+        throw new ChallengeError('rate-limited', 'Too many requests for this wallet. Try again in a few minutes.')
+      const id = randomToken(18)
+      const expiresAt = now() + TELEGRAM_REQUEST_TTL_MS
+      const digest = await telegramApprovalDigest({ id, kind, network: network.id, accountId, target, expiresAt })
+      const r = await store.createTelegramRequest({ id, digest, kind, network: network.id, accountId, userId: key.userId, target, targetKey, expiresAt })
+      await store.event('tg-request-created', { network: network.id, accountId, detail: { kind, request: id, target } })
+      return telegramView(r)
+    },
+
+    async 'tg-request-view'(body) {
+      const b = obj(body, 'the request', ['digest'])
+      const r = await store.telegramRequestByDigest(str(b.digest, 'digest', 64))
+      if (!r || r.network !== network.id) return { request: null, status: null }
+      return { request: telegramView(r), status: r.usedAt !== null ? 'used' : now() > r.expiresAt ? 'expired' : 'open' }
+    },
+
+    async 'tg-approve'(body) {
+      const b = obj(body, 'the request', ['initData'])
+      const initData = str(b.initData, 'initData', 4096)
+      await open()
+      const launch = await verifyTelegramLaunch(initData, telegram())
+      if (!launch) throw new ChallengeError('bad-signature', 'This approval isn’t signed by Telegram for NearKit’s bot. Nothing happened.')
+      const r = await store.telegramRequestByDigest(launch.startParam)
+      if (!r || r.network !== network.id) throw new ChallengeError('unknown', 'This request is unknown. Start again in Telegram.')
+      const refused = (reason: string) =>
+        store.event('tg-approval-refused', { network: network.id, accountId: r.accountId, detail: { request: r.id, reason, telegramUser: launch.userId } })
+      if (r.usedAt !== null) throw new ChallengeError('used', 'This approval was already used. Start again in Telegram.')
+      if (now() > r.expiresAt) throw new ChallengeError('expired', 'This request expired. Start again in Telegram.')
+      if (r.attempts >= MAX_CHALLENGE_ATTEMPTS) throw new ChallengeError('locked', 'Too many attempts with this request. Start again in Telegram.')
+      await store.bumpTelegramAttempt(r.id)
+      // What Telegram signed must be this request exactly, as it was written (a row edited since hashes to something else).
+      if ((await telegramApprovalDigest({ id: r.id, kind: r.kind, network: r.network, accountId: r.accountId, target: r.target, expiresAt: r.expiresAt })) !== launch.startParam) {
+        await refused('the request was altered')
+        throw new ChallengeError('unknown', 'This request is unknown. Start again in Telegram.')
+      }
+      const opened = launch.authDate * 1000
+      if (opened < r.createdAt - TELEGRAM_SKEW_MS || opened > now() + TELEGRAM_SKEW_MS) {
+        await refused('opened outside the request’s lifetime')
+        throw new ChallengeError('stale', 'This approval was opened before the request existed. Start again in Telegram.')
+      }
+      const key = await liveKey(r.accountId)
+      if (key.ownerAccount) throw new ChallengeError('owned', `This NearKit wallet has an owner wallet, ${key.ownerAccount}: approve with it in NearKit web instead.`)
+      if (launch.userId !== r.userId || key.userId !== r.userId) {
+        await refused('another Telegram account')
+        throw new ChallengeError('not-controller', 'Approve with the Telegram account that controls this NearKit wallet. Nothing happened.')
+      }
+      if (!(await store.useTelegramRequest(r.id))) throw new ChallengeError('used', 'This approval was already used. Start again in Telegram.')
+      if (r.kind === 'destination') {
+        await store.addTelegramApproval({
+          network: network.id,
+          accountId: r.accountId,
+          destination: r.target,
+          userId: r.userId,
+          requestId: r.id,
+          requestExpiresAt: r.expiresAt,
+          initData,
+        })
+        await store.event('tg-destination-approved', { network: network.id, accountId: r.accountId, detail: { destination: r.target, request: r.id, telegramUser: launch.userId } })
+        return { kind: r.kind, accountId: r.accountId, target: r.target }
+      }
+      // The first owner: the key is resealed to it, once and one way.
+      const before = key.sealedKey as string
+      const after = await bindOwnerKey(keys, before, bindingOf(key), r.target)
+      if (!(await store.bindOwner(network.id, r.accountId, before, after, r.target, r.targetKey)))
+        throw new ChallengeError('owned', 'This NearKit wallet got an owner wallet meanwhile. Nothing changed.')
+      // From now on only the owner's signed approvals count: the ones given in Telegram end here.
+      const ended = await store.revokeTelegramApprovals(network.id, r.accountId)
+      await store.event('owner-bound', {
+        network: network.id,
+        accountId: r.accountId,
+        detail: { owner: r.target, request: r.id, telegramUser: launch.userId, telegramApprovalsEnded: ended },
+      })
+      log.info('owner wallet bound', { account: r.accountId, owner: r.target })
+      return { kind: r.kind, accountId: r.accountId, target: r.target }
     },
 
     async pause(body) {
@@ -462,7 +668,15 @@ export function createSignerCore(deps: SignerDeps) {
       } catch (e) {
         db = e instanceof Error ? e.message : 'unavailable'
       }
-      return { ok: health.kek === 'ok' && db === 'ok' && !isPaused, paused: isPaused, network: network.id, keyRef: keys.current.ref, kek: health.kek, db }
+      return {
+        ok: health.kek === 'ok' && db === 'ok' && !isPaused,
+        paused: isPaused,
+        network: network.id,
+        keyRef: keys.current.ref,
+        kek: health.kek,
+        db,
+        telegram: config.telegram?.botId ?? null,
+      }
     },
   }
 
