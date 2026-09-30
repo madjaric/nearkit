@@ -82,3 +82,32 @@ describe('what a wallet can spend', () => {
     expect(await chainWith(5n * 10n ** 24n, 182).available('ghost.testnet')).toBeNull()
   })
 })
+
+describe('a transaction as it runs', () => {
+  const running = {
+    final_execution_status: 'INCLUDED_FINAL',
+    status: 'Started',
+    transaction: { hash: 'H1', signer_id: 'alice.testnet', receiver_id: 'wrap.testnet' },
+    transaction_outcome: {
+      id: 'H1',
+      outcome: { logs: [], receipt_ids: ['r1'], gas_burnt: 1, tokens_burnt: '0', executor_id: 'alice.testnet', status: { SuccessReceiptId: 'r1' } },
+    },
+    receipts_outcome: [{ id: 'r1', outcome: { logs: ['delivered'], receipt_ids: [], gas_burnt: 1, tokens_burnt: '0', executor_id: 'wrap.testnet', status: { SuccessValue: '' } } }],
+  }
+
+  it('reads the receipts so far without waiting for the transaction to finish, and never calls it final', async () => {
+    const chain = createFakeChain()
+    chain.settle('H1', running)
+    const a = createChainAccess({ rpc: createRpcClient({ urls: ['https://rpc.test'], fetch: chain.fetch }), fetch: chain.fetch })
+    expect(await a.progress('H1', 'alice.testnet')).toMatchObject({ final_execution_status: 'INCLUDED_FINAL', receipts_outcome: [{ id: 'r1' }] })
+    expect(chain.rpcCalls('EXPERIMENTAL_tx_status').at(-1)?.params).toMatchObject({ tx_hash: 'H1', wait_until: 'NONE' })
+    // Not final: status() still answers null.
+    expect(await a.status('H1', 'alice.testnet')).toBeNull()
+  })
+
+  it('answers null for a transaction the chain doesn’t know yet', async () => {
+    const chain = createFakeChain()
+    const a = createChainAccess({ rpc: createRpcClient({ urls: ['https://rpc.test'], fetch: chain.fetch }), fetch: chain.fetch })
+    expect(await a.progress('NOPE', 'alice.testnet')).toBeNull()
+  })
+})

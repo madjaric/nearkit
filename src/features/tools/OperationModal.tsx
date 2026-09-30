@@ -9,9 +9,11 @@ import { useToast } from '@/components/ui/toast-context'
 import { cn } from '@/lib/cn'
 import { truncateMiddle } from '@/lib/format'
 import { describeError, type ErrorView } from '@/services/errors'
+import { useInFlightConflict } from '@/services/inFlight'
 import { useCapabilities, useExecution } from '@/services/queries'
 import { useConnectPrompt } from '@/state/contexts'
 import type { OperationPlan, OperationProgress, TxProgress } from '@/types/operations'
+import { canCloseWhileRunning, headline, settledToast } from './operationStatus'
 import { PlanReview } from './PlanReview'
 import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
 
@@ -87,7 +89,7 @@ function TxRow({ tx, label, simulated }: { tx: TxProgress; label: string; simula
             </span>
           )}
           {tx.error && (
-            <span className={tx.phase === 'failed' ? 'text-neg' : tx.phase === 'unknown' ? 'text-warn' : 'text-fg-3'}>
+            <span className={tx.phase === 'failed' ? 'text-neg' : tx.phase === 'unknown' || tx.phase === 'processing' ? 'text-warn' : 'text-fg-3'}>
               <Figures>{tx.error.message}</Figures>
             </span>
           )}
@@ -101,24 +103,6 @@ function TxRow({ tx, label, simulated }: { tx: TxProgress; label: string; simula
       )}
     </li>
   )
-}
-
-function headline(plan: OperationPlan, progress: OperationProgress): string {
-  const txs = progress.txs
-  const done = txs.filter((t) => t.phase === 'success').length
-  if (progress.phase === 'running') {
-    if (txs.some((t) => t.phase === 'awaiting_signature')) return 'Waiting for your approval in the wallet'
-    return progress.simulated ? 'Simulating' : 'Confirming on chain'
-  }
-  if (progress.phase === 'paused') {
-    if (progress.pause?.reason === 'switch-account') return 'Switch account to continue'
-    return progress.pause?.reason === 'requote' ? 'Quote expired' : 'Paused: review the results'
-  }
-  if (progress.simulated) return 'Simulation complete'
-  if (progress.phase === 'success') return `${plan.transactions.length === 1 ? 'Confirmed' : `All ${done} transactions confirmed`}`
-  if (txs.some((t) => t.phase === 'unknown')) return 'Outcome not confirmed'
-  if (progress.phase === 'partial') return `${done} of ${txs.length} transactions confirmed`
-  return txs.every((t) => t.phase === 'not_sent') ? 'Nothing was sent' : 'Not completed'
 }
 
 /**
@@ -171,22 +155,14 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
         lastProgress.current = p
         if (alive.current) setStage({ kind: 'running', plan, progress: p })
       })
-      // The parent hears the outcome even when this modal was closed while the run finished
-      // (the last transaction can show as confirmed a moment before the run returns).
-      if (progress.phase !== 'paused') onSettled?.(progress)
+      // The parent hears the outcome, and the user gets its notice, even when this modal was
+      // closed while the run was still following the chain (a slow network can take minutes).
+      if (progress.phase !== 'paused') {
+        onSettled?.(progress)
+        toast.push(settledToast(plan, progress, caps.networkLabel))
+      }
       if (!alive.current) return
       setStage({ kind: 'settled', plan, progress })
-      if (progress.phase !== 'paused') {
-        const ok = progress.txs.filter((t) => t.phase === 'success').length
-        if (progress.simulated) toast.push({ tone: 'accent', title: `Simulated · ${plan.title}`, detail: 'Nothing was signed or sent. Balances are unchanged.' })
-        else if (progress.phase === 'success')
-          toast.push({
-            tone: 'accent',
-            title: `Confirmed · ${plan.title}`,
-            detail: `${ok} ${ok === 1 ? 'transaction' : 'transactions'} confirmed on ${caps.networkLabel.toLowerCase()}.`,
-          })
-        else toast.push({ tone: 'neg', title: `Not completed · ${plan.title}`, detail: `${ok} of ${progress.txs.length} transactions confirmed. Review the results.` })
-      }
     } catch (e) {
       if (!alive.current) return
       const p = lastProgress.current
@@ -205,9 +181,12 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
   }
 
   const running = stage.kind === 'running' && stage.progress.phase === 'running'
+  // Once only following the chain is left, closing is fine: the run goes on and its result still arrives.
+  const locked = running && !canCloseWhileRunning(stage.progress)
   const plan = stage.kind === 'review' || stage.kind === 'running' || stage.kind === 'settled' ? stage.plan : null
   const progress = stage.kind === 'running' || stage.kind === 'settled' ? stage.progress : null
   const expired = stage.kind === 'review' && stage.plan.expiresAt !== null && stage.error?.code === 'QUOTE_EXPIRED'
+  const conflict = useInFlightConflict(stage.kind === 'review' ? stage.plan : null)
   const blocked =
     plan && plan.mode === 'near'
       ? plan.fee?.charged
@@ -218,6 +197,9 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
           ? null
           : caps.execution.reason
       : null
+  // The same trade from the same wallet while the first is still going: never sent twice by accident.
+  const repeat = conflict ? `Your previous trade (${conflict.title}) is still being confirmed on chain. Wait for it to settle (see Activity) before sending this again.` : null
+  const stop = blocked ?? repeat
 
   const modalTitle = stage.kind === 'review' || stage.kind === 'preparing' || stage.kind === 'prepare-error' ? title : plan && progress ? headline(plan, progress) : title
   const description =
@@ -263,14 +245,14 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
                 Refresh quote
               </Button>
             ) : (
-              <Button variant="primary" disabled={blocked !== null} onClick={() => void execute(stage.plan, null)}>
+              <Button variant="primary" disabled={stop !== null} onClick={() => void execute(stage.plan, null)}>
                 {confirmLabel}
               </Button>
             )}
           </div>
-          {blocked && (
+          {stop && (
             <p className="text-xs text-fg-3 sm:text-right">
-              <Figures>{blocked}</Figures>
+              <Figures>{stop}</Figures>
             </p>
           )}
         </div>
@@ -318,14 +300,17 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
       )
     }
     return (
-      <Button variant="secondary" onClick={onClose} disabled={running}>
-        {running ? 'Working…' : 'Close'}
-      </Button>
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+        <Button variant="secondary" onClick={onClose} disabled={locked}>
+          {locked ? 'Working…' : 'Close'}
+        </Button>
+        {running && !locked && <p className="text-xs text-fg-3 sm:text-right">NearKit keeps following it after you close this; the result shows in Activity.</p>}
+      </div>
     )
   })()
 
   return (
-    <Modal open onClose={onClose} dismissible={!running} size="lg" title={modalTitle} description={description} footer={footer}>
+    <Modal open onClose={onClose} dismissible={!locked} size="lg" title={modalTitle} description={description} footer={footer}>
       <div className="flex flex-col gap-4">
         {stage.kind === 'preparing' && (
           <div className="flex flex-col gap-2" aria-busy="true">

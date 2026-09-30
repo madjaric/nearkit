@@ -294,3 +294,50 @@ describe('failures on chain', () => {
     expect(text).toContain('USDT')
   })
 })
+
+describe('a slow NEAR network', () => {
+  // The fake testnet chain keeps every account on one shard.
+  const ONE_SHARD = { V3: { boundary_accounts: [], shard_ids: [0] } }
+  const PGAS = 10n ** 15n
+  const lastToAlice = (h: Harness) =>
+    h.fake
+      .messages()
+      .filter((m) => m.chatId === ALICE.id)
+      .at(-1)?.text ?? ''
+
+  it('the quote says when wrap.near’s shard is backed up, and Confirm still trades', async () => {
+    const h = await walletBot()
+    await h.funded(3n * ONE)
+    h.chain.congest(ONE_SHARD, { 0: 36n * PGAS })
+    await h.say('/buy USDT 0.1')
+    expect(h.last()?.text).toContain('⚠️ NEAR network is currently busy. This swap may take longer than usual.')
+    await h.press(h.button('Confirm buy'))
+    expect(h.last()?.text).toContain('Buy confirmed')
+  })
+
+  it('says nothing about it on a quiet network', async () => {
+    const h = await walletBot()
+    await h.funded(3n * ONE)
+    h.chain.congest(ONE_SHARD, { 0: 0n })
+    await h.say('/buy USDT 0.1')
+    expect(h.last()?.text).not.toContain('NEAR network is currently busy')
+  })
+
+  it('a buy still running when the live wait ends shows Processing, never a failure, and its result follows', async () => {
+    const h = await walletBot()
+    const w = await h.funded(3n * ONE)
+    await h.say('/buy USDT 0.1')
+    // The swap lands, but the chain's answer lags behind.
+    h.chain.onSend((tx) => (tx.receiverId === WRAP ? 'hidden' : 'apply'))
+    await h.press(h.button('Confirm buy'))
+    const waiting = h.last()?.text ?? ''
+    expect(waiting).toContain('Processing — NEAR network is taking longer than usual')
+    expect(waiting).toContain('Nothing will be sent twice')
+    expect(waiting).not.toMatch(/fail|went wrong/i)
+    h.chain.reveal()
+    await h.custody.engine.resolvePending()
+    expect(lastToAlice(h)).toContain('Buy confirmed')
+    expect(usdtOf(h, w.accountId)).toBe(400_000n)
+    expect(landed(h).length + h.chain.sent.filter((s) => s.mode === 'hidden').length).toBe(2)
+  })
+})

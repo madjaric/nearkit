@@ -608,6 +608,31 @@ export class CustodyStore {
     ])
   }
 
+  /**
+   * Transactions still open (sent, not final) of intents already done: trades reported when
+   * their tokens arrived, whose chain settlement is filed later. Oldest first.
+   */
+  async settlingTxs(limit = 50): Promise<(WalletTx & { userId: number; walletId: string })[]> {
+    const rows = await this.db.all<TxRow & { user_id: number; wallet_id: string }>(
+      `SELECT t.*, i.user_id AS user_id, i.wallet_id AS wallet_id FROM wallet_txs t JOIN wallet_intents i ON i.id = t.intent_id
+       WHERE t.status IN ('signed', 'submitted') AND i.status = 'done' ORDER BY t.created_at LIMIT ?`,
+      [limit],
+    )
+    return rows.map((r) => ({ ...toTx(r), userId: r.user_id, walletId: r.wallet_id }))
+  }
+
+  /** Files an open transaction's final outcome once: false when it was no longer open (another instance filed it). */
+  async settleTx(intentId: string, step: number, status: 'success' | 'failed', outcome: Record<string, unknown>): Promise<boolean> {
+    const moved = await this.db.run("UPDATE wallet_txs SET status = ?, outcome = ?, updated_at = ? WHERE intent_id = ? AND step = ? AND status IN ('signed', 'submitted')", [
+      status,
+      JSON.stringify(outcome),
+      this.now(),
+      intentId,
+      step,
+    ])
+    return moved === 1
+  }
+
   async txsOf(intentId: string): Promise<WalletTx[]> {
     return (await this.db.all<TxRow>('SELECT * FROM wallet_txs WHERE intent_id = ? ORDER BY step', [intentId])).map(toTx)
   }

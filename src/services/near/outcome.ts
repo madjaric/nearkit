@@ -163,11 +163,55 @@ function nativeDelivered(result: RpcTxResult, from: string, to: unknown, amount:
   })
 }
 
+/** Whether a transaction's actions, as the chain shows them, are exactly the planned ones. */
+export function sameActions(chain: readonly unknown[], planned: PlannedAction[]): boolean {
+  return actionsMismatch([...chain], planned) === null
+}
+
+const shower = (context: OutcomeContext) => (a: TokenAmount, role: TokenRole) => {
+  const t = context.describeToken?.(a.token, role)
+  return t ? `${formatUnits(BigInt(a.raw), t.decimals, { maxFraction: 6, group: true })} ${t.symbol}` : `${a.raw} raw units of ${a.token}`
+}
+
+export interface DeliveryExpectation {
+  /** The output token's contract. */
+  token: string
+  /** The account that must receive it (the signer). */
+  recipient: string
+}
+
+/**
+ * A swap through Rhea's aggregator whose output already reached the recipient, read from a
+ * transaction that may still be running. The aggregator reports `withdraw_succeeded` once its
+ * transfer of the output to the recipient succeeded; what runs after it (the input's
+ * `ft_resolve_transfer`, `callback_swap` with `single_swap_success`) settles its own books and
+ * can't take the tokens back. Under congestion that settlement can come minutes later.
+ *
+ * Null until then, and for anything else: a refund, another token or recipient, a failed
+ * transaction, or a transaction that isn't exactly the planned one.
+ */
+export function swapDelivered(result: RpcTxResult, planned: PlannedTransaction, expect: DeliveryExpectation, context: OutcomeContext = {}): OutcomeVerdict | null {
+  const last = planned.actions.at(-1)
+  if (last?.kind !== 'call' || last.method !== 'ft_transfer_call' || typeof last.args.receiver_id !== 'string') return null
+  if (result.transaction.signer_id !== planned.signerId || result.transaction.receiver_id !== planned.receiverId) return null
+  if (!Array.isArray(result.transaction.actions) || actionsMismatch(result.transaction.actions, planned.actions) !== null) return null
+  const status = statusObject(result.status)
+  if (status && 'Failure' in status) return null
+  const events = eventsOf(result, last.args.receiver_id)
+  if (events.some((e) => e.event === 'swap_failed_refund_started')) return null
+  const done = events.find((e) => e.event === 'withdraw_succeeded' && e.data.token_id === expect.token && e.data.receive_id === expect.recipient)
+  const received = amountOf(done?.data, 'token_id')
+  if (!received || BigInt(received.raw) === 0n) return null
+  const feeData = events.find((e) => e.event === 'earn_app_fee')?.data
+  const fee = amountOf(feeData, 'token')
+  const appFee = fee && typeof feeData?.receipt === 'string' ? { ...fee, recipient: feeData.receipt } : null
+  const show = shower(context)
+  const note = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
+  return { phase: 'success', error: null, note, swap: { received, refunded: null, appFee } }
+}
+
 export function classifyOutcome(result: RpcTxResult, planned: PlannedTransaction, context: OutcomeContext = {}): OutcomeVerdict {
-  const show = (a: TokenAmount, role: TokenRole) => {
-    const t = context.describeToken?.(a.token, role)
-    return t ? `${formatUnits(BigInt(a.raw), t.decimals, { maxFraction: 6, group: true })} ${t.symbol}` : `${a.raw} raw units of ${a.token}`
-  }
+  const show = shower(context)
 
   if (Array.isArray(result.transaction.actions)) {
     const why = actionsMismatch(result.transaction.actions, planned.actions)

@@ -21,13 +21,16 @@ const KIND: Record<OperationPlan['kind'], ActivityKind> = {
   'multi-trade': 'multi-trade',
 }
 
-const OPEN: readonly TxPhase[] = ['submitted', 'confirming', 'unknown']
+const OPEN: readonly TxPhase[] = ['submitted', 'confirming', 'processing', 'unknown']
+/** Phases a run still in progress can change. */
+const LIVE: readonly TxPhase[] = ['queued', 'awaiting_signature', 'submitted', 'confirming', 'processing']
 /** A run that stopped reporting this long ago was interrupted (tab closed). */
 const STALE_MS = 10 * 60_000
 const RECHECK_MS = 20_000
 
 export function activityStatus(txs: readonly Pick<ActivityTx, 'phase'>[], running: boolean): ActivityStatus {
-  if (running) return 'pending'
+  // Still settling on chain is pending, never a failure.
+  if (running || txs.some((t) => t.phase === 'processing')) return 'pending'
   if (txs.some((t) => OPEN.includes(t.phase) || t.phase === 'awaiting_signature')) return 'unknown'
   if (txs.length > 0 && txs.every((t) => t.phase === 'success')) return 'success'
   return txs.some((t) => t.phase === 'success') ? 'partial' : 'failed'
@@ -109,8 +112,10 @@ export async function reconcile(ctx: NearContext, record: ActivityRecord, active
     if (!interrupted) return t
     if (t.phase === 'queued') return { ...t, phase: 'not_sent' }
     if (t.phase === 'awaiting_signature') return { ...t, phase: 'unknown', note: 'NearKit closed while the wallet was open. Check your wallet activity.' }
+    if (t.phase === 'processing' && !t.hash) return { ...t, phase: 'unknown', note: 'NearKit closed while looking for this transaction on chain. Check your wallet activity.' }
     return t
   })
-  const running = record.status === 'pending' && !interrupted
+  // Pending also means "still settling on chain"; a record whose steps all settled isn't running.
+  const running = record.status === 'pending' && !interrupted && txs.some((t) => LIVE.includes(t.phase))
   return { ...record, txs, status: activityStatus(txs, running), checkedAt: ctx.now() }
 }

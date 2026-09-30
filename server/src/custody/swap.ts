@@ -3,9 +3,10 @@ import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountState } from '@/services/near/account'
+import { createCongestionProbe } from '@/services/near/congestion'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { detectTrades, fromRpc } from '@/services/near/flows'
-import { classifyOutcome } from '@/services/near/outcome'
+import { classifyOutcome, swapDelivered } from '@/services/near/outcome'
 import { peakNeedYocto, txStorageYocto } from '@/services/near/plans'
 import { HIGH_REGISTRATION_YOCTO } from '@/services/near/storage'
 import { aggregatorFee, grossOf } from '@/services/rhea/fees'
@@ -14,9 +15,10 @@ import { createSwapRouter, type RoutedSwap } from '@/services/real/swapRouting'
 import type { QuoteRequest } from '@/types/domain'
 import type { PlannedTransaction } from '@/types/operations'
 import type { ServerNear } from '../near'
-import type { IntentHandler, PlanOutcome } from './engine'
+import type { RpcTxResult } from '@/services/near/rpc'
+import type { ConfirmedTx, IntentHandler, PlanOutcome } from './engine'
 import type { SwapRouteFacts, WalletTxPlan } from './policy'
-import type { Intent, TradingWallet } from './store'
+import type { Intent, IntentResult, TradingWallet } from './store'
 
 /**
  * Buy and Sell from a NearKit wallet, entirely in Telegram. The quote the user
@@ -57,6 +59,8 @@ export interface SwapQuote {
   /** NEAR the wallet had available when quoted (yocto); absent when it couldn't be read. */
   available?: string
   networkFeeNear: string
+  /** wrap.near's shard was backed up when quoted: the trade may take longer than usual (informational). */
+  busy?: boolean
   quotedAt: number
   expiresAt: number
 }
@@ -154,9 +158,46 @@ export function routeFacts(r: RoutedSwap): SwapRouteFacts {
 
 const toWalletPlan = (txs: PlannedTransaction[]): WalletTxPlan[] => txs.map((t) => ({ receiverId: t.receiverId, actions: t.actions, label: t.label }))
 
+/** A NearKit wallet's transaction as the plan its outcome is checked against. */
+const plannedOf = (walletAccount: string, plan: WalletTxPlan): PlannedTransaction =>
+  ({ index: 0, signerId: walletAccount, receiverId: plan.receiverId, actions: plan.actions, lineIds: [], label: '', gas: '0', deposit: '0' }) as PlannedTransaction
+
+const gasOf = (txs: { result: RpcTxResult }[]) => txs.reduce((s, c) => s + fromRpc(c.result).gasBurnt, 0n)
+
+/**
+ * A buy whose tokens already reached the wallet, before the chain's last settlement callbacks
+ * ran (minutes later under congestion): done for the user, reported as bought right away. The
+ * swap transaction may still be running (`last.result` partial); its final record is filed when
+ * it settles. Null until the tokens arrived, and for anything but a buy through Rhea's
+ * aggregator: sells (NEAR out) and the classic router are judged when final.
+ */
+export function deliveredTrade(params: SwapParams, walletAccount: string, earlier: ConfirmedTx[], last: ConfirmedTx, network: NetworkConfig): IntentResult | null {
+  if (params.side !== 'buy' || !network.rhea.aggregator) return null
+  const verdict = swapDelivered(last.result, plannedOf(walletAccount, last.plan), { token: params.token, recipient: walletAccount })
+  const received = verdict?.swap?.received
+  if (!verdict || !received) return null
+  const trade = detectTrades(fromRpc(last.result), params.token, { wrapContract: network.wrapContract }).find((t) => t.account === walletAccount)
+  const spent = trade?.paid.find((l) => l.asset === 'near')?.amount ?? null
+  const fee = verdict.swap?.appFee ?? null
+  return {
+    ok: true,
+    message: 'Buy confirmed.',
+    hashes: [...earlier, last].map((c) => c.hash),
+    facts: {
+      token: params.token,
+      tokenAmount: received.raw,
+      nearAmount: spent?.toString() ?? null,
+      fee: fee ? { token: fee.token, raw: fee.raw, recipient: fee.recipient } : null,
+      gasBurnt: gasOf([...earlier, last]).toString(),
+      delivered: true,
+    },
+  }
+}
+
 export function createSwapService(near: ServerNear) {
   const router = createSwapRouter(near.ctx)
   const ctx = near.ctx
+  const congestion = createCongestionProbe(ctx.rpc)
 
   async function symbolOf(contract: string): Promise<string> {
     if (contract === ctx.network.wrapContract) return 'wNEAR'
@@ -191,7 +232,13 @@ export function createSwapService(near: ServerNear) {
   }
 
   async function toQuote(r: RoutedSwap, registration: bigint, txs: PlannedTransaction[], wallet: TradingWallet): Promise<SwapQuote> {
-    const [symbols, impact, state] = await Promise.all([mapLimit(r.routeTokens, 4, symbolOf), impactOf(r), accountState(ctx.rpc, wallet.accountId, 'final').catch(() => null)])
+    // Every Telegram trade is NEAR in or out, through wrap.near's shard.
+    const [symbols, impact, state, busy] = await Promise.all([
+      mapLimit(r.routeTokens, 4, symbolOf),
+      impactOf(r),
+      accountState(ctx.rpc, wallet.accountId, 'final').catch(() => null),
+      congestion.busy(ctx.network.wrapContract),
+    ])
     const path = symbols.map((s, i) => ((i === 0 && r.tokenIn.contract === null) || (i === symbols.length - 1 && r.tokenOut.contract === null) ? 'NEAR' : s))
     let fee: SwapQuote['fee'] = { charged: false, bps: NEARKIT_FEE_BPS, amountRaw: null, token: null, routerShareBps: null }
     if (r.fee) {
@@ -219,6 +266,7 @@ export function createSwapService(near: ServerNear) {
       need: peakNeedYocto(txs).toString(),
       ...(state ? { available: state.availableYocto.toString() } : {}),
       networkFeeNear: burn.toString(),
+      ...(busy ? { busy: true } : {}),
       quotedAt: r.quotedAt,
       expiresAt: r.quotedAt + SWAP_QUOTE_TTL_MS,
     }
@@ -265,19 +313,9 @@ export function createSwapService(near: ServerNear) {
       const hashes = confirmed.map((c) => c.hash)
       const last = confirmed.at(-1)
       if (!last) return { ok: false, message: 'Nothing was sent.', hashes }
-      const planned = {
-        index: 0,
-        signerId: wallet.accountId,
-        receiverId: last.plan.receiverId,
-        actions: last.plan.actions,
-        lineIds: [],
-        label: '',
-        gas: '0',
-        deposit: '0',
-      } as PlannedTransaction
-      const verdict = classifyOutcome(last.result, planned)
+      const verdict = classifyOutcome(last.result, plannedOf(wallet.accountId, last.plan))
       const trade = detectTrades(fromRpc(last.result), params.token, { wrapContract: ctx.network.wrapContract }).find((t) => t.account === wallet.accountId)
-      const gas = confirmed.reduce((s, c) => s + fromRpc(c.result).gasBurnt, 0n)
+      const gas = gasOf(confirmed)
       if (verdict.phase === 'success' && trade) {
         const other = (params.side === 'buy' ? trade.paid : trade.received).find((l) => l.asset === 'near')
         return {
@@ -297,6 +335,10 @@ export function createSwapService(near: ServerNear) {
       const why =
         verdict.error?.code === 'SLIPPAGE_EXCEEDED' || /slippage|min/i.test(verdict.error?.message ?? '') ? 'The price moved past your slippage.' : 'The swap failed on chain.'
       return { ok: false, message: `${why}${verdict.phase === 'failed' ? refund : ' Open the transaction for the details.'}`, hashes, facts: { gasBurnt: gas.toString() } }
+    },
+
+    delivered(intent, wallet, earlier, last) {
+      return deliveredTrade(intent.params as unknown as SwapParams, wallet.accountId, earlier, last, ctx.network)
     },
   }
 

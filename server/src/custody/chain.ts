@@ -41,6 +41,12 @@ export interface ChainAccess {
   status(hash: string, signerId: string): Promise<RpcTxResult | null>
   /** True when the chain knows the hash at all (included, even if not final). Throws when it can't be asked. */
   seen(hash: string, signerId: string): Promise<boolean>
+  /**
+   * The transaction as the chain shows it right now: its receipts so far, final or not
+   * (`final_execution_status` says which). Null when the chain doesn't know it (yet). Throws
+   * when it can't be asked.
+   */
+  progress(hash: string, signerId: string): Promise<RpcTxResult | null>
 }
 
 export const ANCHOR_WINDOW_BLOCKS = 600
@@ -145,6 +151,16 @@ export function createChainAccess(opts: { rpc: RpcClient; fetch?: typeof fetch; 
         return true
       } catch (e) {
         if (e instanceof RpcError && e.causeName === 'UNKNOWN_TRANSACTION') return false
+        throw e
+      }
+    },
+
+    async progress(hash, signerId) {
+      try {
+        const r = await rpc.txStatus(hash, signerId, 'NONE')
+        return r && typeof r === 'object' && typeof r.transaction?.signer_id === 'string' && Array.isArray(r.receipts_outcome) ? r : null
+      } catch (e) {
+        if (e instanceof RpcError && (e.causeName === 'UNKNOWN_TRANSACTION' || e.causeName === 'TIMEOUT_ERROR')) return null
         throw e
       }
     },

@@ -80,6 +80,8 @@ export function createFakeChain(options: FakeChainOptions = {}) {
   let sendMode: (tx: NearTransaction) => SendMode = () => 'apply'
   const sent: { hash: string; mode: SendMode; tx: NearTransaction }[] = []
   const hidden = new Set<string>()
+  /** Shard layout and delayed-receipt backlog per shard (congest()); none: the chain doesn't answer those calls. */
+  let congestion: { layout: unknown; backlog: Map<number, bigint> } | null = null
   const header = (height: number) => ({ height, hash: blockHashOf(height), prev_hash: blockHashOf(height - 1), timestamp: height * 1_000_000_000 })
 
   async function sendTx(id: unknown, signedBase64: string): Promise<Response> {
@@ -204,6 +206,24 @@ export function createFakeChain(options: FakeChainOptions = {}) {
       return json({ jsonrpc: '2.0', id, result: { header: header(height) } })
     }
     if (method === 'EXPERIMENTAL_genesis_config') return json({ jsonrpc: '2.0', id, result: { transaction_validity_period: state.validity } })
+    if (method === 'EXPERIMENTAL_protocol_config' && congestion) return json({ jsonrpc: '2.0', id, result: { shard_layout: congestion.layout } })
+    if (method === 'chunk' && congestion) {
+      const shard = Number(params.shard_id)
+      const backlog = congestion.backlog.get(shard) ?? 0n
+      return json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          header: {
+            shard_id: shard,
+            height_included: params.block_id,
+            congestion_info: { delayed_receipts_gas: backlog.toString(), buffered_receipts_gas: '0', receipt_bytes: 0, allowed_shard: 0 },
+          },
+          transactions: [],
+          receipts: [],
+        },
+      })
+    }
     if (method === 'send_tx') return sendTx(id, String(params.signed_tx_base64 ?? ''))
     if (method === 'broadcast_tx_commit' && Array.isArray(body.params)) return sendTx(id, String(body.params[0] ?? ''))
     return rpcError(id, 'UNSUPPORTED', `fake chain has no ${String(method)}`)
@@ -252,6 +272,10 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     /** How the next sends behave (see SendMode). */
     onSend(mode: SendMode | ((tx: NearTransaction) => SendMode)) {
       sendMode = typeof mode === 'function' ? mode : () => mode
+    },
+    /** The chain reads this shard layout and these delayed-receipt backlogs (gas) per shard. */
+    congest(layout: unknown, backlog: Record<number, bigint>) {
+      congestion = { layout, backlog: new Map(Object.entries(backlog).map(([k, v]) => [Number(k), v])) }
     },
     /** The lagging index catches up: hidden transactions become visible. */
     reveal() {

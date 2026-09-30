@@ -16,7 +16,7 @@ type Awaitable<T> = T | Promise<T>
 export interface IntentScreens {
   /** The review with its Confirm button (also shown when the quote changed). */
   review(deps: BotDeps, intent: Intent): Awaitable<{ text: string; confirm: string }>
-  /** The outcome, once final. */
+  /** The outcome, once done (a buy: when its tokens arrived). */
   result(deps: BotDeps, intent: Intent): Awaitable<{ text: string; markup: InlineKeyboard }>
   /** Button that starts this kind of action again. */
   again?: (deps: BotDeps, intent: Intent) => { text: string; data: string } | null
@@ -45,7 +45,8 @@ export async function resultScreen(deps: BotDeps, intent: Intent): Promise<{ tex
   return { text, markup: keyboard(walletRow()) }
 }
 
-export const PENDING_TEXT = `⏳ ${bold('Sent. Waiting for the chain')}\nNearKit is checking the transaction and will message you when it’s final. Nothing will be sent twice.`
+/** Sent, and the chain hasn't finished it within the live wait: slower than usual, never a failure. */
+export const PENDING_TEXT = `⏳ ${bold('Processing — NEAR network is taking longer than usual')}\nNearKit keeps checking the chain and messages you as soon as it’s through. Nothing will be sent twice.`
 
 async function confirm(ctx: BotCtx, id: string) {
   const custody = ctx.deps.custody

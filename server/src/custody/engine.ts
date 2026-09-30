@@ -56,6 +56,13 @@ export interface IntentHandler {
   plan(intent: Intent, wallet: TradingWallet): Promise<PlanOutcome>
   /** What happened, from the chain's own record of the transactions that landed. */
   summarize(intent: Intent, wallet: TradingWallet, confirmed: ConfirmedTx[]): Promise<IntentResult>
+  /**
+   * What happened, from a last step that may still be running (`last.result` has its receipts
+   * so far): a result as soon as the user's side is done (a buy's tokens arrived), before the
+   * chain's settlement callbacks finish; its final record is filed later. Null until then.
+   * Without it, the intent settles when final.
+   */
+  delivered?(intent: Intent, wallet: TradingWallet, earlier: ConfirmedTx[], last: ConfirmedTx): IntentResult | null
 }
 
 export type ExecuteResult =
@@ -118,6 +125,12 @@ const succeeded = (r: RpcTxResult) => {
   return Boolean(s && typeof s === 'object' && 'SuccessValue' in s)
 }
 
+/** The chain's final record (every receipt ran, every block final), read from a status that may still be running. */
+const isFinalRecord = (r: RpcTxResult) => {
+  const s = r.status as Record<string, unknown> | null
+  return r.final_execution_status === 'FINAL' && Boolean(s && typeof s === 'object' && ('SuccessValue' in s || 'Failure' in s))
+}
+
 const stepOf = (t: WalletTx): StoredStep | null => {
   const p = t.plan as Partial<StoredStep> | null
   return p && p.tx && typeof p.total === 'number' ? (p as StoredStep) : null
@@ -130,6 +143,16 @@ export function createEngine(deps: EngineDeps) {
   const explain = deps.explain ?? ((e: unknown) => toNearKitError(e).message)
   const instance = deps.instanceId ?? `local-${randomToken(6)}`
   const leaseMs = deps.leaseMs ?? EXECUTION_LEASE_MS
+
+  /** The handler's delivery check; one that throws counts as "not yet": the final record decides. */
+  const deliveredSafely = (handler: IntentHandler, intent: Intent, wallet: TradingWallet, earlier: ConfirmedTx[], last: ConfirmedTx): IntentResult | null => {
+    try {
+      return handler.delivered?.(intent, wallet, earlier, last) ?? null
+    } catch (e) {
+      log.warn('delivery check failed; waiting for the final record', { intent: intent.id, error: e })
+      return null
+    }
+  }
 
   /** Moves an in-flight intent to failed. `moved` is false when something else settled it first (then nothing is logged or told twice). */
   const failIntent = async (intent: Intent, message: string, hashes: string[] = [], facts?: Record<string, unknown>): Promise<{ intent: Intent; moved: boolean }> => {
@@ -147,6 +170,31 @@ export function createEngine(deps: EngineDeps) {
     for (;;) {
       const r = await chain.status(hash, signerId).catch(() => null)
       if (r) return r
+      if (now() >= stop || !(await keep())) return null
+      await sleep(wait)
+      wait = Math.min(wait * 2, 4000)
+    }
+  }
+
+  /**
+   * Waits for the last step's outcome while keeping the lease: the user's side done (`early`, e.g.
+   * a buy's tokens arrived, while the chain's settlement still runs), or the final record. Null when
+   * neither arrives in time (or the lease passed on): the resolver takes over.
+   */
+  async function awaitOutcome(
+    hash: string,
+    signerId: string,
+    waitMs: number,
+    keep: () => Promise<boolean>,
+    early: (running: RpcTxResult) => IntentResult | null,
+  ): Promise<{ kind: 'final'; result: RpcTxResult } | { kind: 'delivered'; result: IntentResult } | null> {
+    const stop = now() + waitMs
+    let wait = 500
+    for (;;) {
+      const r = await chain.progress(hash, signerId).catch(() => null)
+      if (r && isFinalRecord(r)) return { kind: 'final', result: r }
+      const done = r ? early(r) : null
+      if (done) return { kind: 'delivered', result: done }
       if (now() >= stop || !(await keep())) return null
       await sleep(wait)
       wait = Math.min(wait * 2, 4000)
@@ -192,6 +240,12 @@ export function createEngine(deps: EngineDeps) {
       log.warn('summarize failed', { intent: intent.id, error: e })
       result = { ok: confirmed.every((c) => succeeded(c.result)), message: 'Confirmed on chain. Open the transaction for the details.', hashes }
     }
+    return settleWith(intent, result)
+  }
+
+  /** Moves an in-flight intent to its result: once, by whichever run or resolver gets there first. */
+  async function settleWith(intent: Intent, result: IntentResult): Promise<{ intent: Intent; moved: boolean }> {
+    const hashes = result.hashes
     const moved = await store.setStatus(intent.id, ['signing', 'submitted'], result.ok ? 'done' : 'failed', { result })
     if (moved)
       await store.audit({
@@ -301,7 +355,20 @@ export function createEngine(deps: EngineDeps) {
       } else if (sent.kind === 'unknown') {
         log.warn('send unclear; asking the chain', { intent: intent.id, step, hash: signed.hash, reason: sent.reason })
       }
-      result = await finalStatus(signed.hash, wallet.accountId, deps.confirmMs ?? 60_000, keep)
+      // The last step of an intent that can be done before it settles (a buy's tokens arrived) is reported then.
+      const handler = deps.handlers[intent.kind]
+      if (step === plan.length - 1 && handler?.delivered) {
+        const outcome = await awaitOutcome(signed.hash, wallet.accountId, deps.confirmMs ?? 60_000, keep, (running) =>
+          deliveredSafely(handler, intent, wallet, confirmed, { plan: tx, hash: signed.hash, result: running }),
+        )
+        if (outcome?.kind === 'delivered') {
+          await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-delivered', detail: { intent: intent.id, step, hash: signed.hash } })
+          return { kind: 'finished', intent: (await settleWith(intent, outcome.result)).intent }
+        }
+        result = outcome?.result ?? null
+      } else {
+        result = await finalStatus(signed.hash, wallet.accountId, deps.confirmMs ?? 60_000, keep)
+      }
       if (!result) {
         await store.setStatus(intent.id, ['signing'], 'submitted')
         await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-unclear', detail: { intent: intent.id, step, hash: signed.hash } })
@@ -399,8 +466,28 @@ export function createEngine(deps: EngineDeps) {
         }
       }
       for (const i of settled) await deps.onSettled?.(i).catch((e: unknown) => log.warn('settled notice failed', { intent: i.id, error: e }))
+      await fileSettlements()
       return settled
     },
+  }
+
+  /**
+   * Files the final record of trades already reported (their tokens arrived before the chain's
+   * settlement finished). Reads only; the user was told already and hears nothing more.
+   */
+  async function fileSettlements(): Promise<void> {
+    for (const t of await store.settlingTxs().catch(() => [])) {
+      try {
+        const r = await chain.status(t.hash, t.signerId).catch(() => null)
+        if (!r) continue
+        const ok = succeeded(r)
+        if (!(await store.settleTx(t.intentId, t.step, ok ? 'success' : 'failed', { success: ok }))) continue
+        await store.audit({ userId: t.userId, walletId: t.walletId, action: 'tx-settled', detail: { intent: t.intentId, step: t.step, hash: t.hash, success: ok } })
+        if (!ok) log.warn('a trade reported on delivery settled as failed on chain', { intent: t.intentId, step: t.step, hash: t.hash })
+      } catch (e) {
+        log.warn('filing a settlement failed; next pass', { intent: t.intentId, step: t.step, error: e })
+      }
+    }
   }
 
   /** Settles one claimed intent from the chain's record, if it can be settled yet. Reads only. */
@@ -415,6 +502,8 @@ export function createEngine(deps: EngineDeps) {
       return
     }
     let unresolved = false
+    /** The last step still running on chain: its user side may already be done (a buy's tokens arrived). */
+    let running: { t: WalletTx; step: StoredStep } | null = null
     for (const t of txs) {
       if (t.status === 'success' || t.status === 'failed' || t.status === 'expired' || t.status === 'unconfirmed') continue
       let r: RpcTxResult | null
@@ -438,6 +527,8 @@ export function createEngine(deps: EngineDeps) {
         continue
       }
       if (seen) {
+        const step = stepOf(t)
+        if (step && t.step === step.total - 1) running = { t, step }
         unresolved = true
         continue
       }
@@ -457,7 +548,10 @@ export function createEngine(deps: EngineDeps) {
         unresolved = true
       }
     }
-    if (unresolved) return
+    if (unresolved) {
+      if (running) await settleIfDelivered(intent, wallet, running, keep)
+      return
+    }
 
     const all = await store.txsOf(intent.id)
     const landed = all.filter((t) => t.status === 'success' || t.status === 'failed')
@@ -518,6 +612,36 @@ export function createEngine(deps: EngineDeps) {
         ),
       )
     else keep(await settle(intent, wallet, confirmed))
+  }
+
+  /**
+   * An intent whose last step is still running on chain: reported now if its user side is done
+   * (earlier steps all succeeded, and the handler says so from the receipts so far).
+   */
+  async function settleIfDelivered(
+    intent: Intent,
+    wallet: TradingWallet,
+    running: { t: WalletTx; step: StoredStep },
+    keep: (r: { intent: Intent; moved: boolean }) => void,
+  ): Promise<void> {
+    const handler = deps.handlers[intent.kind]
+    if (!handler?.delivered) return
+    const all = await store.txsOf(intent.id)
+    const earlierTxs = all.filter((x) => x.step < running.t.step)
+    if (earlierTxs.length !== running.t.step || earlierTxs.some((x) => x.status !== 'success')) return
+    const earlier: ConfirmedTx[] = []
+    for (const x of earlierTxs) {
+      const r = await chain.status(x.hash, x.signerId).catch(() => null)
+      const step = stepOf(x)
+      if (!r || !step) return
+      earlier.push({ plan: step.tx, hash: x.hash, result: r })
+    }
+    const partial = await chain.progress(running.t.hash, running.t.signerId).catch(() => null)
+    if (!partial) return
+    const result = deliveredSafely(handler, intent, wallet, earlier, { plan: running.step.tx, hash: running.t.hash, result: partial })
+    if (!result) return
+    await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-delivered', detail: { intent: intent.id, step: running.t.step, hash: running.t.hash } })
+    keep(await settleWith(intent, result))
   }
 
   return api

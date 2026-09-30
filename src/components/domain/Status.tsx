@@ -23,6 +23,11 @@ const STATUS: Record<OrderStatus | RuleStatus | TxLamp | 'draft' | 'armed' | 'si
   awaiting_signature: { tone: 'warn', label: 'Sign in wallet' },
   submitted: { tone: 'idle', label: 'Submitted' },
   confirming: { tone: 'on', label: 'Confirming' },
+  processing: {
+    tone: 'warn',
+    label: 'Processing',
+    hint: 'NEAR network is taking longer than usual. NearKit keeps checking the chain; don’t send this again until it settles.',
+  },
   success: { tone: 'on', label: 'Confirmed' },
   failed: { tone: 'neg', label: 'Failed' },
   unknown: { tone: 'warn', label: 'Unknown', hint: 'The outcome is not confirmed. Check the explorer or your wallet before trying again.' },

@@ -190,13 +190,20 @@ describe('executor', () => {
     expect(r.txs[0]?.phase).toBe('unknown')
   })
 
-  it('never throws after the wallet answered: a malformed RPC answer leaves the transaction unknown', async () => {
+  it('never throws after the wallet answered: an included transaction that never finishes stays processing, never success or failed', async () => {
     const adapter = wallet(session, async (_, n) => outcomes(n))
     const r = await executor(adapter, async () => ({ final_execution_status: 'INCLUDED' })).run(plan([tx(0), tx(1)], [[0], [1]]), null, () => undefined)
     // It pauses: the next approval waits for the user's decision instead of running.
     expect(r.phase).toBe('paused')
-    expect(r.txs.map((t) => t.phase)).toEqual(['unknown', 'queued'])
+    expect(r.txs.map((t) => t.phase)).toEqual(['processing', 'queued'])
     expect(r.txs[0]?.hash).toBeTruthy()
+    expect(r.pause?.message).toMatch(/still processing/)
+  })
+
+  it('never throws on an answer it can’t read at all: the transaction stays unknown', async () => {
+    const adapter = wallet(session, async (_, n) => outcomes(n))
+    const r = await executor(adapter, async () => 'garbage' as unknown).run(plan([tx(0)], [[0]]), null, () => undefined)
+    expect(r.txs[0]?.phase).toBe('unknown')
   })
 
   it('treats a wallet result that is not a list as unknown', async () => {

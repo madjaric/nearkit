@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlannedTransaction } from '@/types/operations'
-import { classifyOutcome, extractHash } from './outcome'
+import { classifyOutcome, extractHash, sameActions, swapDelivered } from './outcome'
 import type { RpcTxResult } from './rpc'
 
 const b64 = (value: unknown) => btoa(JSON.stringify(value))
@@ -211,5 +211,86 @@ describe('classifyOutcome: a swap is complete only when the output reached the u
       receipts_outcome: r.receipts_outcome.map((o) => ({ ...o, outcome: { ...o.outcome, logs: o.outcome.logs.filter((l) => !l.includes('"withdraw_succeeded"')) } })),
     }
     expect(classifyOutcome(stripped, aggPlan(r), { describeToken }).phase).toBe('unknown')
+  })
+})
+
+// ─── delivery before settlement (the 1 NEAR → NEARLY swap of 2026-09-30) ─────
+
+import nearToNearly from './fixtures/agg-near-to-nearly-final.json'
+
+/** The plan the chain transaction was signed from: every action, as NearKit plans it. */
+function planOf(r: RpcTxResult): PlannedTransaction {
+  const actions = (r.transaction.actions ?? []).map((a) => {
+    const f = (a as { FunctionCall: { method_name: string; args: string; gas: number; deposit: string } }).FunctionCall
+    return { kind: 'call' as const, method: f.method_name, args: JSON.parse(atob(f.args)) as Record<string, unknown>, gas: String(f.gas), deposit: f.deposit }
+  })
+  return { index: 0, signerId: r.transaction.signer_id, receiverId: r.transaction.receiver_id, actions, lineIds: [], label: 'Swap', gas: '0', deposit: '0' }
+}
+
+/** The transaction as the RPC shows it while it still runs: outcomes up to the first that matches, nothing final. */
+function upTo(r: RpcTxResult, last: (o: RpcTxResult['receipts_outcome'][number]) => boolean): RpcTxResult {
+  const end = r.receipts_outcome.findIndex(last)
+  if (end < 0) throw new Error('no such outcome')
+  return { ...r, final_execution_status: 'INCLUDED_FINAL', status: 'Started', receipts_outcome: r.receipts_outcome.slice(0, end + 1) }
+}
+
+const logged = (text: string) => (o: RpcTxResult['receipts_outcome'][number]) => o.outcome.logs.some((l) => l.includes(text))
+const NEARLY = 'nearly-993927.nearlytrade.near'
+const incident = nearToNearly as unknown as RpcTxResult
+const nearlyNames = (id: string) => (id === NEARLY ? { symbol: 'NEARLY', decimals: 18 } : id === 'wrap.near' ? { symbol: 'wNEAR', decimals: 24 } : null)
+
+describe('swapDelivered: the output reached the user, before the settlement callbacks', () => {
+  const expect_ = { token: NEARLY, recipient: 'bottest.near' }
+
+  it('reports delivery as soon as the aggregator’s transfer to the user succeeded (withdraw_succeeded), without single_swap_success', () => {
+    const partial = upTo(incident, logged('"withdraw_succeeded"'))
+    expect(partial.receipts_outcome.some(logged('single_swap_success'))).toBe(false)
+    const v = swapDelivered(partial, planOf(incident), expect_, { describeToken: nearlyNames })
+    expect(v?.phase).toBe('success')
+    expect(v?.swap?.received).toEqual({ token: NEARLY, raw: '912437590771706887485' })
+    expect(v?.swap?.appFee).toEqual({ token: 'wrap.near', raw: '4000000000000000000000', recipient: 'nearkitfee.near' })
+    expect(v?.note).toBe('Received 912.43759 NEARLY · NearKit fee 0.004 wNEAR')
+    // The final classifier can't say yet: the last callbacks haven't run.
+    expect(classifyOutcome(partial, planOf(incident)).phase).toBe('unknown')
+  })
+
+  it('is not delivered while the output is still on its way to the user', () => {
+    expect(swapDelivered(upTo(incident, logged('"withdraw_started"')), planOf(incident), expect_)).toBeNull()
+    expect(swapDelivered(upTo(incident, logged('Deposit 1000000000000000000000000 NEAR')), planOf(incident), expect_)).toBeNull()
+  })
+
+  it('counts only the expected token reaching the expected account', () => {
+    const partial = upTo(incident, logged('"withdraw_succeeded"'))
+    expect(swapDelivered(partial, planOf(incident), { token: 'usdt.tether-token.near', recipient: 'bottest.near' })).toBeNull()
+    expect(swapDelivered(partial, planOf(incident), { token: NEARLY, recipient: 'someone.near' })).toBeNull()
+  })
+
+  it('never calls a refund a delivery', () => {
+    for (const fixture of [aggRefundInput, aggRefundIntermediate, aggExpired]) {
+      const r = fixture as unknown as RpcTxResult
+      expect(swapDelivered(r, aggPlan(r), { token: 'blackdragon.tkn.near', recipient: r.transaction.signer_id })).toBeNull()
+      expect(swapDelivered(r, aggPlan(r), { token: 'wrap.near', recipient: r.transaction.signer_id })).toBeNull()
+    }
+  })
+
+  it('never reports delivery for a transaction that differs from the plan', () => {
+    const plan = planOf(incident)
+    const other = { ...plan, actions: plan.actions.map((a) => (a.kind === 'call' && a.method === 'near_deposit' ? { ...a, deposit: '2000000000000000000000000' } : a)) }
+    expect(swapDelivered(upTo(incident, logged('"withdraw_succeeded"')), other, expect_)).toBeNull()
+  })
+
+  it('reads the finished transaction the same way, and the final classifier agrees', () => {
+    expect(swapDelivered(incident, planOf(incident), expect_)?.swap?.received?.raw).toBe('912437590771706887485')
+    expect(classifyOutcome(incident, planOf(incident)).phase).toBe('success')
+  })
+})
+
+describe('sameActions: a transaction found on chain is the planned one', () => {
+  it('matches the chain’s actions to the plan, and nothing else', () => {
+    const plan = planOf(incident)
+    expect(sameActions(incident.transaction.actions ?? [], plan.actions)).toBe(true)
+    expect(sameActions((incident.transaction.actions ?? []).slice(1), plan.actions)).toBe(false)
+    const cheaper = plan.actions.map((a) => (a.kind === 'call' && a.method === 'near_deposit' ? { ...a, deposit: '1' } : a))
+    expect(sameActions(incident.transaction.actions ?? [], cheaper)).toBe(false)
   })
 })

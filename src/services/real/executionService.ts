@@ -1,4 +1,5 @@
 import { createExecutor } from '@/services/near/executor'
+import { createTxLocator } from '@/services/near/locate'
 import type { ExecutionService } from '../types'
 import { recordFrom } from './activity'
 import type { NearContext } from './context'
@@ -15,6 +16,8 @@ export function createExecutionService(ctx: NearContext, active: Set<string>): E
     policy: ctx.policy,
     explorerTxUrl: ctx.explorerTx,
     now: ctx.now,
+    // What the wallet sent is found on chain even when the wallet's own wait times out.
+    locator: createTxLocator(ctx.rpc),
     onUpdate: (plan, progress) => {
       const existing = ctx.stores.activity.list().find((r) => r.id === plan.id) ?? null
       const record = recordFrom(ctx, plan, progress, existing)

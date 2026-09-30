@@ -313,7 +313,12 @@ The UI keeps its human-units contract, but a value that reaches a service for ex
 
 ## 10. Transaction lifecycle (Decision)
 
-**States:** `IDLE → PREPARING → AWAITING_SIGNATURE → SUBMITTED → CONFIRMING → SUCCESS | FAILED`, plus `UNKNOWN` (the wallet lost the result; check the explorer) and `NOT_SENT` (never signed: rejected, or a later group after a stop).
+**States:** `IDLE → PREPARING → AWAITING_SIGNATURE → SUBMITTED → CONFIRMING → SUCCESS | FAILED`, plus:
+- `PROCESSING`: on chain (or possibly sent) and still followed, slower than usual. Never a failure. A run that ends with it is phase `processing`, and Activity shows it as pending until the chain's final record arrives.
+- `UNKNOWN`: nobody can tell (the wallet errored and nothing was found on chain; check the explorer).
+- `NOT_SENT`: never signed (rejected, or a later group after a stop).
+
+**Delivery before settlement (2026-09-30).** A swap through Rhea's aggregator is `SUCCESS` when its output reached the user: the aggregator's `withdraw_succeeded` for the expected token and recipient (`swapDelivered` in `outcome.ts`). The input's `ft_resolve_transfer` and `callback_swap` (`single_swap_success`) run after that on wrap.near's shard. Under congestion they come minutes later: the first real web swap delivered at 115 s and settled at 203 s. They can't take the tokens back. The executor follows the final record in the background (`settling`), and the chain's final record is what stays in Activity. Native NEAR output and every other transaction are judged when final.
 
 **Plan first.** Every tool builds a serializable `OperationPlan` before anything is signed. The plan contains:
 - network and signer(s);
@@ -329,16 +334,26 @@ The review screen renders the plan itself, never a recomputation.
 **Execute.** `src/services/near/executor.ts` walks the signing groups in order. For each group it:
 1. Asserts the execution policy: network, and the mainnet switch (the **only** place that check lives).
 2. Re-checks that the signer is in the wallet session.
-3. Calls `signAndSendTransactions`.
-4. Extracts hashes and validates the outcome shape.
-5. Confirms every transaction through RPC `FINAL`.
-6. Classifies each outcome:
+3. Calls `signAndSendTransactions`. Meanwhile it watches the chain for what the wallet sends (`locate.ts`): the signer's key nonces every 2 s, then the chunks of the signer's shard since the last look, matched to the plan exactly. A wallet that waits for every callback, or times out, is never the verdict. On the last approval, once the chain shows everything the wallet sent, the executor goes on without its answer.
+4. Takes each hash from the chain or the wallet. After a wallet error:
+   - a rejection with the key nonces unchanged is `NOT_SENT`;
+   - otherwise the steps show `PROCESSING` ("NEAR network is taking longer than usual") while the chain is searched for up to 2 minutes;
+   - what isn't found is `UNKNOWN`, never `FAILED`. Nothing is ever re-sent.
+5. Follows every transaction with `EXPERIMENTAL_tx_status` (`wait_until: NONE`, receipts so far):
+   - a swap's delivery is `SUCCESS` at once;
+   - anything else waits for the `FINAL` record;
+   - after 20 s a step shows `PROCESSING`, and after 30 minutes it is left to Activity (`PROCESSING` if the chain has it, `UNKNOWN` if it never did).
+6. Classifies each final outcome:
    - `Failure` → failed with the action index.
    - `SuccessValue` → success.
    - For `ft_transfer_call`: used amount = `amount` is success, `0` is a refund (FAILED, "refunded"), partial is partial.
    - Inner receipt failures are surfaced for diagnostics.
 
 **Groups.** A group is at most 10 transactions for one signer. The executor **stops after a group with any failure**. The user can review and explicitly continue; that is a new action, never an automatic retry.
+
+**While it goes.** Once only following the chain is left, the dialog can close: the run goes on and its notice still arrives. Until it settles, a review of the same trade (pair) from the same wallet can't be confirmed (`inFlight.ts`), so it can't be sent twice by accident.
+
+**Busy network.** Before signing a swap with NEAR in or out, the review warns "NEAR network is currently busy. This swap may take longer than usual." when wrap.near's shard has ≥ 5 PGas of delayed receipts (`congestion.ts`: the shard comes from the live shard layout, the backlog from its latest final chunk header). It is informational only and never blocks.
 
 **Batching limits.**
 - Max 1 PGas of attached gas per transaction and at most 100 actions (live protocol config).

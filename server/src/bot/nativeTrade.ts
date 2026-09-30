@@ -1,6 +1,7 @@
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import { formatPct } from '@/lib/format'
 import type { Intent } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
@@ -53,6 +54,7 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
       ? [`⚠️ Your NearKit wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
       : []),
     `Route ${esc(q.path.join(' → '))} · Rhea`,
+    ...(q.busy ? [`⚠️ ${esc(NETWORK_BUSY_WARNING)}`] : []),
     '',
     `⏱ Valid for ${seconds}s. Right before sending, NearKit checks the price again; if you’d get less than the minimum, it asks you first.`,
   ].join('\n')

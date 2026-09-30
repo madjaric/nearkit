@@ -163,6 +163,12 @@ quoted ──Confirm──▶ confirmed ──fresh checks OK──▶ signing �
 - **Resolver:**
   - It runs at start and every 15 s, and only **reads** the chain after a restart; it never sends.
   - What it settles in the background is messaged to the user.
+- **Bought when the tokens arrive (2026-09-30):**
+  - A buy through Rhea's aggregator is `done` ("Buy confirmed") as soon as the aggregator reports its tokens delivered (`withdraw_succeeded`), live or in the resolver (`IntentHandler.delivered`, `deliveredTrade` in `swap.ts`).
+  - The swap transaction's row stays `submitted` until the chain's final record arrives. The resolver then files it (`tx-settled`) without messaging again.
+  - Sells (NEAR out) and testnet's classic router settle when final.
+  - A trade not through within the live wait shows "Processing — NEAR network is taking longer than usual", never a failure.
+  - The quote says "NEAR network is currently busy" when wrap.near's shard is backed up. It is informational only.
   - A crash after Confirm but before signing is settled as "nothing was sent". A crash between steps is settled as failed, with the landed steps linked.
 - **Several instances (PostgreSQL):**
   - An intent executes under an **execution lease** taken by compare-and-set.

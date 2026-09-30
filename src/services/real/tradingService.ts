@@ -3,6 +3,7 @@ import { formatUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { NEARKIT_FEE_BPS, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { accountState } from '@/services/near/account'
+import { createCongestionProbe, NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { groupTransactions, registrationWarnings, txStorageYocto, txUpfrontYocto } from '@/services/near/plans'
 import { HIGH_REGISTRATION_YOCTO } from '@/services/near/storage'
@@ -38,6 +39,16 @@ const allocated = (leg: { amountIn: string }) => leg.amountIn.trim() !== '' && N
 
 export function createTradingService(ctx: NearContext, market: Market, wallets: Pick<WalletService, 'getSession' | 'listWallets'>): TradingService {
   const router = createSwapRouter(ctx)
+  const congestion = createCongestionProbe(ctx.rpc)
+
+  /**
+   * Swaps with NEAR go through wrap.near's shard (twice before the tokens arrive). When it is
+   * backed up, say so before signing: informational only, never blocking.
+   */
+  async function busyWarning(r: RoutedSwap): Promise<string[]> {
+    if (r.tokenIn.contract !== null && r.tokenOut.contract !== null) return []
+    return (await congestion.busy(ctx.network.wrapContract)) ? [NETWORK_BUSY_WARNING] : []
+  }
   const orders = ctx.stores.drafts.orders
 
   const symbolOf = async (contract: string): Promise<{ symbol: string; decimals: number }> => {
@@ -290,7 +301,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const r = await router.route(request, wallet.accountId, true)
       const leg = await planLeg(wallet, r)
       await checkFunds(leg)
-      const [impact, batch, signing] = await Promise.all([impactOf(r), walletBatches(), sessionSigners()])
+      const [impact, batch, signing, busy] = await Promise.all([impactOf(r), walletBatches(), sessionSigners(), busyWarning(r)])
       const now = ctx.now()
       const swap: SwapDetails = {
         router: r.router,
@@ -306,6 +317,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         quotedAt: r.quotedAt,
       }
       const warnings = [
+        ...busy,
         ...warningsFor(r),
         ...(await lookalikeWarnings([r.tokenIn, r.tokenOut])),
         ...feeAccountWarning(r, leg.txs),
@@ -468,6 +480,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
           : base
       const elsewhere = planned.map((p) => p.wallet.accountId).filter((id) => !signing.has(id))
       const warnings = [
+        ...(await busyWarning(first)),
         'Each wallet’s swap is separate, signed one wallet after another. There is no all-or-nothing execution: if one fails or the quote expires, NearKit stops there. Wallets already done keep their swaps; the rest are not sent.',
         ...warningsFor(first),
         ...(await lookalikeWarnings([first.tokenIn, first.tokenOut])),

@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react'
 import type { Holding } from '@/types/domain'
 import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
+import { inFlight } from './inFlight'
 import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChanges, snapshotOf, type RefreshStatus } from './postTradeRefresh'
 
 /**
@@ -218,10 +219,13 @@ export function useExecution() {
     const refetch = async () => {
       await Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] }), qc.invalidateQueries({ queryKey: qk.tokens })])
     }
+    // Listed while it goes (a slow network can keep it going after its dialog closed): the same trade can't be sent again meanwhile.
+    const release = inFlight.add(plan)
     try {
       result = await s.execution.run(plan, prior, onProgress)
       return result
     } finally {
+      release()
       if (plan.mode === 'near' && settledWithChanges(result)) {
         void balanceRefresh.track((cancelled) =>
           refreshUntilMoved({

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseEnv } from '@/config/env'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { NETWORKS, type NetworkId } from '@/config/networks'
+import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import type { RpcTxResult } from '@/services/near/rpc'
 import type { ConnectorTransaction, WalletSession } from '@/services/near/wallet'
 import findPathSingle from '@/services/rhea/fixtures/findpath-testnet-wrap-usdt.json'
@@ -366,6 +367,36 @@ const aggSuccess = (hash: string, signer: string): RpcTxResult => ({
     { id: 'r2', outcome: { executor_id: signer, logs: [], receipt_ids: [], gas_burnt: 1, tokens_burnt: '0', status: { SuccessValue: '' } } },
   ],
   receipts: [{ receipt_id: 'r2', predecessor_id: AGG, receiver_id: signer, receipt: { Action: { actions: [{ Transfer: { deposit: '1042766627316648153600859' } }] } } }],
+})
+
+// Mainnet's layout on 2026-09-30: wrap.near is on shard 13.
+const MAINNET_LAYOUT = {
+  V3: {
+    boundary_accounts: ['650', 'aurora', 'aurora-0', 'earn.kaiching', 'game.hot.tg', 'game.hot.tg-0', 'kkuuue2akv_1630967379.near', 'tge-lockup.sweat', 'wallet.ka'],
+    shard_ids: [10, 11, 1, 8, 9, 6, 7, 4, 12, 13],
+  },
+}
+const PGAS = 10n ** 15n
+
+describe('network busy warning (wrap.near’s shard)', () => {
+  const prepare = async (backlog: Record<number, bigint> | null) => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => DEADLINE - 120_000 })
+    withQuote(chain)
+    if (backlog) chain.congest(MAINNET_LAYOUT, backlog)
+    return services.trading.prepareSwap(swapRequest)
+  }
+
+  it('warns before signing a swap with NEAR when wrap.near’s shard is backed up, and still lets it go', async () => {
+    const plan = await prepare({ 13: 36n * PGAS })
+    expect(plan.warnings).toContain(NETWORK_BUSY_WARNING)
+    expect(plan.transactions.length).toBeGreaterThan(0)
+  })
+
+  it('says nothing when that shard is quiet, when another shard is busy, or when it can’t be read', async () => {
+    expect((await prepare({ 13: 0n })).warnings).not.toContain(NETWORK_BUSY_WARNING)
+    expect((await prepare({ 12: 300n * PGAS })).warnings).not.toContain(NETWORK_BUSY_WARNING)
+    expect((await prepare(null)).warnings).not.toContain(NETWORK_BUSY_WARNING)
+  })
 })
 
 describe('real swaps (mainnet aggregator, fake chain)', () => {

@@ -160,7 +160,12 @@ export interface OperationPlan {
 
 // ─── progress ───────────────────────────────────────────────────────────────
 
-export type TxPhase = 'queued' | 'awaiting_signature' | 'submitted' | 'confirming' | 'success' | 'failed' | 'unknown' | 'not_sent'
+/**
+ * `processing`: it reached the chain (or the wallet may have sent it) and NearKit is still
+ * following it: slower than usual, never a failure. `success` for a swap means its tokens
+ * arrived; the chain's last settlement callbacks may still run (`settling`).
+ */
+export type TxPhase = 'queued' | 'awaiting_signature' | 'submitted' | 'confirming' | 'processing' | 'success' | 'failed' | 'unknown' | 'not_sent'
 
 export interface TxProgress {
   index: number
@@ -170,9 +175,12 @@ export interface TxProgress {
   error: NearKitErrorInfo | null
   /** Plain-language outcome detail, e.g. "Refunded: slippage limit reached". */
   note: string | null
+  /** Delivered, and the chain's final settlement callbacks are still running. */
+  settling?: boolean
 }
 
-export type OperationPhase = 'idle' | 'running' | 'paused' | 'success' | 'partial' | 'failed'
+/** `processing`: NearKit stopped following a transaction that hasn't settled yet (Activity keeps checking it). */
+export type OperationPhase = 'idle' | 'running' | 'paused' | 'success' | 'partial' | 'failed' | 'processing'
 
 export interface OperationPause {
   reason: 'failure' | 'switch-account' | 'requote'
