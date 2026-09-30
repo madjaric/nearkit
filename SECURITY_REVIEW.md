@@ -5,6 +5,11 @@ The review covers custody (NearKit wallets in Telegram), the signer, recovery an
 - Two findings were fixed during the review (§3).
 - Residual risks that need an owner decision are in §4.
 
+**Production (2026-09-30):**
+- The owner accepted R1.
+- The key-encryption key is in self-hosted OpenBao on the production VPS instead of AWS KMS (§5).
+- NearKit wallets stay off until the owner's go-live.
+
 **Verdict:**
 - **No known code-level security blocker.**
 - One residual risk needs an owner decision before mainnet custody: **R1**, trade authority.
@@ -18,8 +23,8 @@ The review covers custody (NearKit wallets in Telegram), the signer, recovery an
 |---|---|---|
 | Web app | Nothing secret | Nothing without the user's wallet signing |
 | App / API + bot | Bot token, app DB credentials, signer auth key | Ask the signer. The signer's own policy decides |
-| Signer | Signer auth key, signer DB credentials, IAM role for the KMS key | Open wallet keys (one KMS unwrap per signature) and sign what its policy allows |
-| KMS | The key-encryption key (never leaves) | Unwrap a wallet's data key, only for the signer's role, with that wallet in the encryption context |
+| Signer | Signer auth key, signer DB credentials, an OpenBao token for the wallet key (encrypt and decrypt only) | Open wallet keys (one OpenBao unwrap per signature) and sign what its policy allows |
+| OpenBao (the KMS) | The key-encryption key (never leaves; stored sealed under OpenBao's master key, which only the owner's unseal key opens) | Unwrap a wallet's data key, only for the signer's token, with that wallet as the derivation context |
 | Owner wallet (user's own NEAR wallet) | The user's full-access key | Approve destinations, export, add the backup key, revoke NearKit's key |
 
 The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`, `sign`), `server/src/custody/policy.ts` (`checkPlan`) and `server/src/signer/routes.ts` (`verifySwapRoute`).
@@ -76,7 +81,8 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 - Test: `server/src/bot/remoteSigner.test.ts` ("…the app's database never holds a key").
 
 **Signer database:**
-- **Sealed keys** are ciphertext of per-wallet data keys wrapped by the KMS. The encryption context names the wallet, so a copied row opens for no other wallet, and not at all without the KMS role.
+- **Sealed keys** are ciphertext of per-wallet data keys wrapped by OpenBao transit. The derivation context names the wallet, so a copied row opens for no other wallet, and not at all without an unsealed OpenBao and the signer's token.
+- **OpenBao's storage and snapshots** are sealed by its master key, which only the owner's unseal key opens. The unseal key is not on the server, so even a dump of both databases plus OpenBao's data opens nothing.
 - **Owner approvals** are signatures, re-verified at every use. A tampered or inserted row fails verification.
 - **Challenges** are one-time and expire.
 - Tests: `server/src/signer/kms.test.ts` ("a key that isn't the wallet's own never opens as it"); `server/src/bot/destinations.test.ts` ("a tampered database can't add a destination…").
@@ -104,24 +110,30 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 
 ### 2.5 The signer is compromised (host, image or role)
 
-**Attacker gets:** the ability to unwrap wallet keys through the KMS while they hold the signer's role. This is the crown jewel.
+**Attacker gets:**
+- **Inside the signer container:** the ability to unwrap wallet keys through OpenBao with the signer's token while they are there. With a cloud KMS it would be the same.
+- **With root on the VPS while OpenBao is unsealed:** they could read OpenBao's memory and keep every wallet key. This is the crown jewel.
 
 **What limits it:**
-- **Exposure:** a private network with no public address, HMAC-only requests and a strict request codec.
-- **One unwrap per signature:** no key stays in memory, and the seed is zeroed after use. Every unwrap is a KMS `Decrypt` in CloudTrail naming the wallet.
-- **Scope:** the key policy grants only the signer's role.
-- **Emergency brake:** **disable the KMS key**, and nothing can be unwrapped anywhere. The signer then fails closed (`DisabledException` is a refusal).
+- **Exposure:** internal Docker networks only, with no public address. Requests are HMAC-only, with a strict request codec. OpenBao is reachable from the signer alone.
+- **Containers:** read-only, with no capabilities and `no-new-privileges`, under separate uids. There is no Docker socket in any container.
+- **The host:** keys-only SSH, a firewall allowing 22, 80 and 443, and unattended security upgrades.
+- **One unwrap per signature:** no key stays in the signer's memory, and the seed is zeroed after use.
+- **Audit:** every unwrap is a line in OpenBao's audit log, with values HMAC-ed.
+- **Scope:** the signer's token may encrypt and decrypt with this one key and nothing else. It gets 403 on reading, exporting, backing up, rotating or deleting the key (tested against a real OpenBao).
+- **Emergency brake:** **stop OpenBao** (`docker compose stop openbao`), and nothing can be unwrapped until the owner restarts and unseals it. The signer fails closed.
 - **Wallets already safe:** those whose owners added a backup key and revoked NearKit's key.
 
-**Remains (R6):** host hardening, image provenance and monitoring are infrastructure work. They are in the ceremony (B3, B4, B17).
+**Remains (R6):** a root compromise of the VPS while OpenBao is unsealed exposes the keys (§5). Monitoring of the audit log and the host is operations work (ceremony B17).
 
-### 2.6 The KMS is unavailable (outage, throttling, revoked permission)
+### 2.6 The KMS is unavailable (OpenBao sealed after a restart, stopped, or its token expired)
 
 **Fails closed:**
 - `KmsUnavailableError`: nothing is signed, exported or approved, and the app says so plainly.
 - `/health` shows the signer as unhealthy (KEK), and `signer:admin status` shows it too.
 - Transactions already sent are followed to the end (read-only).
 - Funds stay on chain. Owners with a backup key can move them in any wallet app.
+- **After any restart, OpenBao is sealed until the owner unseals it** (`openbao-unseal`). Until then this is the state NearKit wallets are in (R8).
 
 **Tests:** `kms.test.ts` ("an unreachable KMS fails closed as 'unavailable', never as a wrong key"), and `remoteSigner.test.ts` (paused and unavailable signer).
 
@@ -188,5 +200,34 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 | R3 | A compromised app can create a wallet whose owner is the attacker and show it as a deposit address | SECURITY | The bot shows each wallet's owner ("Owner … (the wallet it was created with)"). Tell users to check it before depositing. Harden the app host |
 | R4 | A leaked bot token allows phishing messages to users | INFRASTRUCTURE | Store the token in the secret store only. Rotate it with BotFather on suspicion. The app refuses a token of another bot (`TELEGRAM_BOT_USERNAME`) |
 | R5 | A compromised web origin can phish exports, approvals and signatures | INFRASTRUCTURE / SECURITY | 2FA and least access on Vercel, the registrar and GitHub. A script CSP is a hardening item |
-| R6 | A compromised signer host exposes wallet keys | INFRASTRUCTURE | Private network, KMS key policy for the signer role only, CloudTrail alerts on `Decrypt` volume, image provenance. Disabling the KMS key is the emergency brake |
-| R7 | Losing the signer database loses every key without a backup key or export | INFRASTRUCTURE | Point-in-time recovery, tested restores. Encourage backup keys in the product |
+| R6 | A root compromise of the VPS while OpenBao is unsealed exposes wallet keys | INFRASTRUCTURE / SECURITY | Keys-only SSH, firewall, unattended upgrades, isolated read-only containers. Watch OpenBao's audit log for decrypt volume. Stopping OpenBao is the emergency brake. A dedicated OpenBao host, or a cloud KMS or HSM, would narrow it (§5) |
+| R7 | Losing the signer database loses every key without a backup key or export | INFRASTRUCTURE | Hourly verified dumps plus the server's weekly backups. Copies off the server are still to do. Encourage backup keys in the product |
+| R8 | The unseal key: after a restart, wallets stay locked until the owner unseals OpenBao. If the key is lost, every wallet key without a backup key or export is lost | OWNER ACTION | Keep the unseal key in a password manager plus an offline copy. Be reachable to unseal after restarts |
+
+---
+
+## 5. KMS: OpenBao on the VPS versus AWS KMS
+
+What stays the same:
+- **Envelope encryption:** each wallet key is sealed by its own data key, which the KMS wraps, bound to the wallet and its owner.
+- **The app never holds a key or KMS access.** An app compromise alone reveals no wallet key.
+- **Unchanged:** the signer's policy, owner-approved withdrawals, replay protection, the RPC quorum and the kill switches.
+- **Backups and database dumps open nothing by themselves.**
+
+| | AWS KMS (the earlier design) | OpenBao on the same VPS (production) |
+|---|---|---|
+| Where the KEK lives | AWS hardware security modules, another provider | OpenBao's memory while unsealed. On disk only encrypted under the master key |
+| A copy of the server's disk or backups | Contained the signer's static AWS access key, so it could decrypt everything through KMS | Opens nothing: OpenBao's storage is sealed and the unseal key is not on the server. **Stronger** |
+| Root on the VPS while running | Could decrypt every key through KMS with the signer's credentials, in seconds | Could read OpenBao's memory and keep every key. **About the same outcome** |
+| Audit trail | CloudTrail, off the host, beyond the attacker's reach | OpenBao's audit log on the same host; a root attacker could alter it. **Weaker** |
+| Emergency brake | Disable the key from the AWS console, even if the VPS is taken | Stop or seal OpenBao on the VPS, which needs access to it. **Weaker** if the host is lost |
+| Availability | Survives any restart | **Locked after every restart until the owner unseals** |
+| Key loss | Held by AWS | **Lost with the unseal key** (R8) |
+| Cost and dependencies | AWS account and card | None beyond the VPS |
+
+The main difference is off-host tamper-proof audit and an off-host kill switch.
+
+To narrow it without AWS:
+- run OpenBao on a separate small VPS, reached over WireGuard, so a compromise of the NearKit host reaches only the signer's token, never OpenBao's memory;
+- ship the audit log to a second host.
+

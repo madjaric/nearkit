@@ -198,63 +198,43 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 
 ---
 
-## 10. On FadeHost (the owner's choice, 2026-09-30)
+## 10. Production: one VPS with OpenBao (2026-09-30)
 
-FadeHost runs apps from this GitHub repository (branch `main`, redeployed on every push) in the Europe West region (France). What maps where:
+NearKit's production backend runs on one Hostinger VPS: `srv2021581.hstgr.cloud` in Manchester (UK), Ubuntu 24.04, 2 vCPU, 8 GB.
+- The owner pays it monthly in crypto.
+- The owner chose it over FadeHost, and chose OpenBao over AWS KMS: no card, no AWS account.
+- The stack is `deploy/vps` (Docker Compose) in `/opt/nearkit`.
 
-| NearKit service | FadeHost | Build command | Start command | Web address |
-|---|---|---|---|---|
-| App / API + bot | app `nearkit-app` | `npm run server:build` | `npm run server:start` | **On**, with the always-on add-on: its `https://…fadehost.app` is the API the web app calls |
-| Signer | app `nearkit-signer` | `npm run server:build` | `npm run signer:start` | **Off**: reached only over the private network |
-| Buy bot | app `nearkit-buybot` | `npm run server:build` | `npm run buybot` | Off |
-| App database | PostgreSQL 17, public access **off** | | | |
-| Signer database | PostgreSQL 17, public access **off** | | | |
+```
+internet ──443──► caddy ──► app ──(signer-link)──► signer ──(kms-link)──► openbao
+                             │                        │
+                        (app-data)              (signer-data)
+                          app-db ◄── buybot        signer-db
+```
 
-- **Node.** `package.json` pins Node 24 (`engines`), which FadeHost follows. The start scripts need Node 22 or later.
-- **Build tools.** The build needs the dev dependencies (Vite). If the install step leaves them out, use `npm ci --include=dev && npm run server:build` as the build command.
-- **Private network.** Databases and apps talk over FadeHost's WireGuard network, by internal names (`db-<id>`, or `<name>.fh.internal`).
-  - The signer listens on `0.0.0.0:8790` of that network only.
-  - Confirm once at go-live that the app reaches it: the app's `/health` shows `signer: "ok"`.
-- **TLS to the signer, with no certificate to carry.**
-  1. The signer has `NEARKIT_SIGNER_TLS_DIR=/data/tls`, which survives deploys. At its first start it makes its own key and a self-signed certificate there, and logs `signer TLS certificate` with a `pin`, which is public.
-  2. That pin goes into the app's `NEARKIT_SIGNER_TLS_PIN`. The app then trusts that one certificate and nothing else, and every request stays HMAC-signed.
-  3. If `/data/tls` is ever lost, the signer makes a new certificate. The app fails closed until it is re-pinned.
-- **KMS from outside AWS.** FadeHost has no IAM roles, so the signer uses the access key of an IAM user that may use only the NearKit key, and only with NearKit's encryption context:
-
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Sid": "NearKitSignerWalletKeys",
-        "Effect": "Allow",
-        "Action": ["kms:Encrypt", "kms:Decrypt"],
-        "Resource": "arn:aws:kms:eu-west-3:<account>:key/<key id>",
-        "Condition": { "StringEquals": { "kms:EncryptionContext:purpose": "nearkit-wallet-dek" } }
-      }
-    ]
-  }
-  ```
-
-  - The key is a symmetric KMS key in `eu-west-3` (Paris, next to FadeHost's France region), with automatic rotation on.
-  - Only the signer's environment holds `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. The signer registers the secret half with its logger, so it is never logged.
-  - Rotate the access key like any credential. Disabling the KMS key remains the emergency brake.
-- **Kill switches without a shell.** FadeHost apps have no shell, so the host-level switches are environment variables, applied with a restart:
-
-  | Switch | Where | Value |
-  |---|---|---|
-  | Trading and/or withdrawals | `nearkit-app` | `NEARKIT_OPS_PAUSED=trading,withdrawals`. The database can't lift it; removing it and restarting does |
-  | Every signature, export and approval | `nearkit-signer` | `NEARKIT_SIGNER_PAUSED=true` |
-  | NearKit wallets entirely | `nearkit-app` | `NEARKIT_MAINNET_CUSTODY=off` |
-
-  `npm run ops` and `npm run signer:admin` need a shell with each service's configuration and the private network. Use them from a machine that joins that network (FadeHost supports Tailscale for your devices), or not at all. Never use `ops signer-pause` without such a machine: only `signer:admin` on the signer's side resumes it.
-- **Environment.** Settings are `KEY=value` lines on each app's Environment page. The non-secret ones follow §3. The secrets the owner enters there, never in the repository or a chat, are:
-
-  | App | Secrets |
-  |---|---|
-  | `nearkit-app` | `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` (the app database), `NEARKIT_SIGNER_AUTH_KEY` |
-  | `nearkit-signer` | `NEARKIT_SIGNER_AUTH_KEY` (the same value), `NEARKIT_SIGNER_DATABASE_URL` (the signer database), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
-  | `nearkit-buybot` | `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` (the app database) |
-
-  Each database's connection string names its private host, for example `postgresql://postgres:<password>@db-<id>:5432/<database>`. The signer's goes to the signer only.
-- **One poller.** Telegram allows one poller per bot token. Stop every other copy of the bot, including a local one, before `nearkit-app` starts on the same token.
+- **Only Caddy publishes ports** (80 and 443, Let's Encrypt for the server's own `hstgr.cloud` name, which is on the Public Suffix List). Every other network is internal. The signer and OpenBao have no public address.
+- **Isolation:** the buy bot can't reach the signer or OpenBao; the app can't reach OpenBao or the signer's database; the signer can't reach the app's database. Checked on the server.
+- **The key-encryption key is in OpenBao 2.6.3**, the open-source fork of HashiCorp Vault, through its transit engine (`server/src/signer/openbao.ts`):
+  - The transit key `nearkit-wallets` is derived per context: the wallet's network, account and owner. It is not exportable and not deletable, and rotates yearly.
+  - The signer's token may only encrypt and decrypt with it, and renew itself.
+  - OpenBao is reached over TLS pinned to its own certificate, on a network shared with the signer alone. It has no outbound access at all.
+  - It runs read-only, as uid 64100 (no account on the host), with no capabilities and no core dumps, on a host without swap.
+- **OpenBao is sealed at rest.** Its storage, raft snapshots and any disk copy are encrypted under its master key, which only the owner's unseal key opens.
+  - That key was shown once to the owner by `openbao-init` and is not on the server. The init also revoked the root token.
+  - **After any restart of OpenBao or the server, wallet keys stay locked until the owner runs** `ssh -t root@<host> /opt/nearkit/bin/openbao-unseal`. Until then the signer fails closed; the bot, the web app and read-only features keep working.
+- **Secrets** are files in `/opt/nearkit/secrets`, mode 400, mounted only into the containers that need them:
+  - made on the server, never printed: the signer auth key and the database passwords;
+  - entered by the owner, unseen: the bot token, through `bin/set-secret`;
+  - written by `openbao-init`: OpenBao's signer and backup tokens.
+- **Operations**, with the server's shell:
+  - `docker compose exec app node dist-server/ops-admin.js <command>`: kill switches, freeze, events.
+  - `docker compose exec signer node dist-server/signer-admin.js status`: the signer's health.
+  - `touch control/signer.paused`: stops all signing.
+  - `docker compose stop openbao`: the emergency brake. Nothing can be unwrapped until the owner restarts and unseals it.
+  - `NEARKIT_OPS_PAUSED` in `app.env`: the kill switches held on the host.
+- **Deploying** a commit: `/opt/nearkit/bin/deploy <commit>`, then `docker compose up -d` (and `--profile signer` for the signer). Every image is built on the server from the public repository.
+- **Backups:** `nearkit-backup.timer` runs hourly and writes to `/opt/nearkit/backups` (root-only).
+  - It keeps both database dumps (each checked with `pg_restore --list`) and an OpenBao raft snapshot.
+  - Retention is 48 hours, then daily for 30 days. Hostinger's weekly server backups include it.
+  - No backup opens a wallet key without the owner's unseal key.
+- **The host:** keys-only SSH, a firewall allowing 22, 80 and 443, unattended security upgrades, Docker from Docker's repository with log rotation, and OpenBao's audit log rotated daily for 30 days.

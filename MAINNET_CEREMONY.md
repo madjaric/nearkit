@@ -59,6 +59,12 @@ Rollback at any step:
 
 ## B. Telegram NearKit wallets (17 steps)
 
+> **Status, 2026-09-30.** The production backend is on the VPS of [DEPLOYMENT.md §10](DEPLOYMENT.md#10-production-one-vps-with-openbao-2026-09-30), and the KMS is OpenBao, not AWS.
+> - **Done:** B2 (both databases), B3 (the KEK in OpenBao, set up by the owner), B4–B7 (the signer on its internal network, started **paused**: KEK ok, database ok, 0 keys), B8 and B9 (the app with wallets **off**, the bot answering on mainnet).
+> - **Owner decision:** B1 (R1 accepted).
+> - **Still the owner's go-live:** B10–B17.
+> - On the VPS, the commands below run as `docker compose exec app node dist-server/ops-admin.js …` and `docker compose exec signer node dist-server/signer-admin.js …`.
+
 1. **Owner decisions, written down:**
    - the go-live date;
    - `NEARKIT_SIGNER_MAX_SLIPPAGE_PCT` (default 50; lower refuses high-slippage trades but limits what a compromised app could extract);
@@ -121,7 +127,7 @@ Rollback at any step:
     - Alerts are set on:
       - signer denials, refused owner proofs and exports;
       - withdrawal bursts;
-      - KMS Decrypt volume (CloudWatch on CloudTrail);
+      - decrypt volume in OpenBao's audit log;
       - `/health` of all three services.
     - The kill switches are rehearsed: `npm run ops -- pause trading`, `signer-pause`, and resume on the signer host.
     - The incident runbook is written. Then announce.
