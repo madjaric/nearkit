@@ -19,6 +19,15 @@ listener "tcp" {
   tls_min_version = "tls12"
 }
 
+# Every request is logged, with secret values HMAC-ed. Declared here, not through the API, so a
+# token can neither turn it off nor send it elsewhere.
+audit "file" "nearkit" {
+  description = "Every request to NearKit's key service (values HMAC-ed)."
+  options {
+    file_path = "/openbao/logs/audit.log"
+  }
+}
+
 api_addr     = "https://openbao:8200"
 cluster_addr = "https://openbao:8201"
 log_level    = "info"

@@ -8,14 +8,18 @@
 #   never written to this server. Without it, after any restart of OpenBao, no NearKit
 #   wallet key can be opened (backup keys and exports still work).
 # - Creates the transit key for wallet data keys (derived per wallet, not exportable, not
-#   deletable), the audit log, and two tokens written straight to files: the signer's
+#   deletable) and two tokens written straight to files: the signer's
 #   (encrypt and decrypt on that key only) and the backups' (raft snapshots only).
 # - Revokes the root token. A new one needs the unseal key (bao operator generate-root).
 set -euo pipefail
 cd "${NEARKIT_DIR:-/opt/nearkit}"
 id=$(docker compose ps -q openbao)
 [ -n "$id" ] || { echo "OpenBao is not running (docker compose up -d openbao)."; exit 1; }
-bao() { docker exec -i -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt -e BAO_TOKEN "$id" bao "$@"; }
+# The owner's answers come from the terminal itself; without one, nothing starts.
+exec 3</dev/tty || { echo "Run this from a terminal: ssh -t ... /opt/nearkit/bin/openbao-init"; exit 1; }
+# bao: no stdin (nothing typed can reach it); bao_in: for what is piped in on purpose.
+bao() { docker exec -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt -e BAO_TOKEN "$id" bao "$@"; }
+bao_in() { docker exec -i -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt -e BAO_TOKEN "$id" bao "$@"; }
 field() { python3 -c "import sys, json; print(json.load(sys.stdin)$1)"; }
 
 export BAO_TOKEN=
@@ -42,25 +46,25 @@ cat <<EOF
 
 EOF
 while true; do
-  read -rp "Type STORED once it is stored safely: " answer
+  read -rp "Type STORED once it is stored safely: " answer <&3 || answer=
   [ "$answer" = "STORED" ] && break
 done
-clear || true
+exec 3<&-
+clear 2>/dev/null || true
 
-printf '%s' "$unseal" | BAO_TOKEN= bao write -format=json sys/unseal key=- >/dev/null
+printf '%s' "$unseal" | BAO_TOKEN= bao_in write -format=json sys/unseal key=- >/dev/null
 unset unseal
 
-bao audit enable file file_path=/openbao/logs/audit.log >/dev/null
 bao secrets enable transit >/dev/null
 bao write -f transit/keys/nearkit-wallets type=aes256-gcm96 derived=true exportable=false allow_plaintext_backup=false auto_rotate_period=8760h >/dev/null
 bao write transit/keys/nearkit-wallets/config deletion_allowed=false >/dev/null
-bao policy write nearkit-signer - >/dev/null <<'EOF'
+bao_in policy write nearkit-signer - >/dev/null <<'EOF'
 path "transit/encrypt/nearkit-wallets" { capabilities = ["update"] }
 path "transit/decrypt/nearkit-wallets" { capabilities = ["update"] }
 path "auth/token/renew-self" { capabilities = ["update"] }
 path "auth/token/lookup-self" { capabilities = ["read"] }
 EOF
-bao policy write nearkit-backup - >/dev/null <<'EOF'
+bao_in policy write nearkit-backup - >/dev/null <<'EOF'
 path "sys/storage/raft/snapshot" { capabilities = ["read"] }
 path "auth/token/renew-self" { capabilities = ["update"] }
 EOF

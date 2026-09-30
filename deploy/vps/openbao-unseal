@@ -9,7 +9,9 @@ set -euo pipefail
 cd "${NEARKIT_DIR:-/opt/nearkit}"
 id=$(docker compose ps -q openbao)
 [ -n "$id" ] || { echo "OpenBao is not running (docker compose up -d openbao)."; exit 1; }
-read -rsp "OpenBao unseal key (hidden), then Enter: " key
+exec 3</dev/tty || { echo "Run this from a terminal: ssh -t ... /opt/nearkit/bin/openbao-unseal"; exit 1; }
+read -rsp "OpenBao unseal key (hidden), then Enter: " key <&3
+exec 3<&-
 echo
 printf '%s' "$key" | docker exec -i -e BAO_ADDR=https://127.0.0.1:8200 -e BAO_CACERT=/openbao/tls/openbao.crt "$id" bao write -format=json sys/unseal key=- \
   | python3 -c "import sys, json; d = json.load(sys.stdin).get('data', {}); print('OpenBao is still SEALED: check the key.' if d.get('sealed') else 'OpenBao is unsealed. The signer opens wallet keys again.')"
