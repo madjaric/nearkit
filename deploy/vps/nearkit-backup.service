@@ -1,0 +1,8 @@
+[Unit]
+Description=NearKit database backups
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nearkit/bin/backup
