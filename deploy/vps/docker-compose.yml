@@ -93,7 +93,7 @@ services:
 
   openbao:
     image: quay.io/openbao/openbao:2.6.3
-    user: '100:1000'
+    user: '64100:64100'
     restart: unless-stopped
     command: ['server', '-config=/openbao/config/openbao.hcl']
     environment:

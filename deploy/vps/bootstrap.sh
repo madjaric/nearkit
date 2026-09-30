@@ -59,8 +59,8 @@ install -d -m 700 /opt/nearkit/secrets
 # The signer (uid 1000) keeps its TLS key and certificate here.
 install -d -m 755 /opt/nearkit/data
 install -d -m 700 -o 1000 -g 1000 /opt/nearkit/data/signer-tls
-# OpenBao (uid 100) keeps its sealed storage, audit log and TLS here.
-install -d -m 700 -o 100 -g 1000 /opt/nearkit/data/openbao /opt/nearkit/data/openbao-logs /opt/nearkit/data/openbao-tls
+# OpenBao runs as uid 64100 (no account on this host) and keeps its sealed storage, audit log and TLS here.
+install -d -m 700 -o 64100 -g 64100 /opt/nearkit/data/openbao /opt/nearkit/data/openbao-logs /opt/nearkit/data/openbao-tls
 if [ ! -s /opt/nearkit/data/openbao-tls/openbao.key ]; then
   # OpenBao's own certificate (OpenSSL), for the internal network; the signer pins it.
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj /CN=openbao \
@@ -69,7 +69,8 @@ if [ ! -s /opt/nearkit/data/openbao-tls/openbao.key ]; then
     -keyout /opt/nearkit/data/openbao-tls/openbao.key -out /opt/nearkit/data/openbao-tls/openbao.crt 2>/dev/null
   echo "made OpenBao's TLS certificate"
 fi
-chown 100:1000 /opt/nearkit/data/openbao-tls/openbao.key /opt/nearkit/data/openbao-tls/openbao.crt
+chown -R 64100:64100 /opt/nearkit/data/openbao /opt/nearkit/data/openbao-logs /opt/nearkit/data/openbao-tls
+chown 64100:64100 /opt/nearkit/data/openbao-tls/openbao.key /opt/nearkit/data/openbao-tls/openbao.crt
 chmod 400 /opt/nearkit/data/openbao-tls/openbao.key
 chmod 444 /opt/nearkit/data/openbao-tls/openbao.crt
 cat > /etc/logrotate.d/nearkit-openbao <<'EOF'
