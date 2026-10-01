@@ -60,14 +60,24 @@ export function parseGtOhlcv(json: unknown): PricePoint[] {
   return out.sort((a, b) => a.t - b.t)
 }
 
+/**
+ * A request GeckoTerminal never answered. In a browser its rate-limit answers (429) carry no
+ * CORS headers, so they arrive as a failed fetch with no status: the likeliest cause is named.
+ */
+function unanswered(e: unknown): never {
+  if (e instanceof MarketSourceError && e.status === null)
+    throw new MarketSourceError('GeckoTerminal didn’t answer: its rate limit (about 30 requests a minute from one address) or a network problem')
+  throw e
+}
+
 /** A token's figures: `GET {base}/tokens/{token}`; null when GeckoTerminal doesn't index it. */
 export async function fetchGtToken(fetchImpl: typeof fetch, baseUrl: string, token: string): Promise<GtToken | null> {
-  const json = await getMarketJson(fetchImpl, `${baseUrl}/tokens/${encodeURIComponent(token)}`, { notFound: 'null' })
+  const json = await getMarketJson(fetchImpl, `${baseUrl}/tokens/${encodeURIComponent(token)}`, { notFound: 'null' }).catch(unanswered)
   return json === null ? null : parseGtToken(json)
 }
 
 /** A pool's candles: `GET {base}/pools/{pool}/ohlcv/{timeframe}?aggregate=&limit=&currency=usd`. */
 export async function fetchGtOhlcv(fetchImpl: typeof fetch, baseUrl: string, pool: string, candles: GtCandles, currency: 'usd' | 'token' = 'usd'): Promise<PricePoint[]> {
   const url = `${baseUrl}/pools/${pool}/ohlcv/${candles.timeframe}?aggregate=${candles.aggregate}&limit=${candles.limit}&currency=${currency}`
-  return parseGtOhlcv(await getMarketJson(fetchImpl, url))
+  return parseGtOhlcv(await getMarketJson(fetchImpl, url).catch(unanswered))
 }

@@ -68,6 +68,15 @@ describe('GeckoTerminal candles', () => {
     await expect(fetchGtOhlcv(limited, base, POOL, { timeframe: 'hour', aggregate: 1, limit: 168 })).rejects.toBeInstanceOf(MarketSourceError)
   })
 
+  it('a request that got no answer at all names the likely cause: the rate limit (its 429s carry no CORS headers in a browser)', async () => {
+    const base = 'https://api.geckoterminal.com/api/v2/networks/near'
+    const blocked = (async () => {
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    await expect(fetchGtOhlcv(blocked, base, POOL, { timeframe: 'minute', aggregate: 1, limit: 60 })).rejects.toThrow(/rate limit \(about 30 requests a minute/)
+    await expect(fetchGtToken(blocked, base, 'nstai.nearlytrade.near')).rejects.toThrow(/rate limit/)
+  })
+
   it('a token GeckoTerminal doesn’t index is null; any other failure is an error', async () => {
     const base = 'https://api.geckoterminal.com/api/v2/networks/near'
     const missing = (async () => new Response('{"errors":[{"status":"404"}]}', { status: 404 })) as typeof fetch
