@@ -130,8 +130,9 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
                       <Icon size={15} strokeWidth={1.75} />
                     </span>
                   ) : null}
-                  <span className="min-w-0 flex-1 truncate text-sm text-fg">{r.label}</span>
-                  {r.detail && <span className="truncate text-xs text-fg-3">{r.detail}</span>}
+                  {/* A label is never cut for a long detail ("Token not found" stays whole): the detail gives way. */}
+                  <span className={cn('truncate text-sm text-fg', r.detail ? 'max-w-[60%] shrink-0' : 'min-w-0 flex-1')}>{r.label}</span>
+                  {r.detail && <span className="min-w-0 flex-1 truncate text-right text-xs text-fg-3">{r.detail}</span>}
                   {r.soon && <Tag tone="soon">Soon</Tag>}
                   {i === active && <CornerDownLeft size={13} className="shrink-0 text-fg-4" aria-hidden="true" />}
                 </div>
