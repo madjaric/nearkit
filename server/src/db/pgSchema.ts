@@ -330,7 +330,7 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
   },
   {
     version: 2,
-    name: 'NearKit web: sign-in links, sessions, and trades confirmed together in Telegram',
+    name: 'NearKit web: sign-in links, sessions, and grouped web trades',
     sql: `
       CREATE TABLE web_login_codes (
         code_hash TEXT PRIMARY KEY,

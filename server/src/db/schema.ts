@@ -438,7 +438,7 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
   },
   {
     version: 11,
-    name: 'NearKit web: sign-in links, sessions, and trades confirmed together in Telegram',
+    name: 'NearKit web: sign-in links, sessions, and grouped web trades',
     sql: `
       -- Sign-in links the bot sends in the user's own chat (one-time codes), and the sessions they
       -- open. Only SHA-256 of a code or token is stored. A session lists, creates and renames the
