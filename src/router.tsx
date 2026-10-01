@@ -28,6 +28,7 @@ export const router = createBrowserRouter([
           { path: 'copy-trade', lazy: page(() => import('@/pages/CopyTradePage')) },
           { path: 'sniper', lazy: page(() => import('@/pages/SniperPage')) },
           { path: 'positions', lazy: page(() => import('@/pages/PositionsPage')) },
+          { path: 'token/:id', lazy: page(() => import('@/pages/TokenPage')) },
           { path: 'pnl', lazy: page(() => import('@/pages/PnlPage')) },
           { path: 'scanner', lazy: page(() => import('@/pages/ScannerPage')) },
           { path: 'kit', lazy: page(() => import('@/pages/KitPage')) },

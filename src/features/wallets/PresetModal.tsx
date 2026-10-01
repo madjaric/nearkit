@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Dialog'
 import { Figures } from '@/components/ui/Figures'
 import { Checkbox, Field, Input } from '@/components/ui/Form'
+import { Tag } from '@/components/ui/Indicators'
 import { formatAmount } from '@/lib/format'
+import { canExecute, executesViaNearKit } from '@/lib/wallets'
 import { usePresetMutations } from '@/services/queries'
 import type { WalletPreset, WalletSnapshot } from '@/types/domain'
 
@@ -35,13 +37,17 @@ function PresetForm({ preset, onClose, wallets, onSaved }: Omit<PresetModalProps
   const { create, update } = usePresetMutations()
   const [name, setName] = useState(preset?.name ?? '')
   const [note, setNote] = useState(preset?.note ?? '')
-  const [ids, setIds] = useState<string[]>(preset?.walletIds ?? [])
+  // A preset trades together: only wallets that can trade go in. A saved one holding a watch-only
+  // wallet (from before) loses it here, and says so.
+  const executable = wallets.filter(canExecute)
+  const [ids, setIds] = useState<string[]>(() => (preset?.walletIds ?? []).filter((id) => executable.some((w) => w.id === id)))
+  const dropped = (preset?.walletIds ?? []).filter((id) => wallets.some((w) => w.id === id && !canExecute(w)))
   const [touched, setTouched] = useState(false)
   const mutation = preset ? update : create
   const nameError = touched && !name.trim() ? 'Give the preset a name' : null
   const walletError = touched && ids.length === 0 ? 'Select at least one wallet' : null
   const serverError = mutation.error instanceof Error ? mutation.error.message : null
-  const allOn = ids.length === wallets.length
+  const allOn = executable.length > 0 && ids.length === executable.length
   const totalNear = wallets.filter((w) => ids.includes(w.id)).reduce((s, w) => s + w.nearBalance, 0)
 
   const submit = () => {
@@ -83,17 +89,32 @@ function PresetForm({ preset, onClose, wallets, onSaved }: Omit<PresetModalProps
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 flex w-full items-center justify-between">
           <span className="legend">Wallets · {ids.length} selected</span>
-          <Checkbox checked={allOn} indeterminate={ids.length > 0 && !allOn} onChange={() => setIds(allOn ? [] : wallets.map((w) => w.id))} label="All" labelClassName="text-xs" />
+          <Checkbox
+            checked={allOn}
+            indeterminate={ids.length > 0 && !allOn}
+            onChange={() => setIds(allOn ? [] : executable.map((w) => w.id))}
+            label="All"
+            labelClassName="text-xs"
+          />
         </legend>
         <ul className="grid max-h-64 grid-cols-1 overflow-y-auto rounded-sm border border-line sm:grid-cols-2">
           {wallets.map((w) => (
             <li key={w.id} className="border-b border-line-soft px-3 py-2 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
               <Checkbox
                 checked={ids.includes(w.id)}
+                disabled={!canExecute(w)}
                 onChange={() => setIds((list) => (list.includes(w.id) ? list.filter((x) => x !== w.id) : [...list, w.id]))}
                 label={
                   <span className="flex flex-col">
-                    <span className="text-sm text-fg">{w.label}</span>
+                    <span className="flex items-center gap-1.5 text-sm text-fg">
+                      {w.label}
+                      {!canExecute(w) && (
+                        <Tag tone="soon" title="Watch-only wallets can't trade, so they can't be in a preset.">
+                          Watch only
+                        </Tag>
+                      )}
+                      {executesViaNearKit(w) && <Tag title="A NearKit wallet: its trades are confirmed in Telegram.">NearKit</Tag>}
+                    </span>
                     <span className="flex gap-2 text-[11px] text-fg-4">
                       <AccountText id={w.accountId} />
                       <span className="num">{formatAmount(w.nearBalance, 2)} NEAR</span>
@@ -105,6 +126,12 @@ function PresetForm({ preset, onClose, wallets, onSaved }: Omit<PresetModalProps
           ))}
         </ul>
         {walletError && <p className="text-xs text-neg">{walletError}</p>}
+        {dropped.length > 0 && (
+          <p className="text-xs text-warn">
+            {dropped.length === 1 ? '1 watch-only wallet was' : `${dropped.length} watch-only wallets were`} in this preset. Watch-only wallets can’t trade, so saving removes{' '}
+            {dropped.length === 1 ? 'it' : 'them'}.
+          </p>
+        )}
         <p className="text-xs text-fg-3">
           <Figures>{`${formatAmount(totalNear, 2)} NEAR across the selection`}</Figures>
         </p>

@@ -7,7 +7,9 @@ import { Panel } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { usePageTitle } from '@/lib/hooks'
 import { useComingSoonPage } from '@/lib/modeCopy'
-import { useCapabilities, useSession } from '@/services/queries'
+import { WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
+import { useServices } from '@/services/context'
+import { useCapabilities, useNearKitSession, useSession } from '@/services/queries'
 import { ComingSoonContext, useConnectPrompt } from '@/state/contexts'
 
 interface PageHeaderProps {
@@ -84,11 +86,19 @@ export function Page({ children, className }: { children: ReactNode; className?:
  * Gate for wallet-bound tools. Disconnected users get a clear way back in. On a
  * COMING SOON page the tool renders read-only: every field and key is disabled.
  */
-export function RequireWallet({ feature, children }: { feature: string; children: ReactNode }) {
+/**
+ * The page needs a wallet: one connected in this browser, or (`nearkit`) a NearKit web session,
+ * whose NearKit wallets trade and send through Telegram.
+ */
+export function RequireWallet({ feature, children, nearkit = false }: { feature: string; children: ReactNode; nearkit?: boolean }) {
   const caps = useCapabilities()
   const soon = useComingSoonPage()
   const { data: session, isPending } = useSession()
   const { promptConnect } = useConnectPrompt()
+  const services = useServices()
+  const nearkitSession = useNearKitSession()
+  const telegram = nearkit && services.nearkit.available
+  if (telegram && nearkitSession && !soon) return <>{children}</>
   if (isPending)
     return (
       <Panel className="p-5">
@@ -101,18 +111,29 @@ export function RequireWallet({ feature, children }: { feature: string; children
     return (
       <Panel>
         <EmptyState
-          title={soon ? `${feature} is coming soon` : `Connect a wallet to use ${feature}`}
+          title={soon ? `${feature} is coming soon` : telegram ? `Connect a wallet or sign in with Telegram to use ${feature}` : `Connect a wallet to use ${feature}`}
           action={
-            <Button variant={soon ? 'secondary' : 'primary'} onClick={promptConnect}>
-              Connect wallet
-            </Button>
+            <span className="flex flex-wrap items-center justify-center gap-2">
+              <Button variant={soon ? 'secondary' : 'primary'} onClick={promptConnect}>
+                Connect wallet
+              </Button>
+              {telegram && !soon && WEB_SIGN_IN_URL && (
+                <a href={WEB_SIGN_IN_URL} target="_blank" rel="noreferrer noopener" className="inline-flex">
+                  <Button variant="secondary" tabIndex={-1}>
+                    Sign in with Telegram
+                  </Button>
+                </a>
+              )}
+            </span>
           }
         >
           {soon
             ? 'Connect a wallet to preview the page. Nothing on it can be signed, sent or saved during the beta.'
             : caps.mode === 'demo'
               ? `${feature} works across your NearKit wallets. The demo runs on a sample account.`
-              : `${feature} works across the accounts you connect. You sign in your wallet; NearKit never sees your keys.`}
+              : telegram
+                ? `${feature} works across the accounts you connect, which sign in your wallet, and your NearKit wallets, which NearKit executes: the NearKit bot’s /web sends a one-time sign-in link.`
+                : `${feature} works across the accounts you connect. You sign in your wallet; NearKit never sees your keys.`}
         </EmptyState>
       </Panel>
     )

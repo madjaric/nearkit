@@ -1,10 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CopyRuleInput, DcaInput, MultiTradeRequest, OrderInput, PnlRange, PresetInput, QuoteRequest, SniperInput, TokenId, TransferRequest } from '@/types/domain'
+import type { ChartRange, CopyRuleInput, DcaInput, MultiTradeRequest, OrderInput, PnlRange, PresetInput, QuoteRequest, SniperInput, TokenId, TransferRequest } from '@/types/domain'
 import { useSyncExternalStore } from 'react'
 import type { Holding } from '@/types/domain'
 import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
 import { inFlight } from './inFlight'
+import type { NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
 import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChanges, snapshotOf, type RefreshStatus } from './postTradeRefresh'
 
 /**
@@ -34,6 +35,13 @@ export const qk = {
   dca: ['automation', 'dca'] as const,
   copy: ['automation', 'copy'] as const,
   sniper: ['automation', 'sniper'] as const,
+  nearkitWallets: (token: string | null) => ['wallets', 'nearkit', token] as const,
+  tokenPrice: (id: string | null) => ['market', 'price', id] as const,
+  priceHistory: (id: string | null, range: ChartRange) => ['market', 'history', id, range] as const,
+  totalSupply: (id: string | null) => ['token-supply', id] as const,
+  tokenActivity: (id: string | null) => ['market', 'activity', id] as const,
+  tradeGroup: (groupId: string | null) => ['nearkit', 'trade', groupId] as const,
+  sendStatus: (intentId: string | null) => ['nearkit', 'send', intentId] as const,
 }
 
 /** Real data refreshes less often than the demo: free public infrastructure has rate limits. */
@@ -87,6 +95,93 @@ export function useResetDemo() {
   })
 }
 
+// ─── NearKit wallets (NearKit web) ─────────────────────────────────────────
+
+/** The NearKit web session (signed in from the bot's /web link), or null. */
+export function useNearKitSession(): NearKitWebSession | null {
+  const { nearkit } = useServices()
+  return useSyncExternalStore(nearkit.subscribe, nearkit.session, nearkit.session)
+}
+
+/** The signed-in user's NearKit wallets, as the server lists them; null data when signed out. */
+export function useNearKitWallets() {
+  const s = useServices()
+  const session = useNearKitSession()
+  return useQuery({
+    queryKey: qk.nearkitWallets(session?.token ?? null),
+    queryFn: () => s.nearkit.wallets(),
+    enabled: s.nearkit.available && session !== null,
+    retry: 1,
+  })
+}
+
+export function useNearKitMutations() {
+  const s = useServices()
+  const qc = useQueryClient()
+  // A session starting or ending changes which wallets exist everywhere.
+  const everything = () => qc.invalidateQueries()
+  const walletsChanged = () => Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
+  return {
+    login: useMutation({ mutationFn: (code: string) => s.nearkit.login(code), onSuccess: everything }),
+    logout: useMutation({ mutationFn: () => s.nearkit.logout(), onSuccess: everything }),
+    create: useMutation({ mutationFn: ({ name, createKey }: { name: string; createKey: string }) => s.nearkit.createWallet(name, createKey), onSuccess: walletsChanged }),
+    rename: useMutation({ mutationFn: ({ walletId, name }: { walletId: string; name: string }) => s.nearkit.renameWallet(walletId, name), onSuccess: walletsChanged }),
+    /** The server's quote for each wallet, for the review. Nothing is signed. */
+    prepareTrade: useMutation({ mutationFn: (input: WebTradeInput) => s.nearkit.prepareTrade(input) }),
+    /** Runs the confirmed quotes: NearKit's server executes each wallet's own trade. */
+    executeTrade: useMutation({ mutationFn: ({ groupId, intentIds }: { groupId: string; intentIds: readonly string[] }) => s.nearkit.executeTrade(groupId, intentIds) }),
+    cancelTrade: useMutation({ mutationFn: (groupId: string) => s.nearkit.cancelTrade(groupId) }),
+    /** The server's review of a send; nothing is sent. */
+    reviewSend: useMutation({ mutationFn: (input: WebSendInput) => s.nearkit.reviewSend(input) }),
+    executeSend: useMutation({ mutationFn: (intentId: string) => s.nearkit.executeSend(intentId) }),
+  }
+}
+
+/** A leg is running: started and not finished (a quote waiting for the user isn't). */
+export const runningLeg = (status: WebLegStatus) => status === 'executing' || status === 'processing'
+
+/**
+ * A trade's legs from the server. `live`: polled while any confirmed leg hasn't finished (each
+ * wallet's status as it executes); balances refresh as each one finishes.
+ */
+export function useTradeGroup(groupId: string | null, live = false) {
+  const s = useServices()
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: qk.tradeGroup(groupId),
+    queryFn: async (): Promise<WebTradeGroup> => {
+      const before = qc.getQueryData<WebTradeGroup>(qk.tradeGroup(groupId))
+      const group = await s.nearkit.tradeStatus(groupId as string)
+      const finished = (g: WebTradeGroup | undefined) => g?.legs.filter((l) => l.status === 'done' || l.status === 'failed').length ?? 0
+      if (finished(group) > finished(before)) {
+        s.execution.forgetBalances(group.legs.map((l) => l.accountId))
+        void Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
+      }
+      return group
+    },
+    enabled: groupId !== null,
+    refetchInterval: (q) => (live && (!q.state.data || q.state.data.legs.some((l) => runningLeg(l.status) || l.status === 'quoted')) ? 1_500 : false),
+    retry: 1,
+  })
+}
+
+/** A send's status, polled while it runs; balances refresh when it finishes. */
+export function useSendStatus(intentId: string | null) {
+  const s = useServices()
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: qk.sendStatus(intentId),
+    queryFn: async (): Promise<WebSendStatus> => {
+      const r = await s.nearkit.sendStatus(intentId as string)
+      if (r.status === 'done' || r.status === 'failed') void Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
+      return r
+    },
+    enabled: intentId !== null,
+    refetchInterval: (q) => (!q.state.data || q.state.data.status === 'quoted' || runningLeg(q.state.data.status) ? 1_500 : false),
+    retry: 1,
+  })
+}
+
 // ─── market ─────────────────────────────────────────────────────────────────
 
 export function useTokens() {
@@ -114,6 +209,41 @@ export function useImportToken() {
     mutationFn: (contract: string) => s.tokens.importToken(contract),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: qk.tokens }), qc.invalidateQueries({ queryKey: qk.holdings })]),
   })
+}
+
+/** How often a token screen asks for the live price (its sources cache it for up to a minute). */
+export const PRICE_POLL_MS = 15_000
+
+/** One token's live price, polled; null data when no source reports one. */
+export function useTokenPrice(id: TokenId | null) {
+  const s = useServices()
+  return useQuery({
+    queryKey: qk.tokenPrice(id),
+    queryFn: () => s.tokens.getPrice(id as TokenId),
+    enabled: id !== null,
+    refetchInterval: s.mode === 'demo' ? 5_000 : PRICE_POLL_MS,
+    retry: 1,
+  })
+}
+
+/** The price history a source has for this window (null data: no source for this token). */
+export function usePriceHistory(id: TokenId | null, range: ChartRange) {
+  const s = useServices()
+  return useQuery({ queryKey: qk.priceHistory(id, range), queryFn: () => s.tokens.getPriceHistory(id as TokenId, range), enabled: id !== null, refetchInterval: 60_000, retry: 1 })
+}
+
+/** How often a token screen asks for new trades. */
+export const ACTIVITY_POLL_MS = 20_000
+
+/** A token's recent buys and sells against NEAR, refreshed; null data: no source for this token. */
+export function useTokenActivity(id: TokenId | null) {
+  const s = useServices()
+  return useQuery({ queryKey: qk.tokenActivity(id), queryFn: () => s.tokens.getActivity(id as TokenId), enabled: id !== null, refetchInterval: ACTIVITY_POLL_MS, retry: 1 })
+}
+
+export function useTotalSupply(id: TokenId | null) {
+  const s = useServices()
+  return useQuery({ queryKey: qk.totalSupply(id), queryFn: () => s.tokens.getTotalSupply(id as TokenId), enabled: id !== null, staleTime: 5 * 60_000, retry: 1 })
 }
 
 export function useNearPrice() {

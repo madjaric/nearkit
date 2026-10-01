@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { AccountText } from '@/components/domain/Account'
 import { SimMark } from '@/components/domain/SimMark'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
@@ -12,9 +13,12 @@ import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { useSort } from '@/components/ui/useSort'
 import { cn } from '@/lib/cn'
 import { formatCompact } from '@/lib/format'
+import { canExecute, executesViaNearKit } from '@/lib/wallets'
 import { useWallets } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
-import type { Position } from '@/types/domain'
+import type { Position, Wallet } from '@/types/domain'
+import { SendTokenButton } from '../token/SendToken'
+import { NearKitSendModal } from '../wallets/nearkit'
 import { PositionPnlDetail } from './PositionPnlDetail'
 
 type SortKey = 'token' | 'balance' | 'avg' | 'price' | 'value' | 'pnl' | 'pnlPct'
@@ -58,13 +62,17 @@ interface PositionsTableProps {
   expandable?: boolean
 }
 
+/** BUY | SELL | SEND: the existing trade ticket, and each wallet's own send flow (never a watch-only one). */
 function TradeKeys({ position }: { position: Position }) {
   const { openTrade } = useTradeDrawer()
   if (position.token.isNative) {
     return (
-      <span className="text-xs text-fg-4" title="NEAR is the base currency; trade tokens against it">
-        Base
-      </span>
+      <div className="flex items-center justify-end gap-1">
+        <span className="text-xs text-fg-4" title="NEAR is the base currency; trade tokens against it">
+          Base
+        </span>
+        <SendTokenButton token={position.token} label="Send" size="xs" variant="ghost" icon={false} />
+      </div>
     )
   }
   return (
@@ -75,6 +83,7 @@ function TradeKeys({ position }: { position: Position }) {
       <Button size="xs" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })} aria-label={`Sell ${position.token.symbol}`}>
         Sell
       </Button>
+      <SendTokenButton token={position.token} label="Send" size="xs" variant="ghost" icon={false} />
     </div>
   )
 }
@@ -85,7 +94,10 @@ function TokenCell({ position }: { position: Position }) {
       <TokenGlyph symbol={position.token.symbol} tokenId={position.token.id} size={24} />
       <div className="flex min-w-0 flex-col">
         <span className="flex items-center gap-1.5 font-semibold text-fg">
-          {position.token.symbol}
+          {/* The token's screen: live price, chart, balance, Buy / Sell / Send. */}
+          <Link to={`/token/${encodeURIComponent(position.token.id)}`} className="underline-offset-2 hover:underline">
+            {position.token.symbol}
+          </Link>
           {position.token.status === 'prelaunch' && (
             <Tag tone="warn" title="$KIT has not launched. KIT figures in this preview are demo data.">
               Pre-launch
@@ -102,6 +114,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
   const { sorted, sort, setSort, thSort } = useSort(positions, GETTERS, { key: 'value', dir: 'desc' })
   const { data: wallets = [] } = useWallets()
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [sending, setSending] = useState<{ wallet: Wallet; tokenId: string } | null>(null)
   const walletLabel = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets])
 
   const toggle = (id: string) =>
@@ -240,8 +253,21 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                                 <span className="flex min-w-0 items-center gap-2">
                                   <span className="text-fg-2">{wallet?.label ?? w.walletId}</span>
                                   {wallet && <AccountText id={wallet.accountId} className="text-fg-4" />}
+                                  {wallet && !canExecute(wallet) && <Tag tone="soon">Watch only</Tag>}
                                 </span>
-                                <span className="num text-fg-2">{formatCompact(w.amount, 2)}</span>
+                                <span className="flex items-center gap-2">
+                                  <span className="num text-fg-2">{formatCompact(w.amount, 2)}</span>
+                                  {wallet && executesViaNearKit(wallet) && !wallet.frozen && (
+                                    <Button
+                                      size="xs"
+                                      variant="ghost"
+                                      onClick={() => setSending({ wallet, tokenId: p.token.id })}
+                                      aria-label={`Send ${p.token.symbol} from ${wallet.label}`}
+                                    >
+                                      Send
+                                    </Button>
+                                  )}
+                                </span>
                               </li>
                             )
                           })}
@@ -255,6 +281,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
           </tbody>
         </Table>
       </div>
+      <NearKitSendModal wallet={sending?.wallet ?? null} tokenId={sending?.tokenId} onClose={() => setSending(null)} />
 
       {/* <768px: each position becomes a two-line row with its keys */}
       <div className="md:hidden">
@@ -335,13 +362,14 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
 function TradeKeysMobile({ position }: { position: Position }) {
   const { openTrade } = useTradeDrawer()
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-3 gap-2">
       <Button size="sm" variant="quiet-buy" onClick={() => openTrade({ tokenId: position.token.id, side: 'buy' })}>
         Buy {position.token.symbol}
       </Button>
       <Button size="sm" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })}>
         Sell {position.token.symbol}
       </Button>
+      <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
     </div>
   )
 }

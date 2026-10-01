@@ -21,12 +21,20 @@ export interface Result {
 export interface ContractLookup {
   token: TokenListing | null
   note: string | null
+  state: 'checking' | 'found' | 'not-found'
 }
 
+/** A token's own page: price, chart, activity, and Buy / Sell / Send from there. */
+const tokenPage = (id: string) => `/token/${encodeURIComponent(id)}`
+
+/** The name, and the contract the token is (native NEAR has none). */
+const tokenDetail = (t: TokenListing) => (t.isNative || !t.contract ? 'Native NEAR' : `${t.name} · ${t.contract}`)
+
 /**
- * The search box reads what you type: a symbol finds the token, a contract finds the
- * token even when no list has it yet (read from chain, like the swap selector) and
- * offers a scan, and a leading "/" lists the same commands the Telegram bot will take.
+ * The search box reads what you type: a symbol, name or contract finds the token, also a
+ * contract no list has yet (read from chain, like the swap selector), and opens the token's
+ * own page; a contract also offers a scan, and a leading "/" lists the same commands the
+ * Telegram bot takes. Finding a token never opens the swap: trading starts from its page.
  */
 export function buildResults(raw: string, tokens: TokenListing[], found: ContractLookup | null = null): Result[] {
   const q = raw.trim().toLowerCase()
@@ -34,7 +42,7 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
     return tokens
       .filter((t) => !t.isNative)
       .slice(0, 4)
-      .map((t) => ({ id: `t-${t.id}`, group: 'Tokens' as const, label: t.symbol, detail: t.name, to: `/swap?to=${encodeURIComponent(t.id)}`, token: t }))
+      .map((t) => ({ id: `t-${t.id}`, group: 'Tokens' as const, label: t.symbol, detail: tokenDetail(t), to: tokenPage(t.id), token: t }))
   }
   if (q.startsWith('/')) {
     return COMMANDS.filter((c) => c.command.startsWith(q) || c.label.toLowerCase().includes(q.slice(1))).map((c) => ({
@@ -50,11 +58,11 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
   const results: Result[] = []
   for (const t of tokens) {
     if (t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || (t.contract ?? '').toLowerCase().includes(q)) {
-      results.push({ id: `t-${t.id}`, group: 'Tokens', label: t.symbol, detail: t.name, to: t.isNative ? '/swap' : `/swap?to=${encodeURIComponent(t.id)}`, token: t })
+      results.push({ id: `t-${t.id}`, group: 'Tokens', label: t.symbol, detail: tokenDetail(t), to: tokenPage(t.id), token: t })
     }
   }
   if (looksLikeContract(q)) {
-    // Opens the swap, which offers to add the token after reading it from chain; whether Rhea can trade it shows in the quote.
+    // The token's page reads it from chain again; whether Rhea can trade it shows in its quote there.
     const token = found?.token
     if (token && !results.some((r) => r.token?.id === token.id)) {
       results.push({
@@ -62,9 +70,13 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
         group: 'Tokens',
         label: token.symbol,
         detail: `${token.name} · ${token.decimals} decimals · not listed`,
-        to: `/swap?to=${encodeURIComponent(token.id)}`,
+        to: tokenPage(token.id),
         token,
       })
+    }
+    // Read and not a token: said so, never a made-up token.
+    if (!results.some((r) => r.token) && found?.state === 'not-found') {
+      results.push({ id: `n-${q}`, group: 'Tokens', label: 'Token not found', detail: found.note ?? 'No NEP-141 token at this address', to: tokenPage(q) })
     }
     results.push({
       id: `s-${q}`,

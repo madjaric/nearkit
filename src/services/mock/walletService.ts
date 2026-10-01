@@ -3,7 +3,7 @@ import { MAIN_ACCOUNT } from '@/mocks/wallets'
 import { TOKEN_IDS } from '@/mocks/tokens'
 import type { PresetInput, Wallet, WalletPreset } from '@/types/domain'
 import type { WalletService } from '../types'
-import { ServiceError, balanceOf, nextId, priceOf, tickMarket, wait, type MockState } from './state'
+import { ServiceError, balanceOf, nextId, priceOf, tickMarket, wait, withSource, type MockState } from './state'
 
 function validatePreset(state: MockState, input: PresetInput, ignoreId?: string): PresetInput {
   const name = input.name.trim().toUpperCase()
@@ -13,6 +13,8 @@ function validatePreset(state: MockState, input: PresetInput, ignoreId?: string)
     throw new ServiceError('duplicate-name', `A preset named ${name} already exists`)
   }
   const walletIds = [...new Set(input.walletIds)].filter((id) => state.wallets.some((w) => w.id === id))
+  const watch = state.wallets.find((w) => walletIds.includes(w.id) && w.access === 'watch')
+  if (watch) throw new ServiceError('NOT_EXECUTABLE', `${watch.label} is watch-only: presets hold wallets that can trade.`)
   if (walletIds.length === 0) throw new ServiceError('no-wallets', 'Select at least one wallet')
   return { name, walletIds, note: (input.note ?? '').trim() }
 }
@@ -47,7 +49,7 @@ export function createWalletService(state: MockState): WalletService {
     async listWallets() {
       await wait('read')
       if (!state.session) return []
-      return state.wallets.map((w) => ({ ...w, access: w.access ?? 'signer' }))
+      return state.wallets.map(withSource)
     },
 
     async listSnapshots() {
@@ -57,8 +59,7 @@ export function createWalletService(state: MockState): WalletService {
       return state.wallets.map((w) => {
         const holdings = state.holdings.filter((h) => h.walletId === w.id).map((h) => ({ ...h }))
         return {
-          ...w,
-          access: w.access ?? 'signer',
+          ...withSource(w),
           nearBalance: balanceOf(state, w.id, TOKEN_IDS.near),
           holdings,
           valueUsd: holdings.reduce((s, h) => s + h.amount * priceOf(state, h.tokenId), 0),

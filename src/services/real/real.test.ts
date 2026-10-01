@@ -9,6 +9,7 @@ import findPathSingle from '@/services/rhea/fixtures/findpath-testnet-wrap-usdt.
 import smartxOldFee from '@/services/rhea/fixtures/smartx-usdt-to-near-fee200.json'
 import smartxNearkitFee from '@/services/rhea/fixtures/smartx-usdt-to-near-fee50.json'
 import type { OperationProgress } from '@/types/operations'
+import type { NearKitWeb, NearKitWebWallet } from '../nearkitWeb'
 import { createNearServices } from './index'
 import { memoryStorage } from './stores'
 import { createFakeChain, fakeWallet, successOutcome, type FakeChain, type FakeChainOptions } from './testing/fakeChain'
@@ -21,7 +22,7 @@ import { createFakeChain, fakeWallet, successOutcome, type FakeChain, type FakeC
 const NEAR = (n: number) => BigInt(Math.round(n * 1e6)) * 10n ** 18n
 const MIN_STORAGE = 1_250_000_000_000_000_000_000n
 
-function setup(opts: { network?: NetworkId; env?: Record<string, string>; chain: FakeChainOptions; session: WalletSession | null; now?: () => number }) {
+function setup(opts: { network?: NetworkId; env?: Record<string, string>; chain: FakeChainOptions; session: WalletSession | null; now?: () => number; nearkit?: NearKitWeb }) {
   const network = opts.network ?? 'testnet'
   const chain = createFakeChain(opts.chain)
   const { env, issues } = parseEnv({ VITE_NEAR_NETWORK: network, ...opts.env })
@@ -45,12 +46,42 @@ function setup(opts: { network?: NetworkId; env?: Record<string, string>; chain:
     wallet: async () => wallet.adapter,
     now: opts.now,
     productionFeeRecipient: 'fees.example.near',
+    ...(opts.nearkit ? { nearkit: opts.nearkit } : {}),
   })
   const run = (plan: Parameters<typeof services.execution.run>[0], prior: OperationProgress | null = null) => services.execution.run(plan, prior, () => undefined)
   return { chain, services, wallet, outcomes, run }
 }
 
 const session = (accounts: string[]): WalletSession => ({ walletId: 'fake', walletName: 'Fake Wallet', accounts, batch: true })
+
+/** NearKit's server as the page sees it: the signed-in Telegram user's NearKit wallets (a mutable list). */
+function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
+  const unused = () => Promise.reject(new Error('not used here'))
+  return {
+    available: true,
+    session: () => ({ token: 'T'.repeat(43), expiresAt: Date.now() + 60_000, userName: 'Alice' }),
+    login: unused,
+    logout: async () => undefined,
+    wallets: async () => ({ wallets: [...list], limit: 10, canCreate: list.length < 10 }),
+    createWallet: unused,
+    renameWallet: unused,
+    prepareTrade: unused,
+    tradeStatus: unused,
+    executeTrade: unused,
+    cancelTrade: unused,
+    reviewSend: unused,
+    executeSend: unused,
+    sendStatus: unused,
+    subscribe: () => () => undefined,
+  }
+}
+
+const NK1 = 'a'.repeat(64)
+const NK2 = 'b'.repeat(64)
+const nearkitWallets = (): NearKitWebWallet[] => [
+  { id: 'nk-1', accountId: NK1, name: 'Main', slot: 1, owner: 'alice.testnet', frozen: false, createdAt: 1 },
+  { id: 'nk-2', accountId: NK2, name: 'Degen 1', slot: 2, owner: null, frozen: false, createdAt: 2 },
+]
 
 // ─── transfers on testnet ───────────────────────────────────────────────────
 
@@ -189,10 +220,8 @@ describe('real transfers (testnet, fake chain)', () => {
     expect(plan.transactions[0]?.actions).toEqual([{ kind: 'transfer', deposit: NEAR(0.5).toString() }])
   })
 
-  it('consolidates from two accounts as separate approvals and pauses for the one not connected', async () => {
-    const { services, run, wallet } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
-    await services.wallets.getSession()
-    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+  it('consolidates from two connected accounts as separate approvals, each signed by its own account', async () => {
+    const { services, run, wallet } = setup({ chain: testnetChain(), session: session(['alice.testnet', 'bob.testnet']) })
     const plan = await services.transfers.prepare({
       kind: 'consolidate',
       tokenId: USDT,
@@ -204,19 +233,37 @@ describe('real transfers (testnet, fake chain)', () => {
     })
     expect(plan.signers).toEqual(['alice.testnet', 'bob.testnet'])
     expect(plan.groups).toEqual([[0], [1]])
-    expect(plan.warnings.join(' ')).toMatch(/bob\.testnet/)
     // Registration for the destination rides with the first source only.
     expect(plan.transactions[1]?.actions.some((a) => a.kind === 'call' && a.method === 'storage_deposit')).toBe(false)
-
-    const first = await run(plan)
-    expect(first.phase).toBe('paused')
-    expect(first.pause).toMatchObject({ reason: 'switch-account', signerId: 'bob.testnet' })
-    expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet'])
-
-    wallet.setSession(session(['bob.testnet']))
-    const done = await run(plan, first)
+    const done = await run(plan)
     expect(done.phase).toBe('success')
     expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet', 'bob.testnet'])
+  })
+
+  it('refuses a watch-only source before anything is planned or signed, but still sends to one', async () => {
+    const { services, wallet } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    await expect(
+      services.transfers.prepare({
+        kind: 'consolidate',
+        tokenId: USDT,
+        destinationAccountId: 'carol.testnet',
+        sources: [
+          { walletId: 'alice.testnet', amount: '1' },
+          { walletId: 'bob.testnet', amount: '2' },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_EXECUTABLE', message: expect.stringMatching(/Bob is watch-only/) })
+    await expect(
+      services.transfers.prepare({ kind: 'batch-send', tokenId: 'near', sourceWalletId: 'bob.testnet', lines: [{ accountId: 'carol.testnet', amount: '1' }] }),
+    ).rejects.toMatchObject({
+      code: 'NOT_EXECUTABLE',
+    })
+    // A watch wallet can receive: it's an address like any other.
+    const plan = await services.transfers.prepare({ kind: 'batch-send', tokenId: 'near', sourceWalletId: 'alice.testnet', lines: [{ accountId: 'bob.testnet', amount: '1' }] })
+    expect(plan.signers).toEqual(['alice.testnet'])
+    expect(wallet.signed).toEqual([])
   })
 
   it('Split, Consolidate and Batch Send never carry a NearKit fee', async () => {
@@ -726,20 +773,30 @@ describe('multi trade (testnet classic router, fake chain)', () => {
     expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet'])
   })
 
-  it('pauses for a wallet that is not connected, then continues once it is', async () => {
-    const { services, chain, outcomes, run, wallet } = setup({ chain: chainOpts(), session: session(['alice.testnet']), now: () => T0 })
+  it('refuses a watch-only wallet before anything is quoted, planned or signed', async () => {
+    const { services, chain, wallet } = setup({ chain: chainOpts(), session: session(['alice.testnet']), now: () => T0 })
     withRouter(chain)
-    outcomes.set('wrap.testnet', swapped)
     await services.wallets.getSession()
     await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
-    const plan = await services.trading.prepareMulti(request)
-    expect(plan.warnings.join(' ')).toMatch(/connect bob\.testnet/)
-    const first = await run(plan)
-    expect(first.pause).toMatchObject({ reason: 'switch-account', signerId: 'bob.testnet' })
-    wallet.setSession(session(['bob.testnet']))
-    const done = await run(plan, first)
-    expect(done.phase).toBe('success')
-    expect(wallet.signed.map((s) => s.signerId)).toEqual(['alice.testnet', 'bob.testnet'])
+    await expect(services.trading.quoteMulti(request)).rejects.toMatchObject({ code: 'NOT_EXECUTABLE', message: expect.stringMatching(/Bob is watch-only/) })
+    await expect(services.trading.prepareMulti(request)).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' })
+    // Multi sell too.
+    await expect(services.trading.prepareMulti({ ...request, side: 'sell' })).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' })
+    expect(wallet.signed).toEqual([])
+  })
+
+  it('an account connected before but not in this session is watch-only now: it can’t join', async () => {
+    const { services, chain, wallet } = setup({ chain: chainOpts(), session: session(['alice.testnet', 'bob.testnet']), now: () => T0 })
+    withRouter(chain)
+    await services.wallets.getSession()
+    wallet.setSession(session(['alice.testnet']))
+    await services.wallets.connect('fake')
+    expect((await services.wallets.listWallets()).map((w) => [w.accountId, w.source])).toEqual([
+      ['alice.testnet', 'external'],
+      ['bob.testnet', 'watch'],
+    ])
+    await expect(services.trading.prepareMulti(request)).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' })
+    expect(wallet.signed).toEqual([])
   })
 })
 
@@ -788,5 +845,99 @@ describe('real scanner (fake chain)', () => {
     expect(report.facts.find((f) => f.id === 'top10')).toMatchObject({ kind: 'unknown', value: null })
     expect(report.topHolders).toBeNull()
     expect(report.observations.some((o) => o.id === 'concentrated')).toBe(false)
+  })
+})
+
+// ─── wallet classes: executable vs watch-only ───────────────────────────────
+
+describe('wallet classes (real, fake chain)', () => {
+  it('lists the connected accounts as executable and the rest of the account book as watch-only', async () => {
+    const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    const list = await services.wallets.listWallets()
+    expect(list.map((w) => [w.accountId, w.source, w.access])).toEqual([
+      ['alice.testnet', 'external', 'signer'],
+      ['bob.testnet', 'watch', 'watch'],
+    ])
+  })
+
+  it('refuses to swap from a watch-only wallet before anything is quoted or signed', async () => {
+    const { services, wallet } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    await expect(services.trading.prepareSwap({ tokenIn: 'near', tokenOut: USDT, amountIn: '1', slippagePct: 0.5, walletId: 'bob.testnet' })).rejects.toMatchObject({
+      code: 'NOT_EXECUTABLE',
+    })
+    expect(wallet.signed).toEqual([])
+  })
+
+  it('keeps watch-only wallets out of presets: saving one is refused, editing can’t add one', async () => {
+    const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet', 'carol.testnet']) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    await expect(services.wallets.createPreset({ name: 'sniper', walletIds: ['alice.testnet', 'bob.testnet'] })).rejects.toMatchObject({
+      code: 'NOT_EXECUTABLE',
+      message: expect.stringMatching(/Bob is watch-only/),
+    })
+    const preset = await services.wallets.createPreset({ name: 'sniper', walletIds: ['alice.testnet', 'carol.testnet'] })
+    expect(preset.walletIds).toEqual(['alice.testnet', 'carol.testnet'])
+    await expect(services.wallets.updatePreset(preset.id, { name: 'sniper', walletIds: ['alice.testnet', 'bob.testnet'] })).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' })
+  })
+
+  it('lists the signed-in Telegram user’s NearKit wallets as NearKit wallets, then the connected and watched accounts', async () => {
+    const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']), nearkit: fakeNearKit(nearkitWallets()) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    const list = await services.wallets.listWallets()
+    expect(list.map((w) => [w.label, w.source, w.nearkitId ?? null, w.owner ?? null])).toEqual([
+      ['Main', 'nearkit', 'nk-1', 'alice.testnet'],
+      ['Degen 1', 'nearkit', 'nk-2', null],
+      ['Main', 'external', null, null],
+      ['Bob', 'watch', null, null],
+    ])
+  })
+
+  it('lists NearKit wallets with no wallet connected in the browser', async () => {
+    const { services } = setup({ chain: testnetChain(), session: null, nearkit: fakeNearKit(nearkitWallets()) })
+    expect((await services.wallets.listWallets()).map((w) => [w.accountId, w.source])).toEqual([
+      [NK1, 'nearkit'],
+      [NK2, 'nearkit'],
+    ])
+  })
+
+  it('an account watched before that turns out to be the user’s NearKit wallet is listed once, as a NearKit wallet', async () => {
+    const list: NearKitWebWallet[] = []
+    const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']), nearkit: fakeNearKit(list) })
+    await services.wallets.getSession()
+    await services.wallets.addAccount({ accountId: NK2, label: 'Old watch' })
+    list.push(...nearkitWallets())
+    const again = await services.wallets.listWallets()
+    expect(again.filter((w) => w.accountId === NK2).map((w) => [w.label, w.source])).toEqual([['Degen 1', 'nearkit']])
+  })
+
+  it('a NearKit wallet never signs in the browser: a swap, a Multi Buy plan or a Consolidate from it is refused before anything is signed', async () => {
+    const { services, wallet } = setup({ chain: testnetChain(), session: session(['alice.testnet']), nearkit: fakeNearKit(nearkitWallets()) })
+    await services.wallets.getSession()
+    const nearkitOnly = expect.objectContaining({
+      code: 'NOT_EXECUTABLE',
+      message: expect.stringMatching(/NearKit wallet: NearKit executes its trades and sends after you confirm them in Telegram/),
+    })
+    await expect(services.trading.prepareSwap({ tokenIn: 'near', tokenOut: USDT, amountIn: '1', slippagePct: 0.5, walletId: NK1 })).rejects.toEqual(nearkitOnly)
+    await expect(
+      services.trading.prepareMulti({
+        side: 'buy',
+        tokenId: USDT,
+        slippagePct: 0.5,
+        legs: [
+          { walletId: 'alice.testnet', amountIn: '0.1' },
+          { walletId: NK1, amountIn: '0.1' },
+        ],
+      }),
+    ).rejects.toEqual(nearkitOnly)
+    await expect(
+      services.transfers.prepare({ kind: 'consolidate', tokenId: USDT, destinationAccountId: 'carol.testnet', sources: [{ walletId: NK2, amount: '1' }] }),
+    ).rejects.toEqual(nearkitOnly)
+    expect(wallet.signed).toEqual([])
   })
 })

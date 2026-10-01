@@ -13,8 +13,13 @@ export default function MultiTradePage() {
         status={<ExecutionTag trading />}
         description="One order across many wallets. Pick a preset or wallets, split the total equally or by hand, and review every leg before it runs."
       />
-      <RequireWallet feature="Multi Trade">
-        <MultiTrade key={location.search} initialSide={params.get('side') === 'sell' ? 'sell' : 'buy'} initialPresetId={params.get('preset')} />
+      <RequireWallet feature="Multi Trade" nearkit>
+        <MultiTrade
+          key={location.search}
+          initialSide={params.get('side') === 'sell' ? 'sell' : 'buy'}
+          initialPresetId={params.get('preset')}
+          initialTokenId={params.get('token')}
+        />
       </RequireWallet>
     </Page>
   )

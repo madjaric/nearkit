@@ -15,6 +15,8 @@ export class HttpError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** Facts the client acts on (e.g. how an address gets approved); sent with the error. */
+    readonly detail?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'HttpError'
@@ -139,7 +141,9 @@ export function createApiServer(options: ApiOptions): Server {
         send(
           res,
           status,
-          { error: { code: err?.code ?? 'internal', message: err?.message ?? 'Something went wrong on NearKit’s side. Try again.' } },
+          {
+            error: { code: err?.code ?? 'internal', message: err?.message ?? 'Something went wrong on NearKit’s side. Try again.', ...(err?.detail ? { detail: err.detail } : {}) },
+          },
           {
             ...cors,
             ...(status === 413 ? { connection: 'close' } : {}),

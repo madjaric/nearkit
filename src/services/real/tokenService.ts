@@ -1,12 +1,14 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { accountIdError, isForeignToNetwork } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
+import { CHART_RANGES, fetchNearUsdCloses } from '@/services/near/candles'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import type { TokenListing } from '@/types/domain'
 import type { TokenService } from '../types'
 import type { NearContext } from './context'
 import type { Market } from './market'
 import { createScanner } from './scanner'
+import { createTokenActivity } from './tokenActivity'
 
 /**
  * Tokens in real mode: native NEAR, the network's configured tokens, $KIT when
@@ -22,6 +24,7 @@ export function createTokenService(ctx: NearContext, market: Market): TokenServi
 
   const list = async (): Promise<TokenListing[]> => market.listTokens(await held())
   const scanner = createScanner(ctx, market)
+  const activity = createTokenActivity(ctx)
 
   /** The checks a token read by exact contract must pass. Nothing is saved here. */
   async function verify(input: string): Promise<{ contract: string; listing: TokenListing }> {
@@ -76,6 +79,29 @@ export function createTokenService(ctx: NearContext, market: Market): TokenServi
     },
 
     getNearPrice: () => market.nearQuote(),
+
+    getPrice: (id) => market.quoteFor(id),
+
+    async getTotalSupply(id) {
+      if (id === NATIVE_TOKEN_ID) return null
+      return ctx.reader.totalSupply(id).then(
+        (s) => s.toString(),
+        () => null,
+      )
+    },
+
+    async getActivity(id) {
+      const txUrl = ctx.network.discovery.fastnearTxUrl
+      // NEAR is what tokens are bought and sold with: it has no buys or sells of its own here.
+      if (id === NATIVE_TOKEN_ID || !txUrl) return null
+      return activity.recent(id, txUrl)
+    },
+
+    async getPriceHistory(id, range) {
+      // Coinbase has NEAR/USD history; no source NearKit uses has history for other tokens.
+      if (id !== NATIVE_TOKEN_ID || !ctx.network.nearUsd) return null
+      return fetchNearUsdCloses(ctx.fetch, ctx.network.nearUsd.coinbase, CHART_RANGES[range], ctx.now())
+    },
     scan: (query) => scanner.scan(query),
     scanSuggestions: () => scanner.suggestions(),
   }

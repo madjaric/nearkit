@@ -17,6 +17,10 @@ export const GLOSSARY = {
     term: 'Minimum received',
     text: 'The least you receive after slippage. The trade reverts rather than return less.',
   },
+  fdv: {
+    term: 'FDV',
+    text: 'Fully diluted value: the total supply read from the token’s contract, times its current price. Not a market cap: tokens not in circulation count too.',
+  },
   nearkitFee: {
     term: 'NearKit fee',
     text: `NearKit's ${NEARKIT_FEE_LABEL} fee on each trade. On mainnet Rhea's aggregator collects it inside the swap: NearKit receives ${NEARKIT_FEE_RECEIVED_LABEL} and Rhea keeps ${RHEA_APP_FEE_SHARE_LABEL}. Testnet trades and the demo are not charged.`,

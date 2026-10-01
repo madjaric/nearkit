@@ -25,6 +25,8 @@ export class LinkRequestError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** Facts the server sent with the error (e.g. how an address gets approved). */
+    readonly detail: Record<string, unknown> | null = null,
   ) {
     super(message)
     this.name = 'LinkRequestError'
@@ -52,11 +54,12 @@ export async function apiPost<T>(apiUrl: string, path: string, body: unknown, fe
     // handled below
   }
   if (res.ok && json !== null) return json as T
-  const err = (json as { error?: { code?: unknown; message?: unknown } } | null)?.error
+  const err = (json as { error?: { code?: unknown; message?: unknown; detail?: unknown } } | null)?.error
   throw new LinkRequestError(
     res.status,
     typeof err?.code === 'string' ? err.code : 'error',
     typeof err?.message === 'string' ? err.message : `The NearKit server answered ${res.status}. Try again in a moment.`,
+    typeof err?.detail === 'object' && err.detail !== null && !Array.isArray(err.detail) ? (err.detail as Record<string, unknown>) : null,
   )
 }
 

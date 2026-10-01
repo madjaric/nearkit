@@ -11,6 +11,7 @@ import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { SwapTicket } from '@/features/trade/SwapTicket'
+import { useTradeWallets } from '@/features/trade/useTradeWallets'
 import { HandoffBanner, RequestedToken } from '@/features/trade/TelegramHandoff'
 import { useHandoffReport } from '@/features/trade/useHandoffReport'
 import { cn } from '@/lib/cn'
@@ -18,7 +19,8 @@ import { MAX_SLIPPAGE, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPrice, formatUsdCompact } from '@/lib/format'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
-import { useCapabilities, useHoldings, useSession, useTokens, useWallets } from '@/services/queries'
+import { executesViaNearKit, signsInBrowser } from '@/lib/wallets'
+import { useCapabilities, useHoldings, useTokens, useWallets } from '@/services/queries'
 import { readHandoffId } from '@/services/telegramLink'
 import type { TokenId, TokenListing } from '@/types/domain'
 
@@ -87,7 +89,9 @@ function MarketPanel({ token }: { token: TokenListing }) {
 }
 
 function WalletBalances({ fromId, toId, walletId, onPick }: { fromId: TokenId; toId: TokenId; walletId: string; onPick: (id: string) => void }) {
-  const { data: wallets = [], isPending } = useWallets()
+  const { data: all = [], isPending } = useWallets()
+  // Wallets that can trade: NearKit wallets (executed by NearKit) and the connected wallet's accounts.
+  const wallets = all.filter((w) => signsInBrowser(w) || (executesViaNearKit(w) && !w.frozen))
   const { data: holdings = [] } = useHoldings()
   const { data: tokens = [] } = useTokens()
   const bal = (w: string, t: string) => holdings.find((h) => h.walletId === w && h.tokenId === t)?.amount ?? 0
@@ -156,10 +160,9 @@ function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId;
   const caps = useCapabilities()
   const [pair, setPair] = useState({ from: initialFrom, to: initialTo })
   const { report, onSettled } = useHandoffReport(prefill.handoff)
-  const { data: session } = useSession()
-  // Trade from the connected account unless the user picks another wallet.
+  // Trade from the connected account (else the first NearKit wallet) unless the user picks another.
   const [picked, setWalletId] = useState<string | null>(null)
-  const walletId = picked ?? session?.walletId ?? ''
+  const { walletId, options } = useTradeWallets(picked)
   const { data: tokens = [] } = useTokens()
   const subjects = [pair.from, pair.to]
     .filter((id) => id !== NEAR)
@@ -201,7 +204,7 @@ function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId;
               <MarketPanel key={t.id} token={t} />
             ))}
           </div>
-          {session && <WalletBalances fromId={pair.from} toId={pair.to} walletId={walletId} onPick={setWalletId} />}
+          {options.length > 0 && <WalletBalances fromId={pair.from} toId={pair.to} walletId={walletId} onPick={setWalletId} />}
         </div>
       </div>
     </Page>

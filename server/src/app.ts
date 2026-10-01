@@ -51,7 +51,12 @@ import { hexDecode } from '@/lib/encoding'
 import { btn, keyboard } from './bot/context'
 import { nativeTradeModule } from './bot/nativeTrade'
 import { intentsModule, notifySettled } from './bot/intents'
-import { tradingWalletModule } from './bot/tradingWallet'
+import { telegramApprovalsOn, tradingWalletModule } from './bot/tradingWallet'
+import { linkedAccountOf } from './bot/wallet'
+import { startWeb, webModule } from './bot/web'
+import { WEB_CHAT, webRunsSettled } from './web/execute'
+import { webRoutes } from './web/routes'
+import { WebSessions } from './web/sessions'
 import { referralsModule } from './bot/referrals'
 import { OpsSwitches } from './ops/switches'
 import { createReferrals } from './referrals/service'
@@ -72,9 +77,10 @@ export interface RunningServer {
 }
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
-  // `/start link` (from the "open a private chat" button) goes straight to linking.
+  // `/start link` (from the "open a private chat" button) goes straight to linking; `/start web`
+  // (NearKit web's "Sign in with Telegram") sends the one-time sign-in link.
   return [
-    coreModule(list, { link: startLink }),
+    coreModule(list, { link: startLink, web: startWeb }),
     accountsModule(),
     settingsModule(),
     tradeModule(),
@@ -85,6 +91,7 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     recoveryModule(),
     intentsModule(),
     referralsModule(),
+    webModule(),
   ]
 }
 
@@ -241,6 +248,10 @@ export async function startServer(options: { env: Record<string, string | undefi
   // BUYBOT_RUNNER=separate this process only handles the groups' /buybot settings.
   const buybot: BuybotDeps | null = config.buybot.enabled && config.telegramToken ? buildBuybotDeps(config, db, fetchImpl, now, log, near) : null
 
+  // NearKit web sign-in: sessions for the user's NearKit wallets on the website.
+  const web = custody ? new WebSessions(db, now) : null
+  let botDeps: BotDeps | null = null
+
   let tg: TelegramApi | null = null
   let botUsername = config.telegramBotUsername ?? 'NearKitBot'
   let bot: BotApp | null = null
@@ -274,7 +285,9 @@ export async function startServer(options: { env: Record<string, string | undefi
       handoffs,
       custody,
       referrals,
+      web,
     }
+    botDeps = deps
     let list: () => { name: string; command: Command }[] = () => []
     bot = createBotApp(
       deps,
@@ -286,8 +299,12 @@ export async function startServer(options: { env: Record<string, string | undefi
     notifyUser = async (userId, html) => {
       if ((await store.getSettings(userId)).notifyTrades) await app.notify(userId, html)
     }
-    // Results the resolver settles in the background (after a timeout or a restart) always reach the user.
-    onSettled = (intent) => notifySettled(deps, (userId, html, markup) => app.notify(userId, html, markup), intent)
+    // Results the resolver settles in the background (after a timeout or a restart) always reach the user:
+    // in Telegram for what was started there, on NearKit web (its status) for what was started on the web.
+    onSettled = async (intent) => {
+      if (intent.chatId === WEB_CHAT) return
+      await notifySettled(deps, (userId, html, markup) => app.notify(userId, html, markup), intent)
+    }
     await tg.setMyCommands(menuCommands(bot, 'private'), { type: 'all_private_chats' })
     await tg.setMyCommands(menuCommands(bot, 'group'), { type: 'all_group_chats' })
     poller = startPolling({
@@ -339,6 +356,22 @@ export async function startServer(options: { env: Record<string, string | undefi
               void (await bot?.notify(r.userId, approvedText(r.wallet, r.destination), keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]))),
           })
         : {}),
+      ...(custody && web
+        ? webRoutes({
+            sessions: web,
+            custody,
+            store,
+            near,
+            network: config.network,
+            now,
+            // With no bot running here, no wallet without an owner wallet is created (fail-safe).
+            approvalsOn: async () => (botDeps ? telegramApprovalsOn(botDeps) : false),
+            linkedAccount: (userId) => linkedAccountOf(store, userId, config.network.id),
+            // Security notices only (a wallet created on the web); nothing waits for them.
+            notify: async (userId, html, markup) => (bot ? bot.notify(userId, html, markup) : false),
+            log,
+          })
+        : {}),
       ...(custody
         ? telegramRoutes({
             approvals: custody.telegram,
@@ -361,6 +394,18 @@ export async function startServer(options: { env: Record<string, string | undefi
       '/api/recovery/destination': 10,
       '/api/telegram/request': 30,
       '/api/telegram/approve': 10,
+      '/api/web/login': 10,
+      '/api/web/logout': 20,
+      '/api/web/wallets': 60,
+      '/api/web/wallets/create': 10,
+      '/api/web/wallets/rename': 20,
+      '/api/web/trade/quote': 20,
+      '/api/web/trade/execute': 20,
+      '/api/web/trade/cancel': 30,
+      '/api/web/trade/status': 120,
+      '/api/web/send/review': 20,
+      '/api/web/send/execute': 10,
+      '/api/web/send/status': 120,
     },
     // Public and secret-free: whether the bot and buy alerts run, the kill switches, the signer, and the boot count (see Store.recordBoot).
     health: () => ({
@@ -399,6 +444,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       try {
         await store.prune()
         await leases.prune()
+        await web?.prune()
         await buybot?.store.prune(7 * 86_400_000)
         // Keys of wallets closed lately that the signer couldn't erase yet (the chain wasn't sure).
         if (custody) {
@@ -427,6 +473,9 @@ export async function startServer(options: { env: Record<string, string | undefi
       await buybotRunner?.stop()
       await poller?.stop()
       await new Promise<void>((resolve) => api.close(() => resolve()))
+      // Trades started on NearKit web finish recording their state before the database closes,
+      // as the poller lets Telegram's finish.
+      await webRunsSettled()
       await db.close()
       log.info('NearKit server stopped')
     },

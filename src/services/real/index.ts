@@ -1,3 +1,4 @@
+import { createNearKitWeb } from '../nearkitWeb'
 import type { NearKitServices } from '../types'
 import { createAutomationService } from './automationService'
 import { createNearContext, type NearContextOptions } from './context'
@@ -18,7 +19,15 @@ import { createWalletService } from './walletService'
 export function createNearServices(options: NearContextOptions): NearKitServices {
   const ctx = createNearContext(options)
   const market = createMarket(ctx)
-  const wallets = createWalletService(ctx, market)
+  const nearkit =
+    options.nearkit ??
+    createNearKitWeb({
+      apiUrl: options.env.apiUrl,
+      network: options.network.id,
+      ...(options.fetch ? { fetchImpl: options.fetch } : {}),
+      ...(options.kv ? { store: options.kv } : {}),
+    })
+  const wallets = createWalletService(ctx, market, nearkit)
   /** Plans being executed right now; reconciliation leaves them alone. */
   const active = new Set<string>()
   return {
@@ -31,5 +40,6 @@ export function createNearServices(options: NearContextOptions): NearKitServices
     execution: createExecutionService(ctx, active),
     automation: createAutomationService(ctx, wallets),
     portfolio: createPortfolioService(ctx, market, wallets, active, createPnlTracker(ctx)),
+    nearkit,
   }
 }

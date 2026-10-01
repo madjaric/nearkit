@@ -41,6 +41,28 @@ export interface TokenListing extends Token {
   market: MarketQuote | null
 }
 
+/** A token screen's chart window, looking back from now. */
+export type ChartRange = '1m' | '5m' | '15m' | '1H' | '4H' | '1D'
+
+/** One observed USD price: from a history source, or seen live by this page. */
+export interface PricePoint {
+  t: Timestamp
+  usd: number
+}
+
+/** A buy or sell of a token against NEAR, as the chain recorded it. */
+export interface TokenTrade {
+  hash: string
+  side: TradeSide
+  /** Who started it: the buyer or seller. */
+  account: string
+  /** Tokens bought or sold, raw units. */
+  amount: string
+  /** yoctoNEAR paid (buy) or received (sell), without gas and storage deposits. */
+  near: string
+  at: Timestamp
+}
+
 // ─── wallets ────────────────────────────────────────────────────────────────
 
 export interface Wallet {
@@ -49,8 +71,21 @@ export interface Wallet {
   accountId: string
   kind: 'named' | 'implicit'
   isMain: boolean
-  /** `signer`: available in the connected wallet session. `watch`: read-only, added by account ID. */
+  /** `signer`: can act (a NearKit wallet, or in the connected wallet session). `watch`: read-only. */
   access?: 'signer' | 'watch'
+  /**
+   * Where its authority comes from. `nearkit`: a NearKit wallet of the signed-in Telegram user,
+   * executed by NearKit after a confirmation in Telegram. `external`: an account of the connected
+   * wallet, signed there. `watch`: observed only (added by ID, or connected before but not now).
+   * See `src/lib/wallets.ts`.
+   */
+  source?: 'nearkit' | 'external' | 'watch'
+  /** A NearKit wallet's id on NearKit's server (every server call names it by this). */
+  nearkitId?: string
+  /** A NearKit wallet's owner wallet; null: controlled by the user's Telegram account. */
+  owner?: string | null
+  /** A NearKit wallet NearKit froze for the user's protection: it doesn't trade or send. */
+  frozen?: boolean
 }
 
 export interface Holding {

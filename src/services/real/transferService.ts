@@ -17,7 +17,7 @@ import { formatAccount } from '@/lib/format'
 import type { TransferRequest, Wallet } from '@/types/domain'
 import type { OperationPlan, PlanLine, PlannedTransaction, TokenRef } from '@/types/operations'
 import type { TransferService, WalletService } from '../types'
-import { amountValue, nearText, nearValue, newPlanId, parseAmount, requireSession, resolveToken, sumRaw, walletOf } from './common'
+import { amountValue, executableWallet, nearText, nearValue, newPlanId, parseAmount, requireSession, resolveToken, sumRaw } from './common'
 import type { NearContext } from './context'
 
 /**
@@ -72,7 +72,7 @@ export function createTransferService(ctx: NearContext, wallets: Pick<WalletServ
       const sources = request.sources.filter((s) => s.amount.trim() !== '')
       if (sources.length === 0) throw new NearKitError('INVALID_AMOUNT', 'Select at least one wallet with a balance')
       const signers = sources.map((s, i): SignerDraft => {
-        const wallet = walletOf(list, s.walletId)
+        const wallet = executableWallet(list, s.walletId, 'browser')
         if (wallet.accountId === destination) throw new NearKitError('INVALID_ACCOUNT', 'The destination cannot also be a source')
         const raw = parseAmount(s.amount, token, wallet.label)
         return {
@@ -86,7 +86,7 @@ export function createTransferService(ctx: NearContext, wallets: Pick<WalletServ
       return { signers, title: `Consolidate ${token.symbol} from ${n} ${n === 1 ? 'wallet' : 'wallets'} into ${request.destinationLabel ?? destination}` }
     }
 
-    const source = walletOf(list, request.sourceWalletId)
+    const source = executableWallet(list, request.sourceWalletId, 'browser')
     if (request.lines.length === 0) throw new NearKitError('INVALID_ACCOUNT', 'Add at least one recipient')
     if (request.lines.length > MAX_LINES) throw new NearKitError('INVALID_ACCOUNT', `At most ${MAX_LINES} recipients per run`)
     const lines = request.lines.map((line, i): LineDraft => {

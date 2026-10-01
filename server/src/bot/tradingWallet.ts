@@ -4,7 +4,7 @@ import type { TokenListing } from '@/types/domain'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import { ownerKeyNow } from '../custody/recovery'
 import type { Intent, TradingWallet } from '../custody/store'
-import { createTradingWallet, readWallet, WalletLimitError, type WalletView } from '../custody/wallets'
+import { createTradingWallet, ownerForNewWallet, readWallet, WalletLimitError, type WalletView } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import { randomToken } from '../ids'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
@@ -211,22 +211,14 @@ async function create(ctx: BotCtx, createKey: string) {
   const custody = ctx.deps.custody
   if (!custody) return ctx.answer('NearKit wallets aren’t available on this server.', true)
   const network = ctx.deps.config.network.id
-  const linked = await linkedAccount(ctx)
-  const link = linked ? await ctx.deps.store.linkOf(network, linked) : null
-  // All of a user's owned NearKit wallets answer to one owner: the wallet the first was created
-  // with (or bound to). A wallet linked later (perhaps by someone holding this Telegram account)
-  // never becomes the owner of a new one; that owner does. With no owner yet, a linked wallet
-  // becomes the owner; with none linked, the new wallet has no owner wallet (linking is optional).
-  const existing = (await custody.store.activeWallets(ctx.user.id, network)).find((w) => w.ownerAccount)
-  let owner: { accountId: string; publicKey: string } | null = null
-  if (existing?.ownerAccount) {
-    const ownerLink = await ctx.deps.store.linkOf(network, existing.ownerAccount)
-    owner = { accountId: existing.ownerAccount, publicKey: ownerLink?.userId === ctx.user.id ? ownerLink.publicKey : (existing.ownerKey ?? link?.publicKey ?? '') }
-  } else if (link && link.userId === ctx.user.id) {
-    owner = { accountId: link.accountId, publicKey: link.publicKey }
-  }
-  // No owner wallet: the signer must check Telegram approvals, or nothing could ever be withdrawn.
-  if (!owner && !(await telegramApprovalsOn(ctx.deps))) {
+  // The same owner rule as NearKit web (custody/wallets.ts).
+  const owner = await ownerForNewWallet(custody, ctx.deps.store, {
+    userId: ctx.user.id,
+    network,
+    linked: await linkedAccount(ctx),
+    approvalsOn: () => telegramApprovalsOn(ctx.deps),
+  })
+  if (owner === undefined) {
     await ctx.answer()
     return void (await needAccount(ctx))
   }

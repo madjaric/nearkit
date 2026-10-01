@@ -323,6 +323,7 @@ await step('a buy prepared in Telegram is signed in NearKit, checked on chain an
   if (!/Bought 4\.0\d+ USDT/.test(done.text) || !done.text.includes('for 1 NEAR')) throw new Error(`unexpected result: ${done.text}`)
 })
 
+let mainAddress = ''
 await step('a NearKit wallet is created in Telegram: one address even on a double tap, and /health says wallets are on', async () => {
   const health = await fetch(`http://127.0.0.1:${API_PORT}/health`).then((r) => r.json())
   if (health.wallets !== 'on') throw new Error(`wallets: ${health.wallets}`)
@@ -338,6 +339,7 @@ await step('a NearKit wallet is created in Telegram: one address even on a doubl
   press(TG_USER, create)
   const made = await tg.waitFor(TG_USER.id, (x) => /[0-9a-f]{64}/.test(x.text), { from })
   const address = made.text.match(/[0-9a-f]{64}/)[0]
+  mainAddress = address
   await new Promise((r) => setTimeout(r, 300))
   const shown = new Set(tg.sent.slice(from).flatMap((x) => x.text.match(/[0-9a-f]{64}/g) ?? []))
   if (shown.size !== 1) throw new Error(`more than one wallet address: ${[...shown].join(', ')}`)
@@ -345,6 +347,181 @@ await step('a NearKit wallet is created in Telegram: one address even on a doubl
   press(TG_USER, 'cw:dep')
   const dep = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Deposit'), { from })
   if (!dep.text.includes(address) || !dep.text.includes('NEAR Testnet')) throw new Error(`unexpected deposit screen: ${dep.text.slice(0, 200)}`)
+})
+
+// ─── NearKit web: the user's NearKit wallets on the website ─────────────────
+
+const API = `http://localhost:${API_PORT}`
+/** A call to NearKit's API from the page, with the page's NearKit web session (what any client could send). */
+const webApi = (path, body, session = true) =>
+  page.evaluate(
+    async ([api, path, body, session]) => {
+      const s = JSON.parse(localStorage.getItem('nearkit:web-session:testnet') ?? 'null')
+      const r = await fetch(api + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...(session ? { session: s?.token } : {}), ...body }),
+      })
+      return { status: r.status, json: await r.json().catch(() => null) }
+    },
+    [API, path, body, session],
+  )
+let webLogin = ''
+let degenAddress = ''
+
+await step('NearKit web: /web sends a one-time sign-in link, and the site lists the NearKit wallets with no browser wallet', async () => {
+  const from = tg.sent.length
+  say(TG_USER, '/web')
+  const m = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.url?.includes('/wallets#login=')), { from })
+  if (!m.text.includes('one-time sign-in link')) throw new Error(`unexpected /web answer: ${m.text.slice(0, 200)}`)
+  webLogin = m.buttons.find((b) => b.url?.includes('#login=')).url
+  if (!webLogin.startsWith(`${WEB}/wallets#login=`)) throw new Error(`unexpected link ${webLogin}`)
+  near.state.accounts.set(mainAddress, { amount: String(3n * ONE) })
+  page = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet' })
+  await page.goto(webLogin, { waitUntil: 'networkidle' })
+  await page.getByText('Signed in as Tess').waitFor()
+  if (page.url().includes('#login=')) throw new Error('the sign-in code stayed in the address bar')
+  const table = page.getByRole('table', { name: 'NearKit wallets' })
+  await table.getByText('Main', { exact: true }).waitFor()
+  await table.getByText('3.00').waitFor()
+  if ((await page.getByRole('button', { name: 'Connect wallet' }).count()) === 0) throw new Error('the page claims a browser wallet is connected')
+  await shot('tg-06-web-wallets')
+})
+
+await step('a used sign-in link signs nobody in', async () => {
+  const other = await newPage({ accounts: [USER] })
+  await other.goto(webLogin, { waitUntil: 'networkidle' })
+  await other.getByText(/expired or was already used/).waitFor()
+  await other.context().close()
+})
+
+await step('Create wallet on NearKit web: named, listed at once, announced in Telegram, no key on the page', async () => {
+  const from = tg.sent.length
+  await page.getByRole('button', { name: 'Create wallet' }).first().click()
+  const modal = page.getByRole('dialog', { name: 'Create a NearKit wallet' })
+  await modal.getByLabel('Name').fill('Degen 1')
+  await modal.getByRole('button', { name: 'Create wallet' }).click()
+  await page.getByText('Degen 1 created').waitFor()
+  await page.getByRole('table', { name: 'NearKit wallets' }).getByText('Degen 1', { exact: true }).waitFor()
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('NearKit wallet created on NearKit web') && x.text.includes('Degen 1'), { from })
+  const list = await webApi('/api/web/wallets', {})
+  const degen = list.json?.wallets?.find((w) => w.name === 'Degen 1')
+  if (!degen || !/^[0-9a-f]{64}$/.test(degen.accountId)) throw new Error(`not listed: ${JSON.stringify(list.json)}`)
+  degenAddress = degen.accountId
+  const html = await page.content()
+  if (/ed25519:|privateKey|sealed/.test(html)) throw new Error('key material reached the page')
+  await shot('tg-07-web-created')
+})
+
+await step('Rename on NearKit web changes the name only', async () => {
+  await page.getByRole('button', { name: 'Rename Degen 1' }).first().click()
+  const modal = page.getByRole('dialog', { name: 'Rename Degen 1' })
+  await modal.getByLabel('Name').fill('Sniper A')
+  await modal.getByRole('button', { name: 'Save name' }).click()
+  await page.getByText('Renamed to Sniper A').waitFor()
+  const list = await webApi('/api/web/wallets', {})
+  const w = list.json?.wallets?.find((x) => x.name === 'Sniper A')
+  if (!w || w.accountId !== degenAddress) throw new Error('the rename changed more than the name')
+})
+
+await step('Multi Buy across NearKit wallets runs from the web: the server quotes each wallet, Execute runs each one, and Telegram takes no part', async () => {
+  near.state.accounts.set(degenAddress, { amount: String(3n * ONE) })
+  await page.goto(WEB + '/multi-trade', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Select all', exact: true }).click()
+  await page.getByLabel('Total', { exact: true }).fill('0.2')
+  await page.getByText('0.10 NEAR / wallet').waitFor()
+  const from = tg.sent.length
+  await page.getByRole('button', { name: /Execute multi buy/i }).click()
+  const modal = page.getByRole('dialog', { name: /Review multi buy/i })
+  // The server's fresh quote for each wallet, and the web's own Execute.
+  const execute = modal.getByRole('button', { name: 'Execute multi buy (2)' })
+  await execute.waitFor({ timeout: 15000 })
+  await modal.getByText('Main', { exact: true }).waitFor()
+  await modal.getByText('Sniper A', { exact: true }).waitFor()
+  await shot('tg-08-web-multi-review')
+  await execute.click()
+  // Each wallet reports its own result. This fake network can't run a server-signed transaction,
+  // so each one ends as its own failure; nothing is ever sent for real.
+  await modal.getByText(/Finished: \d of 2 trades confirmed/).waitFor({ timeout: 30000 })
+  await shot('tg-08b-web-multi-status')
+  await new Promise((r) => setTimeout(r, 300))
+  const toTelegram = tg.sent.slice(from).filter((m) => m.chatId === TG_USER.id)
+  if (toTelegram.length) throw new Error(`Telegram got ${toTelegram.length} message(s): ${toTelegram[0].text.slice(0, 120)}`)
+  await page.keyboard.press('Escape')
+})
+
+await step('a single Buy from a NearKit wallet in the normal trade ticket: no browser wallet to connect, no Telegram; NearKit runs it', async () => {
+  await page.goto(WEB + `/token/${USDT}`, { waitUntil: 'networkidle' })
+  const from = tg.sent.length
+  await page.locator('main').getByRole('button', { name: 'Buy USDT' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Trade ticket' })
+  await sheet.getByLabel('Trade from wallet').waitFor()
+  if (await sheet.getByRole('button', { name: 'Connect wallet' }).count()) throw new Error('the ticket asks to connect a wallet for a NearKit wallet')
+  await sheet.getByText(/NearKit executes it from/).waitFor()
+  await sheet.getByPlaceholder('0.00').fill('0.1')
+  // Two-step confirmation (the default): the first press arms, the second opens the review.
+  await sheet.getByRole('button', { name: 'Buy USDT' }).click()
+  await sheet.getByRole('button', { name: 'Confirm buy USDT' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review buy' })
+  const buy = modal.getByRole('button', { name: 'Buy USDT' })
+  await buy.waitFor({ timeout: 15000 })
+  await shot('tg-08c-web-single-review')
+  await buy.click()
+  await modal.getByText(/Finished: \d of 1 trade confirmed/).waitFor({ timeout: 30000 })
+  await new Promise((r) => setTimeout(r, 300))
+  if (tg.sent.slice(from).some((m) => m.chatId === TG_USER.id)) throw new Error('Telegram took part in a web buy')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+})
+
+await step('Send from a NearKit wallet is reviewed and sent from the web; an unapproved address says how it gets approved; Telegram takes no part', async () => {
+  near.state.accounts.set('friend.testnet', { amount: String(ONE) })
+  await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
+  await page.getByRole('table', { name: 'NearKit wallets' }).getByRole('button', { name: 'Send' }).first().click()
+  const modal = page.getByRole('dialog', { name: 'Send from Main' })
+  const from = tg.sent.length
+  // An address the owner wallet never approved: refused, with how it gets approved.
+  await modal.getByLabel('Amount').fill('0.5')
+  await modal.getByLabel('To').fill('friend.testnet')
+  await modal.getByRole('button', { name: 'Review', exact: true }).click()
+  await modal.getByText(/friend\.testnet isn’t approved for Main yet/).waitFor()
+  await modal.getByRole('link', { name: /Approve it with/ }).waitFor()
+  // The owner wallet: the review, then Send, right here.
+  await modal.getByLabel('To').fill(USER)
+  await modal.getByRole('button', { name: 'Review', exact: true }).click()
+  await modal.getByText('Check the address: transfers can’t be undone.').waitFor()
+  await modal.getByText(USER).first().waitFor()
+  await shot('tg-09-web-send-review')
+  await modal.getByRole('button', { name: 'Send', exact: true }).click()
+  // NearKit runs it itself (this fake network can't execute it, so it ends as failed: nothing real).
+  await modal.getByText(/^(Sent|Failed)$/).waitFor({ timeout: 30000 })
+  await new Promise((r) => setTimeout(r, 300))
+  if (tg.sent.slice(from).some((m) => m.chatId === TG_USER.id)) throw new Error('Telegram took part in a web send')
+  await page.keyboard.press('Escape')
+})
+
+await step('a forged client gets nothing: a watch account, a made-up id or an address is refused before any quote', async () => {
+  const sentBefore = tg.sent.length
+  for (const walletId of [USER, 'bottest.testnet', 'made-up-id', mainAddress]) {
+    const r = await webApi('/api/web/trade/quote', { side: 'buy', token: USDT, slippagePct: 1, legs: [{ walletId, amountIn: '0.1' }] })
+    if (r.status !== 403 || r.json?.error?.code !== 'not-executable') throw new Error(`${walletId}: ${r.status} ${JSON.stringify(r.json)}`)
+  }
+  const send = await webApi('/api/web/send/review', { walletId: USER, token: 'near', amount: '0.1', to: 'x.testnet' })
+  if (send.status !== 403) throw new Error(`send from a watch account: ${send.status}`)
+  const anonymous = await webApi('/api/web/wallets', {}, false)
+  if (anonymous.status !== 400) throw new Error(`no session: ${anonymous.status}`)
+  await new Promise((r) => setTimeout(r, 300))
+  if (tg.sent.length !== sentBefore) throw new Error('a refused request reached Telegram')
+})
+
+await step('Sign out everywhere, from Telegram, ends the web session', async () => {
+  const from = tg.sent.length
+  press(TG_USER, 'web:out')
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('Signed out of NearKit web'), { from })
+  await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Sign in with Telegram' }).first().waitFor({ timeout: 10000 })
+  const list = await webApi('/api/web/wallets', {})
+  if (list.status !== 400 && list.status !== 401) throw new Error(`a revoked session still works: ${list.status}`)
 })
 
 await step('unlinking from Telegram removes the account', async () => {

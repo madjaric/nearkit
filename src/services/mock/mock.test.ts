@@ -170,3 +170,37 @@ describe('demo portfolio', () => {
     expect(a?.feesUsd).toBeCloseTo((a?.volumeUsd ?? 0) * 0.005, 6)
   })
 })
+
+describe('demo wallet classes', () => {
+  it('the demo’s wallets are executable; an added account is watch-only', async () => {
+    const s = createMockServices()
+    const watch = await s.wallets.addAccount({ accountId: 'trader.near', label: 'Trader X' })
+    const list = await s.wallets.listWallets()
+    expect(list.find((w) => w.id === 'w01')?.source).toBe('external')
+    expect(list.find((w) => w.id === 'w05')?.source).toBe('external')
+    expect(list.find((w) => w.id === watch.id)).toMatchObject({ source: 'watch', access: 'watch' })
+  })
+
+  it('refuses a watch-only account everywhere it could act: swap, multi buy and sell, transfers, presets', async () => {
+    const s = createMockServices()
+    const watch = await s.wallets.addAccount({ accountId: 'trader.near', label: 'Trader X' })
+    const notExecutable = { code: 'NOT_EXECUTABLE', message: expect.stringMatching(/Trader X is watch-only/) }
+    await expect(s.trading.prepareSwap({ tokenIn: near, tokenOut: kit, amountIn: '1', slippagePct: 1, walletId: watch.id })).rejects.toMatchObject(notExecutable)
+    const multi = {
+      side: 'buy' as const,
+      tokenId: blackdragon,
+      slippagePct: 1,
+      legs: [
+        { walletId: 'w01', amountIn: '1' },
+        { walletId: watch.id, amountIn: '1' },
+      ],
+    }
+    await expect(s.trading.quoteMulti(multi)).rejects.toMatchObject(notExecutable)
+    await expect(s.trading.prepareMulti(multi)).rejects.toMatchObject(notExecutable)
+    await expect(s.trading.prepareMulti({ ...multi, side: 'sell' })).rejects.toMatchObject(notExecutable)
+    await expect(s.transfers.prepare({ kind: 'batch-send', tokenId: kit, sourceWalletId: watch.id, lines: [{ accountId: 'bob.near', amount: '1' }] })).rejects.toMatchObject(
+      notExecutable,
+    )
+    await expect(s.wallets.createPreset({ name: 'mixed', walletIds: ['w01', watch.id] })).rejects.toMatchObject(notExecutable)
+  })
+})

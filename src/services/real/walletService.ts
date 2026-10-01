@@ -8,6 +8,8 @@ import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { explorerAccountUrl } from '@/services/near/explorer'
 import type { WalletSession } from '@/services/near/wallet'
 import type { Holding, PresetInput, Session, Wallet, WalletPreset, WalletSnapshot } from '@/types/domain'
+import { canExecute } from '@/lib/wallets'
+import type { NearKitWeb } from '../nearkitWeb'
 import type { WalletService } from '../types'
 import type { NearContext } from './context'
 import type { Market } from './market'
@@ -21,7 +23,7 @@ function defaultLabel(accountId: string, isMain: boolean): string {
 
 const display = (raw: bigint, decimals: number) => Number(formatUnits(raw, decimals))
 
-export function createWalletService(ctx: NearContext, market: Market): WalletService {
+export function createWalletService(ctx: NearContext, market: Market, nearkit: NearKitWeb | null = null): WalletService {
   const toSession = async (s: WalletSession): Promise<Session> => {
     const accountId = s.accounts[0] ?? ''
     let issue: Session['issue'] = null
@@ -65,14 +67,38 @@ export function createWalletService(ctx: NearContext, market: Market): WalletSer
     return ctx.session.current
   }
 
+  /**
+   * The signed-in Telegram user's NearKit wallets, as NearKit's server lists them (it decides
+   * which are the user's). None when signed out, or while the server can't be reached.
+   */
+  async function nearkitWallets(): Promise<Wallet[]> {
+    const list = nearkit ? await nearkit.wallets().catch(() => null) : null
+    return (list?.wallets ?? [])
+      .filter((w) => !isForeignToNetwork(w.accountId, ctx.network.id))
+      .map((w) => ({
+        id: w.accountId,
+        label: w.name,
+        accountId: w.accountId,
+        kind: accountKind(w.accountId) === 'named' ? 'named' : 'implicit',
+        isMain: false,
+        access: 'signer',
+        source: 'nearkit',
+        nearkitId: w.id,
+        owner: w.owner,
+        frozen: w.frozen,
+      }))
+  }
+
   async function wallets(): Promise<Wallet[]> {
-    const session = await currentSession()
-    if (!session) return []
+    const [session, own] = await Promise.all([currentSession(), nearkitWallets()])
+    if (!session) return own
+    // A NearKit wallet also in the account book (added to watch it before) is listed once, as what it is.
+    const mine = new Set(own.map((w) => w.accountId))
     const signers = new Set(session.accounts ?? [session.accountId])
     const book = ctx.stores.book.list()
     const ids = [...new Set([...(session.accounts ?? [session.accountId]), ...book.map((e) => e.accountId)])]
-    return ids
-      .filter((id) => !isForeignToNetwork(id, ctx.network.id))
+    const others: Wallet[] = ids
+      .filter((id) => !isForeignToNetwork(id, ctx.network.id) && !mine.has(id))
       .map((accountId) => {
         const isMain = accountId === session.accountId
         const entry = book.find((e) => e.accountId === accountId)
@@ -83,8 +109,10 @@ export function createWalletService(ctx: NearContext, market: Market): WalletSer
           kind: accountKind(accountId) === 'named' ? 'named' : 'implicit',
           isMain,
           access: signers.has(accountId) ? 'signer' : 'watch',
+          source: signers.has(accountId) ? 'external' : 'watch',
         }
       })
+    return [...own, ...others]
   }
 
   async function snapshots(): Promise<WalletSnapshot[]> {
@@ -120,6 +148,9 @@ export function createWalletService(ctx: NearContext, market: Market): WalletSer
     if (name.length > 24) throw new NearKitError('UNKNOWN', 'Keep names to 24 characters')
     if (ctx.stores.presets.read().some((p) => p.id !== ignoreId && p.name.toUpperCase() === name)) throw new NearKitError('UNKNOWN', `A preset named ${name} already exists`)
     const walletIds = [...new Set(input.walletIds)].filter((id) => known.some((w) => w.id === id))
+    // A preset is a group that trades together: watch-only wallets can't be in one.
+    const watch = known.find((w) => walletIds.includes(w.id) && !canExecute(w))
+    if (watch) throw new NearKitError('NOT_EXECUTABLE', `${watch.label} is watch-only: presets hold wallets that can trade. Remove it, or connect it first.`)
     if (walletIds.length === 0) throw new NearKitError('UNKNOWN', 'Select at least one wallet')
     return { name, walletIds, note: (input.note ?? '').trim() }
   }

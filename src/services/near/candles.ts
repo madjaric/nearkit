@@ -7,6 +7,50 @@
 export const HOUR_MS = 3_600_000
 const MAX_CANDLES = 300
 
+/**
+ * A token screen's windows, and the Coinbase candle size each is drawn with (Coinbase offers
+ * 60 s, 5 min, 15 min, 1 h, 6 h and 1 day; each window stays within one request of 300 candles).
+ */
+export const CHART_RANGES = {
+  '1m': { windowMs: 60_000, granularity: 60 },
+  '5m': { windowMs: 5 * 60_000, granularity: 60 },
+  '15m': { windowMs: 15 * 60_000, granularity: 60 },
+  '1H': { windowMs: HOUR_MS, granularity: 60 },
+  '4H': { windowMs: 4 * HOUR_MS, granularity: 300 },
+  '1D': { windowMs: 24 * HOUR_MS, granularity: 900 },
+} as const satisfies Record<string, { windowMs: number; granularity: 60 | 300 | 900 }>
+
+/**
+ * NEAR/USD closes over the last `windowMs` (oldest first), from Coinbase Exchange's public
+ * candles. A malformed candle is dropped, a failed read is empty: nothing is filled in.
+ */
+export async function fetchNearUsdCloses(
+  fetchImpl: typeof fetch,
+  productUrl: string,
+  range: { windowMs: number; granularity: number },
+  now: number,
+): Promise<{ t: number; usd: number }[]> {
+  const start = now - range.windowMs
+  const url = `${productUrl}/candles?granularity=${range.granularity}&start=${new Date(start).toISOString()}&end=${new Date(now).toISOString()}`
+  try {
+    const res = await fetchImpl(url, { headers: { accept: 'application/json' } })
+    if (!res.ok) return []
+    const rows = (await res.json()) as unknown
+    if (!Array.isArray(rows)) return []
+    const out: { t: number; usd: number }[] = []
+    for (const row of rows) {
+      if (!Array.isArray(row) || typeof row[0] !== 'number' || typeof row[4] !== 'number' || !(row[4] > 0)) continue
+      const t = row[0] * 1000
+      // A candle opening before the window (Coinbase rounds the start down) or after now is not in it.
+      if (t < start - range.granularity * 1000 || t > now) continue
+      out.push({ t, usd: row[4] })
+    }
+    return out.sort((a, b) => a.t - b.t)
+  } catch {
+    return []
+  }
+}
+
 export const hourOf = (ms: number) => Math.floor(ms / HOUR_MS) * HOUR_MS
 
 /** Hour start (ms) → close, for every hour touching `times`. Failed windows stay missing. */

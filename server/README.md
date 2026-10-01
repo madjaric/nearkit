@@ -118,6 +118,16 @@ The web app finds the server through two public build variables:
     an intent. With SQLite, run a single instance.
 - **Invite friends** (`/referral`): a permanent invite link. A referrer earns 20% of
   NearKit's net fee on the trades of the people they brought. Claims are paid by the owner.
+- **NearKit web** (`/web`, or `/start web` from the website's "Sign in with Telegram"): a
+  one-time link signs the website in, with no browser wallet and no `/link`
+  (`src/web/`, `SECURITY_REVIEW.md` §5c).
+  - The website is a client of its own: the user creates (up to the same 10) and renames
+    NearKit wallets, buys, sells, runs Multi Buy and Multi Sell, and sends, all there.
+    Nothing is confirmed in Telegram; each wallet's trade or send runs through the same engine
+    and signer as the bot's.
+  - `POST /api/web/{login,logout,wallets,wallets/create,wallets/rename}`,
+    `/api/web/trade/{quote,execute,cancel,status}` and `/api/web/send/{review,execute,status}`
+    take the session in the JSON body and act only on the signed-in user's own NearKit wallets.
 
 ## Trading from Telegram
 

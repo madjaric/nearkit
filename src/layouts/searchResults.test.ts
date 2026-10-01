@@ -23,25 +23,59 @@ describe('what reads as a contract', () => {
   })
 })
 
+describe('global search opens a token’s own page (Token Detail), never the swap', () => {
+  it('a symbol opens its Token Detail, showing the name and the contract', () => {
+    const token = buildResults('usdt', listed).find((r) => r.group === 'Tokens')
+    expect(token).toMatchObject({ label: 'USDt', to: '/token/usdt.tether-token.near' })
+    expect(String(token?.detail)).toBe('Tether USD · usdt.tether-token.near')
+  })
+
+  it('a token name opens its Token Detail', () => {
+    expect(buildResults('tether', listed).find((r) => r.group === 'Tokens')).toMatchObject({ label: 'USDt', to: '/token/usdt.tether-token.near' })
+  })
+
+  it('a full contract opens its Token Detail, listed once', () => {
+    const results = buildResults('usdt.tether-token.near', listed, { token: listed[1] as TokenListing, note: null, state: 'found' })
+    const tokens = results.filter((r) => r.group === 'Tokens')
+    expect(tokens).toHaveLength(1)
+    expect(tokens[0]?.to).toBe('/token/usdt.tether-token.near')
+  })
+
+  it('NEAR opens its own page', () => {
+    expect(buildResults('near', listed).find((r) => r.token?.id === 'near')).toMatchObject({ to: '/token/near', detail: 'Native NEAR' })
+  })
+
+  it('an empty search suggests tokens that open their pages', () => {
+    expect(buildResults('', [...listed, sing]).map((r) => r.to)).toEqual(['/token/usdt.tether-token.near', `/token/${encodeURIComponent(SING)}`])
+  })
+
+  it('no result of a token search leads to the swap', () => {
+    for (const q of ['', 'usdt', 'tether', 'usdt.tether-token.near', SING]) {
+      const results = buildResults(q, [...listed, sing], { token: sing, note: null, state: 'found' })
+      expect(results.filter((r) => r.token).every((r) => r.to.startsWith('/token/'))).toBe(true)
+      expect(results.some((r) => r.to.startsWith('/swap'))).toBe(false)
+    }
+  })
+})
+
 describe('global search: a contract in no list', () => {
-  it('shows the token read from chain (symbol, name, decimals, not listed) and opens the swap with it', () => {
-    const results = buildResults(SING, listed, { token: sing, note: null })
+  it('shows the token read from chain (symbol, name, decimals, not listed) and opens its Token Detail', () => {
+    const results = buildResults(SING, listed, { token: sing, note: null, state: 'found' })
     const token = results.find((r) => r.group === 'Tokens')
-    expect(token).toMatchObject({ label: 'SINGULARTY', to: `/swap?to=${encodeURIComponent(SING)}`, token: sing })
+    expect(token).toMatchObject({ label: 'SINGULARTY', to: `/token/${encodeURIComponent(SING)}`, token: sing })
     expect(String(token?.detail)).toBe('Singularity is NEAR · 18 decimals · not listed')
     // The scan stays on offer, after the token.
     expect(results.map((r) => r.group)).toEqual(['Tokens', 'Scan'])
   })
 
-  it('while checking, and when it isn’t a token, the scan row says so and no token is invented', () => {
-    expect(buildResults(SING, listed, { token: null, note: 'Checking it on mainnet…' })).toMatchObject([{ group: 'Scan', detail: 'Checking it on mainnet…' }])
-    const bad = buildResults('someone.near', listed, { token: null, note: 'someone.near is an account without a contract, not a token' })
-    expect(bad.some((r) => r.group === 'Tokens')).toBe(false)
-    expect(bad[0]?.detail).toContain('not a token')
+  it('while checking, only the scan row says so, and no token is invented', () => {
+    expect(buildResults(SING, listed, { token: null, note: 'Checking it on mainnet…', state: 'checking' })).toMatchObject([{ group: 'Scan', detail: 'Checking it on mainnet…' }])
   })
 
-  it('a listed contract is matched from the list, once', () => {
-    const results = buildResults('usdt.tether-token.near', listed, { token: listed[1] as TokenListing, note: null })
-    expect(results.filter((r) => r.group === 'Tokens')).toHaveLength(1)
+  it('an address that isn’t a token: “Token not found”, with the reason, and its scan', () => {
+    const bad = buildResults('someone.near', listed, { token: null, note: 'someone.near is an account without a contract, not a token', state: 'not-found' })
+    expect(bad[0]).toMatchObject({ group: 'Tokens', label: 'Token not found', detail: 'someone.near is an account without a contract, not a token', to: '/token/someone.near' })
+    expect(bad[0]?.token).toBeUndefined()
+    expect(bad.map((r) => r.group)).toEqual(['Tokens', 'Scan'])
   })
 })

@@ -5,7 +5,7 @@ import type { TradingService } from '../types'
 import { demoMultiPlan, demoSwapPlan } from './demoTrades'
 import { coversRaw, rawAmount } from './plans'
 import { computeMultiQuote, computeQuote } from './quote'
-import { ServiceError, balanceOf, logActivity, nextId, requireSession, tickMarket, tokenOf, wait, walletOf, type MockState } from './state'
+import { ServiceError, balanceOf, executableWalletOf, logActivity, nextId, requireSession, tickMarket, tokenOf, wait, walletOf, type MockState } from './state'
 
 const EXPIRY_MS: Record<OrderExpiry, number | null> = {
   '1h': 3_600_000,
@@ -30,7 +30,7 @@ export function createTradingService(state: MockState): TradingService {
       const quote = computeQuote(state, request)
       const tokenIn = tokenOf(state, request.tokenIn)
       const tokenOut = tokenOf(state, request.tokenOut)
-      const wallet = walletOf(state, request.walletId)
+      const wallet = executableWalletOf(state, request.walletId)
       const raw = rawAmount(request.amountIn, tokenIn, 'Amount')
       if (!coversRaw(balanceOf(state, wallet.id, tokenIn.id), raw, tokenIn.decimals)) {
         throw new ServiceError('insufficient', `${wallet.label} holds ${formatAmount(balanceOf(state, wallet.id, tokenIn.id))} ${tokenIn.symbol}`)
@@ -40,6 +40,7 @@ export function createTradingService(state: MockState): TradingService {
 
     async quoteMulti(request) {
       await wait('quote')
+      for (const leg of request.legs) executableWalletOf(state, leg.walletId)
       tickMarket(state)
       return computeMultiQuote(state, request)
     },
@@ -47,6 +48,7 @@ export function createTradingService(state: MockState): TradingService {
     async prepareMulti(request) {
       await wait('write')
       requireSession(state)
+      for (const leg of request.legs) executableWalletOf(state, leg.walletId)
       tickMarket(state)
       const quote = computeMultiQuote(state, request)
       const token = tokenOf(state, request.tokenId)

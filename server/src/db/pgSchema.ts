@@ -328,4 +328,28 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       );
     `,
   },
+  {
+    version: 2,
+    name: 'NearKit web: sign-in links, sessions, and trades confirmed together in Telegram',
+    sql: `
+      CREATE TABLE web_login_codes (
+        code_hash TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        used_at BIGINT
+      );
+      CREATE INDEX web_login_codes_user ON web_login_codes(user_id, created_at);
+      CREATE TABLE web_sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        revoked_at BIGINT
+      );
+      CREATE INDEX web_sessions_user ON web_sessions(user_id);
+      ALTER TABLE wallet_intents ADD COLUMN group_id TEXT;
+      CREATE INDEX wallet_intents_group ON wallet_intents(group_id);
+    `,
+  },
 ]

@@ -1,0 +1,625 @@
+import { LogOut, Pencil, Plus, Send } from 'lucide-react'
+import { useState } from 'react'
+import { AccountText } from '@/components/domain/Account'
+import { Button, IconButton } from '@/components/ui/Button'
+import { CopyButton } from '@/components/ui/Copy'
+import { Modal } from '@/components/ui/Dialog'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Figures } from '@/components/ui/Figures'
+import { Field, Input, Select } from '@/components/ui/Form'
+import { Skeleton, Tag } from '@/components/ui/Indicators'
+import { Usd } from '@/components/ui/Num'
+import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
+import { Table, Td, Th, Tr } from '@/components/ui/Table'
+import { useToast } from '@/components/ui/toast-context'
+import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
+import { formatUnits } from '@/lib/amounts'
+import { formatAccount, formatAmount } from '@/lib/format'
+import { BOT_NAME, WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
+import { accountIdError } from '@/lib/validation'
+import { describeError } from '@/services/errors'
+import { explorerTxUrl } from '@/services/near/explorer'
+import { newCreateKey, type NearKitWebWallet, type SendApproval, type WebLegStatus } from '@/services/nearkitWeb'
+import { LinkRequestError } from '@/services/telegramLink'
+import { useCapabilities, useNearKitMutations, useNearKitSession, useNearKitWallets, useSendStatus, useTokens } from '@/services/queries'
+import type { Wallet, WalletSnapshot } from '@/types/domain'
+
+/**
+ * The signed-in Telegram user's NearKit wallets on NearKit web: sign in from the bot's /web
+ * link, see them, create and rename them, and send from one. NearKit's server executes each
+ * wallet's own trades and sends with its key, which only NearKit's signer holds: nothing here
+ * signs, and nothing needs Telegram.
+ */
+
+/** A link that looks like a key (the app's buttons are keys; links to Telegram open a new tab). */
+export function TelegramLink({ href, children, variant = 'secondary' }: { href: string; children: string; variant?: 'primary' | 'secondary' }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer noopener" className="inline-flex">
+      <Button variant={variant} tabIndex={-1}>
+        {children}
+      </Button>
+    </a>
+  )
+}
+
+/** How to sign in: the bot sends a one-time link. */
+export function NearKitSignIn({ title = 'Sign in with Telegram to use your NearKit wallets' }: { title?: string }) {
+  return (
+    <EmptyState
+      title={title}
+      action={
+        WEB_SIGN_IN_URL ? (
+          <TelegramLink href={WEB_SIGN_IN_URL} variant="primary">
+            Sign in with Telegram
+          </TelegramLink>
+        ) : null
+      }
+    >
+      {`Open ${BOT_NAME} and send /web: it replies with a one-time link that opens this page signed in. No browser wallet and no /link needed.`}
+    </EmptyState>
+  )
+}
+
+const ownerText = (owner: string | null) => (owner ? `Owner ${formatAccount(owner, 24)}` : 'Controlled in Telegram')
+
+/** The NearKit wallets panel: executable right here, by NearKit's server. */
+export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletSnapshot[] }) {
+  const toast = useToast()
+  const session = useNearKitSession()
+  const list = useNearKitWallets()
+  const { logout } = useNearKitMutations()
+  const [creating, setCreating] = useState(false)
+  const [renaming, setRenaming] = useState<NearKitWebWallet | null>(null)
+  const [sending, setSending] = useState<Wallet | null>(null)
+  const wallets = list.data?.wallets ?? []
+  const limit = list.data?.limit ?? 10
+  const snapshotOf = (w: NearKitWebWallet) => snapshots.find((s) => s.accountId === w.accountId)
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="NearKit wallets"
+        meta={session && list.data ? `${wallets.length} of ${limit}` : undefined}
+        actions={
+          session ? (
+            <>
+              <Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={!list.data?.canCreate} onClick={() => setCreating(true)}>
+                Create wallet
+              </Button>
+              <IconButton
+                label={`Sign out ${session.userName} from NearKit web`}
+                size="sm"
+                disabled={logout.isPending}
+                onClick={() =>
+                  logout.mutate(undefined, {
+                    onSuccess: () => toast.push({ title: 'Signed out of NearKit web', detail: 'Your NearKit wallets are unchanged. Sign in again from Telegram: /web.' }),
+                  })
+                }
+              >
+                <LogOut size={14} />
+              </IconButton>
+            </>
+          ) : null
+        }
+      />
+      {!session ? (
+        <NearKitSignIn />
+      ) : list.isPending ? (
+        <div className="p-4">
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : list.isError ? (
+        <EmptyState
+          title="Your NearKit wallets can’t be listed right now"
+          action={
+            <Button variant="secondary" onClick={() => void list.refetch()}>
+              Try again
+            </Button>
+          }
+        >
+          {describeError(list.error).message}
+        </EmptyState>
+      ) : wallets.length === 0 ? (
+        <EmptyState
+          title="No NearKit wallets yet"
+          action={
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              Create wallet
+            </Button>
+          }
+        >
+          A NearKit wallet trades, joins a Multi Buy and sends without a browser wallet: NearKit executes each one with the wallet’s own key, which only its signer holds.
+        </EmptyState>
+      ) : (
+        <>
+          <p className="border-b border-line-soft px-4 py-2 text-xs text-fg-3">
+            Trade, Multi Buy, Multi Sell and Send right here: NearKit executes each wallet’s own transactions with that wallet’s key. No wallet prompt.
+          </p>
+          <div className="hidden md:block">
+            <Table label="NearKit wallets" minWidth={760}>
+              <thead>
+                <tr>
+                  <Th>Wallet</Th>
+                  <Th>Account</Th>
+                  <Th align="right">NEAR</Th>
+                  <Th align="right">Tokens</Th>
+                  <Th align="right">Value</Th>
+                  <Th>Control</Th>
+                  <Th>
+                    <span className="sr-only">Actions</span>
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {wallets.map((w) => {
+                  const s = snapshotOf(w)
+                  const tokens = s ? s.holdings.filter((h) => h.amount > 0 && h.tokenId !== NATIVE_TOKEN_ID).length : null
+                  return (
+                    <Tr key={w.id}>
+                      <Td>
+                        <span className="flex items-center gap-2 text-fg">
+                          {w.name}
+                          {w.frozen && (
+                            <Tag tone="warn" title="Frozen by NearKit for your protection: it doesn't trade or send.">
+                              Frozen
+                            </Tag>
+                          )}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span className="flex items-center gap-1">
+                          <AccountText id={w.accountId} className="text-fg-2" />
+                          <CopyButton value={w.accountId} label={`Copy ${w.name} address`} />
+                        </span>
+                      </Td>
+                      <Td align="right" mono className="text-fg-2">
+                        {s ? formatAmount(s.nearBalance, 2) : '—'}
+                      </Td>
+                      <Td align="right" mono className={tokens ? 'text-fg-2' : 'text-fg-4'}>
+                        {tokens ?? '—'}
+                      </Td>
+                      <Td align="right">{s ? <Usd value={s.valueUsd} className="text-fg" /> : <span className="text-fg-4">—</span>}</Td>
+                      <Td>
+                        <span className="text-xs text-fg-3">{ownerText(w.owner)}</span>
+                      </Td>
+                      <Td align="right">
+                        <span className="flex items-center justify-end gap-1">
+                          <Button size="xs" variant="ghost" icon={<Send size={12} />} disabled={!s || w.frozen} onClick={() => s && setSending(s)}>
+                            Send
+                          </Button>
+                          <IconButton label={`Rename ${w.name}`} size="sm" onClick={() => setRenaming(w)}>
+                            <Pencil size={14} />
+                          </IconButton>
+                        </span>
+                      </Td>
+                    </Tr>
+                  )
+                })}
+              </tbody>
+            </Table>
+          </div>
+          <ul className="divide-y divide-line-soft md:hidden" aria-label="NearKit wallets">
+            {wallets.map((w) => {
+              const s = snapshotOf(w)
+              return (
+                <li key={w.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 text-sm text-fg">
+                      {w.name} {w.frozen && <Tag tone="warn">Frozen</Tag>}
+                    </p>
+                    <p className="flex items-center gap-1">
+                      <AccountText id={w.accountId} className="text-xs text-fg-3" />
+                      <CopyButton value={w.accountId} label={`Copy ${w.name} address`} className="size-5" />
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-fg-4">{ownerText(w.owner)}</p>
+                  </div>
+                  <div className="flex items-start gap-1">
+                    <div className="text-right">
+                      {s ? <Usd value={s.valueUsd} className="text-sm text-fg" /> : <span className="text-fg-4">—</span>}
+                      <p className="num text-xs text-fg-3">{s ? `${formatAmount(s.nearBalance, 2)} NEAR` : '—'}</p>
+                    </div>
+                    <IconButton label={`Send from ${w.name}`} size="sm" disabled={!s || w.frozen} onClick={() => s && setSending(s)}>
+                      <Send size={14} />
+                    </IconButton>
+                    <IconButton label={`Rename ${w.name}`} size="sm" onClick={() => setRenaming(w)}>
+                      <Pencil size={14} />
+                    </IconButton>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+      <CreateWalletModal open={creating} onClose={() => setCreating(false)} />
+      <RenameWalletModal wallet={renaming} onClose={() => setRenaming(null)} />
+      <NearKitSendModal wallet={sending} onClose={() => setSending(null)} />
+    </Panel>
+  )
+}
+
+// ─── create ─────────────────────────────────────────────────────────────────
+
+export function CreateWalletModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Modal open={open} onClose={onClose} size="sm" title="Create a NearKit wallet" description="A new wallet of your own, ready to trade once it holds NEAR.">
+      {open && <CreateWalletForm onClose={onClose} />}
+    </Modal>
+  )
+}
+
+function CreateWalletForm({ onClose }: { onClose: () => void }) {
+  const toast = useToast()
+  const { create } = useNearKitMutations()
+  const [name, setName] = useState('')
+  // One key for this Create: a double submit, or a retry after a lost answer, makes one wallet.
+  const [createKey] = useState(newCreateKey)
+  const error = create.error ? describeError(create.error).message : null
+  const submit = () =>
+    create.mutate(
+      { name: name.trim(), createKey },
+      {
+        onSuccess: (w) => {
+          onClose()
+          toast.push({
+            tone: 'accent',
+            title: `${w.name} created`,
+            detail: `Its address is ${formatAccount(w.accountId)}. Deposit NEAR to it to trade. Telegram has a notice too.`,
+          })
+        },
+      },
+    )
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
+      <Field label="Name" hint="Optional, up to 24 characters. Without one it’s named by its number, like Wallet 3." error={error ?? undefined}>
+        {({ id, describedBy, invalid }) => (
+          <Input
+            id={id}
+            value={name}
+            maxLength={24}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Degen 1"
+            aria-describedby={describedBy}
+            aria-invalid={invalid}
+            autoFocus
+          />
+        )}
+      </Field>
+      <p className="text-xs text-fg-3">
+        NearKit creates the wallet and keeps its key in its signer: the key never reaches this page. It trades as soon as it holds NEAR, here or in Telegram. Up to 10 NearKit
+        wallets at once.
+      </p>
+      <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" loading={create.isPending}>
+          Create wallet
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ─── rename ─────────────────────────────────────────────────────────────────
+
+export function RenameWalletModal({ wallet, onClose }: { wallet: NearKitWebWallet | null; onClose: () => void }) {
+  return (
+    <Modal
+      open={wallet !== null}
+      onClose={onClose}
+      size="sm"
+      title={`Rename ${wallet?.name ?? 'wallet'}`}
+      description="Only the name changes: the address, key and owner stay the same."
+    >
+      {wallet && <RenameWalletForm key={wallet.id} wallet={wallet} onClose={onClose} />}
+    </Modal>
+  )
+}
+
+function RenameWalletForm({ wallet, onClose }: { wallet: NearKitWebWallet; onClose: () => void }) {
+  const toast = useToast()
+  const { rename } = useNearKitMutations()
+  const [name, setName] = useState(wallet.name)
+  const error = rename.error ? describeError(rename.error).message : null
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        rename.mutate(
+          { walletId: wallet.id, name: name.trim() },
+          {
+            onSuccess: (w) => {
+              onClose()
+              toast.push({ title: `Renamed to ${w.name}` })
+            },
+          },
+        )
+      }}
+    >
+      <Field label="Name" hint="Up to 24 characters. Empty restores the default name." error={error ?? undefined}>
+        {({ id, describedBy, invalid }) => (
+          <Input id={id} value={name} maxLength={24} onChange={(e) => setName(e.target.value)} aria-describedby={describedBy} aria-invalid={invalid} autoFocus />
+        )}
+      </Field>
+      <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" loading={rename.isPending}>
+          Save name
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ─── send ───────────────────────────────────────────────────────────────────
+
+/**
+ * Send from a NearKit wallet, right here: NearKit's server reviews it (balance, destination,
+ * fee), and on Send executes it with the wallet's own key. The custody rules hold: it goes only
+ * to the wallet's owner or an address approved for it (the signer enforces that), and nothing
+ * moves while NearKit has withdrawals paused.
+ */
+export function NearKitSendModal({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapshot | null; tokenId?: string; onClose: () => void }) {
+  return (
+    <Modal
+      open={wallet !== null}
+      onClose={onClose}
+      size="sm"
+      title={`Send from ${wallet?.label ?? 'NearKit wallet'}`}
+      description="Reviewed, then sent by NearKit from this wallet. No wallet prompt."
+    >
+      {wallet && <SendForm key={`${wallet.id}:${tokenId ?? ''}`} wallet={wallet} tokenId={tokenId} onClose={onClose} />}
+    </Modal>
+  )
+}
+
+const SEND_STATUS: Record<WebLegStatus, string> = {
+  quoted: 'Starting',
+  requoted: 'Something changed: review it again',
+  executing: 'Sending',
+  processing: 'Processing: waiting for the NEAR network',
+  done: 'Sent',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  expired: 'The review expired: review it again',
+}
+
+function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapshot; tokenId?: string; onClose: () => void }) {
+  const caps = useCapabilities()
+  const { data: tokens = [] } = useTokens()
+  const { reviewSend, executeSend } = useNearKitMutations()
+  const holdings = 'holdings' in wallet ? wallet.holdings : []
+  const held = holdings.filter((h) => h.amount > 0)
+  const assets = [NATIVE_TOKEN_ID, ...held.map((h) => h.tokenId).filter((id) => id !== NATIVE_TOKEN_ID)]
+  if (tokenId && !assets.includes(tokenId)) assets.push(tokenId)
+  const [asset, setAsset] = useState(tokenId ?? NATIVE_TOKEN_ID)
+  const [amount, setAmount] = useState('')
+  // MAX: NearKit's server works out the most this wallet can send (for NEAR, the network fee stays).
+  const [max, setMax] = useState(false)
+  const [to, setTo] = useState('')
+  const [touched, setTouched] = useState(false)
+  const [sending, setSending] = useState<string | null>(null)
+  const status = useSendStatus(sending)
+  const symbolOf = (id: string) => (id === NATIVE_TOKEN_ID ? 'NEAR' : (tokens.find((t) => t.id === id)?.symbol ?? formatAccount(id, 20)))
+  const balance = held.find((h) => h.tokenId === asset)
+  const toError = touched ? accountIdError(to) : null
+  const amountError = touched && !max && !(Number(amount) > 0) ? 'Enter an amount above 0' : null
+  const reviewError =
+    reviewSend.error instanceof LinkRequestError ? reviewSend.error : reviewSend.error ? new LinkRequestError(0, 'error', describeError(reviewSend.error).message) : null
+  const approval = reviewError?.code === 'needs-approval' ? (reviewError.detail as SendApproval | null) : null
+  const paused = reviewError?.code === 'paused' || (executeSend.error instanceof LinkRequestError && executeSend.error.code === 'paused')
+  const r = reviewSend.data
+  const back = () => {
+    reviewSend.reset()
+    executeSend.reset()
+    setSending(null)
+  }
+
+  // Sent, or sending: the status as NearKit's server reports it.
+  if (sending) {
+    const s = status.data
+    const finished = s?.status === 'done' || s?.status === 'failed' || s?.status === 'requoted' || s?.status === 'expired' || s?.status === 'cancelled'
+    return (
+      <div className="flex flex-col gap-4">
+        <p className={s?.status === 'failed' ? 'text-sm text-neg' : s?.status === 'done' ? 'text-sm text-fg' : 'text-sm text-fg-2'} aria-live="polite">
+          {s ? SEND_STATUS[s.status] : 'Sending'}
+        </p>
+        {s?.message && <p className="text-sm text-neg">{s.message}</p>}
+        {s?.hashes.length ? (
+          <p className="text-xs text-fg-3">
+            {s.hashes.map((h) => (
+              <a
+                key={h}
+                href={caps.explorerUrl ? explorerTxUrl({ explorerUrl: caps.explorerUrl }, h) : undefined}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="num mr-2 underline"
+              >
+                {`${h.slice(0, 6)}…${h.slice(-4)}`}
+              </a>
+            ))}
+          </p>
+        ) : null}
+        <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
+          {finished && s?.status !== 'done' && (
+            <Button variant="ghost" onClick={back}>
+              Back
+            </Button>
+          )}
+          <Button variant={finished ? 'primary' : 'ghost'} onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Reviewed: what NearKit will send, and Send.
+  if (r) {
+    const fee = formatUnits(BigInt(r.review.feeNear), NEAR_DECIMALS, { maxFraction: 6 })
+    return (
+      <div className="flex flex-col gap-4">
+        <Lines>
+          <Line label="From">{`${r.review.from} · ${formatAccount(r.review.accountId)}`}</Line>
+          <Line label="Amount" emphasis>
+            <Figures>{`${formatUnits(BigInt(r.review.amount), r.review.decimals, { maxFraction: 8, group: true })} ${r.review.symbol}`}</Figures>
+          </Line>
+          <Line label="To">
+            <span className="num">{r.review.to}</span>
+            {r.review.linked ? ' · your linked wallet' : ''}
+          </Line>
+          <Line label="Network fee (est.)">
+            <Figures>{`${fee} NEAR`}</Figures>
+          </Line>
+          {r.review.registration !== null && (
+            <Line label="Registration">
+              <Figures>{`${formatUnits(BigInt(r.review.registration), NEAR_DECIMALS, { maxFraction: 5 })} NEAR`}</Figures>
+            </Line>
+          )}
+        </Lines>
+        {r.review.fresh && <p className="text-xs text-warn">{`This address has never been used on ${caps.networkLabel.toLowerCase()}. Check it carefully.`}</p>}
+        <p className="text-xs text-fg-3">Check the address: transfers can’t be undone.</p>
+        {executeSend.error && (
+          <p role="alert" className="text-sm text-neg">
+            {paused ? 'Withdrawals are paused by NearKit right now. Nothing was sent.' : describeError(executeSend.error).message}
+          </p>
+        )}
+        <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
+          <Button variant="ghost" onClick={back}>
+            Back
+          </Button>
+          <Button variant="primary" loading={executeSend.isPending} disabled={paused} onClick={() => executeSend.mutate(r.intentId, { onSuccess: () => setSending(r.intentId) })}>
+            Send
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        setTouched(true)
+        if (accountIdError(to) || (!max && !(Number(amount) > 0)) || !wallet.nearkitId) return
+        reviewSend.mutate({ walletId: wallet.nearkitId, token: asset, amount: max ? 'max' : amount.trim(), to: to.trim() })
+      }}
+    >
+      {paused && (
+        <p role="alert" className="rounded-sm border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+          Withdrawals are paused by NearKit right now: nothing can be sent until NearKit resumes them. Your funds stay where they are.
+        </p>
+      )}
+      <Field label="Asset">
+        {({ id }) => (
+          <Select
+            id={id}
+            value={asset}
+            onChange={(e) => {
+              setAsset(e.target.value)
+              setMax(false)
+              reviewSend.reset()
+            }}
+          >
+            {assets.map((a) => (
+              <option key={a} value={a}>
+                {symbolOf(a)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field
+        label="Amount"
+        error={amountError ?? undefined}
+        hint={max ? (asset === NATIVE_TOKEN_ID ? 'The most it can send: a little NEAR stays for the network fee.' : 'Its whole balance.') : undefined}
+        aside={
+          <>
+            {balance && <span className="num text-2xs text-fg-3">{`Balance ${formatAmount(balance.amount, 2)}`}</span>}
+            <button type="button" aria-pressed={max} className="keycap text-2xs text-fg-3 hover:text-fg aria-pressed:text-accent" onClick={() => setMax((m) => !m)}>
+              MAX
+            </button>
+          </>
+        }
+      >
+        {({ id, describedBy, invalid }) => (
+          <Input
+            id={id}
+            mono
+            inputMode="decimal"
+            value={max ? 'MAX' : amount}
+            onChange={(e) => {
+              setMax(false)
+              setAmount(e.target.value.replace(/^MAX/, ''))
+            }}
+            placeholder="0.00"
+            aria-describedby={describedBy}
+            aria-invalid={invalid}
+          />
+        )}
+      </Field>
+      <Field label="To" error={toError ?? undefined} hint={`A ${caps.networkLabel.toLowerCase()} account`}>
+        {({ id, describedBy, invalid }) => (
+          <Input
+            id={id}
+            mono
+            value={to}
+            onChange={(e) => {
+              setTo(e.target.value)
+              if (approval) reviewSend.reset()
+            }}
+            placeholder={caps.network === 'mainnet' ? 'name.near' : 'name.testnet'}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="none"
+            aria-describedby={describedBy}
+            aria-invalid={invalid}
+          />
+        )}
+      </Field>
+      {approval ? (
+        <div className="flex flex-col gap-2 rounded-sm border border-line px-3 py-2.5">
+          <p className="text-sm text-fg">{reviewError?.message}</p>
+          {approval.kind === 'owner' ? (
+            <a href={`/recover#approve=${encodeURIComponent(approval.accountId)}&to=${encodeURIComponent(to.trim())}`} className="text-sm text-accent underline">
+              {`Approve it with ${formatAccount(approval.owner)} on NearKit web`}
+            </a>
+          ) : (
+            <a href={approval.url} target="_blank" rel="noreferrer noopener" className="text-sm text-accent underline">
+              Approve it in NearKit’s Telegram mini app
+            </a>
+          )}
+          <p className="text-xs text-fg-3">
+            Once approved, review the send again. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.
+          </p>
+        </div>
+      ) : (
+        reviewError &&
+        !paused && (
+          <p role="alert" className="text-sm text-neg">
+            {reviewError.message}
+          </p>
+        )
+      )}
+      <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" loading={reviewSend.isPending}>
+          Review
+        </Button>
+      </div>
+    </form>
+  )
+}

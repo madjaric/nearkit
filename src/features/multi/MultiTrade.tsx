@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { AccountText } from '@/components/domain/Account'
 import { AllocationBar } from '@/components/domain/AllocationBar'
 import { QuoteFreshness } from '@/components/domain/QuoteFreshness'
@@ -8,6 +9,7 @@ import { Figures } from '@/components/ui/Figures'
 import { slippageIssue } from '@/lib/slippage'
 import { TokenSelect } from '@/components/domain/TokenSelect'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { AmountInput, Checkbox, Field, Segmented, Tabs } from '@/components/ui/Form'
 import { tabPanelProps } from '@/components/ui/tabs'
 import { InfoTip, Term } from '@/components/ui/Help'
@@ -19,22 +21,29 @@ import { cn } from '@/lib/cn'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { floorTo, formatAmount, formatCompact, formatNumber, formatPct, parseAmount, toInputString } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
+import { canExecute, executesViaNearKit, presetMembers, signsInBrowser } from '@/lib/wallets'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { useServices } from '@/services/context'
 import { useCapabilities, useHoldings, useMultiQuote, usePlanners, usePresets, useSession, useTokens, useWallets } from '@/services/queries'
-import { useInComingSoon, useSettings } from '@/state/contexts'
+import { useConnectPrompt, useInComingSoon, useSettings } from '@/state/contexts'
 import type { MultiTradeRequest, TradeSide } from '@/types/domain'
 import { OperationModal } from '../tools/OperationModal'
 import { useDefaultTradeToken } from '../trade/useDefaultToken'
+import { NearKitTradeModal, type NearKitTradeRequest } from './NearKitTrade'
 
 const NEAR = NATIVE_TOKEN_ID
 type Mode = 'equal' | 'custom'
+/** Who executes a run: NearKit wallets (NearKit's server, each with its own key) or the connected wallet's accounts (signed here). */
+type Source = 'nearkit' | 'browser'
 
 interface MultiTradeProps {
   initialSide: TradeSide
   initialPresetId: string | null
+  /** Preselected by a token screen (`?token=`). */
+  initialTokenId?: string | null
 }
 
-export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
+export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null }: MultiTradeProps) {
   const { settings } = useSettings()
   const soon = useInComingSoon()
   const { data: wallets = [], isPending: walletsPending } = useWallets()
@@ -45,10 +54,13 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
 
   const caps = useCapabilities()
   const { data: session } = useSession()
+  const { nearkit } = useServices()
+  const { promptConnect } = useConnectPrompt()
+  const navigate = useNavigate()
   const planners = usePlanners()
   const defaultToken = useDefaultTradeToken()
   const [side, setSide] = useState<TradeSide>(initialSide)
-  const [pickedToken, setTokenId] = useState<string | null>(null)
+  const [pickedToken, setTokenId] = useState<string | null>(initialTokenId)
   const tokenId = pickedToken ?? defaultToken
   const [pickedPreset, setPresetId] = useState<string | null | undefined>(undefined)
   const presetId = pickedPreset !== undefined ? pickedPreset : (initialPresetId ?? (presets.some((p) => p.id === 'preset-trading') ? 'preset-trading' : null))
@@ -59,16 +71,40 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
   const [custom, setCustom] = useState<Record<string, string>>({})
   const [slippage, setSlippage] = useState(settings.defaultSlippage)
   const [confirm, setConfirm] = useState<MultiTradeRequest | null>(null)
+  const [nearkitRun, setNearkitRun] = useState<NearKitTradeRequest | null>(null)
+  const [pickedSource, setSource] = useState<Source | null>(null)
+
+  // Only wallets that can trade: a watch-only wallet never joins, whatever a preset or the URL says.
+  // One source per run, since the two confirm differently.
+  const executable = wallets.filter((w) => canExecute(w) && !w.frozen)
+  const hasNearKit = executable.some(executesViaNearKit)
+  const hasBrowser = executable.some(signsInBrowser)
+  const source: Source = pickedSource ?? (hasBrowser ? 'browser' : 'nearkit')
+  const pool = executable.filter((w) => (source === 'nearkit' ? executesViaNearKit(w) : signsInBrowser(w)))
+  const hiddenWatch = wallets.filter((w) => !canExecute(w)).length
 
   const token = tokens.find((t) => t.id === tokenId)
   const symbol = token?.symbol ?? ''
   const balance = (walletId: string, id: string) => holdings.find((h) => h.walletId === walletId && h.tokenId === id)?.amount ?? 0
 
-  // Selection starts from the chosen preset until the user edits it by hand.
-  const presetWallets = presets.find((p) => p.id === presetId)?.walletIds
-  const selectedIds = picked ?? presetWallets ?? (session ? [session.walletId] : [])
-  const selected = wallets.filter((w) => selectedIds.includes(w.id))
+  // Selection starts from the chosen preset until the user edits it by hand; a preset brings only
+  // its members that can run here (a legacy one may hold a watch-only wallet: it stays out).
+  const preset = presets.find((p) => p.id === presetId)
+  const members = preset ? presetMembers(preset, wallets) : null
+  const presetWallets = members?.executable.filter((w) => pool.includes(w)).map((w) => w.id)
+  const fallbackIds = session && pool.some((w) => w.id === session.walletId) ? [session.walletId] : source === 'nearkit' && pool[0] ? [pool[0].id] : []
+  const selectedIds = picked ?? presetWallets ?? fallbackIds
+  const selected = pool.filter((w) => selectedIds.includes(w.id))
   const n = selected.length
+  const leftOut = members
+    ? [
+        members.excluded.filter((e) => e.reason === 'watch').length ? `${members.excluded.filter((e) => e.reason === 'watch').length} watch-only (can’t trade)` : null,
+        members.executable.filter((w) => !pool.includes(w)).length
+          ? `${members.executable.filter((w) => !pool.includes(w)).length} ${source === 'nearkit' ? 'connected in the browser' : 'NearKit or frozen'}`
+          : null,
+        members.excluded.filter((e) => e.reason === 'missing').length ? `${members.excluded.filter((e) => e.reason === 'missing').length} no longer listed` : null,
+      ].filter(Boolean)
+    : []
 
   const total = parseAmount(totalText) ?? 0
   const sellPct = Math.min(100, parseAmount(sellPctText) ?? 0)
@@ -110,7 +146,7 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
     const base = new Set(selectedIds)
     if (base.has(walletId)) base.delete(walletId)
     else base.add(walletId)
-    setPicked(wallets.filter((w) => base.has(w.id)).map((w) => w.id))
+    setPicked(pool.filter((w) => base.has(w.id)).map((w) => w.id))
     setPresetId(null)
   }
 
@@ -166,14 +202,29 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
     <Panel>
       <PanelHeader
         title="Wallets"
-        meta={`${n} of ${wallets.length} selected`}
+        meta={`${n} of ${pool.length} selected`}
         actions={
           <>
+            {hasNearKit && hasBrowser && (
+              <Segmented
+                label="Wallet source"
+                size="sm"
+                value={source}
+                onChange={(v) => {
+                  setSource(v)
+                  setPicked(null)
+                }}
+                options={[
+                  { value: 'nearkit', label: 'NearKit' },
+                  { value: 'browser', label: 'Connected' },
+                ]}
+              />
+            )}
             <Button
               size="xs"
               variant="ghost"
               onClick={() => {
-                setPicked(wallets.map((w) => w.id))
+                setPicked(pool.map((w) => w.id))
                 setPresetId(null)
               }}
             >
@@ -215,11 +266,35 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
         ))}
         {presetId === null && <Tag tone="neutral">Custom selection</Tag>}
       </div>
+      {(leftOut.length > 0 || source === 'nearkit') && (
+        <div className="flex flex-col gap-0.5 border-b border-line-soft px-4 py-2 text-xs text-fg-3">
+          {source === 'nearkit' && <p>NearKit wallets: NearKit executes each wallet’s own trade on its server when you confirm here. No wallet prompt.</p>}
+          {leftOut.length > 0 && <p className="text-warn">{`Left out of ${preset?.name ?? 'this preset'}: ${leftOut.join(', ')}.`}</p>}
+        </div>
+      )}
 
       {walletsPending ? (
         <div className="p-4">
           <Skeleton className="h-48 w-full" />
         </div>
+      ) : pool.length === 0 ? (
+        <EmptyState
+          title="No executable wallets available."
+          action={
+            <span className="flex flex-wrap items-center justify-center gap-2">
+              {nearkit.available && (
+                <Button variant="primary" onClick={() => navigate('/wallets')}>
+                  Create wallet
+                </Button>
+              )}
+              <Button variant="secondary" onClick={promptConnect}>
+                Connect wallet
+              </Button>
+            </span>
+          }
+        >
+          {`A Multi ${side} runs on wallets that can trade: your NearKit wallets, or the accounts of a wallet connected here.${hiddenWatch ? ` Watch-only wallets (${hiddenWatch}) never join.` : ''}`}
+        </EmptyState>
       ) : (
         <>
           <div className="hidden md:block">
@@ -238,7 +313,7 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
                 </tr>
               </thead>
               <tbody>
-                {wallets.map((w) => {
+                {pool.map((w) => {
                   const isSelected = selectedIds.includes(w.id)
                   const leg = legs.find((l) => l.walletId === w.id)
                   const out = outOf(w.id)
@@ -273,7 +348,7 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
           </div>
 
           <ul className="divide-y divide-line-soft md:hidden" aria-label="Wallets for this order">
-            {wallets.map((w) => {
+            {pool.map((w) => {
               const isSelected = selectedIds.includes(w.id)
               const leg = legs.find((l) => l.walletId === w.id)
               const out = outOf(w.id)
@@ -307,6 +382,9 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
               )
             })}
           </ul>
+          {hiddenWatch > 0 && (
+            <p className="border-t border-line-soft px-4 py-2 text-xs text-fg-3">{`${hiddenWatch} watch-only ${hiddenWatch === 1 ? 'wallet is' : 'wallets are'} not listed: watch-only wallets can’t trade.`}</p>
+          )}
         </>
       )}
       <div className="border-t border-line-soft px-4 py-3">
@@ -444,12 +522,17 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
             block
             variant={side === 'buy' ? 'primary' : 'sell'}
             disabled={blocker !== null || !q}
-            onClick={() => q && request && setConfirm({ ...request, legs: request.legs.filter((l) => (parseAmount(l.amountIn) ?? 0) > 0 && shortOf(l.walletId) <= 1e-9) })}
+            onClick={() => {
+              if (!q || !request) return
+              const legs = request.legs.filter((l) => (parseAmount(l.amountIn) ?? 0) > 0 && shortOf(l.walletId) <= 1e-9)
+              if (source === 'nearkit') setNearkitRun({ side, tokenId, symbol, slippagePct: request.slippagePct, legs })
+              else setConfirm({ ...request, legs })
+            }}
           >
             Execute {verb.toLowerCase()}
           </Button>
           {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
-          <SimulationNote />
+          <SimulationNote real={source === 'nearkit' ? 'NearKit executes each NearKit wallet’s own trade, signed with that wallet’s key, and confirms it on chain.' : undefined} />
         </div>
       </div>
     </Panel>
@@ -484,6 +567,7 @@ export function MultiTrade({ initialSide, initialPresetId }: MultiTradeProps) {
           onClose={() => setConfirm(null)}
         />
       )}
+      {nearkitRun && <NearKitTradeModal request={nearkitRun} wallets={pool} onClose={() => setNearkitRun(null)} />}
     </>
   )
 }

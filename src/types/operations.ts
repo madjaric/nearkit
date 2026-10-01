@@ -28,6 +28,8 @@ export type NearKitErrorCode =
   | 'TRANSACTION_FAILED'
   | 'NETWORK_MISMATCH'
   | 'EXECUTION_DISABLED'
+  /** A watch-only wallet (or one this browser can't sign for) was asked to trade, send or join a preset. */
+  | 'NOT_EXECUTABLE'
   | 'UNKNOWN'
 
 /** Serializable error for plans, progress and activity records. */

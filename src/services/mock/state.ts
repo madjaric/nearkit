@@ -125,6 +125,16 @@ export function walletOf(state: MockState, walletId: string): Wallet {
   return wallet
 }
 
+/** A demo wallet that may trade or send; a watch-only account never does (as in real mode). */
+export function executableWalletOf(state: MockState, walletId: string): Wallet {
+  const wallet = walletOf(state, walletId)
+  if (wallet.access === 'watch') throw new ServiceError('NOT_EXECUTABLE', `${wallet.label} is watch-only: it shows balances and activity, but can't trade or send.`)
+  return wallet
+}
+
+/** The demo's wallet classes: its seeded wallets act (simulated); added accounts are watch-only. */
+export const withSource = (w: Wallet): Wallet => ({ ...w, access: w.access ?? 'signer', source: w.access === 'watch' ? 'watch' : 'external' })
+
 export function balanceOf(state: MockState, walletId: string, tokenId: TokenId): number {
   return state.holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0
 }

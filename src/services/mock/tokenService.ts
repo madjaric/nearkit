@@ -42,6 +42,19 @@ export function createTokenService(state: MockState): TokenService {
       return quote ? { ...quote } : null
     },
 
+    async getPrice(id) {
+      await wait('read')
+      tickMarket(state)
+      return marketFor(id)
+    },
+
+    // The demo's tokens are samples: no supply to read, and no price history (its chart shows the
+    // simulated prices it sees, like any token without a history source).
+    getTotalSupply: async () => null,
+    getPriceHistory: async () => null,
+    // No made-up trades: the demo has no activity source.
+    getActivity: async () => null,
+
     async lookupToken() {
       throw new ServiceError('demo', 'Looking up a token contract needs a real network. The demo lists sample tokens only.')
     },

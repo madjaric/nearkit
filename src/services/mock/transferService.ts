@@ -2,7 +2,7 @@ import { formatAmount } from '@/lib/format'
 import { accountIdError } from '@/lib/validation'
 import type { TransferService } from '../types'
 import { coversRaw, demoTransferPlan, rawAmount } from './plans'
-import { ServiceError, balanceOf, requireSession, tokenOf, wait, walletOf, type MockState } from './state'
+import { ServiceError, balanceOf, executableWalletOf, requireSession, tokenOf, wait, type MockState } from './state'
 
 /** Demo transfers: validated like real ones, planned with the real builders, simulated on execution. */
 export function createTransferService(state: MockState): TransferService {
@@ -17,7 +17,7 @@ export function createTransferService(state: MockState): TransferService {
         if (sources.length === 0) throw new ServiceError('no-sources', 'Select at least one wallet with a balance')
         const destination = request.destinationAccountId
         const signerLines = sources.map((s, i) => {
-          const wallet = walletOf(state, s.walletId)
+          const wallet = executableWalletOf(state, s.walletId)
           if (wallet.accountId === destination) throw new ServiceError('invalid-source', 'The destination cannot also be a source')
           const raw = rawAmount(s.amount, token, wallet.label)
           if (!coversRaw(balanceOf(state, wallet.id, token.id), raw, token.decimals))
@@ -32,7 +32,7 @@ export function createTransferService(state: MockState): TransferService {
         })
       }
 
-      const source = walletOf(state, request.sourceWalletId)
+      const source = executableWalletOf(state, request.sourceWalletId)
       if (request.lines.length === 0) throw new ServiceError('no-recipients', 'Add at least one recipient')
       const lines = request.lines.map((line, i) => {
         const error = accountIdError(line.accountId)

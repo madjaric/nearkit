@@ -184,16 +184,32 @@ await step('a failed transaction is reported as failed, never as confirmed', asy
   await page.keyboard.press('Escape')
 })
 
-await step('the top-bar search finds a token in no list by its exact contract and opens the swap with it', async () => {
+await step('the top-bar search finds a token in no list by its exact contract and opens its Token Detail, not the swap', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await page.getByLabel('Search token, contract or command').fill(FRESH)
   const row = page.getByRole('option', { name: /Fresh Launch Token/ })
   await row.getByText('Fresh Launch Token · 18 decimals · not listed').waitFor()
   await row.click()
-  await page.waitForURL(/\/swap\?to=fresh\.nearlytrade\.testnet/)
-  // The swap reads it from chain and offers to add it; nothing is imported until asked.
+  await page.waitForURL(/\/token\/fresh\.nearlytrade\.testnet$/)
+  // The page reads it from chain and offers to add it; nothing is imported until asked.
   await page.getByText('FRESH isn’t in your token list yet').waitFor()
   await page.getByRole('button', { name: 'Add FRESH' }).waitFor()
+  await page.getByText('No recent trading activity available.').waitFor()
+})
+
+await step('the top-bar search: a symbol and a name open Token Detail; an address that isn’t a token says Token not found', async () => {
+  const search = page.getByLabel('Search token, contract or command')
+  await search.fill('usdt')
+  const usdt = page.getByRole('option', { name: /USDT/ }).first()
+  await usdt.getByText(USDT, { exact: false }).waitFor()
+  await usdt.click()
+  await page.waitForURL(/\/token\/usdt\.itachicara\.testnet$/)
+  await search.fill('tether')
+  await page.getByRole('option', { name: /USDT/ }).first().click()
+  await page.waitForURL(/\/token\/usdt\.itachicara\.testnet$/)
+  await search.fill('ghost.testnet')
+  await page.getByRole('option', { name: /Token not found/ }).waitFor()
+  await page.keyboard.press('Escape')
 })
 
 await step('a token in no list is found by its exact contract, shown with its metadata, and imported on request', async () => {
@@ -360,7 +376,19 @@ await step('add a watch-only account, validated on chain', async () => {
   await modal.getByLabel('Label').fill('Bob')
   await modal.getByRole('button', { name: 'Add account' }).click()
   await visible('Bob added')
-  await page.getByText('Watch', { exact: true }).visible().first().waitFor()
+  // Listed under Watch / Follow, tagged as never trading or sending.
+  await page.getByText('Watch only', { exact: true }).visible().first().waitFor()
+})
+
+await step('a watch-only account never joins a Multi Buy or a preset: not offered, and said so', async () => {
+  await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
+  await visible('1 watch-only wallet is not listed: watch-only wallets can’t trade.')
+  if ((await page.getByRole('checkbox', { name: /Bob/ }).count()) !== 0) throw new Error('Bob (watch-only) is offered in Multi Buy')
+  await page.goto(BASE + '/wallets', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Create preset' }).first().click()
+  const modal = page.getByRole('dialog', { name: 'Create preset' })
+  if (!(await modal.getByRole('checkbox', { name: /Bob/ }).isDisabled())) throw new Error('Bob (watch-only) can be put in a preset')
+  await page.keyboard.press('Escape')
 })
 
 await step('activity shows what NearKit sent, with explorer links', async () => {
@@ -384,6 +412,48 @@ await step('PnL card: the figures on screen, exported as a PNG', async () => {
   if (bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' || bytes.length < 10_000) throw new Error('Not a PNG card')
   await shot('real-pnl-card')
   await page.keyboard.press('Escape')
+})
+
+await step('token screen: a position opens it; with no price source it says so and draws nothing', async () => {
+  await page.goto(BASE + '/positions', { waitUntil: 'networkidle' })
+  await page.locator('main').getByRole('link', { name: 'USDT', exact: true }).visible().first().click()
+  await page.waitForURL(/\/token\/usdt\.itachicara\.testnet$/)
+  await visible('Price unavailable')
+  await visible('Testnet has no market prices.')
+  await visible('Price unavailable: nothing to draw.')
+  await page.locator('main').getByText(USDT).first().waitFor()
+  // No trade in the token's latest transactions on this network: said so, nothing invented.
+  await visible('No recent trading activity available.')
+  // No price source on testnet: no dollar figure anywhere, no FDV, no market cap.
+  const text = await page.locator('main').innerText()
+  if (/\$\s?\d/.test(text)) throw new Error('A dollar figure is shown with no price source')
+  await shot('real-token-screen')
+})
+
+await step('token screen: Buy and Sell open the existing trade ticket with the token selected', async () => {
+  for (const side of ['Buy', 'Sell']) {
+    await page
+      .locator('main')
+      .getByRole('button', { name: `${side} USDT` })
+      .click()
+    const sheet = page.getByRole('dialog', { name: 'Trade ticket' })
+    await sheet.getByText('Trade USDT').waitFor()
+    if ((await sheet.getByRole('radio', { name: side }).getAttribute('aria-checked')) !== 'true') throw new Error(`${side} is not selected`)
+    await sheet.getByRole('button', { name: 'Token: USDT' }).waitFor()
+    await page.keyboard.press('Escape')
+    await sheet.waitFor({ state: 'hidden' })
+  }
+})
+
+await step('token screen: Send opens the existing send flow with the token and the wallet selected', async () => {
+  await page.locator('main').getByRole('button', { name: 'Send USDT' }).click()
+  // One connected account holding USDT goes straight to Batch Send; several get a chooser first.
+  const chooser = page.getByRole('dialog', { name: 'Send USDT from…' })
+  await Promise.race([chooser.waitFor({ timeout: 5000 }).catch(() => {}), page.waitForURL(/\/batch-send/, { timeout: 5000 }).catch(() => {})])
+  if (await chooser.isVisible()) await chooser.getByRole('button', { name: 'Send', exact: true }).first().click()
+  await page.waitForURL(/\/batch-send\?token=usdt\.itachicara\.testnet&from=/)
+  await page.locator('main').getByRole('button', { name: 'Token: USDT' }).first().waitFor()
+  await shot('real-token-send')
 })
 
 await step('disconnect ends the session', async () => {

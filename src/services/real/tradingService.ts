@@ -12,7 +12,7 @@ import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
 import type { LimitOrder, MultiTradeLegQuote, MultiTradeQuote, OrderExpiry, Quote, QuoteRequest, Wallet } from '@/types/domain'
 import type { FeeDisclosure, OperationPlan, PlanLine, PlannedTransaction, SwapDetails, TokenRef } from '@/types/operations'
 import type { TradingService, WalletService } from '../types'
-import { amountValue, nearText, nearValue, newPlanId, requireSession, sumRaw, walletOf } from './common'
+import { amountValue, executableWallet, nearText, nearValue, newPlanId, requireSession, sumRaw, walletOf } from './common'
 import type { NearContext } from './context'
 import type { Market } from './market'
 import { createSwapRouter, type RoutedSwap } from './swapRouting'
@@ -277,7 +277,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
 
   async function signerFor(walletId: string): Promise<Wallet> {
     requireSession(await wallets.getSession(), ctx.network.label)
-    return walletOf(await wallets.listWallets(), walletId)
+    return executableWallet(await wallets.listWallets(), walletId, 'browser')
   }
 
   async function sessionSigners(): Promise<Set<string>> {
@@ -354,6 +354,9 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       if (request.tokenId === NATIVE_TOKEN_ID) throw new NearKitError('INVALID_TOKEN', 'Choose a token other than NEAR')
       const legs = request.legs.filter(allocated)
       if (legs.length === 0) throw new NearKitError('INVALID_AMOUNT', 'Allocate an amount to at least one wallet')
+      // Watch-only wallets never join, not even in a quote.
+      const known = await wallets.listWallets()
+      for (const leg of legs) executableWallet(known, leg.walletId, 'any')
       const pair = request.side === 'buy' ? { tokenIn: NATIVE_TOKEN_ID, tokenOut: request.tokenId } : { tokenIn: request.tokenId, tokenOut: NATIVE_TOKEN_ID }
       const user = ctx.session.current?.issue ? null : (ctx.session.current?.accountId ?? null)
       // One indicative quote per distinct amount; the review re-quotes every wallet.
@@ -406,10 +409,12 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const legs = request.legs.filter(allocated)
       if (legs.length === 0) throw new NearKitError('INVALID_AMOUNT', 'Allocate an amount to at least one wallet')
       const pair = request.side === 'buy' ? { tokenIn: NATIVE_TOKEN_ID, tokenOut: request.tokenId } : { tokenIn: request.tokenId, tokenOut: NATIVE_TOKEN_ID }
+      // Every wallet must be able to sign here before any is routed or checked.
+      const legWallets = legs.map((leg) => executableWallet(list, leg.walletId, 'browser'))
       // Sequential: each wallet gets its own route, bound to it and verified.
       const planned: LegPlan[] = []
-      for (const leg of legs) {
-        const wallet = walletOf(list, leg.walletId)
+      for (const [i, leg] of legs.entries()) {
+        const wallet = legWallets[i] as Wallet
         const r = await router.route({ ...pair, amountIn: leg.amountIn, slippagePct: request.slippagePct, walletId: wallet.id }, wallet.accountId, true)
         const p = await planLeg(wallet, r)
         await checkFunds(p)

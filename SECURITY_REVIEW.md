@@ -204,6 +204,7 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 | R7 | Losing the signer database loses every key without a backup key or export | INFRASTRUCTURE | Hourly verified dumps plus the server's weekly backups. Copies off the server are still to do. Encourage backup keys in the product |
 | R8 | The unseal key: after a restart, wallets stay locked until the owner unseals OpenBao. If the key is lost, every wallet key without a backup key or export is lost | OWNER ACTION | Keep the unseal key in a password manager plus an offline copy. Be reachable to unseal after restarts |
 | R9 | A wallet with no owner wallet is controlled by its Telegram account: whoever holds that account can approve an address in the Mini App and withdraw, or bind their own owner (§5b). NearKit's app alone can do neither | PRODUCT / SECURITY | Accepted with the optional-link model: say so where wallets are created, and offer "make your linked wallet the owner" in Recovery |
+| R10 | A stolen NearKit web session (a shared computer, or script on the real origin, R5) can trade the user's NearKit wallets within the signer's policy, as a stolen Telegram session can (R1), and create and rename wallets (§5c). It can't send to an address the custody model hasn't approved | SECURITY / OWNER ACTION | **Accepted by the owner (2026-10-01):** web and Telegram are independent clients. Sessions last 7 days; "Sign out of NearKit web everywhere" in Telegram; every wallet created on the web is announced there |
 
 ---
 
@@ -247,6 +248,41 @@ Linking an external wallet is optional. A wallet created without one is controll
 - Mitigations: users who want an independent key link a wallet and make it the owner. Every approval and binding is announced in Telegram.
 - R3 applies to such wallets too: a compromised app could create a new wallet controlled by another Telegram account. Existing wallets are unaffected.
 - A compromised web origin together with a compromised app could make the page approve on opening (R5).
+
+## 5c. NearKit web sessions and direct web trading (2026-10-01)
+
+NearKit web and Telegram are two independent clients of the same NearKit wallets. Signed in to NearKit web, a user creates and renames NearKit wallets, buys, sells, runs Multi Buy and Multi Sell, and sends, with no Telegram step: the web session is the authorization, as a Telegram session is for the bot.
+
+**Signing in:**
+- `/web` (or the website's "Sign in with Telegram", which opens `/start web`) sends a one-time link: `<web>/wallets#login=<code>`.
+- The code is 256 random bits, kept only as its SHA-256. It is valid for 10 minutes and used once, and a user gets at most 5 an hour (`server/src/web/sessions.ts`).
+- It travels in the URL fragment, which never reaches a server or a log. The page takes it out of the address bar before signing in.
+- Signing in turns it into a session token: 256 random bits, SHA-256 at rest, valid 7 days. It is kept in the browser's storage per network and sent in the JSON body, never in a URL.
+- The session ends on sign-out, on expiry, or with "Sign out of NearKit web everywhere" in Telegram.
+
+**What a session can do** (`server/src/web/routes.ts`; every route is rate-limited per IP):
+- **List** the user's active NearKit wallets: name, address, slot, owner, frozen. Never a key or key reference.
+- **Create** a wallet through the bot's own path (`ownerForNewWallet`, the 10-wallet and daily limits, the signer's key). A per-press `createKey` makes a double submit one wallet. The creation is announced in Telegram (a security notice, not a step).
+- **Rename:** the label only.
+- **Trade** (one wallet, or a Multi Buy / Multi Sell): `trade/quote` quotes each wallet on the server (one intent each, grouped by `wallet_intents.group_id`); `trade/execute` runs the quotes the web confirms, by intent id; `trade/status` follows each wallet.
+- **Send:** `send/review` reviews it like the bot's withdrawal review and holds it (an intent); `send/execute` sends exactly that; `send/status` follows it.
+
+**What enforces it:**
+- **The server decides, the client claims nothing:** a wallet is resolved only through `ownedWallet(sessionUser, id)`. A watch account, another user's wallet, an address or a made-up id gets 403 `not-executable` before anything is read or quoted. A leg's claimed type, owner, account or signer is ignored; the fee, the route, the destinations allowed and who signs come from the server and the signer.
+- **Each wallet trades alone:** every intent runs through `engine.execute` on its own, as a Confirm in Telegram does: its owner, expiry, wallet (active, not frozen, not busy), the kill switches, a fresh route with funds, gas and registration checks, the signer's policy (Rhea's signed route, NearKit's fee, the slippage cap) and that wallet's own key, held by the signer (OpenBao). One wallet's run never touches another wallet's funds.
+- **A worse price never runs unseen:** a leg whose price moved past its minimum is quoted again under a new intent id; it runs only when the web sends that id, which it learns only from the status it shows.
+- **Sends keep the custody rule:** only to the wallet's owner, or an address approved for it. The signer enforces it. An unapproved address is refused with how it gets approved: the owner wallet's signature on NearKit web, or, for a wallet with no owner wallet, the Telegram account's approval in the Mini App (Telegram signs it; §5b). That approval is the custody safeguard, not a trading step.
+- **The kill switches apply at both ends:** paused trading or withdrawals refuse at the quote or review and at execute (409 `paused`), and again in the engine's gate. Production withdrawals stay paused.
+- **Telegram stays out of web activity:** web intents carry no chat (`WEB_CHAT`), so the resolver doesn't message Telegram about them; the web follows them through its status routes.
+
+**Tests:**
+- `server/src/web/sessions.test.ts`, `server/src/web/api.test.ts`, `server/src/web/trade.test.ts` (ownership, forged ids and claims, frozen, paused, expired sessions and quotes, independent wallets, requotes, sends, approvals).
+- `scripts/e2e-telegram.mjs`: sign-in, create, rename, a single Buy and a Multi Buy run from the web, a web send with an unapproved address and a review, forged requests, sign out everywhere; Telegram receives nothing for any of them.
+
+**Remains (R10):**
+- A stolen session can trade the user's NearKit wallets within the signer's policy, as a stolen Telegram session can (R1). It can't send to an address the custody model hasn't approved.
+- A compromised real origin can read the session from storage and act as the user on NearKit web (R5).
+- Mitigations: 7-day sessions, "Sign out of NearKit web everywhere" in Telegram, one-time links that never touch a server log, rate limits.
 
 ## 5. KMS: OpenBao on the VPS versus AWS KMS
 

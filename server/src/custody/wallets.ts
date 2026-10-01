@@ -83,6 +83,32 @@ export async function createTradingWallet(
 }
 
 /**
+ * The owner wallet a user's new NearKit wallet answers to: the same rule wherever it is
+ * created (the bot, NearKit web).
+ * - All of a user's owned NearKit wallets answer to one owner: the wallet the first was created
+ *   with (or bound to). A wallet linked later (perhaps by someone holding this Telegram account)
+ *   never becomes the owner of a new one; that owner does.
+ * - With no owner yet, the user's linked wallet becomes the owner.
+ * - With none linked, the new wallet has no owner wallet (linking is optional): allowed only when
+ *   the signer checks approvals in the bot's Mini App, or nothing could ever be withdrawn.
+ * `undefined`: no owner and none allowed; the user must link a wallet first.
+ */
+export async function ownerForNewWallet(
+  c: Pick<CustodyDeps, 'store'>,
+  links: { linkOf(network: string, accountId: string): Promise<{ accountId: string; userId: number; publicKey: string } | null> },
+  input: { userId: number; network: string; linked: string | null; approvalsOn: () => Promise<boolean> },
+): Promise<{ accountId: string; publicKey: string } | null | undefined> {
+  const link = input.linked ? await links.linkOf(input.network, input.linked) : null
+  const existing = (await c.store.activeWallets(input.userId, input.network)).find((w) => w.ownerAccount)
+  if (existing?.ownerAccount) {
+    const ownerLink = await links.linkOf(input.network, existing.ownerAccount)
+    return { accountId: existing.ownerAccount, publicKey: ownerLink?.userId === input.userId ? ownerLink.publicKey : (existing.ownerKey ?? link?.publicKey ?? '') }
+  }
+  if (link && link.userId === input.userId) return { accountId: link.accountId, publicKey: link.publicKey }
+  return (await input.approvalsOn()) ? null : undefined
+}
+
+/**
  * A button's key stays bound to the wallet it made, even once that wallet is closed:
  * never hand a closed wallet back as if it were usable (its key is erased, so NEAR sent
  * to it now would be out of reach).

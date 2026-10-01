@@ -56,7 +56,8 @@ export function createMarket(ctx: NearContext) {
     const [map, near] = await Promise.all([tokenPrices(), nearQuote()])
     const priceUsd = map.get(tokenId)
     if (!priceUsd) return null
-    return { tokenId, priceUsd, priceNear: near ? priceUsd / near.priceUsd : 0, change24hPct: null, liquidityUsd: null, volume24hUsd: null, updatedAt: ctx.now() }
+    // When the price list was fetched: reading it again from the cache is not a newer price.
+    return { tokenId, priceUsd, priceNear: near ? priceUsd / near.priceUsd : 0, change24hPct: null, liquidityUsd: null, volume24hUsd: null, updatedAt: prices?.at ?? ctx.now() }
   }
 
   /** Native NEAR, tracked tokens, $KIT and whatever the connected accounts hold. */

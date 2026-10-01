@@ -25,7 +25,11 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
   const lookupId = open && looksLikeContract(exact) && !tokens.some((t) => t.contract === exact) ? exact : null
   const lookup = useTokenLookup(lookupId)
   const lookupNote = !lookupId ? null : lookup.isError ? describeError(lookup.error).message : lookup.isPending ? `Checking it on ${caps.networkLabel.toLowerCase()}…` : null
-  const results = useMemo(() => buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote } : null), [query, tokens, lookupId, lookup.data, lookupNote])
+  const lookupState = lookup.isPending ? 'checking' : lookup.data ? 'found' : 'not-found'
+  const results = useMemo(
+    () => buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote, state: lookupState } : null),
+    [query, tokens, lookupId, lookup.data, lookupNote, lookupState],
+  )
 
   // "/" focuses search from anywhere that isn't already a text field.
   useEffect(() => {
@@ -137,7 +141,8 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
         </ul>
         {!query && (
           <p className="mt-1 border-t border-line-soft px-3 pt-2 text-xs text-fg-3">
-            Type a symbol, paste a <span className="num text-fg-2">.near</span> contract to find or scan it, or start with <span className="num text-fg-2">/</span> for commands.
+            Type a symbol or name, paste a <span className="num text-fg-2">.near</span> contract to open its page or scan it, or start with <span className="num text-fg-2">/</span>{' '}
+            for commands.
           </p>
         )}
       </Popover>

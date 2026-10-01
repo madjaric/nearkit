@@ -1,4 +1,5 @@
 import { commandDoc } from '@/config/botCommands'
+import type { WebSessions } from '../web/sessions'
 import type { ServerConfig } from '../config'
 import type { Store } from '../db/store'
 import type { LinkService } from '../link/service'
@@ -33,6 +34,8 @@ export interface BotDeps {
   custody: CustodyDeps | null
   /** Invites and referral earnings; null when off. */
   referrals: Referrals | null
+  /** NearKit web sign-in (one-time links, sessions); null when NearKit wallets are off here. */
+  web: WebSessions | null
 }
 
 export interface BuybotDeps {

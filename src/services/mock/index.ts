@@ -1,4 +1,5 @@
 import { ENV_ISSUES } from '@/config/env'
+import { createNearKitWeb } from '../nearkitWeb'
 import type { Capabilities, NearKitServices } from '../types'
 import { createAutomationService } from './automationService'
 import { createExecutionService } from './executionService'
@@ -47,6 +48,8 @@ export function createMockServices(): NearKitServices {
     execution: createExecutionService(state),
     automation: createAutomationService(state),
     portfolio: createPortfolioService(state),
+    // The demo runs without NearKit's server: no NearKit wallets here.
+    nearkit: createNearKitWeb({ apiUrl: null, network: 'demo' }),
     resetDemo: () => {
       holder.state = createState()
     },

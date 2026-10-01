@@ -74,6 +74,8 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | Batch Send, Split, Consolidate | Real: exact amounts, recipient checks, NEP-145 registration, chunking, per-transaction status |
 | Swap, Quick Trade | Real: Rhea aggregator on mainnet (NearKit's 0.50% app fee), Rhea classic router on testnet (no fee) |
 | Multi Trade | Real: one verified route per wallet, signed wallet by wallet. No all-or-nothing: it stops at a failed step or an expired quote, wallets already done keep their swaps, and wallets that can't cover their share are left out |
+| Wallet classes | NearKit wallets (custody, signed in with the bot's `/web` link) buy, sell, join a Multi Buy or Multi Sell and send right on the web: NearKit's server executes each wallet's own transactions, nothing is confirmed in Telegram. Connected accounts sign in their own wallet; watched accounts are observe-only, and the services and the server refuse them anywhere funds move |
+| Token screen (`/token/:id`) | Where search leads. The live price from the app's own sources (Rhea's price list; NEAR from Coinbase), polled. A line of real prices only: Coinbase history for NEAR, and for other tokens only the prices the page has seen. Live activity: recent buys and sells against NEAR from FastNEAR's transaction index, classified by the same code as PnL. FDV = on-chain total supply × price; no market cap or volume (no reliable source). Buy, Sell and Send open the existing flows |
 | Transaction history | Real for operations sent from this browser, reconciled with the chain |
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
 | Positions, PnL | Real: balances from chain, Rhea prices, average-cost PnL from each account's on-chain history (see "Positions and PnL") |
@@ -86,7 +88,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 ```bash
 npm test              # unit + integration (real services against a fake chain), no network
 npm run e2e           # Phase 1 suite, 28 steps, against the demo server (5198)
-npm run e2e:real      # real-mode suite, 15 steps, against dev:e2e (5202); fake network, no live calls
+npm run e2e:real      # real-mode suite, 22 steps, against dev:e2e (5202); fake network, no live calls
 npm run e2e:real -- --width 390   # the same suite at phone width (also run at 768)
 npm run e2e:beta      # the public beta's COMING SOON features in a production build (port 5204)
 npm run e2e:telegram  # the built server + web app with Telegram and NEAR faked over HTTP

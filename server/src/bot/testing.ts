@@ -1,4 +1,5 @@
 import { createFakeChain, type FakeChainOptions } from '@/services/real/testing/fakeChain'
+import { WebSessions } from '../web/sessions'
 import type { Follower, TxIndex } from '../buybot/follower'
 import { createBuyMarket } from '../buybot/market'
 import { BuybotStore } from '../buybot/store'
@@ -204,6 +205,7 @@ export async function botHarness(
     buybot: null,
     custody,
     referrals: null,
+    web: custody ? new WebSessions(db, now) : null,
   }
   const referrals = createReferrals({
     db,

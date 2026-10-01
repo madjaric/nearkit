@@ -43,12 +43,13 @@ function RowStatus({ row }: { row: BatchRow }) {
   return <span className={cn('text-xs', row.status === 'duplicate' ? 'text-warn' : 'text-neg')}>{row.message}</span>
 }
 
-export function BatchSend() {
+/** `initialTokenId` / `initialSourceId`: preselected by a token screen's Send (`?token=&from=`). */
+export function BatchSend({ initialTokenId = null, initialSourceId = null }: { initialTokenId?: string | null; initialSourceId?: string | null } = {}) {
   const { data: tokens = [] } = useTokens()
-  const { sourceId, setSourceId, signers, source } = useSourceWallet()
+  const { sourceId, setSourceId, signers, source } = useSourceWallet(initialSourceId)
   const planners = usePlanners()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [tokenId, setTokenId] = useState<string>(NATIVE_TOKEN_ID)
+  const [tokenId, setTokenId] = useState<string>(initialTokenId ?? NATIVE_TOKEN_ID)
   const [mode, setMode] = useState<Mode>('paste')
   const caps = useCapabilities()
   const demo = caps.mode === 'demo'

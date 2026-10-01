@@ -1,4 +1,5 @@
 import type { AppEnv, EnvIssue } from '@/config/env'
+import type { NearKitWeb } from '../nearkitWeb'
 import type { NetworkConfig } from '@/config/networks'
 import { accountState, type AccountState } from '@/services/near/account'
 import { mapLimit } from '@/lib/async'
@@ -26,6 +27,8 @@ export interface NearContextOptions {
   issues?: readonly EnvIssue[]
   fetch?: typeof fetch
   kv?: KeyValue
+  /** Tests only: the NearKit web client (the app builds one from `env.apiUrl`). */
+  nearkit?: NearKitWeb
   wallet?: () => Promise<WalletAdapter>
   now?: () => number
   /**

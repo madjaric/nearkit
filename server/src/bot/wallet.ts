@@ -1,4 +1,5 @@
 import { NEAR_DECIMALS } from '@/config/networks'
+import type { Store } from '../db/store'
 import type { TokenListing } from '@/types/domain'
 import { bold, code, esc } from '../telegram/html'
 import { btn, keyboard, type BotCtx } from './context'
@@ -10,9 +11,13 @@ import { amountText, friendlyError, nearText } from './ui'
  */
 
 export async function linkedAccount(ctx: BotCtx): Promise<string | null> {
-  const { store, config } = ctx.deps
-  const links = await store.linksOf(ctx.user.id, config.network.id)
-  const def = (await store.getSettings(ctx.user.id)).defaultAccount
+  return linkedAccountOf(ctx.deps.store, ctx.user.id, ctx.deps.config.network.id)
+}
+
+/** A user's linked wallet: their default one, else the first (the bot and NearKit web ask the same way). */
+export async function linkedAccountOf(store: Pick<Store, 'linksOf' | 'getSettings'>, userId: number, network: string): Promise<string | null> {
+  const links = await store.linksOf(userId, network)
+  const def = (await store.getSettings(userId)).defaultAccount
   return links.find((l) => l.accountId === def)?.accountId ?? links[0]?.accountId ?? null
 }
 

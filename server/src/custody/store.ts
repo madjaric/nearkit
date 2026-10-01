@@ -72,6 +72,8 @@ export interface Intent<P = Record<string, unknown>, Q = Record<string, unknown>
   /** The server instance running it while in flight, and until when (its execution lease). */
   leaseOwner: string | null
   leaseUntil: number | null
+  /** Intents one confirmation covers (a trade prepared on NearKit web, one per wallet); null for a single one. */
+  groupId: string | null
   createdAt: number
   updatedAt: number
 }
@@ -201,6 +203,7 @@ interface IntentRow {
   replaced_by: string | null
   lease_owner: string | null
   lease_until: number | null
+  group_id: string | null
   created_at: number
   updated_at: number
 }
@@ -219,6 +222,7 @@ const toIntent = (r: IntentRow): Intent => ({
   replacedBy: r.replaced_by,
   leaseOwner: r.lease_owner,
   leaseUntil: r.lease_until,
+  groupId: r.group_id ?? null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 })
@@ -409,15 +413,44 @@ export class CustodyStore {
 
   // ─── intents ──────────────────────────────────────────────────────────────
 
-  async createIntent(i: { walletId: string; userId: number; chatId: number; kind: IntentKind; params: unknown; quote?: unknown; ttlMs: number }): Promise<Intent> {
+  async createIntent(i: {
+    walletId: string
+    userId: number
+    chatId: number
+    kind: IntentKind
+    params: unknown
+    quote?: unknown
+    ttlMs: number
+    /** One confirmation for several intents (see Intent.groupId). */
+    groupId?: string | null
+  }): Promise<Intent> {
     const id = randomToken(12)
     const t = this.now()
     await this.db.run(
-      `INSERT INTO wallet_intents (id, wallet_id, user_id, chat_id, kind, params, quote, status, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'quoted', ?, ?, ?)`,
-      [id, i.walletId, i.userId, i.chatId, i.kind, JSON.stringify(i.params), i.quote === undefined ? null : JSON.stringify(i.quote), t + i.ttlMs, t, t],
+      `INSERT INTO wallet_intents (id, wallet_id, user_id, chat_id, kind, params, quote, status, expires_at, created_at, updated_at, group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'quoted', ?, ?, ?, ?)`,
+      [id, i.walletId, i.userId, i.chatId, i.kind, JSON.stringify(i.params), i.quote === undefined ? null : JSON.stringify(i.quote), t + i.ttlMs, t, t, i.groupId ?? null],
     )
     return (await this.intent(id)) as Intent
+  }
+
+  /** The intents one confirmation covers, in their wallets' order (a group has one per wallet). */
+  async intentsOfGroup(groupId: string): Promise<Intent[]> {
+    return (
+      await this.db.all<IntentRow>('SELECT i.* FROM wallet_intents i JOIN trading_wallets w ON w.id = i.wallet_id WHERE i.group_id = ? ORDER BY w.slot, i.created_at, i.id', [
+        groupId,
+      ])
+    ).map(toIntent)
+  }
+
+  /** Quotes of this wallet still waiting for a Confirm. */
+  async quotedOf(walletId: string): Promise<Intent[]> {
+    return (await this.db.all<IntentRow>("SELECT * FROM wallet_intents WHERE wallet_id = ? AND status = 'quoted' ORDER BY created_at, id", [walletId])).map(toIntent)
+  }
+
+  /** Cancels the group's quotes still waiting, for their own user only; how many. */
+  async cancelGroup(groupId: string, userId: number): Promise<number> {
+    return this.db.run("UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE group_id = ? AND user_id = ? AND status = 'quoted'", [this.now(), groupId, userId])
   }
 
   async intent(id: string): Promise<Intent | null> {

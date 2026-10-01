@@ -1,6 +1,7 @@
 import type { EnvIssue } from '@/config/env'
 import type {
   ActivityItem,
+  ChartRange,
   CopyRule,
   CopyRuleInput,
   DcaInput,
@@ -16,6 +17,7 @@ import type {
   PortfolioSummary,
   Position,
   PresetInput,
+  PricePoint,
   Quote,
   QuoteRequest,
   ScanResult,
@@ -24,6 +26,7 @@ import type {
   SniperInput,
   TokenId,
   TokenListing,
+  TokenTrade,
   TransferRequest,
   ValuePoint,
   Wallet,
@@ -32,6 +35,7 @@ import type {
 } from '@/types/domain'
 import type { NetworkName, OperationPlan, OperationProgress } from '@/types/operations'
 import type { SignedMessageResult, SignMessageRequest } from './near/wallet'
+import type { NearKitWeb } from './nearkitWeb'
 
 /**
  * Service contracts. The UI reaches data and actions only through these
@@ -103,6 +107,22 @@ export interface TokenService {
   getMarket(ids?: TokenId[]): Promise<MarketQuote[]>
   /** NEAR/USD, or null where no price exists (testnet). */
   getNearPrice(): Promise<MarketQuote | null>
+  /** One token's live price from the app's price sources; null when none reports it (never zero, never estimated). */
+  getPrice(id: TokenId): Promise<MarketQuote | null>
+  /** Raw NEP-141 total supply, read from chain (for FDV); null for NEAR, or when it can't be read. */
+  getTotalSupply(id: TokenId): Promise<string | null>
+  /**
+   * USD prices over `range`, oldest first, from a real history source (Coinbase candles for NEAR
+   * on mainnet). Null when NearKit has no history source for the token: its screen then shows only
+   * the prices it saw itself. A failed read is empty. Never filled in or estimated.
+   */
+  getPriceHistory(id: TokenId, range: ChartRange): Promise<PricePoint[] | null>
+  /**
+   * Recent buys and sells of a token against NEAR, newest first, read from the chain's own record.
+   * Null when there is no source for it (NEAR itself, the demo); empty when none of its latest
+   * transactions is a trade. Never made up.
+   */
+  getActivity(id: TokenId): Promise<TokenTrade[] | null>
   scan(query: string): Promise<ScanResult | null>
   scanSuggestions(): Promise<{ query: string; label: string }[]>
 }
@@ -191,6 +211,12 @@ export interface NearKitServices {
   execution: ExecutionService
   automation: AutomationService
   portfolio: PortfolioService
+  /**
+   * The signed-in Telegram user's NearKit wallets (custody), through NearKit's server: sign-in,
+   * create, rename, and trades and sends that are confirmed in Telegram. Unavailable in the demo
+   * and in builds without a NearKit server.
+   */
+  nearkit: NearKitWeb
   /** Demo only: restore the seeded demo state. */
   resetDemo?: () => void
 }

@@ -1,4 +1,5 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
+import { canExecute, signsInBrowser } from '@/lib/wallets'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { NearKitError } from '@/services/near/errors'
 import type { Session, Wallet } from '@/types/domain'
@@ -50,5 +51,20 @@ export function requireSession(session: Session | null, networkLabel: string): S
 export function walletOf(wallets: readonly Wallet[], walletId: string): Wallet {
   const wallet = wallets.find((w) => w.id === walletId)
   if (!wallet) throw new NearKitError('INVALID_ACCOUNT', 'That wallet is not in your account list')
+  return wallet
+}
+
+/**
+ * A wallet that may act here, or NOT_EXECUTABLE before anything is quoted, planned or signed.
+ * `browser`: signed in this browser (a connected account; the demo's wallets). `any`: also a
+ * NearKit wallet (executed by NearKit's server after a Telegram confirmation). Watch-only
+ * wallets never act.
+ */
+export function executableWallet(wallets: readonly Wallet[], walletId: string, how: 'browser' | 'any' = 'browser'): Wallet {
+  const wallet = walletOf(wallets, walletId)
+  if (!canExecute(wallet))
+    throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is watch-only: it shows balances and activity, but can't trade or send. Connect it in your wallet to use it.`)
+  if (how === 'browser' && !signsInBrowser(wallet))
+    throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is a NearKit wallet: NearKit executes its trades and sends after you confirm them in Telegram.`)
   return wallet
 }

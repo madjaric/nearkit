@@ -15,6 +15,7 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { GAS_RESERVE_NEAR, GAS_RESERVE_YOCTO, NETWORK_FEE_NEAR_PER_TX } from '@/lib/fees'
 import { floorTo, formatAmount, formatNumber, toInputString } from '@/lib/format'
+import { signsInBrowser } from '@/lib/wallets'
 import { useHoldings, usePlanners, useSession, useTokens, useWallets } from '@/services/queries'
 import { OperationModal } from '../tools/OperationModal'
 
@@ -49,7 +50,8 @@ export function Consolidate() {
   }
 
   const destination = wallets.find((w) => w.id === destId)
-  const candidates = wallets.filter((w) => w.id !== destId)
+  // Sources sign here, in the connected wallet: a NearKit wallet sends through Telegram (its own Send), a watch-only one never.
+  const candidates = wallets.filter((w) => w.id !== destId && signsInBrowser(w))
   const funded = candidates.filter((w) => movable(w.id) > 0)
   const selectedIds = picked ?? funded.map((w) => w.id)
   const selected = funded.filter((w) => selectedIds.includes(w.id))

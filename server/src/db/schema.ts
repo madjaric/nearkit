@@ -436,6 +436,34 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       ALTER TABLE trading_wallets ADD COLUMN frozen_reason TEXT;
     `,
   },
+  {
+    version: 11,
+    name: 'NearKit web: sign-in links, sessions, and trades confirmed together in Telegram',
+    sql: `
+      -- Sign-in links the bot sends in the user's own chat (one-time codes), and the sessions they
+      -- open. Only SHA-256 of a code or token is stored. A session lists, creates and renames the
+      -- user's NearKit wallets and prepares trades and sends; each of those is confirmed in Telegram.
+      CREATE TABLE web_login_codes (
+        code_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        used_at INTEGER
+      );
+      CREATE INDEX web_login_codes_user ON web_login_codes(user_id, created_at);
+      CREATE TABLE web_sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        revoked_at INTEGER
+      );
+      CREATE INDEX web_sessions_user ON web_sessions(user_id);
+      -- The intents one confirmation covers (a trade prepared on NearKit web, one per wallet).
+      ALTER TABLE wallet_intents ADD COLUMN group_id TEXT;
+      CREATE INDEX wallet_intents_group ON wallet_intents(group_id);
+    `,
+  },
 ]
 
 /**
