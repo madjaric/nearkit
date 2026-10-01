@@ -11,7 +11,7 @@ describe('wallet classes', () => {
     const watch = w('trader.near', { source: 'watch', access: 'watch' })
     expect([nearkit, external, watch].map(sourceOf)).toEqual(['nearkit', 'external', 'watch'])
     expect([nearkit, external, watch].map(canExecute)).toEqual([true, true, false])
-    // NearKit wallets are never signed in the browser: NearKit executes them after a Telegram confirmation.
+    // NearKit wallets are never signed in the browser: NearKit's server executes them.
     expect([nearkit, external, watch].map(signsInBrowser)).toEqual([false, true, false])
     expect([nearkit, external, watch].map(executesViaNearKit)).toEqual([true, false, false])
   })

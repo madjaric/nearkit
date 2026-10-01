@@ -75,7 +75,7 @@ export interface Wallet {
   access?: 'signer' | 'watch'
   /**
    * Where its authority comes from. `nearkit`: a NearKit wallet of the signed-in Telegram user,
-   * executed by NearKit after a confirmation in Telegram. `external`: an account of the connected
+   * executed by NearKit's server (from NearKit web or Telegram). `external`: an account of the connected
    * wallet, signed there. `watch`: observed only (added by ID, or connected before but not now).
    * See `src/lib/wallets.ts`.
    */

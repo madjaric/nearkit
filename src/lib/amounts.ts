@@ -99,6 +99,16 @@ export function formatUnitsUp(raw: bigint, decimals: number, maxFraction: number
   return formatUnits(((raw + unit - 1n) / unit) * unit, decimals, { ...opts, maxFraction })
 }
 
+/**
+ * An amount that moved, shown with at most `maxFraction` digits and grouped. One too small for
+ * those digits reads "< 0.0001" (with 4), never "0": something did move.
+ */
+export function formatUnitsShown(raw: bigint, decimals: number, maxFraction: number): string {
+  const text = formatUnits(raw, decimals, { maxFraction, group: true })
+  if (raw <= 0n || /[1-9]/.test(text)) return text
+  return `< ${maxFraction > 0 ? `0.${'0'.repeat(maxFraction - 1)}1` : '1'}`
+}
+
 export const toYocto = (near: string): bigint => parseUnits(near, NEAR_DECIMALS)
 export const fromYocto = (yocto: bigint, opts?: FormatUnitsOptions): string => formatUnits(yocto, NEAR_DECIMALS, opts)
 

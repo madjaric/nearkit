@@ -442,7 +442,7 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
     sql: `
       -- Sign-in links the bot sends in the user's own chat (one-time codes), and the sessions they
       -- open. Only SHA-256 of a code or token is stored. A session lists, creates and renames the
-      -- user's NearKit wallets and prepares trades and sends; each of those is confirmed in Telegram.
+      -- user's NearKit wallets, and runs their trades and sends (group_id ties a Multi Buy together).
       CREATE TABLE web_login_codes (
         code_hash TEXT PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,

@@ -921,7 +921,7 @@ describe('wallet classes (real, fake chain)', () => {
     await services.wallets.getSession()
     const nearkitOnly = expect.objectContaining({
       code: 'NOT_EXECUTABLE',
-      message: expect.stringMatching(/NearKit wallet: NearKit executes its trades and sends after you confirm them in Telegram/),
+      message: expect.stringMatching(/NearKit wallet: NearKit's server executes its trades and sends, not a browser wallet/),
     })
     await expect(services.trading.prepareSwap({ tokenIn: 'near', tokenOut: USDT, amountIn: '1', slippagePct: 0.5, walletId: NK1 })).rejects.toEqual(nearkitOnly)
     await expect(

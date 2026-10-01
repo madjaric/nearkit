@@ -10,9 +10,9 @@ import type { Token, Wallet } from '@/types/domain'
 import { NearKitSendModal } from '../wallets/nearkit'
 
 /**
- * Send a token through the flow its wallet already has: a NearKit wallet's send (checked by
- * NearKit's server, reviewed and confirmed in Telegram), or Batch Send for an account of the
- * connected wallet. Only wallets that can send and hold the token are offered: never a
+ * Send a token through the flow its wallet already has: a NearKit wallet's send (reviewed
+ * here, checked and sent by NearKit's server), or Batch Send for an account of the connected
+ * wallet. Only wallets that can send and hold the token are offered: never a
  * watch-only one. With several, the user picks which.
  */
 export function SendTokenButton({
@@ -65,7 +65,7 @@ export function SendTokenButton({
               <span className="flex min-w-0 flex-col">
                 <span className="text-sm text-fg">{wallet.label}</span>
                 <span className="num text-xs text-fg-3">
-                  {formatAmount(amount, 2)} {token.symbol} · {executesViaNearKit(wallet) ? 'confirmed in Telegram' : 'signed in your wallet'}
+                  {formatAmount(amount, 2)} {token.symbol} · {executesViaNearKit(wallet) ? 'sent by NearKit' : 'signed in your wallet'}
                 </span>
               </span>
               <Button size="sm" variant="secondary" onClick={() => sendFromWallet(wallet)}>

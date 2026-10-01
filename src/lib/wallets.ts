@@ -2,8 +2,8 @@ import type { Wallet, WalletPreset } from '@/types/domain'
 
 /**
  * The three kinds of wallet NearKit shows, and what each may do:
- * - `nearkit`: a NearKit wallet (custody) of the signed-in Telegram user. It trades, sells and
- *   sends through NearKit's server; every value-moving action is confirmed in Telegram.
+ * - `nearkit`: a NearKit wallet (custody) of the signed-in Telegram user. It buys, sells and
+ *   sends through NearKit's server, from NearKit web or from Telegram: two independent clients.
  * - `external`: an account of the wallet connected in this browser. Its own wallet signs.
  * - `watch`: observed only (balances, positions, activity). It never trades, sends, joins a
  *   Multi Buy or Multi Sell, or an executable preset.
@@ -26,7 +26,7 @@ export const canExecute = (w: Pick<Wallet, 'source' | 'access'>) => sourceOf(w) 
 /** Signed right here by the connected wallet (or the demo simulator). */
 export const signsInBrowser = (w: Pick<Wallet, 'source' | 'access'>) => sourceOf(w) === 'external'
 
-/** Executed by NearKit's server, after the user confirms in Telegram. */
+/** Executed by NearKit's server (started on NearKit web or in Telegram), never signed in the browser. */
 export const executesViaNearKit = (w: Pick<Wallet, 'source' | 'access'>) => sourceOf(w) === 'nearkit'
 
 /** A preset's members that can run now, and the ones left out (watch-only, or no longer listed). */

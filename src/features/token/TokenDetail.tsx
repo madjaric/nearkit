@@ -14,7 +14,7 @@ import { Skeleton, Tag } from '@/components/ui/Indicators'
 import { Pct } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
-import { formatUnits } from '@/lib/amounts'
+import { formatUnits, formatUnitsShown } from '@/lib/amounts'
 import { formatAccount, formatAgo, formatAmount, formatDateTime, formatUsdCompact, formatUsdPrice } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { canExecute, executesViaNearKit } from '@/lib/wallets'
@@ -255,8 +255,8 @@ function TokenScreen({ token }: { token: Token }) {
                 className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-sm sm:grid-cols-[3rem_9rem_minmax(0,1fr)_minmax(0,9rem)_4.5rem]"
               >
                 <span className={t.side === 'buy' ? 'keycap text-2xs text-accent' : 'keycap text-2xs text-neg'}>{t.side === 'buy' ? 'Buy' : 'Sell'}</span>
-                <span className="num text-fg">{`${formatUnits(BigInt(t.near), 24, { maxFraction: 4, group: true })} NEAR`}</span>
-                <span className="num truncate text-fg-2">{`${formatUnits(BigInt(t.amount), token.decimals, { maxFraction: 2, group: true })} ${token.symbol}`}</span>
+                <span className="num text-fg">{`${formatUnitsShown(BigInt(t.near), 24, 4)} NEAR`}</span>
+                <span className="num truncate text-fg-2">{`${formatUnitsShown(BigInt(t.amount), token.decimals, 2)} ${token.symbol}`}</span>
                 <span className="num hidden truncate text-xs text-fg-3 sm:block" title={t.account}>
                   {formatAccount(t.account, 18)}
                 </span>

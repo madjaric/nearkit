@@ -19,7 +19,7 @@ export function useNearKitSignIn() {
         toast.push({
           tone: 'accent',
           title: `Signed in as ${s.userName}`,
-          detail: 'Your NearKit wallets are listed here. Every trade or send you start on this page is confirmed in Telegram.',
+          detail: 'Your NearKit wallets are listed here: buy, sell and send from them right on this page.',
         }),
       onError: (e) => toast.push({ tone: 'neg', title: 'Not signed in', detail: describeError(e).message }),
     })

@@ -57,14 +57,13 @@ export function walletOf(wallets: readonly Wallet[], walletId: string): Wallet {
 /**
  * A wallet that may act here, or NOT_EXECUTABLE before anything is quoted, planned or signed.
  * `browser`: signed in this browser (a connected account; the demo's wallets). `any`: also a
- * NearKit wallet (executed by NearKit's server after a Telegram confirmation). Watch-only
- * wallets never act.
+ * NearKit wallet (executed by NearKit's server). Watch-only wallets never act.
  */
 export function executableWallet(wallets: readonly Wallet[], walletId: string, how: 'browser' | 'any' = 'browser'): Wallet {
   const wallet = walletOf(wallets, walletId)
   if (!canExecute(wallet))
     throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is watch-only: it shows balances and activity, but can't trade or send. Connect it in your wallet to use it.`)
   if (how === 'browser' && !signsInBrowser(wallet))
-    throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is a NearKit wallet: NearKit executes its trades and sends after you confirm them in Telegram.`)
+    throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is a NearKit wallet: NearKit's server executes its trades and sends, not a browser wallet.`)
   return wallet
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AmountError,
   formatUnits,
+  formatUnitsShown,
   formatUnitsUp,
   fractionOf,
   fromYocto,
@@ -197,5 +198,20 @@ describe('formatUnitsUp: requirements shown short, never understated', () => {
     expect(formatUnitsUp(322900000000000000000000n, 24, 4)).toBe('0.3229')
     expect(formatUnitsUp(1n, 24, 4)).toBe('0.0001')
     expect(formatUnitsUp(0n, 24, 4)).toBe('0')
+  })
+})
+
+describe('formatUnitsShown: an amount that moved never reads as zero', () => {
+  it('shows what fits in the digits, grouped', () => {
+    expect(formatUnitsShown(134n * YOCTO, 24, 4)).toBe('134')
+    expect(formatUnitsShown(1_234_567_800_000_000_000_000_000_000n, 24, 4)).toBe('1,234.5678')
+  })
+
+  it('an amount too small for the digits is "< 0.0001", never "0"', () => {
+    // 0.000002047742709875259207 NEAR: a real dust trade's proceeds.
+    expect(formatUnitsShown(2_047_742_709_875_259_207n, 24, 4)).toBe('< 0.0001')
+    expect(formatUnitsShown(1n, 6, 2)).toBe('< 0.01')
+    expect(formatUnitsShown(1n, 0, 0)).toBe('1')
+    expect(formatUnitsShown(0n, 24, 4)).toBe('0')
   })
 })

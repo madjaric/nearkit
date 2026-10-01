@@ -305,7 +305,7 @@ function ApprovePanel({ apiUrl, wallet, destination }: { apiUrl: string; wallet:
         </Lines>
         {approved.isSuccess ? (
           <p className="text-sm text-fg" role="status">
-            Approved. Back in Telegram, tap Continue to review the withdrawal.
+            Approved. Go back to where you started the send and review it again: Review on NearKit web, or Continue in Telegram.
           </p>
         ) : (
           <>

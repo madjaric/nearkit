@@ -213,8 +213,8 @@ export interface NearKitServices {
   portfolio: PortfolioService
   /**
    * The signed-in Telegram user's NearKit wallets (custody), through NearKit's server: sign-in,
-   * create, rename, and trades and sends that are confirmed in Telegram. Unavailable in the demo
-   * and in builds without a NearKit server.
+   * create, rename, and the trades and sends NearKit's server runs, with no Telegram step.
+   * Unavailable in the demo and in builds without a NearKit server.
    */
   nearkit: NearKitWeb
   /** Demo only: restore the seeded demo state. */
