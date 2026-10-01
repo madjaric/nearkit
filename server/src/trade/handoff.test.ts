@@ -3,6 +3,7 @@ import { loadConfig } from '../config'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.rpc.json'
 import aggSell from '@/services/near/fixtures/flows/aggregator-sell.rpc.json'
 import aggBuy from '@/services/near/fixtures/flows/aggregator-buy-with-rhea.rpc.json'
+import legacyBuy from '@/services/near/fixtures/flows/legacy-log-buy-blackdragon.rpc.json'
 import type { RpcTxResult } from '@/services/near/rpc'
 import { createFakeChain, type FakeChain } from '@/services/real/testing/fakeChain'
 import { migrate } from '../db/schema'
@@ -15,6 +16,9 @@ import { createHandoffs, handoffUrl, HANDOFF_TTL_MS, type Handoffs } from './han
 const BUY = directBuy as unknown as RpcTxResult
 const REFUNDED = aggSell as unknown as RpcTxResult
 const SING = 'singularty.nearlytrade.near'
+// blackdragonmeme.near bought BLACKDRAGON, a token whose contract logs transfers as text lines (no events).
+const BD_BUY = legacyBuy as unknown as RpcTxResult
+const BLACKDRAGON = 'blackdragon.tkn.near'
 
 let now = 1_000_000
 let db: SqliteDatabase
@@ -29,7 +33,14 @@ beforeEach(async () => {
   await migrate(db)
   const store = new Store(db, () => now)
   await store.upsertUser({ userId: 7, username: 'm', firstName: 'M', languageCode: null })
-  chain = createFakeChain({ tokens: { [SING]: { symbol: 'SINGULARTY', decimals: 18, boundsMin: 1n }, 'token.rhealab.near': { symbol: 'RHEA', decimals: 18, boundsMin: 1n } } })
+  chain = createFakeChain({
+    tokens: {
+      [SING]: { symbol: 'SINGULARTY', decimals: 18, boundsMin: 1n },
+      'token.rhealab.near': { symbol: 'RHEA', decimals: 18, boundsMin: 1n },
+      [BLACKDRAGON]: { symbol: 'BLACKDRAGON', decimals: 24, boundsMin: 1n },
+    },
+  })
+  chain.settle(BD_BUY.transaction.hash, BD_BUY)
   chain.settle(BUY.transaction.hash, BUY)
   chain.settle(REFUNDED.transaction.hash, REFUNDED)
   chain.settle((aggBuy as unknown as RpcTxResult).transaction.hash, aggBuy as unknown as RpcTxResult)
@@ -76,6 +87,24 @@ describe('trade handoffs', () => {
     // A second report changes nothing and sends nothing.
     expect(await handoffs.report(handoff.id, [BUY.transaction.hash])).toEqual({ status: 'confirmed', outcome: 'traded' })
     expect(sent).toHaveLength(1)
+  })
+
+  it('a token whose contract logs its transfers as text lines (BLACKDRAGON): the trade is confirmed too, never reported as failed', async () => {
+    const { handoff } = await handoffs.create({
+      userId: 7,
+      chatId: 7,
+      accountId: 'blackdragonmeme.near',
+      side: 'buy',
+      tokenIn: 'near',
+      tokenOut: BLACKDRAGON,
+      amountIn: '134',
+      slippagePct: 1,
+    })
+    expect(await handoffs.report(handoff.id, [BD_BUY.transaction.hash])).toEqual({ status: 'confirmed', outcome: 'traded' })
+    expect((await handoffs.get(handoff.id))?.result?.trade).toMatchObject({
+      amount: '32826022038988341595633215922069281',
+      paid: [{ asset: 'near', amount: '134000000000000000000000000' }],
+    })
   })
 
   it('passes on the app fee the chain reports for a traded handoff (referral accounting), with the account it went to', async () => {

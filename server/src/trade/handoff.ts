@@ -175,7 +175,8 @@ export function createHandoffs(deps: {
       // The swap is the last transaction (registrations come first). Read what the account got from it.
       const last = txs[txs.length - 1] as (typeof txs)[number]
       const token = h.side === 'sell' ? h.tokenIn : h.tokenOut
-      const trade: Trade | undefined = detectTrades(last.tx, token, { wrapContract: deps.network.wrapContract }).find((t) => t.account === h.accountId)
+      // A token whose contract predates NEP-141 events logs its transfers as text lines: those count too.
+      const trade: Trade | undefined = detectTrades(last.tx, token, { wrapContract: deps.network.wrapContract, legacyTokens: [token] }).find((t) => t.account === h.accountId)
       const failed = txs.some((t) => t.failed)
       const outcome: HandoffResult['outcome'] = trade ? 'traded' : failed ? 'failed' : 'no-trade'
       const result: HandoffResult = {

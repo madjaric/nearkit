@@ -8,8 +8,9 @@ import type { RpcTxResult } from './rpc'
  *
  * Sources of truth, per receipt that SUCCEEDED (a failed receipt changes nothing):
  * - NEP-141 `EVENT_JSON` logs: ft_transfer, ft_mint, ft_burn.
- * - Legacy text logs for tokens that predate events (wrap.near): "Deposit N NEAR to A",
- *   "Transfer N from A to B", "Withdraw N NEAR from A", "Refund N from B to A".
+ * - Legacy text logs for tokens that predate events (wrap.near, and any `legacyTokens`):
+ *   "Deposit N NEAR to A", "Transfer N from A to B", "Withdraw N NEAR from A",
+ *   "Refund N from B to A". A receipt with NEP-141 events is read from its events alone.
  * - Native NEAR: deposits attached to Transfer and FunctionCall actions. Gas refunds
  *   (receipts from `system`) are not income; gas is counted once, as `gasBurnt`.
  * Storage deposits and the 1 yoctoNEAR security deposit NEP-141 requires are tagged,
@@ -229,8 +230,11 @@ export function flowsOf(tx: NormalizedTx, options: FlowOptions): Flow[] {
         flows.push({ asset: 'near', from: r.predecessorId, to: r.receiverId, amount: a.deposit, kind, receiptId: r.id })
       }
     }
-    for (const line of r.logs) {
-      const event = nep141(line)
+    // A contract that logs events is read from them; a text line of the same transfer would count it twice.
+    const events = r.logs.map(nep141)
+    const hasEvents = events.some((e) => e !== null)
+    for (const [i, line] of r.logs.entries()) {
+      const event = events[i]
       if (event) {
         for (const d of event.data) {
           const amount = big(d.amount)
@@ -242,7 +246,7 @@ export function flowsOf(tx: NormalizedTx, options: FlowOptions): Flow[] {
         }
         continue
       }
-      if (legacy.has(r.executorId)) {
+      if (!hasEvents && legacy.has(r.executorId)) {
         const l = parseLegacyFtLog(line)
         if (l && l.amount > 0n) flows.push({ asset: r.executorId, ...l, receiptId: r.id })
       }

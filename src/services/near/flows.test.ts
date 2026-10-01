@@ -24,6 +24,35 @@ describe('legacy NEP-141 logs (wrap.near predates events)', () => {
     expect(parseLegacyFtLog('Refund 3 from bob.near to alice.near')).toEqual({ kind: 'transfer', from: 'bob.near', to: 'alice.near', amount: 3n })
     expect(parseLegacyFtLog('Swapped 1 a.near for 2 b.near')).toBeNull()
   })
+
+  it('a contract that logs a transfer both ways (an NEP-141 event and a text line) counts it once, from the event', () => {
+    const tx: NormalizedTx = {
+      hash: 'h',
+      signerId: 'alice.near',
+      receiverId: 'tok.near',
+      initiators: ['alice.near'],
+      gasBurnt: 0n,
+      receipts: [
+        {
+          id: 'r1',
+          predecessorId: 'alice.near',
+          receiverId: 'tok.near',
+          executorId: 'tok.near',
+          actions: [],
+          logs: [
+            'EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":[{"old_owner_id":"alice.near","new_owner_id":"bob.near","amount":"5"}]}',
+            'Transfer 5 from alice.near to bob.near',
+          ],
+          success: true,
+          tokensBurnt: 0n,
+          children: [],
+        },
+      ],
+      blockHeight: 1,
+      timestampMs: 1,
+    }
+    expect(flowsOf(tx, { ...opts, legacyTokens: ['tok.near'] })).toEqual([{ asset: 'tok.near', kind: 'transfer', from: 'alice.near', to: 'bob.near', amount: 5n, receiptId: 'r1' }])
+  })
 })
 
 describe('normalizing transactions', () => {

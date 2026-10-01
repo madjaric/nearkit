@@ -9,6 +9,8 @@ import type { NearContext } from './context'
  * flows.ts (the same code as positions, PnL and the buy bot) says who bought or sold the token
  * in it. Only trades against NEAR (or wNEAR) are shown, with what each actually paid or got:
  * a transfer, a mint, or a trade against another token is never labelled a buy or a sell.
+ * A token whose contract predates NEP-141 events logs its transfers as text lines; those are
+ * the token's own record too, so they count.
  */
 
 /** The latest transactions read per refresh. */
@@ -20,7 +22,7 @@ type Read = Omit<TokenTrade, 'hash' | 'at'>[]
 
 /** The token's trades against NEAR in one transaction (none when it isn't one). */
 export function nearTrades(tx: NormalizedTx, token: string, wrapContract: string): Read {
-  return detectTrades(tx, token, { wrapContract }).flatMap((t) => {
+  return detectTrades(tx, token, { wrapContract, legacyTokens: [token] }).flatMap((t) => {
     // The other side of the trade: NEAR alone (wNEAR folded in); anything else isn't priced in NEAR.
     const other = t.side === 'buy' ? t.paid : t.received
     const near = other.length === 1 && other[0]?.asset === 'near' ? other[0].amount : null

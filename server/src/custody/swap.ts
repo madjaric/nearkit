@@ -165,6 +165,13 @@ const plannedOf = (walletAccount: string, plan: WalletTxPlan): PlannedTransactio
 const gasOf = (txs: { result: RpcTxResult }[]) => txs.reduce((s, c) => s + fromRpc(c.result).gasBurnt, 0n)
 
 /**
+ * What the wallet traded of `token` in this transaction. A token whose contract predates NEP-141
+ * events logs its transfers as text lines: those are its record too.
+ */
+const walletTrade = (result: RpcTxResult, token: string, walletAccount: string, network: NetworkConfig) =>
+  detectTrades(fromRpc(result), token, { wrapContract: network.wrapContract, legacyTokens: [token] }).find((t) => t.account === walletAccount)
+
+/**
  * A buy whose tokens already reached the wallet, before the chain's last settlement callbacks
  * ran (minutes later under congestion): done for the user, reported as bought right away. The
  * swap transaction may still be running (`last.result` partial); its final record is filed when
@@ -176,7 +183,7 @@ export function deliveredTrade(params: SwapParams, walletAccount: string, earlie
   const verdict = swapDelivered(last.result, plannedOf(walletAccount, last.plan), { token: params.token, recipient: walletAccount })
   const received = verdict?.swap?.received
   if (!verdict || !received) return null
-  const trade = detectTrades(fromRpc(last.result), params.token, { wrapContract: network.wrapContract }).find((t) => t.account === walletAccount)
+  const trade = walletTrade(last.result, params.token, walletAccount, network)
   const spent = trade?.paid.find((l) => l.asset === 'near')?.amount ?? null
   const fee = verdict.swap?.appFee ?? null
   return {
@@ -314,7 +321,7 @@ export function createSwapService(near: ServerNear) {
       const last = confirmed.at(-1)
       if (!last) return { ok: false, message: 'Nothing was sent.', hashes }
       const verdict = classifyOutcome(last.result, plannedOf(wallet.accountId, last.plan))
-      const trade = detectTrades(fromRpc(last.result), params.token, { wrapContract: ctx.network.wrapContract }).find((t) => t.account === wallet.accountId)
+      const trade = walletTrade(last.result, params.token, wallet.accountId, ctx.network)
       const gas = gasOf(confirmed)
       if (verdict.phase === 'success' && trade) {
         const other = (params.side === 'buy' ? trade.paid : trade.received).find((l) => l.asset === 'near')

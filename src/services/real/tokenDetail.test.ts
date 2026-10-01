@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { parseEnv } from '@/config/env'
 import { NETWORKS, type NetworkId } from '@/config/networks'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
+import legacyBuy from '@/services/near/fixtures/flows/legacy-log-buy-blackdragon.fastnear.json'
+import legacySell from '@/services/near/fixtures/flows/legacy-log-sell-blackdragon.fastnear.json'
 import { createNearServices } from './index'
 import { memoryStorage } from './stores'
 import { createFakeChain } from './testing/fakeChain'
@@ -18,6 +20,14 @@ const UNPRICED = 'unpriced.nearlytrade.near'
 const T0 = Date.UTC(2026, 8, 30, 12, 0, 0)
 /** mort1705.tg bought SINGULARTY for 1 NEAR on mainnet (2026-09-29): the real transaction. */
 const BUY = directBuy as unknown as { transaction: { hash: string }; block_height: number; block_timestamp: string }
+/**
+ * BLACKDRAGON's contract predates NEP-141 events: it logs each transfer as a text line. The real
+ * transactions: blackdragonmeme.near sold on Rhea for NEAR, then bought for wNEAR (2026-10-01).
+ */
+const BLACKDRAGON = 'blackdragon.tkn.near'
+const BD_SELL = legacySell as unknown as typeof BUY
+const BD_BUY = legacyBuy as unknown as typeof BUY
+const atOf = (t: typeof BUY) => Number(BigInt(t.block_timestamp) / 1_000_000n)
 
 function setup(opts: { network?: NetworkId; singPrice?: () => number; candles?: (url: URL) => unknown; index?: { txs: unknown[]; fail?: boolean } } = {}) {
   let now = T0
@@ -192,6 +202,29 @@ describe('live activity: recent buys and sells, read from the chain’s own reco
     ])
     // The latest transactions that touched the token's own contract.
     expect(reads.account).toEqual([SING])
+  })
+
+  it('a token whose contract logs its transfers as text lines, with no events (BLACKDRAGON): its buys and sells are shown too', async () => {
+    const { services } = setup({ index: { txs: [BD_SELL, BD_BUY] } })
+    expect(await services.tokens.getActivity(BLACKDRAGON)).toEqual([
+      {
+        hash: BD_BUY.transaction.hash,
+        side: 'buy',
+        account: 'blackdragonmeme.near',
+        amount: '32826022038988341595633215922069281',
+        near: '134000000000000000000000000',
+        at: atOf(BD_BUY),
+      },
+      {
+        hash: BD_SELL.transaction.hash,
+        side: 'sell',
+        account: 'blackdragonmeme.near',
+        amount: '33300000000000000000000000000000000',
+        // Rhea unwrapped the proceeds and paid them out as NEAR.
+        near: '133930913650008363905892289',
+        at: atOf(BD_SELL),
+      },
+    ])
   })
 
   it('a transaction that isn’t a trade of this token against NEAR is not shown as one', async () => {
