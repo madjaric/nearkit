@@ -9,6 +9,9 @@ import { NearKitError } from '@/services/near/errors'
  */
 
 export interface FindPathParams {
+  /** The pair as the user knows it, for a refusal's wording only. */
+  symbolIn?: string
+  symbolOut?: string
   tokenIn: string
   tokenOut: string
   amountIn: bigint
@@ -46,9 +49,19 @@ export function findPathUrl(base: string, p: FindPathParams): string {
 }
 
 export function parseFindPath(json: unknown, p: FindPathParams): ClassicRoute {
-  const data = obj(json) && json.result_code === 0 && obj(json.result_data) ? json.result_data : null
+  const pair = p.symbolIn && p.symbolOut ? `${p.symbolIn} → ${p.symbolOut}` : 'this pair'
+  // Rhea's own refusal keeps its code and words; code 0 with no route is "nothing for this amount".
+  if (!obj(json) || json.result_code !== 0) {
+    const code = obj(json) && typeof json.result_code === 'number' ? json.result_code : null
+    const words = obj(json) && typeof json.result_message === 'string' ? json.result_message.trim() : ''
+    throw new NearKitError('QUOTE_UNAVAILABLE', `Rhea’s router refused this quote (code ${code ?? '?'}${words ? `: ${words}` : ''}). Try again in a moment.`)
+  }
+  const data = obj(json.result_data) ? json.result_data : null
   if (!data || !Array.isArray(data.routes) || data.routes.length === 0 || typeof data.amount_out !== 'string' || !INT.test(data.amount_out) || data.amount_out === '0') {
-    throw new NearKitError('QUOTE_UNAVAILABLE', 'Rhea found no route for this trade')
+    throw new NearKitError(
+      'QUOTE_UNAVAILABLE',
+      `Rhea’s router found no route for this amount of ${pair} right now. An amount too small or too large to fill gets this answer; try a different amount, or again later.`,
+    )
   }
   const actions: ClassicAction[] = []
   const routeTokens = [p.tokenIn]

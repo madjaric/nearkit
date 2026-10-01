@@ -129,7 +129,7 @@ describe('trading from Telegram', () => {
   it('says so plainly when Rhea has no route, and prepares nothing', async () => {
     const h = await bot({ noRoute: true })
     await h.say(`/buy ${USDT} 1`)
-    expect(h.last()?.text).toContain('No route is available for this pair right now.')
+    expect(h.last()?.text).toMatch(/Rhea’s (router|aggregator) refused this quote \(code 1: no path\)/)
     expect(h.last()?.text).toContain('Nothing was prepared')
     expect(await h.store.db.all('SELECT * FROM handoffs')).toEqual([])
   })

@@ -63,7 +63,11 @@ export function HandoffBanner({ id, report }: { id: string; report: HandoffRepor
   )
 }
 
-/** A token the link names but this browser's list doesn't have yet: read it from chain, add it on request. */
+/**
+ * A token the link names but this browser's list doesn't have yet: read it from chain, added on
+ * request. Being in the list is all that's missing: it says nothing about the token's market or
+ * whether Rhea routes a trade of it (the quote decides that).
+ */
 export function RequestedToken({ contract }: { contract: string }) {
   const lookup = useTokenLookup(contract)
   const importer = useImportToken()
@@ -79,12 +83,12 @@ export function RequestedToken({ contract }: { contract: string }) {
     <Panel className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div className="min-w-0 text-sm">
         <p className="text-fg">
-          {t.symbol} isn’t in your token list yet <Tag tone="neutral">Not listed</Tag>
+          {t.symbol} isn’t in your token list yet <Tag tone="neutral">Not in your list</Tag>
         </p>
         <p className="num break-all text-xs text-fg-3">
           {t.name} · {t.decimals} decimals · {t.contract}
         </p>
-        <p className="text-[11px] text-fg-4">Read from chain. Whether Rhea can trade it shows in the quote.</p>
+        <p className="text-[11px] text-fg-4">Read from chain. Adding it only keeps it in your list; whether a trade can route shows in the quote.</p>
         {importer.isError && <p className="text-xs text-neg">{describeError(importer.error).message}</p>}
       </div>
       <Button variant="secondary" loading={importer.isPending} disabled={importer.isPending} onClick={() => importer.mutate(contract)}>

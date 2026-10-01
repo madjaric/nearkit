@@ -59,11 +59,11 @@ describe('global search opens a token’s own page (Token Detail), never the swa
 })
 
 describe('global search: a contract in no list', () => {
-  it('shows the token read from chain (symbol, name, decimals, not listed) and opens its Token Detail', () => {
+  it('shows the token read from chain (symbol, name, decimals, not in your list) and opens its Token Detail', () => {
     const results = buildResults(SING, listed, { token: sing, note: null, state: 'found' })
     const token = results.find((r) => r.group === 'Tokens')
     expect(token).toMatchObject({ label: 'SINGULARTY', to: `/token/${encodeURIComponent(SING)}`, token: sing })
-    expect(String(token?.detail)).toBe('Singularity is NEAR · 18 decimals · not listed')
+    expect(String(token?.detail)).toBe('Singularity is NEAR · 18 decimals · not in your list')
     // The scan stays on offer, after the token.
     expect(results.map((r) => r.group)).toEqual(['Tokens', 'Scan'])
   })

@@ -6,7 +6,10 @@ export default function TokenPage() {
   const { id = '' } = useParams()
   return (
     <Page>
-      <PageHeader title="Token" description="The live price, the prices that exist for it, and your balance. Buy, Sell and Send open NearKit’s own flows." />
+      <PageHeader
+        title="Token"
+        description="Its market: price, market cap, liquidity and volume from the sources that have them, real price history, and recent trades. Buy, Sell and Send open NearKit’s own flows."
+      />
       <TokenDetail key={id} tokenId={id} />
     </Page>
   )

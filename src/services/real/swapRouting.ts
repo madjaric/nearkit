@@ -130,6 +130,8 @@ export function createSwapRouter(ctx: NearContext) {
           skipUnwrapNativeToken: !nativeOut,
           appFeeRate: NEARKIT_FEE_BPS,
           appFeeRecipient: recipient,
+          symbolIn: tokenIn.symbol,
+          symbolOut: tokenOut.symbol,
         }),
         aggregatorFeeConfig(),
         verify ? assertFeeAccountExists(recipient) : null,
@@ -178,7 +180,7 @@ export function createSwapRouter(ctx: NearContext) {
       }
     }
 
-    const r = await findPath.quote({ tokenIn: routeIn, tokenOut: routeOut, amountIn, slippage })
+    const r = await findPath.quote({ tokenIn: routeIn, tokenOut: routeOut, amountIn, slippage, symbolIn: tokenIn.symbol, symbolOut: tokenOut.symbol })
     return {
       router: 'classic',
       tokenIn,

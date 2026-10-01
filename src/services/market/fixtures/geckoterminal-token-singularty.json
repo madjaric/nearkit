@@ -1,0 +1,30 @@
+{
+  "data": {
+    "id": "near_singularty.nearlytrade.near",
+    "type": "token",
+    "attributes": {
+      "address": "singularty.nearlytrade.near",
+      "name": "Singularity is NEAR",
+      "symbol": "SINGULARTY",
+      "decimals": 18,
+      "image_url": null,
+      "coingecko_coin_id": null,
+      "total_supply": "1000000000000000000000000000.0",
+      "normalized_total_supply": "1000000000.0",
+      "price_usd": "0.0002343256888",
+      "fdv_usd": "234325.688808999",
+      "total_reserve_in_usd": "35582.0204261103444283287458469467",
+      "volume_usd": { "h24": "56528.6192700837" },
+      "market_cap_usd": null
+    },
+    "relationships": {
+      "top_pools": {
+        "data": [
+          { "id": "near_refv2-singularty.nearlytrade.near:wrap.near:10000", "type": "pool" },
+          { "id": "near_refv1-8742", "type": "pool" },
+          { "id": "near_refv1-8741", "type": "pool" }
+        ]
+      }
+    }
+  }
+}

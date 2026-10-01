@@ -1,5 +1,5 @@
 import { ExternalLink } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ValueTrace } from '@/components/chart/ValueTrace'
 import { AccountText } from '@/components/domain/Account'
@@ -13,28 +13,43 @@ import { InfoTip } from '@/components/ui/Help'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
 import { Pct } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
+import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits, formatUnitsShown } from '@/lib/amounts'
-import { formatAccount, formatAgo, formatAmount, formatDateTime, formatUsdCompact, formatUsdPrice } from '@/lib/format'
+import { formatAccount, formatAgo, formatAmount, formatCompact, formatDateTime, formatUsdCompact, formatUsdPrice } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { canExecute, executesViaNearKit } from '@/lib/wallets'
 import { describeError } from '@/services/errors'
+import { CHART_RANGES } from '@/services/near/candles'
 import { explorerTokenUrl, explorerTxUrl } from '@/services/near/explorer'
-import { useCapabilities, useHoldings, usePriceHistory, useTokenActivity, useTokenLookup, useTokenPrice, useTokens, useTotalSupply, useWallets } from '@/services/queries'
+import {
+  useCapabilities,
+  useHoldings,
+  useImportToken,
+  usePriceHistory,
+  useTokenActivity,
+  useTokenLookup,
+  useTokenMarket,
+  useTokens,
+  useTotalSupply,
+  useWallets,
+} from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
-import type { ChartRange, Holding, Token } from '@/types/domain'
-import { RequestedToken } from '../trade/TelegramHandoff'
+import type { ChartRange, Holding, MarketFigure, Token } from '@/types/domain'
 import { chartView } from './chartView'
 import { livePrices, recordPrice, subscribeLivePrices } from './livePrices'
 import { SendTokenButton } from './SendToken'
 
 /**
- * A token's screen: its live price, a simple line of the prices that exist, the user's balance,
- * and Buy, Sell and Send through the flows NearKit already has. Only observed data: a price no
- * source reports is "Price unavailable", and a history no source has is not drawn.
+ * A token's screen: its market figures (price, 24h change, market cap, FDV, liquidity, volume),
+ * each from a source that has it or saying why it's missing; a chart of real market prices
+ * (a history source's candles, then the live price); its recent trades; the user's balance; and
+ * Buy, Sell and Send through the flows NearKit already has. Four things are kept apart here:
+ * that the token exists on chain, that it has a market, that Rhea can route a given trade (the
+ * quote decides that, in the ticket), and that it is in the user's own token list.
  */
 
-const RANGES: readonly ChartRange[] = ['1m', '5m', '15m', '1H', '4H', '1D']
+const RANGES: readonly ChartRange[] = ['1H', '4H', '1D', '1W', '1M']
 
 /** The token for a route id: listed, else read on chain by its contract (nothing saved). */
 export function TokenDetail({ tokenId }: { tokenId: string }) {
@@ -66,13 +81,7 @@ export function TokenDetail({ tokenId }: { tokenId: string }) {
         </EmptyState>
       </Panel>
     )
-  return (
-    <>
-      {/* Found by its contract but in no list yet: added on request, like the swap does. */}
-      {!listed && token.contract && <RequestedToken contract={token.contract} />}
-      <TokenScreen token={token} />
-    </>
-  )
+  return <TokenScreen token={token} inList={listed !== null} />
 }
 
 /** Exact total when every balance is known exactly; else the display sum. */
@@ -89,15 +98,38 @@ function totalOf(held: readonly Holding[], decimals: number): string {
   )
 }
 
-function TokenScreen({ token }: { token: Token }) {
+const valueOf = (f: MarketFigure | undefined): number | null => (f && (f.state === 'known' || f.state === 'stale') ? f.value : null)
+
+/** The line under a figure: its source and age, or that it's missing (the full reason is its title, and in Details). */
+function figureSub(f: MarketFigure | undefined, now: number): { text: string; title?: string } {
+  if (!f) return { text: '' }
+  if (f.state === 'known') return { text: `${f.source} · ${formatAgo(f.at, now)}` }
+  if (f.state === 'stale') return { text: `${f.source} · stale, ${formatAgo(f.at, now)}`, title: f.reason }
+  if (f.state === 'unavailable') return { text: 'Unavailable', title: f.reason }
+  return { text: 'Not applicable', title: f.reason }
+}
+
+/** The figure's whole story, for Details. */
+function figureNote(f: MarketFigure | undefined, now: number): string {
+  if (!f) return '…'
+  if (f.state === 'known') return `${f.source}, updated ${formatAgo(f.at, now)}`
+  if (f.state === 'stale') return `${f.source}, last updated ${formatAgo(f.at, now)}; ${f.reason}`
+  if (f.state === 'unavailable') return `Unavailable: ${f.reason}`
+  return `Not applicable: ${f.reason}`
+}
+
+const candleLabel = (sec: number) => (sec % 3600 === 0 ? `${sec / 3600}-hour` : `${sec / 60}-minute`)
+
+function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
   const caps = useCapabilities()
   const { openTrade } = useTradeDrawer()
   const now = useNow(1000)
   const [range, setRange] = useState<ChartRange>('1H')
-  const price = useTokenPrice(token.id)
+  const market = useTokenMarket(token.id)
   const history = usePriceHistory(token.id, range)
   const supply = useTotalSupply(token.isNative ? null : token.id)
   const activity = useTokenActivity(token.id)
+  const importer = useImportToken()
   const { data: wallets = [] } = useWallets()
   const { data: holdings = [] } = useHoldings()
   const live = useSyncExternalStore(
@@ -106,14 +138,16 @@ function TokenScreen({ token }: { token: Token }) {
     () => livePrices(token.id),
   )
 
-  const q = price.data ?? null
-  // Each price the source reports is one observation, at the time it reported it.
+  const m = market.data
+  const price = m?.priceUsd
+  const priceValue = valueOf(price)
+  // Each price a source reports is one observation, at the time it reported it: the live end of the line.
   useEffect(() => {
-    if (q) recordPrice(token.id, q.priceUsd, q.updatedAt)
-  }, [token.id, q])
+    if (price && (price.state === 'known' || price.state === 'stale')) recordPrice(token.id, price.value, price.at)
+  }, [token.id, price])
 
   const native = token.id === NATIVE_TOKEN_ID
-  const view = history.data === undefined ? null : chartView(range, now, history.data, live)
+  const view = history.isError ? chartView(range, now, null, live) : history.data === undefined ? null : chartView(range, now, history.data, live)
   const byId = new Map(wallets.map((w) => [w.id, w]))
   const held = holdings.filter((h) => h.tokenId === token.id && h.amount > 0)
   const rows = held.flatMap((h) => {
@@ -121,23 +155,58 @@ function TokenScreen({ token }: { token: Token }) {
     return wallet ? [{ holding: h, wallet }] : []
   })
   const nearkitWallets = wallets.some(executesViaNearKit)
-  const supplyUnits = supply.data ? Number(formatUnits(BigInt(supply.data), token.decimals)) : null
-  const fdv = q && supplyUnits !== null && Number.isFinite(supplyUnits) ? supplyUnits * q.priceUsd : null
-  const sourceName = native ? 'Coinbase' : 'Rhea’s price list'
+  const pair = m?.pair ?? null
 
-  const unavailable = !caps.prices
-    ? `${caps.networkLabel} has no market prices.`
-    : price.isError
-      ? 'The price source isn’t answering; NearKit asks again shortly.'
-      : `No price source NearKit uses reports ${token.symbol} right now.`
+  const noPrice =
+    price && (price.state === 'unavailable' || price.state === 'not-applicable')
+      ? price.reason
+      : market.isError
+        ? 'The market sources aren’t answering; NearKit asks again shortly.'
+        : ''
 
   const chartNote = (): string => {
     if (!view) return ''
     const first = view.points[0]
-    if (view.source === 'live')
-      return `NearKit has no price history for ${token.symbol}: the line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}. Nothing before that is drawn.`
-    return `NEAR/USD history from Coinbase, then the live price.${view.partial && first ? ` This window has data from ${formatDateTime(first.t)}.` : ''}`
+    const h = history.data
+    if (view.source === 'history' && h) {
+      const start = now - CHART_RANGES[range].windowMs
+      const began =
+        h.since !== null && h.since > start
+          ? ` This market began ${formatDateTime(h.since)}.`
+          : view.partial && first
+            ? ` This window has data from ${formatDateTime(first.t)}.`
+            : ''
+      return `${h.source.market}: ${candleLabel(h.candleSec)} candle closes from ${h.source.name}, then the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
+    }
+    return `No market-history source covers ${token.symbol}${native ? '' : ' (no indexed pair)'}: the line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}. Nothing before that is drawn.`
   }
+
+  const chartEmpty = (): string => {
+    if (!view) return ''
+    const only = view.points[0]
+    if (history.data && view.source === 'history') {
+      if (only) return `One candle with trades in this window: ${formatUsdPrice(only.usd)} at ${formatDateTime(only.t)}. Nothing to draw a line through yet.`
+      return `No trades in this window on ${history.data.source.market}.`
+    }
+    if (only) return `One price so far: ${formatUsdPrice(only.usd)} at ${formatDateTime(only.t)}. The line starts with the next one.`
+    return priceValue !== null ? 'No price points in this window yet.' : 'Price unavailable: nothing to draw.'
+  }
+
+  const figures: { key: string; label: ReactNode; figure: MarketFigure | undefined; format: (v: number) => string }[] = [
+    { key: 'mcap', label: 'Market cap', figure: m?.marketCapUsd, format: (v) => formatUsdCompact(v, 2) },
+    {
+      key: 'fdv',
+      label: (
+        <>
+          FDV <InfoTip term="fdv" />
+        </>
+      ),
+      figure: m?.fdvUsd,
+      format: (v) => formatUsdCompact(v, 2),
+    },
+    { key: 'liq', label: 'Liquidity', figure: m?.liquidityUsd, format: (v) => formatUsdCompact(v, 2) },
+    { key: 'vol', label: '24h volume', figure: m?.volume24hUsd, format: (v) => formatUsdCompact(v, 2) },
+  ]
 
   return (
     <div className="flex flex-col gap-4">
@@ -150,29 +219,85 @@ function TokenScreen({ token }: { token: Token }) {
                 {token.symbol}
                 {token.status === 'prelaunch' && <Tag tone="warn">Pre-launch</Tag>}
               </h2>
-              <p className="truncate text-sm text-fg-3">{token.name}</p>
+              <p className="truncate text-sm text-fg-3">
+                {token.name}
+                {token.contract && (
+                  <>
+                    <span aria-hidden="true"> · </span>
+                    <span className="num text-xs text-fg-4">{token.contract}</span>
+                  </>
+                )}
+              </p>
             </div>
           </div>
           <div className="text-right" aria-live="polite">
-            {price.isPending ? (
+            {market.isPending ? (
               <Skeleton className="ml-auto h-8 w-36" />
-            ) : q ? (
+            ) : priceValue !== null ? (
               <p className="num text-2xl text-fg" aria-label={`${token.symbol} price`}>
-                {formatUsdPrice(q.priceUsd)}
+                {formatUsdPrice(priceValue)}
               </p>
             ) : (
               <p className="text-lg text-fg-3">Price unavailable</p>
             )}
             <p className="mt-0.5 flex items-center justify-end gap-1.5 text-xs text-fg-3">
-              {q && q.change24hPct !== null && (
+              {valueOf(m?.change24hPct) !== null && (
                 <>
-                  <Pct value={q.change24hPct} /> <span>24h</span> <span aria-hidden="true">·</span>
+                  <Pct value={valueOf(m?.change24hPct) as number} /> <span>24h</span> <span aria-hidden="true">·</span>
                 </>
               )}
-              <span>{q ? `${sourceName} · updated ${formatAgo(q.updatedAt, now)}` : price.isPending ? '' : unavailable}</span>
+              {price && priceValue !== null ? <span title={figureSub(price, now).title}>{figureSub(price, now).text}</span> : <span>{market.isPending ? '' : noPrice}</span>}
             </p>
           </div>
         </div>
+
+        <ReadoutStrip>
+          {figures.map((f) => {
+            const v = valueOf(f.figure)
+            const sub = figureSub(f.figure, now)
+            return (
+              <ReadoutSlot
+                key={f.key}
+                legend={f.label}
+                loading={market.isPending}
+                value={v !== null ? f.format(v) : <span className="text-fg-3">—</span>}
+                sub={
+                  <span className="block truncate" title={sub.title}>
+                    {sub.text}
+                  </span>
+                }
+              />
+            )
+          })}
+        </ReadoutStrip>
+
+        {pair && (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-3">
+            <span>
+              Market: <span className="text-fg-2">{`${pair.baseSymbol}/${pair.quoteSymbol} on ${pair.dex}`}</span>
+            </span>
+            {pair.txns24h && (
+              <>
+                <span aria-hidden="true">·</span>
+                <Figures>{`${pair.txns24h.buys} buys / ${pair.txns24h.sells} sells in 24h`}</Figures>
+              </>
+            )}
+            {pair.createdAt !== null && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>since {formatDateTime(pair.createdAt)}</span>
+              </>
+            )}
+            {pair.url && (
+              <>
+                <span aria-hidden="true">·</span>
+                <a href={pair.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-fg-2 hover:text-fg">
+                  DEX Screener <ExternalLink size={11} aria-hidden="true" />
+                </a>
+              </>
+            )}
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           {native ? (
@@ -200,7 +325,21 @@ function TokenScreen({ token }: { token: Token }) {
               </Link>
             </span>
           )}
+          {/* The user's own list is just that: being in it changes nothing about the token's market or whether Rhea routes it. */}
+          {!inList && token.contract && (
+            <span className="ml-auto flex items-center gap-2 text-xs text-fg-3">
+              <span>Not in your token list</span>
+              <Button size="xs" variant="ghost" loading={importer.isPending} disabled={importer.isPending} onClick={() => importer.mutate(token.contract as string)}>
+                Add {token.symbol}
+              </Button>
+            </span>
+          )}
         </div>
+        {importer.isError && (
+          <p className="text-xs text-neg" role="alert">
+            {describeError(importer.error).message}
+          </p>
+        )}
       </Panel>
 
       <Panel>
@@ -220,13 +359,12 @@ function TokenScreen({ token }: { token: Token }) {
             />
           ) : (
             <p className="py-16 text-center text-sm text-fg-3">
-              <Figures>
-                {view.points[0]
-                  ? `One price so far: ${formatUsdPrice(view.points[0].usd)} at ${formatDateTime(view.points[0].t)}. The line starts with the next one.`
-                  : q
-                    ? 'No price points in this window yet.'
-                    : 'Price unavailable: nothing to draw.'}
-              </Figures>
+              <Figures>{chartEmpty()}</Figures>
+            </p>
+          )}
+          {history.isError && (
+            <p className="text-xs text-warn" role="alert">
+              Price history can’t be read right now ({describeError(history.error).message}). NearKit asks again shortly.
             </p>
           )}
           {view && view.points.length > 0 && <p className="text-xs text-fg-3">{chartNote()}</p>}
@@ -291,23 +429,6 @@ function TokenScreen({ token }: { token: Token }) {
             <Line label="Your balance" emphasis>
               <Figures>{held.length ? `${totalOf(held, native ? 24 : token.decimals)} ${token.symbol}` : `0 ${token.symbol}`}</Figures>
             </Line>
-            <Line
-              label={
-                <>
-                  FDV <InfoTip term="fdv" />
-                </>
-              }
-            >
-              {fdv !== null ? formatUsdCompact(fdv, 2) : '—'}
-            </Line>
-            <Line label="Market cap">
-              <span title="NearKit has no reliable circulating supply for this token, so no market cap is shown.">—</span>
-            </Line>
-            <Line label="24h volume">
-              <span title="No price source NearKit uses reports a reliable 24h volume.">—</span>
-            </Line>
-          </Lines>
-          <Lines>
             <Line label="Contract">
               {token.contract ? (
                 <span className="flex items-center gap-1">
@@ -333,6 +454,30 @@ function TokenScreen({ token }: { token: Token }) {
             {supply.data && (
               <Line label="Total supply">
                 <Figures>{formatUnits(BigInt(supply.data), token.decimals, { maxFraction: 2, group: true })}</Figures>
+              </Line>
+            )}
+            {!supply.data && m?.supply.total !== null && m?.supply.total !== undefined && (
+              <Line label="Total supply">
+                <Figures>{`${formatCompact(m.supply.total, 2)} (${m.supply.source ?? 'source'})`}</Figures>
+              </Line>
+            )}
+            {m?.supply.circulating !== null && m?.supply.circulating !== undefined && (
+              <Line label="Circulating supply">
+                <Figures>{`${formatCompact(m.supply.circulating, 2)} (${m.supply.source ?? 'source'})`}</Figures>
+              </Line>
+            )}
+            {!inList && token.contract && <Line label="Your token list">Not in it. Adding it keeps it in your lists and tickets; it changes nothing else.</Line>}
+          </Lines>
+          <Lines>
+            <Line label="Price">{figureNote(m?.priceUsd, now)}</Line>
+            <Line label="24h change">{figureNote(m?.change24hPct, now)}</Line>
+            <Line label="Market cap">{figureNote(m?.marketCapUsd, now)}</Line>
+            <Line label="FDV">{figureNote(m?.fdvUsd, now)}</Line>
+            <Line label="Liquidity">{figureNote(m?.liquidityUsd, now)}</Line>
+            <Line label="24h volume">{figureNote(m?.volume24hUsd, now)}</Line>
+            {pair && (
+              <Line label="Market">
+                <span className="num break-all text-fg-2">{`${pair.id} · ${pair.dex}`}</span>
               </Line>
             )}
           </Lines>

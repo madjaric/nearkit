@@ -24,7 +24,18 @@ export interface SmartxParams {
   /** Integrator fee in bps; sent only together with its recipient. */
   appFeeRate: number | null
   appFeeRecipient: string | null
+  /** The pair as the user knows it, for a refusal's wording only. */
+  symbolIn?: string
+  symbolOut?: string
 }
+
+/** The pair a quote was asked for, as the user knows it. */
+export interface SmartxPairHint {
+  symbolIn?: string
+  symbolOut?: string
+}
+
+const pairLabel = (hint?: SmartxPairHint) => (hint?.symbolIn && hint.symbolOut ? `${hint.symbolIn} → ${hint.symbolOut}` : 'this pair')
 
 export interface SmartxQuote {
   amountIn: bigint
@@ -60,16 +71,34 @@ export function smartxQuoteUrl(base: string, p: SmartxParams): string {
   return url.toString()
 }
 
-export function parseSmartxResponse(json: unknown): SmartxQuote {
+/**
+ * Rhea's refusals, as observed on 2026-10-01 against pools that were live on chain:
+ * - `result_code` 1008 with no words: the aggregator doesn't route the token, full stop. It
+ *   answers the same for every amount (0.083 to 20 NEAR), in both directions, with or without
+ *   an app fee, and for an account that isn't a token at all (SINGULARTY got it while its DCL
+ *   pool quoted the same amounts on chain). Nothing about the amount.
+ * - `result_code` 0 with zero amounts and no steps: the aggregator knows the pair but found no
+ *   path for this request. Seen for an amount too large to fill (100M NEAR), a dust amount
+ *   (1 yoctoNEAR), and a pool created hours before (NSTAI).
+ * The user gets the reason that fits, never a generic "no route".
+ */
+export function parseSmartxResponse(json: unknown, hint?: SmartxPairHint): SmartxQuote {
   if (!obj(json)) throw unavailable('Rhea’s quote service returned something that isn’t a quote')
   const data = json.result_data
   if (json.result_code !== 0 || !obj(data)) {
-    const reason = typeof json.result_message === 'string' && json.result_message ? json.result_message : 'no route'
-    throw unavailable(`Rhea found no route for this trade (${reason})`)
+    const code = typeof json.result_code === 'number' ? json.result_code : null
+    const words = typeof json.result_message === 'string' ? json.result_message.trim() : ''
+    if (code === 1008 && !words)
+      throw unavailable(
+        `Rhea’s aggregator has no route for ${pairLabel(hint)} right now (Rhea code 1008). It answers the same whatever the amount, in either direction, so this isn’t about the amount: Rhea doesn’t route this token at the moment, and NearKit trades only through Rhea’s aggregator. Try again later.`,
+      )
+    throw unavailable(`Rhea’s aggregator refused this quote (code ${code ?? '?'}${words ? `: ${words}` : ''}). Try again in a moment.`)
   }
   const { amount_in, amount_out, min_amount_out, msg, signature, tokens, dexs } = data
-  // A pair Rhea cannot route still answers code 0, with zero amounts and a signed route that has no steps.
-  if (amount_out === '0' && Array.isArray(dexs) && dexs.length === 0) throw unavailable('Rhea found no route for this trade')
+  if (amount_out === '0' && Array.isArray(dexs) && dexs.length === 0)
+    throw unavailable(
+      `Rhea’s aggregator found no route for this amount of ${pairLabel(hint)} right now. An amount too small or too large to fill gets this answer, and so does a market created in the last hours that Rhea hasn’t picked up yet. Try a different amount, or again later.`,
+    )
   if (
     typeof amount_in !== 'string' ||
     !INT.test(amount_in) ||
@@ -417,7 +446,7 @@ export function createSmartxClient(options: SmartxClientOptions) {
     } catch {
       throw unavailable('Rhea’s quote service returned a page instead of a quote. Try again in a moment.', text.slice(0, 200))
     }
-    return parseSmartxResponse(json)
+    return parseSmartxResponse(json, params)
   }
 
   return {

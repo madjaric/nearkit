@@ -1,0 +1,49 @@
+[
+  {
+    "chainId": "near",
+    "dexId": "rhea-finance",
+    "url": "https://dexscreener.com/near/refv2-nearly-993927.nearlytrade.near:wrap.near:10000",
+    "pairAddress": "refv2-nearly-993927.nearlytrade.near:wrap.near:10000",
+    "baseToken": { "address": "nearly-993927.nearlytrade.near", "name": "NEARLY", "symbol": "NEARLY" },
+    "quoteToken": { "address": "wrap.near", "name": "Wrapped NEAR fungible token", "symbol": "wNEAR" },
+    "priceNative": "0.001109",
+    "priceUsd": "0.005807",
+    "txns": { "m5": { "buys": 4, "sells": 2 }, "h1": { "buys": 48, "sells": 36 }, "h6": { "buys": 376, "sells": 236 }, "h24": { "buys": 1274, "sells": 1021 } },
+    "volume": { "h24": 832106.87, "h6": 175897.7, "h1": 41952.14, "m5": 6191.24 },
+    "priceChange": { "m5": -2.4, "h1": 2.61, "h6": 20.89, "h24": 38.89 },
+    "liquidity": { "usd": 361454.46, "base": 31676660, "quote": 33920 },
+    "fdv": 5807114,
+    "marketCap": 5807114,
+    "pairCreatedAt": 1790037431000,
+    "info": {
+      "imageUrl": "https://cdn.dexscreener.com/cms/images/PvHj6BS4WtKWQtH2?width=800&height=800&quality=95&format=auto",
+      "header": "https://cdn.dexscreener.com/cms/images/Xt-OEfTVjSKTQg6O?width=1500&height=500&quality=95&format=auto",
+      "openGraph": "https://cdn.dexscreener.com/token-images/og/near/nearly-993927.nearlytrade.near?timestamp=1790843400000",
+      "websites": [
+        { "url": "https://nearly.trade", "label": "Website" },
+        { "url": "https://github.com/sam3dsol/NearlyTrade", "label": "Docs" }
+      ],
+      "socials": [
+        { "url": "https://x.com/NearlyTrade", "type": "twitter" },
+        { "url": "https://t.me/NearlyTrade", "type": "telegram" }
+      ]
+    }
+  },
+  {
+    "chainId": "near",
+    "dexId": "rhea-finance",
+    "url": "https://dexscreener.com/near/refv2-nstai.nearlytrade.near:wrap.near:10000",
+    "pairAddress": "refv2-nstai.nearlytrade.near:wrap.near:10000",
+    "baseToken": { "address": "nstai.nearlytrade.near", "name": "Nearly Stocks AI", "symbol": "NSTAI" },
+    "quoteToken": { "address": "wrap.near", "name": "Wrapped NEAR fungible token", "symbol": "wNEAR" },
+    "priceNative": "0.000001661",
+    "priceUsd": "0.000008695",
+    "txns": { "m5": { "buys": 2, "sells": 2 }, "h1": { "buys": 39, "sells": 24 }, "h6": { "buys": 53, "sells": 26 }, "h24": { "buys": 53, "sells": 26 } },
+    "volume": { "h24": 6266.28, "h6": 6266.28, "h1": 4462.69, "m5": 838.66 },
+    "priceChange": { "m5": -4.37, "h1": 1.65, "h6": 50.69, "h24": 50.69 },
+    "liquidity": { "usd": 8300.15, "base": 780105991, "quote": 289.8763 },
+    "fdv": 8695,
+    "marketCap": 8695,
+    "pairCreatedAt": 1790839516000
+  }
+]

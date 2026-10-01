@@ -4,6 +4,12 @@ import { NETWORKS, type NetworkId } from '@/config/networks'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
 import legacyBuy from '@/services/near/fixtures/flows/legacy-log-buy-blackdragon.fastnear.json'
 import legacySell from '@/services/near/fixtures/flows/legacy-log-sell-blackdragon.fastnear.json'
+import cgNear from '@/services/market/fixtures/coingecko-markets-near.json'
+import dexSingularty from '@/services/market/fixtures/dexscreener-token-pairs-singularty.json'
+import dexNearlyNstai from '@/services/market/fixtures/dexscreener-tokens-nearly-nstai.json'
+import gtOhlcv from '@/services/market/fixtures/geckoterminal-ohlcv-singularty-hour.json'
+import gtNearly from '@/services/market/fixtures/geckoterminal-token-nearly.json'
+import gtSingularty from '@/services/market/fixtures/geckoterminal-token-singularty.json'
 import { createNearServices } from './index'
 import { memoryStorage } from './stores'
 import { createFakeChain } from './testing/fakeChain'
@@ -17,6 +23,11 @@ import { createFakeChain } from './testing/fakeChain'
 
 const SING = 'singularty.nearlytrade.near'
 const UNPRICED = 'unpriced.nearlytrade.near'
+const NSTAI = 'nstai.nearlytrade.near'
+const NEARLY = 'nearly-993927.nearlytrade.near'
+const SING_POOL = 'refv2-singularty.nearlytrade.near:wrap.near:10000'
+/** 2026-10-01 08:30 UTC: after the saved SINGULARTY candles (03:00 to 08:00 that morning). */
+const T1 = 1_790_841_600_000 + 30 * 60_000
 const T0 = Date.UTC(2026, 8, 30, 12, 0, 0)
 /** mort1705.tg bought SINGULARTY for 1 NEAR on mainnet (2026-09-29): the real transaction. */
 const BUY = directBuy as unknown as { transaction: { hash: string }; block_height: number; block_timestamp: string }
@@ -29,13 +40,29 @@ const BD_SELL = legacySell as unknown as typeof BUY
 const BD_BUY = legacyBuy as unknown as typeof BUY
 const atOf = (t: typeof BUY) => Number(BigInt(t.block_timestamp) / 1_000_000n)
 
-function setup(opts: { network?: NetworkId; singPrice?: () => number; candles?: (url: URL) => unknown; index?: { txs: unknown[]; fail?: boolean } } = {}) {
-  let now = T0
+interface SetupOptions {
+  network?: NetworkId
+  now?: number
+  singPrice?: () => number
+  candles?: (url: URL) => unknown
+  index?: { txs: unknown[]; fail?: boolean }
+  /** DEX Screener's pairs for a token (default: none indexed). */
+  dex?: (token: string) => unknown
+  /** GeckoTerminal's token answer (default: not indexed, a 404). */
+  gt?: (token: string) => unknown
+  /** GeckoTerminal's candles (default: none). */
+  ohlcv?: (url: URL) => unknown
+  coingecko?: () => unknown
+}
+
+function setup(opts: SetupOptions = {}) {
+  let now = opts.now ?? T0
   const chain = createFakeChain({
-    accounts: { [SING]: { amount: 10n ** 24n, global: 'G' }, [UNPRICED]: { amount: 10n ** 24n, global: 'G' } },
+    accounts: { [SING]: { amount: 10n ** 24n, global: 'G' }, [UNPRICED]: { amount: 10n ** 24n, global: 'G' }, [NSTAI]: { amount: 10n ** 24n, global: 'G' } },
     tokens: {
       [SING]: { symbol: 'SINGULARTY', name: 'Singularity is NEAR', decimals: 18, boundsMin: 1n, totalSupply: 10n ** 27n, balances: {} },
       [UNPRICED]: { symbol: 'NOPRICE', name: 'No Price', decimals: 6, boundsMin: 1n, balances: {} },
+      [NSTAI]: { symbol: 'NSTAI', name: 'Nearly Stocks AI', decimals: 18, boundsMin: 1n, totalSupply: 10n ** 27n, balances: {} },
     },
   })
   const calls: string[] = []
@@ -46,8 +73,24 @@ function setup(opts: { network?: NetworkId; singPrice?: () => number; candles?: 
     calls.push(url.search)
     return opts.candles ? opts.candles(url) : []
   })
-  // FastNEAR's transaction index: the latest transactions that touched an account, then each one in full.
-  const reads = { account: [] as string[], transactions: 0 }
+  const lastSegment = (url: URL) => decodeURIComponent(url.pathname.split('/').at(-1) ?? '')
+  const reads = { account: [] as string[], transactions: 0, dex: [] as string[], gt: [] as string[], ohlcv: [] as string[], coingecko: 0 }
+  chain.route('https://api.dexscreener.com/token-pairs/v1/near/', (url) => {
+    reads.dex.push(lastSegment(url))
+    return opts.dex ? opts.dex(lastSegment(url)) : []
+  })
+  chain.route('https://api.geckoterminal.com/api/v2/networks/near/tokens/', (url) => {
+    reads.gt.push(lastSegment(url))
+    return opts.gt ? opts.gt(lastSegment(url)) : new Response('{"errors":[{"status":"404"}]}', { status: 404 })
+  })
+  chain.route('https://api.geckoterminal.com/api/v2/networks/near/pools/', (url) => {
+    reads.ohlcv.push(url.pathname.replace('/api/v2/networks/near', '') + url.search)
+    return opts.ohlcv ? opts.ohlcv(url) : { data: { attributes: { ohlcv_list: [] } } }
+  })
+  chain.route('https://api.coingecko.com/api/v3/coins/markets', () => {
+    reads.coingecko += 1
+    return opts.coingecko ? opts.coingecko() : cgNear
+  })
   const index = opts.index ?? { txs: [] }
   chain.route('https://tx.main.fastnear.com/v0/account', (_url, body) => {
     if (index.fail) throw new Error('index down')
@@ -116,7 +159,7 @@ describe('the live price', () => {
 })
 
 describe('price history for the chart', () => {
-  it('NEAR: Coinbase’s closes over the chosen window, oldest first', async () => {
+  it('NEAR: Coinbase’s closes over the chosen window, oldest first, named as NEAR/USD history', async () => {
     const start = T0 / 1000 - 3600
     const { services, calls } = setup({
       // Coinbase answers newest first: [time, low, high, open, close, volume].
@@ -126,23 +169,25 @@ describe('price history for the chart', () => {
         [start, 4.7, 4.9, 4.8, 4.85, 1],
       ],
     })
-    const h = await services.tokens.getPriceHistory('near', '1H')
-    expect(h).toEqual([
-      { t: start * 1000, usd: 4.85 },
-      { t: (start + 60) * 1000, usd: 4.95 },
-      { t: (start + 120) * 1000, usd: 5.05 },
-    ])
+    expect(await services.tokens.getPriceHistory('near', '1H')).toEqual({
+      points: [
+        { t: start * 1000, usd: 4.85 },
+        { t: (start + 60) * 1000, usd: 4.95 },
+        { t: (start + 120) * 1000, usd: 5.05 },
+      ],
+      source: { name: 'Coinbase', market: 'NEAR/USD' },
+      candleSec: 60,
+      since: null,
+    })
     // One-minute candles for the last hour.
     expect(calls[0]).toContain('granularity=60')
     expect(calls[0]).toContain(`start=${new Date(T0 - 3_600_000).toISOString()}`)
   })
 
-  it('the longer windows use coarser candles: 4H by five minutes, 1D by fifteen', async () => {
+  it('the longer windows use coarser candles: 4H by five minutes, 1D by fifteen, 1W by the hour, 1M by six hours', async () => {
     const { services, calls } = setup({ candles: () => [] })
-    await services.tokens.getPriceHistory('near', '4H')
-    await services.tokens.getPriceHistory('near', '1D')
-    expect(calls[0]).toContain('granularity=300')
-    expect(calls[1]).toContain('granularity=900')
+    for (const range of ['4H', '1D', '1W', '1M'] as const) await services.tokens.getPriceHistory('near', range)
+    expect(calls.map((c) => new URLSearchParams(c).get('granularity'))).toEqual(['300', '900', '3600', '21600'])
   })
 
   it('drops malformed candles instead of repairing them', async () => {
@@ -153,22 +198,55 @@ describe('price history for the chart', () => {
         [T0 / 1000 - 60, 1, 2, 1, 4.9, 1],
       ],
     })
-    expect(await services.tokens.getPriceHistory('near', '5m')).toEqual([{ t: T0 - 60_000, usd: 4.9 }])
+    expect((await services.tokens.getPriceHistory('near', '1H'))?.points).toEqual([{ t: T0 - 60_000, usd: 4.9 }])
   })
 
-  it('a token has no history source: null, and nothing is filled in', async () => {
-    const { services, calls } = setup()
+  it('a DEX token: the candle closes of its main pair from GeckoTerminal, oldest first, named by its market, since the pair began', async () => {
+    const { services, reads } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    const h = await services.tokens.getPriceHistory(SING, '1D')
+    expect(h).toEqual({
+      points: [
+        { t: 1790823600000, usd: 0.000150144690049075 },
+        { t: 1790827200000, usd: 0.000179525112062429 },
+        { t: 1790830800000, usd: 0.000192835647460391 },
+        { t: 1790834400000, usd: 0.000184210825646799 },
+        { t: 1790838000000, usd: 0.000194589081779094 },
+        { t: 1790841600000, usd: 0.000216899365383411 },
+      ],
+      source: { name: 'GeckoTerminal', market: 'SINGULARTY/wNEAR on Rhea' },
+      candleSec: 900,
+      since: 1790616798000,
+    })
+    // The day in fifteen-minute candles, of the deepest pair DEX Screener lists.
+    expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/minute?aggregate=15&limit=96&currency=usd`])
+  })
+
+  it('each window asks GeckoTerminal for its candle: 1H by the minute, 4H by five, 1W by the hour, 1M by four hours', async () => {
+    const { services, reads } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty })
+    for (const range of ['1H', '4H', '1W', '1M'] as const) await services.tokens.getPriceHistory(SING, range)
+    expect(reads.ohlcv.map((u) => u.slice(u.indexOf('/ohlcv/')))).toEqual([
+      '/ohlcv/minute?aggregate=1&limit=60&currency=usd',
+      '/ohlcv/minute?aggregate=5&limit=48&currency=usd',
+      '/ohlcv/hour?aggregate=1&limit=168&currency=usd',
+      '/ohlcv/hour?aggregate=4&limit=180&currency=usd',
+    ])
+  })
+
+  it('a token with no indexed pair has no history source: null, and nothing is filled in', async () => {
+    const { services, reads } = setup()
     expect(await services.tokens.getPriceHistory(SING, '1D')).toBeNull()
-    expect(calls).toEqual([])
+    expect(reads.ohlcv).toEqual([])
   })
 
-  it('a failed history read is empty, not invented', async () => {
-    const { services } = setup({
+  it('a failed history read is an error the screen shows, not an empty line', async () => {
+    const down = setup({
       candles: () => {
         throw new Error('down')
       },
     })
-    expect(await services.tokens.getPriceHistory('near', '15m')).toEqual([])
+    await expect(down.services.tokens.getPriceHistory('near', '1H')).rejects.toThrow()
+    const limited = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => new Response('{}', { status: 429 }) })
+    await expect(limited.services.tokens.getPriceHistory(SING, '1H')).rejects.toThrow(/rate-limiting/)
   })
 
   it('testnet has no price history', async () => {
@@ -249,5 +327,126 @@ describe('live activity: recent buys and sells, read from the chain’s own reco
   it('a failed read is an error the page shows, not an empty list', async () => {
     const { services } = setup({ index: { txs: [BUY], fail: true } })
     await expect(services.tokens.getActivity(SING)).rejects.toThrow()
+  })
+})
+
+describe('market data: each figure from a source that has it, or why it’s missing', () => {
+  it('SINGULARTY: price, 24h change, liquidity, volume and FDV from its deepest DEX Screener pair; no market cap, since no source knows a circulating supply', async () => {
+    const { services, reads } = setup({ dex: () => dexSingularty, gt: () => gtSingularty })
+    const m = await services.tokens.getMarketData(SING)
+    expect(m.priceUsd).toEqual({ state: 'known', value: 0.0002169, source: 'DEX Screener', at: T0 })
+    expect(m.priceNear).toEqual({ state: 'known', value: 0.00004139, source: 'DEX Screener', at: T0 })
+    expect(m.change24hPct).toEqual({ state: 'known', value: 54.97, source: 'DEX Screener', at: T0 })
+    expect(m.liquidityUsd).toEqual({ state: 'known', value: 62848.15, source: 'DEX Screener', at: T0 })
+    expect(m.volume24hUsd).toEqual({ state: 'known', value: 56459.97, source: 'DEX Screener', at: T0 })
+    expect(m.fdvUsd).toEqual({ state: 'known', value: 216982, source: 'DEX Screener', at: T0 })
+    // DEX Screener's "marketCap" is its FDV again, and GeckoTerminal has none: unavailable, never the FDV under another name.
+    expect(m.marketCapUsd).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/circulating supply/) })
+    expect(m.pair).toEqual({
+      id: SING_POOL,
+      dex: 'Rhea',
+      baseSymbol: 'SINGULARTY',
+      quoteSymbol: 'wNEAR',
+      createdAt: 1790616798000,
+      url: `https://dexscreener.com/near/${SING_POOL}`,
+      txns24h: { buys: 195, sells: 221 },
+    })
+    expect(m.supply).toEqual({ circulating: null, total: 1_000_000_000, source: 'GeckoTerminal' })
+    expect(reads.dex).toEqual([SING])
+    expect(reads.gt).toEqual([SING])
+  })
+
+  it('NEARLY: a market cap of its own from GeckoTerminal (CoinGecko knows its circulating supply), apart from its FDV', async () => {
+    const { services } = setup({ dex: () => dexNearlyNstai, gt: () => gtNearly })
+    const m = await services.tokens.getMarketData(NEARLY)
+    expect(m.marketCapUsd).toEqual({ state: 'known', value: 5630148.53824155, source: 'GeckoTerminal (CoinGecko’s circulating supply)', at: T0 })
+    expect(m.fdvUsd).toEqual({ state: 'known', value: 5807114, source: 'DEX Screener', at: T0 })
+    expect(m.priceUsd).toMatchObject({ state: 'known', value: 0.005807 })
+  })
+
+  it('NSTAI, hours old: found on chain, priced by its new pair, with no market cap and the pair’s age', async () => {
+    const { services } = setup({ dex: () => dexNearlyNstai })
+    expect((await services.tokens.lookupToken(NSTAI)).symbol).toBe('NSTAI')
+    const m = await services.tokens.getMarketData(NSTAI)
+    expect(m.priceUsd).toEqual({ state: 'known', value: 0.000008695, source: 'DEX Screener', at: T0 })
+    expect(m.liquidityUsd).toMatchObject({ state: 'known', value: 8300.15 })
+    expect(m.fdvUsd).toEqual({ state: 'known', value: 8695, source: 'DEX Screener', at: T0 })
+    expect(m.marketCapUsd.state).toBe('unavailable')
+    expect(m.pair).toMatchObject({ id: 'refv2-nstai.nearlytrade.near:wrap.near:10000', createdAt: 1790839516000, txns24h: { buys: 53, sells: 26 } })
+  })
+
+  it('NEAR: its price and 24h change from Coinbase, market cap, FDV, volume and supplies from CoinGecko; liquidity is not a figure NEAR has', async () => {
+    const { services, reads } = setup()
+    const m = await services.tokens.getMarketData('near')
+    expect(m.priceUsd).toMatchObject({ state: 'known', value: 5, source: 'Coinbase' })
+    expect(m.change24hPct).toMatchObject({ state: 'known', value: expect.closeTo((0.2 / 4.8) * 100, 6), source: 'Coinbase' })
+    expect(m.marketCapUsd).toEqual({ state: 'known', value: 6848020379, source: 'CoinGecko', at: Date.parse('2026-10-01T08:29:30.000Z') })
+    expect(m.fdvUsd).toMatchObject({ state: 'known', value: 6848021002, source: 'CoinGecko' })
+    expect(m.volume24hUsd).toMatchObject({ state: 'known', value: 1502559527, source: 'CoinGecko' })
+    expect(m.liquidityUsd.state).toBe('not-applicable')
+    expect(m.supply).toEqual({ circulating: 1307767944, total: 1307767815, source: 'CoinGecko' })
+    expect(m.pair).toBeNull()
+    expect(reads.dex).toEqual([])
+    expect(reads.coingecko).toBe(1)
+  })
+
+  it('a token DEX Screener doesn’t index keeps the price NearKit’s own list has; everything else is missing, with why', async () => {
+    const { services } = setup()
+    const m = await services.tokens.getMarketData(SING)
+    expect(m.priceUsd).toMatchObject({ state: 'known', value: 0.00567, source: 'Rhea’s price list' })
+    for (const f of [m.marketCapUsd, m.fdvUsd, m.liquidityUsd, m.volume24hUsd, m.change24hPct])
+      expect(f).toEqual({ state: 'unavailable', reason: 'DEX Screener has no pair for this token' })
+    expect(m.pair).toBeNull()
+  })
+
+  it('reads a token’s figures once per 20 s, then again', async () => {
+    const { services, reads, advance } = setup({ dex: () => dexSingularty, gt: () => gtSingularty })
+    await services.tokens.getMarketData(SING)
+    await services.tokens.getMarketData(SING)
+    expect(reads.dex).toEqual([SING])
+    advance(21_000)
+    await services.tokens.getMarketData(SING)
+    expect(reads.dex).toEqual([SING, SING])
+    // GeckoTerminal, rate-limited, is asked once a minute at most.
+    expect(reads.gt).toEqual([SING])
+  })
+
+  it('when the source stops answering, the last figures stay, marked stale with why; a figure it never gave is not invented', async () => {
+    let down = false
+    const { services, advance } = setup({
+      dex: () => {
+        if (down) throw new Error('offline')
+        return dexSingularty
+      },
+      gt: () => gtSingularty,
+    })
+    await services.tokens.getMarketData(SING)
+    down = true
+    advance(21_000)
+    const m = await services.tokens.getMarketData(SING)
+    expect(m.priceUsd).toEqual({ state: 'stale', value: 0.0002169, source: 'DEX Screener', at: T0, reason: expect.stringMatching(/not refreshed/) })
+    expect(m.liquidityUsd).toMatchObject({ state: 'stale', value: 62848.15 })
+    expect(m.marketCapUsd.state).toBe('unavailable')
+    expect(m.updatedAt).toBe(T0)
+  })
+
+  it('a source that never answered: the price from NearKit’s own list if any, the rest missing with the reason', async () => {
+    const { services } = setup({
+      dex: () => {
+        throw new Error('offline')
+      },
+    })
+    const m = await services.tokens.getMarketData(SING)
+    expect(m.priceUsd).toMatchObject({ state: 'known', value: 0.00567, source: 'Rhea’s price list' })
+    expect(m.liquidityUsd).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/offline/) })
+  })
+
+  it('testnet: no market exists, and no source is asked', async () => {
+    const { services, reads } = setup({ network: 'testnet' })
+    const m = await services.tokens.getMarketData('usdt.itachicara.testnet')
+    expect(m.priceUsd).toEqual({ state: 'not-applicable', reason: 'Testnet has no market prices.' })
+    expect(m.marketCapUsd.state).toBe('not-applicable')
+    expect(reads.dex).toEqual([])
+    expect(reads.coingecko).toBe(0)
   })
 })

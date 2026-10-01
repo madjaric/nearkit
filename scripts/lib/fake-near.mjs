@@ -191,6 +191,10 @@ export function createFakeNear({ accounts = {}, tokens = {} } = {}) {
     // FastNEAR's transaction index (history for PnL): the fake network has none to report.
     if (/^tx\.(test|main)\.fastnear\.com$/.test(url.hostname) && url.pathname === '/v0/account') return { status: 200, json: { account_txs: [], txs_count: 0 } }
     if (/^tx\.(test|main)\.fastnear\.com$/.test(url.hostname) && url.pathname === '/v0/transactions') return { status: 200, json: { transactions: [] } }
+    // Market data (DEX Screener, GeckoTerminal, CoinGecko): the fake network indexes no market.
+    if (url.hostname === 'api.dexscreener.com') return { status: 200, json: [] }
+    if (url.hostname === 'api.geckoterminal.com') return { status: 404, json: { errors: [{ status: '404' }] } }
+    if (url.hostname === 'api.coingecko.com') return { status: 200, json: [] }
     if (url.hostname.endsWith('nearblocks.io')) {
       if (url.pathname.endsWith('/holders/count')) return { status: 200, json: { holders: [{ count: '872' }] } }
       if (url.pathname.includes('/holders')) return { status: 200, json: { holders: [{ account: 'ref-finance-101.testnet', amount: '40000000000000000000000000' }] } }

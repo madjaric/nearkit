@@ -49,7 +49,7 @@ describe('smartx response and msg', () => {
 
   it('reports Rhea’s empty route (zero amounts, no steps) as no route', () => {
     // Real answer for wNEAR → singularty.nearlytrade.near (2026-09-29): code 0 and a signed route with no steps.
-    expect(() => parseSmartxResponse(noRoute)).toThrow(expect.objectContaining({ code: 'QUOTE_UNAVAILABLE', message: 'Rhea found no route for this trade' }))
+    expect(() => parseSmartxResponse(noRoute)).toThrow(expect.objectContaining({ code: 'QUOTE_UNAVAILABLE', message: expect.stringMatching(/found no route for this amount/) }))
   })
 
   it('decodes the signed msg (base64, every byte minus 7)', () => {
@@ -270,5 +270,34 @@ describe('smartx client', () => {
   it('treats a rate-limit page as “quote unavailable”, not as a route', async () => {
     const client = createSmartxClient({ baseUrl: agg.quoteUrl, spacingMs: 0, fetch: async () => new Response('<html>429 Too Many Requests</html>', { status: 429 }) })
     await expect(client.quote(params)).rejects.toMatchObject({ code: 'QUOTE_UNAVAILABLE' })
+  })
+})
+
+describe('what Rhea’s refusals mean (its answers of 2026-10-01, with the DCL pool live on chain)', () => {
+  const pair = { symbolIn: 'NEAR', symbolOut: 'SINGULARTY' }
+
+  it('code 1008 with no message: the aggregator does not route the token at all, whatever the amount or direction (SINGULARTY; a non-existent account gets the same)', () => {
+    expect(() => parseSmartxResponse({ result_code: 1008, result_message: '' }, pair)).toThrow(
+      expect.objectContaining({
+        code: 'QUOTE_UNAVAILABLE',
+        message: expect.stringMatching(/Rhea.s aggregator has no route for NEAR . SINGULARTY right now \(Rhea code 1008\).*whatever the amount.*either direction/),
+      }),
+    )
+  })
+
+  it('code 0 with zero amounts and no steps: Rhea knows the token but found no path for this amount (too small or too large to fill, or a market too new)', () => {
+    const empty = { result_code: 0, result_message: '', result_data: { amount_in: '0', amount_out: '0', dexs: [], tokens: [] } }
+    expect(() => parseSmartxResponse(empty, { symbolIn: 'NEAR', symbolOut: 'NSTAI' })).toThrow(
+      expect.objectContaining({
+        code: 'QUOTE_UNAVAILABLE',
+        message: expect.stringMatching(/found no route for this amount of NEAR . NSTAI.*too small or too large.*created in the last hours.*different amount/),
+      }),
+    )
+  })
+
+  it('any other refusal keeps Rhea’s code and words', () => {
+    expect(() => parseSmartxResponse({ result_code: 1007, result_message: 'internal error' }, pair)).toThrow(
+      expect.objectContaining({ code: 'QUOTE_UNAVAILABLE', message: expect.stringMatching(/Rhea.s aggregator refused this quote \(code 1007: internal error\)/) }),
+    )
   })
 })

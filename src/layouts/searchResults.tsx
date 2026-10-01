@@ -62,14 +62,14 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
     }
   }
   if (looksLikeContract(q)) {
-    // The token's page reads it from chain again; whether Rhea can trade it shows in its quote there.
+    // A token read from chain that is in no list of this browser's: its page shows its market like any other's.
     const token = found?.token
     if (token && !results.some((r) => r.token?.id === token.id)) {
       results.push({
         id: `l-${token.id}`,
         group: 'Tokens',
         label: token.symbol,
-        detail: `${token.name} · ${token.decimals} decimals · not listed`,
+        detail: `${token.name} · ${token.decimals} decimals · not in your list`,
         to: tokenPage(token.id),
         token,
       })

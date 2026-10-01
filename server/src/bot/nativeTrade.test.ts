@@ -111,7 +111,7 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     expect(h.chain.sent).toHaveLength(0)
     h.market.noRoute = true
     await h.say('/buy USDT 0.1')
-    expect(h.last()?.text).toContain('No route is available for this pair right now.')
+    expect(h.last()?.text).toMatch(/Rhea’s (router|aggregator) refused this quote \(code 1: no path\)/)
     expect(h.chain.sent).toHaveLength(0)
   })
 })

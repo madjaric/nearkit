@@ -164,7 +164,7 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="flex items-center gap-1.5 text-sm font-semibold text-fg">
                         {lookup.data.symbol}
-                        <Tag tone="neutral">Not listed</Tag>
+                        <Tag tone="neutral">Not in your list</Tag>
                       </span>
                       <span className="truncate text-xs text-fg-3">{lookup.data.name}</span>
                       <span className="text-[11px] text-fg-4">
@@ -175,7 +175,9 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
                     <span className="shrink-0 text-xs text-fg-2">{importer.isPending ? 'Importing…' : 'Import'}</span>
                   </button>
                   <p className="px-3 pb-2 text-[11px] text-fg-4">
-                    {importer.isError ? describeError(importer.error).message : 'Read from chain. Whether Rhea can trade it shows in the quote.'}
+                    {importer.isError
+                      ? describeError(importer.error).message
+                      : 'Read from chain. Importing only keeps it in your list; whether a trade can route shows in the quote.'}
                   </p>
                 </>
               ) : (

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "near",
+    "symbol": "near",
+    "name": "NEAR Protocol",
+    "image": "https://coin-images.coingecko.com/coins/images/10365/large/near.jpg?1696510367",
+    "current_price": 5.24,
+    "market_cap": 6848020379,
+    "market_cap_rank": 21,
+    "fully_diluted_valuation": 6848021002,
+    "total_volume": 1502559527,
+    "high_24h": 5.52,
+    "low_24h": 5.06,
+    "price_change_24h": 0.185425,
+    "price_change_percentage_24h": 3.67107,
+    "market_cap_change_24h": 242899424,
+    "market_cap_change_percentage_24h": 3.67744,
+    "circulating_supply": 1307767944.0,
+    "total_supply": 1307767815.0,
+    "max_supply": null,
+    "ath": 20.44,
+    "ath_change_percentage": -74.37916,
+    "ath_date": "2022-01-16T14:09:45.000Z",
+    "atl": 0.526762,
+    "atl_change_percentage": 894.07589,
+    "atl_date": "2020-11-04T08:09:15.000Z",
+    "roi": null,
+    "last_updated": "2026-10-01T08:29:30.000Z"
+  }
+]

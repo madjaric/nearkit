@@ -46,7 +46,8 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
   const other = opts.network === 'mainnet' ? 'testnet' : 'mainnet'
   switch (err.code) {
     case 'QUOTE_UNAVAILABLE':
-      return /no route/i.test(err.message) ? 'No route is available for this pair right now.' : 'Quotes are unavailable right now. Try again in a moment.'
+      // Rhea's refusals are already written for people, with the reason that fits (smartx.ts).
+      return /^Rhea/.test(err.message) ? err.message : 'Quotes are unavailable right now. Try again in a moment.'
     case 'QUOTE_REJECTED':
       return 'NearKit refused the route it was offered, so nothing was prepared. Try again in a moment.'
     case 'QUOTE_EXPIRED':

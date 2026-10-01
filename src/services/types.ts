@@ -1,5 +1,7 @@
 import type { EnvIssue } from '@/config/env'
 import type {
+  PriceHistory,
+  TokenMarket,
   ActivityItem,
   ChartRange,
   CopyRule,
@@ -17,7 +19,6 @@ import type {
   PortfolioSummary,
   Position,
   PresetInput,
-  PricePoint,
   Quote,
   QuoteRequest,
   ScanResult,
@@ -112,11 +113,18 @@ export interface TokenService {
   /** Raw NEP-141 total supply, read from chain (for FDV); null for NEAR, or when it can't be read. */
   getTotalSupply(id: TokenId): Promise<string | null>
   /**
-   * USD prices over `range`, oldest first, from a real history source (Coinbase candles for NEAR
-   * on mainnet). Null when NearKit has no history source for the token: its screen then shows only
-   * the prices it saw itself. A failed read is empty. Never filled in or estimated.
+   * A token's market data for its screen: price, 24h change, market cap, FDV, liquidity and
+   * volume, each with its source (DEX Screener, GeckoTerminal, CoinGecko, Coinbase) or why it
+   * is missing. Never estimated: a market cap needs a known circulating supply.
    */
-  getPriceHistory(id: TokenId, range: ChartRange): Promise<PricePoint[] | null>
+  getMarketData(id: TokenId): Promise<TokenMarket>
+  /**
+   * Real market prices over `range`, oldest first: Coinbase's NEAR/USD candles for NEAR,
+   * GeckoTerminal's candles of the token's main DEX pair otherwise. Null when no source has this
+   * token's history (its screen then says so, and shows only what it saw itself). A failed read
+   * throws. Never filled in or estimated.
+   */
+  getPriceHistory(id: TokenId, range: ChartRange): Promise<PriceHistory | null>
   /**
    * Recent buys and sells of a token against NEAR, newest first, read from the chain's own record.
    * Null when there is no source for it (NEAR itself, the demo); empty when none of its latest

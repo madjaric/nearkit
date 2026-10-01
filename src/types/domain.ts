@@ -42,12 +42,69 @@ export interface TokenListing extends Token {
 }
 
 /** A token screen's chart window, looking back from now. */
-export type ChartRange = '1m' | '5m' | '15m' | '1H' | '4H' | '1D'
+export type ChartRange = '1H' | '4H' | '1D' | '1W' | '1M'
 
 /** One observed USD price: from a history source, or seen live by this page. */
 export interface PricePoint {
   t: Timestamp
   usd: number
+}
+
+/** Real market prices over a window: a history source's candle closes, oldest first. */
+export interface PriceHistory {
+  points: PricePoint[]
+  /** Where the candles come from, and which market they are of (e.g. "SINGULARTY/wNEAR on Rhea"). */
+  source: { name: string; market: string }
+  /** The candle size, in seconds. A window shows only the candles that had trades. */
+  candleSec: number
+  /** When this market started, when known: a window reaching further back has nothing before it. */
+  since: Timestamp | null
+}
+
+/**
+ * One figure of a token's market data, with where it comes from, or why there is none. A
+ * figure is never invented: `unavailable` says what is missing, `not-applicable` what can't
+ * exist (testnet, NEAR's "liquidity"), and `stale` keeps the last known value when its source
+ * stops answering, saying so.
+ */
+export type MarketFigure =
+  | { state: 'known'; value: number; source: string; at: Timestamp }
+  | { state: 'stale'; value: number; source: string; at: Timestamp; reason: string }
+  | { state: 'unavailable'; reason: string }
+  | { state: 'not-applicable'; reason: string }
+
+/** The market a token's figures are read from: its deepest indexed pair. */
+export interface TokenMarketPair {
+  /** The pair's id at its DEX (Rhea's DCL pools: `refv2-<x>:<y>:<fee>`). */
+  id: string
+  dex: string
+  baseSymbol: string
+  /** What the token is priced against on this pair. */
+  quoteSymbol: string
+  createdAt: Timestamp | null
+  /** The pair's page at the data source, when it has one. */
+  url: string | null
+  /** Buys and sells on it in the last 24 h. */
+  txns24h: { buys: number; sells: number } | null
+}
+
+/** A token's market data for its screen. Each figure says where it comes from or why it is missing. */
+export interface TokenMarket {
+  tokenId: TokenId
+  priceUsd: MarketFigure
+  /** The price in NEAR: the pair's own quote when it is wNEAR, else USD over NEAR's price. */
+  priceNear: MarketFigure
+  change24hPct: MarketFigure
+  /** Circulating supply × price, only from a source that knows the circulating supply. */
+  marketCapUsd: MarketFigure
+  /** Total supply × price. */
+  fdvUsd: MarketFigure
+  liquidityUsd: MarketFigure
+  volume24hUsd: MarketFigure
+  /** Supplies the sources report, in whole tokens. */
+  supply: { circulating: number | null; total: number | null; source: string | null }
+  pair: TokenMarketPair | null
+  updatedAt: Timestamp
 }
 
 /** A buy or sell of a token against NEAR, as the chain recorded it. */

@@ -188,11 +188,11 @@ await step('the top-bar search finds a token in no list by its exact contract an
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await page.getByLabel('Search token, contract or command').fill(FRESH)
   const row = page.getByRole('option', { name: /Fresh Launch Token/ })
-  await row.getByText('Fresh Launch Token · 18 decimals · not listed').waitFor()
+  await row.getByText('Fresh Launch Token · 18 decimals · not in your list').waitFor()
   await row.click()
   await page.waitForURL(/\/token\/fresh\.nearlytrade\.testnet$/)
-  // The page reads it from chain and offers to add it; nothing is imported until asked.
-  await page.getByText('FRESH isn’t in your token list yet').waitFor()
+  // The page reads it from chain and offers to add it to the user's own list; nothing is imported until asked.
+  await page.getByText('Not in your token list').first().waitFor()
   await page.getByRole('button', { name: 'Add FRESH' }).waitFor()
   await page.getByText('No recent trading activity available.').waitFor()
 })
@@ -220,8 +220,8 @@ await step('a token in no list is found by its exact contract, shown with its me
   await row.getByText('Fresh Launch Token').waitFor()
   await row.getByText(/18 decimals/).waitFor()
   await row.getByText(FRESH).waitFor()
-  // Found is not tradable: the row says the quote decides.
-  await row.getByText(/not listed/i).waitFor()
+  // Found is not "tradable": the row says only that it isn't in the user's list.
+  await row.getByText(/not in your list/i).waitFor()
   await row.getByRole('button').click()
   await page.getByRole('button', { name: 'To token: FRESH' }).waitFor()
   await shot('real-07-imported-token')

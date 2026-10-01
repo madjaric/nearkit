@@ -40,6 +40,7 @@ export const qk = {
   priceHistory: (id: string | null, range: ChartRange) => ['market', 'history', id, range] as const,
   totalSupply: (id: string | null) => ['token-supply', id] as const,
   tokenActivity: (id: string | null) => ['market', 'activity', id] as const,
+  tokenMarket: (id: string | null) => ['market', 'data', id] as const,
   tradeGroup: (groupId: string | null) => ['nearkit', 'trade', groupId] as const,
   sendStatus: (intentId: string | null) => ['nearkit', 'send', intentId] as const,
 }
@@ -244,6 +245,15 @@ export function useTokenActivity(id: TokenId | null) {
 export function useTotalSupply(id: TokenId | null) {
   const s = useServices()
   return useQuery({ queryKey: qk.totalSupply(id), queryFn: () => s.tokens.getTotalSupply(id as TokenId), enabled: id !== null, staleTime: 5 * 60_000, retry: 1 })
+}
+
+/** How often a token screen asks for its market figures (their sources cache them for 20 s). */
+export const MARKET_POLL_MS = 20_000
+
+/** A token's market figures, polled; each says where it comes from or why it's missing. */
+export function useTokenMarket(id: TokenId | null) {
+  const s = useServices()
+  return useQuery({ queryKey: qk.tokenMarket(id), queryFn: () => s.tokens.getMarketData(id as TokenId), enabled: id !== null, refetchInterval: MARKET_POLL_MS, retry: 1 })
 }
 
 export function useNearPrice() {

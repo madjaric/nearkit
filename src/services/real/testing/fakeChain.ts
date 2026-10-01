@@ -235,7 +235,8 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     for (const [prefix, handler] of http) {
       if (!url.href.startsWith(prefix)) continue
       requests.push({ url: url.href })
-      return json(handler(url, init?.body ? (JSON.parse(String(init.body)) as unknown) : null))
+      const answer = handler(url, init?.body ? (JSON.parse(String(init.body)) as unknown) : null)
+      return answer instanceof Response ? answer : json(answer)
     }
     if (init?.method === 'POST' && init.body) {
       const body = JSON.parse(String(init.body)) as { method?: string; params?: unknown }
@@ -259,7 +260,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     accounts,
     tokens,
     aggregator: agg,
-    /** Answer requests (GET or POST) whose URL starts with this prefix. */
+    /** Answer requests (GET or POST) whose URL starts with this prefix: a value as JSON, or a Response as is. */
     route(prefix: string, handler: (url: URL, body: unknown) => unknown) {
       http.set(prefix, handler)
     },

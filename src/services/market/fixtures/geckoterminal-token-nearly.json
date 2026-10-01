@@ -1,0 +1,30 @@
+{
+  "data": {
+    "id": "near_nearly-993927.nearlytrade.near",
+    "type": "token",
+    "attributes": {
+      "address": "nearly-993927.nearlytrade.near",
+      "name": "NEARLY",
+      "symbol": "NEARLY",
+      "decimals": 18,
+      "image_url": "https://coin-images.coingecko.com/coins/images/102178795/large/nearly-logo-200.png?1790314375",
+      "coingecko_coin_id": "nearly",
+      "total_supply": "1000000000000000000000000000.0",
+      "normalized_total_supply": "1000000000.0",
+      "price_usd": "0.005814882152",
+      "fdv_usd": "5814882.15150511",
+      "total_reserve_in_usd": "296630.0006022697575627199618751064412",
+      "volume_usd": { "h24": "913437.517187033" },
+      "market_cap_usd": "5630148.53824155"
+    },
+    "relationships": {
+      "top_pools": {
+        "data": [
+          { "id": "near_refv2-nearly-993927.nearlytrade.near:wrap.near:10000", "type": "pool" },
+          { "id": "near_refv2-eclipse.nearlytrade.near:nearly-993927.nearlytrade.near:10000", "type": "pool" },
+          { "id": "near_refv2-nearly-993927.nearlytrade.near:rich.nearlytrade.near:10000", "type": "pool" }
+        ]
+      }
+    }
+  }
+}

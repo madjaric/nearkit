@@ -1,7 +1,6 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { accountIdError, isForeignToNetwork } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
-import { CHART_RANGES, fetchNearUsdCloses } from '@/services/near/candles'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import type { TokenListing } from '@/types/domain'
 import type { TokenService } from '../types'
@@ -9,6 +8,7 @@ import type { NearContext } from './context'
 import type { Market } from './market'
 import { createScanner } from './scanner'
 import { createTokenActivity } from './tokenActivity'
+import { createTokenMarket } from './tokenMarket'
 
 /**
  * Tokens in real mode: native NEAR, the network's configured tokens, $KIT when
@@ -25,6 +25,7 @@ export function createTokenService(ctx: NearContext, market: Market): TokenServi
   const list = async (): Promise<TokenListing[]> => market.listTokens(await held())
   const scanner = createScanner(ctx, market)
   const activity = createTokenActivity(ctx)
+  const tokenMarket = createTokenMarket(ctx, market)
 
   /** The checks a token read by exact contract must pass. Nothing is saved here. */
   async function verify(input: string): Promise<{ contract: string; listing: TokenListing }> {
@@ -97,11 +98,9 @@ export function createTokenService(ctx: NearContext, market: Market): TokenServi
       return activity.recent(id, txUrl)
     },
 
-    async getPriceHistory(id, range) {
-      // Coinbase has NEAR/USD history; no source NearKit uses has history for other tokens.
-      if (id !== NATIVE_TOKEN_ID || !ctx.network.nearUsd) return null
-      return fetchNearUsdCloses(ctx.fetch, ctx.network.nearUsd.coinbase, CHART_RANGES[range], ctx.now())
-    },
+    getMarketData: (id) => tokenMarket.get(id),
+
+    getPriceHistory: (id, range) => tokenMarket.history(id, range),
     scan: (query) => scanner.scan(query),
     scanSuggestions: () => scanner.suggestions(),
   }

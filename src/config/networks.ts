@@ -58,6 +58,12 @@ export interface NetworkConfig {
   }
   /** NEAR/USD ticker sources; null on testnet (testnet NEAR has no price). */
   nearUsd: { coinbase: string; coingecko: string } | null
+  /**
+   * Market data for the token screen: DEX Screener (indexed pairs: price, 24h change, liquidity,
+   * volume, FDV), GeckoTerminal (candles; a market cap when CoinGecko knows the circulating
+   * supply) and CoinGecko (NEAR itself). Null on testnet: nothing indexes its markets.
+   */
+  market: { dexscreener: string; geckoterminal: string; coingeckoMarkets: string } | null
   rhea: RheaNetworkConfig
   /** Contract IDs NearKit lists by default. Metadata is always fetched from chain. */
   knownTokens: readonly string[]
@@ -100,6 +106,11 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
       }),
       indexerUrl: 'https://api.rhea.finance',
     }),
+    market: Object.freeze({
+      dexscreener: 'https://api.dexscreener.com',
+      geckoterminal: 'https://api.geckoterminal.com/api/v2/networks/near',
+      coingeckoMarkets: 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=near',
+    }),
     knownTokens: Object.freeze([
       'wrap.near',
       '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1', // native USDC
@@ -133,6 +144,7 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
       indexerUrl: null,
     }),
     // Testnet tokens with the deepest wrap.testnet pools on ref-finance-101.testnet (verified 2026-09-28).
+    market: null,
     knownTokens: Object.freeze(['wrap.testnet', 'usdt.itachicara.testnet', 'usdc.itachicara.testnet', 'ref.fakes.testnet']),
     defaultTradeToken: 'usdt.itachicara.testnet',
     stableTokens: Object.freeze([]),

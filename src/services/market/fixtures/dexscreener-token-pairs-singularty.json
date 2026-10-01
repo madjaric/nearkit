@@ -1,0 +1,86 @@
+[
+  {
+    "chainId": "near",
+    "dexId": "rhea-finance",
+    "url": "https://dexscreener.com/near/refv2-singularty.nearlytrade.near:wrap.near:10000",
+    "pairAddress": "refv2-singularty.nearlytrade.near:wrap.near:10000",
+    "baseToken": { "address": "singularty.nearlytrade.near", "name": "Singularity is NEAR", "symbol": "SINGULARTY" },
+    "quoteToken": { "address": "wrap.near", "name": "Wrapped NEAR fungible token", "symbol": "wNEAR" },
+    "priceNative": "0.00004139",
+    "priceUsd": "0.0002169",
+    "txns": { "m5": { "buys": 1, "sells": 0 }, "h1": { "buys": 11, "sells": 12 }, "h6": { "buys": 60, "sells": 41 }, "h24": { "buys": 195, "sells": 221 } },
+    "volume": { "h24": 56459.97, "h6": 15156.56, "h1": 4562.27, "m5": 2621 },
+    "priceChange": { "m5": 9.74, "h1": 12.08, "h6": 44.29, "h24": 54.97 },
+    "liquidity": { "usd": 62848.15, "base": 163934794, "quote": 5203.5915 },
+    "fdv": 216982,
+    "marketCap": 216982,
+    "pairCreatedAt": 1790616798000,
+    "info": {
+      "imageUrl": "https://cdn.dexscreener.com/cms/images/Bl7rV1ElUWdf9nxs?width=800&height=800&quality=95&format=auto",
+      "header": "https://cdn.dexscreener.com/cms/images/EbFEao4gL7llYfNf?width=1500&height=500&quality=95&format=auto",
+      "openGraph": "https://cdn.dexscreener.com/token-images/og/near/singularty.nearlytrade.near?timestamp=1790843400000",
+      "websites": [{ "url": "https://singularityisnear.fun/", "label": "Website" }],
+      "socials": [
+        { "url": "https://x.com/SingulartyNEAR", "type": "twitter" },
+        { "url": "https://t.me/SingulartyNEAR", "type": "telegram" }
+      ]
+    },
+    "boosts": { "active": 100 }
+  },
+  {
+    "chainId": "near",
+    "dexId": "rhea-finance",
+    "url": "https://dexscreener.com/near/refv1-8742",
+    "pairAddress": "refv1-8742",
+    "baseToken": { "address": "singularty.nearlytrade.near", "name": "Singularity is NEAR", "symbol": "SINGULARTY" },
+    "quoteToken": { "address": "wrap.near", "name": "Wrapped NEAR fungible token", "symbol": "wNEAR" },
+    "priceNative": "0.00003974",
+    "priceUsd": "0.0002083",
+    "txns": { "m5": { "buys": 1, "sells": 0 }, "h1": { "buys": 2, "sells": 0 }, "h6": { "buys": 4, "sells": 0 }, "h24": { "buys": 13, "sells": 3 } },
+    "volume": { "h24": 54.38, "h6": 3.83, "h1": 2.84, "m5": 1.99 },
+    "priceChange": { "m5": 12.68, "h1": 14.09, "h6": 32.13, "h24": 40.78 },
+    "liquidity": { "usd": 43.11, "base": 112908, "quote": 3.7375 },
+    "fdv": 208328,
+    "marketCap": 208328,
+    "pairCreatedAt": 1790619350000,
+    "info": {
+      "imageUrl": "https://cdn.dexscreener.com/cms/images/Bl7rV1ElUWdf9nxs?width=800&height=800&quality=95&format=auto",
+      "header": "https://cdn.dexscreener.com/cms/images/EbFEao4gL7llYfNf?width=1500&height=500&quality=95&format=auto",
+      "openGraph": "https://cdn.dexscreener.com/token-images/og/near/singularty.nearlytrade.near?timestamp=1790843400000",
+      "websites": [{ "url": "https://singularityisnear.fun/", "label": "Website" }],
+      "socials": [
+        { "url": "https://x.com/SingulartyNEAR", "type": "twitter" },
+        { "url": "https://t.me/SingulartyNEAR", "type": "telegram" }
+      ]
+    },
+    "boosts": { "active": 100 }
+  },
+  {
+    "chainId": "near",
+    "dexId": "rhea-finance",
+    "url": "https://dexscreener.com/near/refv1-8741",
+    "pairAddress": "refv1-8741",
+    "baseToken": { "address": "singularty.nearlytrade.near", "name": "Singularity is NEAR", "symbol": "SINGULARTY" },
+    "quoteToken": { "address": "wrap.near", "name": "Wrapped NEAR fungible token", "symbol": "wNEAR" },
+    "priceNative": "0.00002787",
+    "priceUsd": "0.0001522",
+    "txns": { "m5": { "buys": 0, "sells": 0 }, "h1": { "buys": 0, "sells": 0 }, "h6": { "buys": 1, "sells": 0 }, "h24": { "buys": 3, "sells": 1 } },
+    "volume": { "h24": 0.82, "h6": 0.21, "h1": 0, "m5": 0 },
+    "priceChange": { "h6": 1.14, "h24": 6.3 },
+    "liquidity": { "usd": 2.05, "base": 7629.2365, "quote": 0.1641 },
+    "fdv": 152258,
+    "marketCap": 152258,
+    "pairCreatedAt": 1790617891000,
+    "info": {
+      "imageUrl": "https://cdn.dexscreener.com/cms/images/Bl7rV1ElUWdf9nxs?width=800&height=800&quality=95&format=auto",
+      "header": "https://cdn.dexscreener.com/cms/images/EbFEao4gL7llYfNf?width=1500&height=500&quality=95&format=auto",
+      "openGraph": "https://cdn.dexscreener.com/token-images/og/near/singularty.nearlytrade.near?timestamp=1790843400000",
+      "websites": [{ "url": "https://singularityisnear.fun/", "label": "Website" }],
+      "socials": [
+        { "url": "https://x.com/SingulartyNEAR", "type": "twitter" },
+        { "url": "https://t.me/SingulartyNEAR", "type": "telegram" }
+      ]
+    },
+    "boosts": { "active": 100 }
+  }
+]

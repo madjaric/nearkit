@@ -1,6 +1,6 @@
 import { SCAN_SAMPLES } from '@/mocks/scanner'
 import { TOKEN_IDS } from '@/mocks/tokens'
-import type { MarketQuote, ScanReport } from '@/types/domain'
+import type { MarketFigure, MarketQuote, ScanReport, TokenMarket } from '@/types/domain'
 import type { TokenService } from '../types'
 import { ServiceError, tickMarket, wait, type MockState } from './state'
 
@@ -48,8 +48,28 @@ export function createTokenService(state: MockState): TokenService {
       return marketFor(id)
     },
 
-    // The demo's tokens are samples: no supply to read, and no price history (its chart shows the
-    // simulated prices it sees, like any token without a history source).
+    // The demo simulates a price per token and nothing else: no market behind it, no supply to
+    // read, no history (its chart shows the simulated prices it sees).
+    async getMarketData(id): Promise<TokenMarket> {
+      await wait('read')
+      tickMarket(state)
+      const m = state.market.get(id)
+      const at = Date.now()
+      const simulated: MarketFigure = { state: 'not-applicable', reason: 'The demo simulates prices only: it has no market behind them.' }
+      return {
+        tokenId: id,
+        priceUsd: m ? { state: 'known', value: m.priceUsd, source: 'Demo simulator', at } : simulated,
+        priceNear: m ? { state: 'known', value: m.priceNear, source: 'Demo simulator', at } : simulated,
+        change24hPct: m && m.change24hPct !== null ? { state: 'known', value: m.change24hPct, source: 'Demo simulator', at } : simulated,
+        marketCapUsd: simulated,
+        fdvUsd: simulated,
+        liquidityUsd: simulated,
+        volume24hUsd: simulated,
+        supply: { circulating: null, total: null, source: null },
+        pair: null,
+        updatedAt: at,
+      }
+    },
     getTotalSupply: async () => null,
     getPriceHistory: async () => null,
     // No made-up trades: the demo has no activity source.

@@ -62,3 +62,19 @@ describe('findPath (classic router, testnet)', () => {
     expect(JSON.parse(classicSwapMsg(r, { unwrapNear: true }))).toEqual({ actions: r.actions, skip_unwrap_near: false })
   })
 })
+
+describe('what the classic router’s refusals mean', () => {
+  const pair = { tokenIn: 'wrap.testnet', tokenOut: 'usdt.itachicara.testnet', amountIn: 1n, slippage: 0.005, symbolIn: 'NEAR', symbolOut: 'USDT' }
+
+  it('its own refusal keeps its code and words', () => {
+    expect(() => parseFindPath({ result_code: 1, result_message: 'no path', result_data: null }, pair)).toThrow(
+      expect.objectContaining({ code: 'QUOTE_UNAVAILABLE', message: expect.stringMatching(/Rhea.s router refused this quote \(code 1: no path\)/) }),
+    )
+  })
+
+  it('no route at code 0 is about this amount, named by the pair', () => {
+    expect(() => parseFindPath({ result_code: 0, result_data: { routes: [], amount_out: '0' } }, pair)).toThrow(
+      expect.objectContaining({ code: 'QUOTE_UNAVAILABLE', message: expect.stringMatching(/found no route for this amount of NEAR . USDT right now/) }),
+    )
+  })
+})
