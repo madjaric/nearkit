@@ -88,7 +88,8 @@ function FeesPanel() {
     <Panel>
       <PanelHeader title="Fees" />
       <div className="p-4">
-        <Lines>
+        {/* Labels keep one line; the sentences at right wrap. */}
+        <Lines className="[&_dt]:shrink-0">
           <Line label="NearKit fee" mono={false}>
             <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> per trade
           </Line>
