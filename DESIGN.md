@@ -243,26 +243,36 @@ components:
 > - **Ground:** near-black, slightly cool neutrals (hue 250): `canvas` for the page, sidebar and top bar, `panel`
 >   for modules, `well` for fields. Thin low-contrast borders; no shadows at rest; no glow.
 > - **One lit color:** lime for the primary action, the active state and gains. Red only for sell, loss, danger.
->   Amber only for caution. Row-level BUY keys carry the lime text at rest; SELL lights red on hover.
+>   Amber only for caution (view-only, stale, a review before signing on mainnet). Row-level BUY keys carry the
+>   lime text at rest; SELL lights red on hover. The network tag is lime in the top bar's chip only; a page's own
+>   network or data tag is neutral.
 > - **Type:** page title 28px bold; stat values 28-32px mono; panel names 12px uppercase mono after a chevron;
 >   table heads and group labels in the small uppercase legend; body 14px, tables 13px. Mono only for figures,
 >   addresses and hashes.
 > - **Shape:** 4px tags, 6px small keys and nav items, 8px keys and fields, 10px panels and stat cards, 12px
 >   dialogs. Status dots and token glyphs are round.
-> - **Stats are cards** (`ReadoutStrip` / `ReadoutSlot`): a plain label, a large mono value, one caption line,
->   an icon or sparkline at the edge. The value steps down in a narrow card; the sparkline appears only in a
->   wide one. Never cards inside cards.
+> - **Stats are cards** (`ReadoutStrip` / `ReadoutSlot`): a plain label, a large mono value, a caption, an icon
+>   or sparkline at the edge. They sit on the page, like the Dashboard's. Inside a panel the same slots are
+>   flat cells divided by hairlines (`inset`): never cards inside a card. The value sizes to its slot (a share of
+>   the slot's width, between 18px and the display size), so a figure of up to eleven characters fits at any
+>   width; a unit or a sparkline prints only when it fits beside the value.
 > - **Keys:** 28 / 32 / 36 / 40 / 52px (`xs` to `xl`); the ticket's fire key is `xl`. Segmented BUY / SELL fill
 >   solid lime / red when selected. Fire keys keep a constant label; the blocking reason prints below.
 > - **Fields:** 40px (36px small) on `well`; the amount field of a ticket is 64px with a 32px mono figure and its
->   unit inside. Preset keys (25 / 50 / 75 / MAX, slippage) are separate 36px bordered keys.
+>   unit inside. Where the unit is a choice (Swap), a token chip sits inside the field. The figure shrinks as it
+>   grows, so it is never cut off. Preset keys (25 / 50 / 75 / MAX, slippage) are separate 36px bordered keys.
+> - **Tables fit their own box.** Columns drop out as the table's panel narrows (measured against the panel, not
+>   the window) and, below the last tier, the rows print as a card list holding every figure. A table scrolls its
+>   panel sideways only where it has no card list (documentation tables).
 > - **Shell:** 232px sidebar (40px items, a lime bar and raised ground on the active one, plain uppercase group
 >   labels, the version in its footer), 64px top bar (40px search, ticker, network chip, wallet chip), 64px
->   phone tab bar.
+>   phone tab bar. On a phone the Connect key is 36px, the account chip truncates rather than widening the
+>   page, and the strip under the bar prints the ticker and the network flat. Nothing overflows at 360px.
 > - **Page head:** title, status tag, one line of context, and the page's actions at right; the Dashboard's are
 >   BUY, SELL, SEND and MULTI BUY.
 > - **Charts:** a lime trace on the graticule with a faint fill fading to the panel (20% to 0). Candles and
->   points are only ever observed data.
+>   points are only ever observed data. The time axis prints the time of day for a window within a day and the
+>   date beyond it; its inner labels drop out where the plot is too narrow for all of them.
 
 **Creative North Star: "The Wallet Oscilloscope"**
 

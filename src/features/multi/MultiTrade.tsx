@@ -296,8 +296,9 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
           {`A Multi ${side} runs on wallets that can trade: your NearKit wallets, or the accounts of a wallet connected here.${hiddenWatch ? ` Watch-only wallets (${hiddenWatch}) never join.` : ''}`}
         </EmptyState>
       ) : (
-        <>
-          <div className="hidden md:block">
+        <div className="@container">
+          {/* The table where its seven columns fit this panel; the card list in a narrower one, never a sideways scroll. */}
+          <div className="hidden @[45rem]:block">
             <Table label="Wallets for this order" rows="double" minWidth={720}>
               <thead>
                 <tr>
@@ -347,7 +348,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
             </Table>
           </div>
 
-          <ul className="divide-y divide-line-soft md:hidden" aria-label="Wallets for this order">
+          <ul className="divide-y divide-line-soft @[45rem]:hidden" aria-label="Wallets for this order">
             {pool.map((w) => {
               const isSelected = selectedIds.includes(w.id)
               const leg = legs.find((l) => l.walletId === w.id)
@@ -385,7 +386,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
           {hiddenWatch > 0 && (
             <p className="border-t border-line-soft px-4 py-2 text-xs text-fg-3">{`${hiddenWatch} watch-only ${hiddenWatch === 1 ? 'wallet is' : 'wallets are'} not listed: watch-only wallets can’t trade.`}</p>
           )}
-        </>
+        </div>
       )}
       <div className="border-t border-line-soft px-4 py-3">
         <AllocationBar

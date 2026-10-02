@@ -71,8 +71,8 @@ export function OrdersPanel() {
             {tab === 'open' ? 'Place a limit, take-profit or stop-loss order with the form.' : 'Filled, cancelled and expired orders collect here.'}
           </EmptyState>
         ) : (
-          <>
-            <div className="hidden md:block">
+          <div className="@container">
+            <div className="hidden @[48rem]:block">
               <Table label={tab === 'open' ? 'Open orders' : 'Order history'} rows="double" minWidth={640}>
                 <thead>
                   <tr>
@@ -141,7 +141,7 @@ export function OrdersPanel() {
                 </tbody>
               </Table>
             </div>
-            <ul className="divide-y divide-line-soft md:hidden" aria-label={tab === 'open' ? 'Open orders' : 'Order history'}>
+            <ul className="divide-y divide-line-soft @[48rem]:hidden" aria-label={tab === 'open' ? 'Open orders' : 'Order history'}>
               {list.map((o) => {
                 const token = tokenOf(o)
                 const market = token?.market?.priceUsd ?? 0
@@ -173,7 +173,7 @@ export function OrdersPanel() {
                 )
               })}
             </ul>
-          </>
+          </div>
         )}
       </div>
     </Panel>

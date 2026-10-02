@@ -4,6 +4,7 @@ import { PercentKeys, SlippageControl } from '@/components/domain/TradeControls'
 import { slippageIssue } from '@/lib/slippage'
 import { TokenSelect } from '@/components/domain/TokenSelect'
 import { Button, IconButton } from '@/components/ui/Button'
+import { fitFigure } from '@/components/ui/fitFigure'
 import { AmountInput, Field } from '@/components/ui/Form'
 import { Amount } from '@/components/ui/Num'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
@@ -165,25 +166,19 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
             error={insufficient ? `${wallet?.label ?? 'This wallet'} holds ${formatAmount(fromBalance, fromId === NEAR ? 2 : 0)} ${from?.symbol ?? ''}` : undefined}
           >
             {({ id, describedBy, invalid }) => (
-              <div className="flex gap-2">
-                <div className="min-w-0 flex-1">
-                  <AmountInput
-                    id={id}
-                    size="lg"
-                    placeholder="0.00"
-                    value={amountText}
-                    onValueChange={(v) => {
-                      disarm()
-                      setAmountText(v)
-                    }}
-                    aria-describedby={describedBy}
-                    aria-invalid={invalid}
-                  />
-                </div>
-                <div className="w-48 shrink-0">
-                  <TokenSelect label="From token" size="lg" compact value={fromId} walletId={ready ? walletId : undefined} onChange={(id) => setPair(id, toId)} />
-                </div>
-              </div>
+              <AmountInput
+                id={id}
+                size="lg"
+                placeholder="0.00"
+                value={amountText}
+                onValueChange={(v) => {
+                  disarm()
+                  setAmountText(v)
+                }}
+                aria-describedby={describedBy}
+                aria-invalid={invalid}
+                trailing={<TokenSelect label="From token" size="lg" compact value={fromId} walletId={ready ? walletId : undefined} onChange={(id) => setPair(id, toId)} />}
+              />
             )}
           </Field>
           <PercentKeys
@@ -213,7 +208,7 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
         </div>
 
         <Field
-          label="To (estimated)"
+          label="To (est.)"
           aside={
             ready ? (
               <span className="flex items-center gap-1">
@@ -222,24 +217,26 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
             ) : null
           }
         >
-          {({ id }) => (
-            <div className="flex gap-2">
-              <output
-                id={id}
-                aria-live="polite"
-                className={cn(
-                  'num flex h-11 min-w-0 flex-1 items-center truncate rounded-sm border border-line bg-well/50 px-3 text-xl transition-opacity',
-                  q ? 'text-fg' : 'text-fg-4',
-                  stale && q && 'opacity-45',
-                )}
-              >
-                {q ? formatAmount(q.amountOut, outDecimals) : '0.00'}
-              </output>
-              <div className="w-48 shrink-0">
-                <TokenSelect label="To token" size="lg" compact value={toId} walletId={ready ? walletId : undefined} onChange={(id) => setPair(fromId, id)} />
+          {({ id }) => {
+            const estimate = q ? formatAmount(q.amountOut, outDecimals) : '0.00'
+            return (
+              <div className="flex h-16 items-center rounded-md border border-line bg-well/50">
+                <div className="@container flex h-full min-w-0 flex-1 items-center">
+                  <output
+                    id={id}
+                    aria-live="polite"
+                    className={cn('num block w-full truncate px-3.5 text-3xl transition-opacity', q ? 'text-fg' : 'text-fg-4', stale && q && 'opacity-45')}
+                    style={{ fontSize: fitFigure(estimate.length) }}
+                  >
+                    {estimate}
+                  </output>
+                </div>
+                <div className="flex shrink-0 items-center pr-3">
+                  <TokenSelect label="To token" size="lg" compact value={toId} walletId={ready ? walletId : undefined} onChange={(id) => setPair(fromId, id)} />
+                </div>
               </div>
-            </div>
-          )}
+            )
+          }}
         </Field>
 
         <SlippageControl

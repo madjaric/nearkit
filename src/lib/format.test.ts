@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MINUS, formatAccount, formatAmount, formatCompact, formatDuration, formatPct, formatPrice, formatUsd, parseAmount, floorTo } from './format'
+import { MINUS, formatAccount, formatAmount, formatClock, formatCompact, formatDateTime, formatDuration, formatPct, formatPrice, formatUsd, parseAmount, floorTo } from './format'
 
 describe('formatPrice', () => {
   it('follows magnitude', () => {
@@ -60,6 +60,18 @@ describe('formatDuration', () => {
     expect(formatDuration(3 * 3_600_000 + 59.7 * 60_000)).toBe('4h')
     expect(formatDuration(2 * 86_400_000 + 23.6 * 3_600_000)).toBe('3d')
     expect(formatDuration(23 * 3_600_000 + 59.8 * 60_000)).toBe('1d')
+  })
+})
+
+describe('clock times', () => {
+  // Local-time dates, so the expectation holds in any time zone the tests run in.
+  it('prints the hour after midnight as 00, never 24', () => {
+    expect(formatDateTime(new Date(2026, 9, 2, 0, 5).getTime())).toBe('Oct 2, 00:05')
+    expect(formatDateTime(new Date(2026, 9, 2, 15, 39).getTime())).toBe('Oct 2, 15:39')
+  })
+  it('prints the time of day alone for an axis within one day', () => {
+    expect(formatClock(new Date(2026, 9, 2, 0, 5).getTime())).toBe('00:05')
+    expect(formatClock(new Date(2026, 9, 2, 15, 39).getTime())).toBe('15:39')
   })
 })
 

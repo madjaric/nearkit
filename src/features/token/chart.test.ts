@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { chartView } from './chartView'
+import { axisTime, chartView } from './chartView'
 import { livePrices, recordPrice, resetLivePrices } from './livePrices'
 
 /**
@@ -81,6 +81,20 @@ describe('chart points', () => {
 
   it('a price from the future (clock skew) is not drawn', () => {
     expect(chartView('1H', NOW, null, [{ t: NOW + 5_000, usd: 1 }]).points).toEqual([])
+  })
+})
+
+describe('time axis labels', () => {
+  // Local-time date, so the expectation holds in any time zone the tests run in.
+  const at = new Date(2026, 9, 2, 15, 39).getTime()
+  it('a window within a day labels its axis with the time alone, so four labels fit a phone', () => {
+    expect(axisTime('1H')(at)).toBe('15:39')
+    expect(axisTime('4H')(at)).toBe('15:39')
+    expect(axisTime('1D')(at)).toBe('15:39')
+  })
+  it('a longer window labels it with the date alone', () => {
+    expect(axisTime('1W')(at)).toBe('Oct 2')
+    expect(axisTime('1M')(at)).toBe('Oct 2')
   })
 })
 

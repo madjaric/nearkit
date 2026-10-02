@@ -68,7 +68,7 @@ function NearBody({ open, pendingId, error, onPick }: { open: boolean; pendingId
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3 text-xs">
         <span className="text-fg-3">Network</span>
-        <Tag tone={caps.network === 'mainnet' ? 'warn' : 'neutral'}>{caps.networkLabel}</Tag>
+        <Tag tone="neutral">{caps.networkLabel}</Tag>
       </div>
       {caps.network === 'mainnet' && !caps.execution.enabled && (
         <p className="rounded-sm border border-line px-3 py-2 text-xs text-fg-2">

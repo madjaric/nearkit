@@ -2,6 +2,7 @@ import { Check, ChevronDown, Minus } from 'lucide-react'
 import { useEffect, useId, useRef, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { cn } from '@/lib/cn'
 import { Figures } from './Figures'
+import { fitFigure } from './fitFigure'
 
 // ─── field wrapper ──────────────────────────────────────────────────────────
 
@@ -65,12 +66,14 @@ interface AmountInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, '
   value: string
   onValueChange: (value: string) => void
   unit?: ReactNode
+  /** A control inside the field, at its right edge (a token chip). */
+  trailing?: ReactNode
   size?: 'sm' | 'md' | 'lg'
   ref?: Ref<HTMLInputElement>
 }
 
 /** Numeric entry with its unit printed inside the field. Accepts digits and one decimal point. */
-export function AmountInput({ value, onValueChange, unit, size = 'md', className, ref, ...rest }: AmountInputProps) {
+export function AmountInput({ value, onValueChange, unit, trailing, size = 'md', className, ref, style, ...rest }: AmountInputProps) {
   return (
     <div
       className={cn(
@@ -80,23 +83,27 @@ export function AmountInput({ value, onValueChange, unit, size = 'md', className
         className,
       )}
     >
-      <input
-        ref={ref}
-        inputMode="decimal"
-        autoComplete="off"
-        spellCheck={false}
-        value={value}
-        onChange={(e) => {
-          const next = e.target.value.replace(',', '.')
-          if (next === '' || /^\d*\.?\d*$/.test(next)) onValueChange(next)
-        }}
-        className={cn(
-          'num h-full min-w-0 flex-1 bg-transparent px-3.5 text-fg placeholder:text-fg-4 focus:outline-none',
-          size === 'lg' ? 'text-3xl' : size === 'sm' ? 'text-sm' : 'text-lg',
-        )}
-        {...rest}
-      />
+      <div className="@container h-full min-w-0 flex-1">
+        <input
+          ref={ref}
+          inputMode="decimal"
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          onChange={(e) => {
+            const next = e.target.value.replace(',', '.')
+            if (next === '' || /^\d*\.?\d*$/.test(next)) onValueChange(next)
+          }}
+          className={cn(
+            'num h-full w-full min-w-0 bg-transparent px-3.5 text-fg placeholder:text-fg-4 focus:outline-none',
+            size === 'lg' ? 'text-3xl' : size === 'sm' ? 'text-sm' : 'text-lg',
+          )}
+          style={size === 'lg' ? { fontSize: fitFigure((value || rest.placeholder || '').length), ...style } : style}
+          {...rest}
+        />
+      </div>
       {unit && <span className={cn('shrink-0 pr-3.5 font-semibold tracking-[0.04em] text-fg-3', size === 'lg' ? 'text-sm' : 'text-xs')}>{unit}</span>}
+      {trailing && <div className="flex shrink-0 items-center pr-3">{trailing}</div>}
     </div>
   )
 }
@@ -260,8 +267,9 @@ export function Segmented<T extends string>({ value, onChange, options, label, s
             tabIndex={checked ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
-              'keycap whitespace-nowrap rounded-sm px-3 transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40',
-              size === 'sm' ? 'h-7 px-2.5 text-2xs' : size === 'lg' ? 'h-10 text-sm' : 'h-8 text-xs',
+              'keycap truncate rounded-sm transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40',
+              block ? 'min-w-0 px-1' : size === 'sm' ? 'px-2.5' : 'px-3',
+              size === 'sm' ? 'h-7 text-2xs' : size === 'lg' ? 'h-10 text-sm' : 'h-8 text-xs',
               checked ? TONE_ON[option.tone ?? 'default'] : 'text-fg-3 hover:bg-raised/60 hover:text-fg-2',
             )}
           >

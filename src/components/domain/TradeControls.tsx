@@ -71,8 +71,8 @@ export function SlippageControl({ value, onChange, className, hideLabel = false 
         ))}
         <div
           className={cn(
-            'flex h-9 items-center rounded-md border bg-well pr-2 transition-colors focus-within:border-accent',
-            custom !== '' ? (issue?.level === 'error' ? 'border-neg' : 'border-accent/50') : 'border-line',
+            'flex h-9 items-center rounded-md border bg-well transition-colors focus-within:border-accent',
+            custom !== '' ? (issue?.level === 'error' ? 'border-neg pr-2' : 'border-accent/50 pr-2') : 'border-line',
           )}
         >
           <input
@@ -89,7 +89,7 @@ export function SlippageControl({ value, onChange, className, hideLabel = false 
               if (next === '') onChange(SLIPPAGE_PRESETS[1])
             }}
             aria-invalid={custom !== '' && issue?.level === 'error'}
-            className="num h-full w-full min-w-0 bg-transparent px-2 text-center text-sm text-fg placeholder:font-sans placeholder:text-fg-3 focus:outline-none"
+            className="num h-full w-full min-w-0 bg-transparent px-1 text-center text-sm text-fg placeholder:font-sans placeholder:text-fg-3 focus:outline-none"
           />
           {custom !== '' && <span className="text-xs text-fg-3">%</span>}
         </div>

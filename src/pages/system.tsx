@@ -2,6 +2,7 @@ import { isRouteErrorResponse, Link, useRouteError } from 'react-router'
 import { LogoMark } from '@/components/brand/Brand'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
+import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Panel } from '@/components/ui/Panel'
 
@@ -32,7 +33,7 @@ export function RouteError() {
               <Button variant="secondary" onClick={() => window.location.reload()}>
                 Reload
               </Button>
-              <Link to="/" className="keycap inline-flex h-8 items-center rounded-sm px-3 text-xs text-fg-2 hover:bg-raised hover:text-fg">
+              <Link to="/" className={buttonClass({ variant: 'ghost' })}>
                 Go to dashboard
               </Link>
             </>
@@ -53,7 +54,7 @@ export default function NotFoundPage() {
         <EmptyState
           title="This route doesn't exist"
           action={
-            <Link to="/" className="keycap inline-flex h-8 items-center rounded-sm bg-accent px-3 text-xs text-accent-ink hover:bg-accent-hi">
+            <Link to="/" className={buttonClass({ variant: 'primary' })}>
               Go to dashboard
             </Link>
           }

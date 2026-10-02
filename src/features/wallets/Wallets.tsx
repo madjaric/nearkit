@@ -88,8 +88,8 @@ export function Wallets() {
       ) : rows.length === 0 ? (
         empty
       ) : (
-        <>
-          <div className="hidden md:block">
+        <div className="@container">
+          <div className="hidden @[48rem]:block">
             <Table label={title} minWidth={760}>
               <thead>
                 <tr>
@@ -151,7 +151,7 @@ export function Wallets() {
               </tbody>
             </Table>
           </div>
-          <ul className="divide-y divide-line-soft md:hidden" aria-label={title}>
+          <ul className="divide-y divide-line-soft @[48rem]:hidden" aria-label={title}>
             {rows.map((w) => (
               <li key={w.id} className="flex items-start justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -182,7 +182,7 @@ export function Wallets() {
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
     </Panel>
   )
@@ -278,16 +278,7 @@ export function Wallets() {
               : `1 main · ${Math.max(0, wallets.length - 1)} NearKit-managed`
           }
         />
-        <ReadoutSlot
-          legend="NEAR across wallets"
-          loading={snapshots.isPending}
-          value={
-            <>
-              {formatAmount(totalNear, 2)} <span className="font-sans text-sm font-medium text-fg-3">NEAR</span>
-            </>
-          }
-          sub={`across ${wallets.length} wallets`}
-        />
+        <ReadoutSlot legend="NEAR across wallets" loading={snapshots.isPending} value={formatAmount(totalNear, 2)} unit="NEAR" sub={`across ${wallets.length} wallets`} />
         <ReadoutSlot
           legend="Value"
           loading={snapshots.isPending}

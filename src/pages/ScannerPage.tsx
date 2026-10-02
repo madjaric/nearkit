@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
+import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input } from '@/components/ui/Form'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
@@ -128,7 +129,7 @@ export default function ScannerPage() {
         <EmptyState
           title="$KIT has not launched"
           action={
-            <Link to="/kit" className="keycap inline-flex h-8 items-center rounded-sm border border-line px-3 text-xs text-fg-2 hover:border-line-strong hover:text-fg">
+            <Link to="/kit" className={buttonClass()}>
               About $KIT
             </Link>
           }

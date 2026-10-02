@@ -45,7 +45,7 @@ export function ChipInput({ value, onChange, placeholder, label, id, normalize =
     <div className="flex flex-col gap-1.5">
       <div
         className={cn(
-          'flex min-h-9 flex-wrap items-center gap-1.5 rounded-sm border bg-well px-2 py-1.5 transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20',
+          'flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border bg-well px-2 py-1.5 transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20',
           error ? 'border-neg' : 'border-line-strong hover:border-fg-4',
         )}
       >

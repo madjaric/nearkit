@@ -54,23 +54,33 @@ export function YLabels({ ticks, y, format, strong }: { ticks: number[]; y: (v: 
   )
 }
 
-/** Time axis under the plot; first label left-aligned, last right-aligned. */
+/**
+ * Time axis under the plot; first label left-aligned, last right-aligned. The labels between
+ * them print only where the plot is wide enough for all of them (measured against the plot
+ * itself, by how long the labels are), so they never run into each other on a phone.
+ */
 export function XLabels({ items }: { items: { frac: number; text: string }[] }) {
+  const longest = items.reduce((m, item) => Math.max(m, item.text.length), 0)
+  const inner = longest <= 6 ? '' : longest <= 13 ? 'hidden @[25rem]:inline' : 'hidden @[37rem]:inline'
   return (
-    <>
-      {items.map((item, k) => (
-        <span
-          key={`${item.text}-${k}`}
-          className={cn(
-            'num absolute top-full mt-1.5 whitespace-nowrap text-[10.5px] leading-none text-fg-3',
-            k === 0 ? '' : k === items.length - 1 ? '-translate-x-full' : '-translate-x-1/2',
-          )}
-          style={{ left: pct(item.frac) }}
-        >
-          {item.text}
-        </span>
-      ))}
-    </>
+    <div data-axis="x" className="@container absolute inset-x-0 top-full">
+      {items.map((item, k) => {
+        const end = k === 0 || k === items.length - 1
+        return (
+          <span
+            key={`${item.text}-${k}`}
+            className={cn(
+              'num absolute top-0 mt-1.5 whitespace-nowrap text-[10.5px] leading-none text-fg-3',
+              k === 0 ? '' : k === items.length - 1 ? '-translate-x-full' : '-translate-x-1/2',
+              !end && inner,
+            )}
+            style={{ left: pct(item.frac) }}
+          >
+            {item.text}
+          </span>
+        )
+      })}
+    </div>
   )
 }
 

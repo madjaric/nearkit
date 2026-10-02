@@ -62,16 +62,50 @@ interface PositionsTableProps {
   expandable?: boolean
 }
 
+/**
+ * The table fits its own box instead of scrolling sideways: what a narrower box has no room for
+ * drops out, measured against the table itself (not the window), and below the narrowest tier
+ * the positions print as the card list, which holds every figure.
+ *   Positions page: every column from 72rem; under it, average entry moves to the row's detail
+ *   and the unrealized % prints under its figure; cards under 56rem.
+ *   Dashboard: unrealized from 53rem, price and the Send key from 46rem; cards under 34rem.
+ */
+const TIERS = {
+  full: {
+    table: 'hidden @[56rem]:block',
+    cards: '@[56rem]:hidden',
+    detail: 'hidden @[72rem]:table-cell',
+    pctInline: '@[72rem]:hidden',
+    price: undefined,
+    pnl: undefined,
+    send: 'inline-flex',
+  },
+  compact: {
+    table: 'hidden @[34rem]:block',
+    cards: '@[34rem]:hidden',
+    detail: undefined,
+    pctInline: undefined,
+    price: 'hidden @[46rem]:table-cell',
+    pnl: 'hidden @[53rem]:table-cell',
+    send: 'hidden @[46rem]:inline-flex',
+  },
+} as const
+
 /** BUY | SELL | SEND: the existing trade ticket, and each wallet's own send flow (never a watch-only one). */
-function TradeKeys({ position }: { position: Position }) {
+function TradeKeys({ position, compact = false }: { position: Position; compact?: boolean }) {
   const { openTrade } = useTradeDrawer()
+  const send = (
+    <span className={TIERS[compact ? 'compact' : 'full'].send}>
+      <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
+    </span>
+  )
   if (position.token.isNative) {
     return (
       <div className="flex items-center justify-end gap-1">
         <span className="text-xs text-fg-4" title="NEAR is the base currency; trade tokens against it">
           Base
         </span>
-        <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
+        {send}
       </div>
     )
   }
@@ -83,7 +117,7 @@ function TradeKeys({ position }: { position: Position }) {
       <Button size="sm" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })} aria-label={`Sell ${position.token.symbol}`}>
         Sell
       </Button>
-      <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
+      {send}
     </div>
   )
 }
@@ -141,12 +175,13 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
   }
 
   const colCount = compact ? 6 : 8
+  const tier = TIERS[compact ? 'compact' : 'full']
 
   return (
-    <>
-      {/* ≥768px: terminal table */}
-      <div className="hidden md:block">
-        <Table label="Positions" rows="double" minWidth={compact ? 560 : 860}>
+    <div className="@container">
+      {/* A box wide enough for it: the terminal table */}
+      <div className={tier.table}>
+        <Table label="Positions" rows="double" minWidth={compact ? 520 : 860}>
           <thead>
             <tr>
               <Th sort={thSort('token')}>Token</Th>
@@ -154,21 +189,21 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                 Balance
               </Th>
               {!compact && (
-                <Th align="right" sort={thSort('avg')}>
+                <Th align="right" sort={thSort('avg')} className={tier.detail}>
                   <Term term="avgEntry">Avg entry</Term>
                 </Th>
               )}
-              <Th align="right" sort={thSort('price')}>
+              <Th align="right" sort={thSort('price')} className={tier.price}>
                 Price
               </Th>
               <Th align="right" sort={thSort('value')}>
                 Value
               </Th>
-              <Th align="right" sort={thSort('pnl')} className={compact ? 'hidden 2xl:table-cell' : undefined}>
+              <Th align="right" sort={thSort('pnl')} className={tier.pnl}>
                 Unrealized
               </Th>
               {!compact && (
-                <Th align="right" sort={thSort('pnlPct')}>
+                <Th align="right" sort={thSort('pnlPct')} className={tier.detail}>
                   Unrealized %
                 </Th>
               )}
@@ -206,12 +241,12 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                       )}
                     </Td>
                     {!compact && (
-                      <Td align="right">
+                      <Td align="right" className={tier.detail}>
                         <Price value={p.avgEntryUsd} className="text-fg-2" />
                         {p.token.status === 'prelaunch' && <SimMark />}
                       </Td>
                     )}
-                    <Td align="right">
+                    <Td align="right" className={tier.price}>
                       <Price value={p.priceUsd} className="text-fg" />
                       {p.token.status === 'prelaunch' && <SimMark />}
                       <div>
@@ -221,22 +256,21 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                     <Td align="right">
                       <Usd value={p.valueUsd} className="text-fg" />
                     </Td>
-                    <Td align="right" className={compact ? 'hidden 2xl:table-cell' : undefined}>
+                    <Td align="right" className={tier.pnl}>
                       <Usd value={p.pnlUsd} signed colored />
-                      {compact && (
-                        <div>
-                          <Pct value={p.pnlPct} className="text-[11px]" />
-                        </div>
-                      )}
+                      {/* The percentage prints under the figure wherever it has no column of its own. */}
+                      <div className={tier.pctInline}>
+                        <Pct value={p.pnlPct} className="text-[11px]" />
+                      </div>
                       <PnlState position={p} />
                     </Td>
                     {!compact && (
-                      <Td align="right">
+                      <Td align="right" className={tier.detail}>
                         <Pct value={p.pnlPct} />
                       </Td>
                     )}
                     <Td align="right">
-                      <TradeKeys position={p} />
+                      <TradeKeys position={p} compact={compact} />
                     </Td>
                   </Tr>
                   {expandable && isOpen && (
@@ -283,8 +317,8 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
       </div>
       <NearKitSendModal wallet={sending?.wallet ?? null} tokenId={sending?.tokenId} onClose={() => setSending(null)} />
 
-      {/* <768px: each position becomes a two-line row with its keys */}
-      <div className="md:hidden">
+      {/* A narrower box: each position becomes a two-line row with its keys */}
+      <div className={tier.cards}>
         <div className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2">
           <span className="legend">Sort</span>
           <Select
@@ -355,7 +389,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
           ))}
         </ul>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -363,11 +397,11 @@ function TradeKeysMobile({ position }: { position: Position }) {
   const { openTrade } = useTradeDrawer()
   return (
     <div className="grid grid-cols-3 gap-2">
-      <Button size="sm" variant="quiet-buy" onClick={() => openTrade({ tokenId: position.token.id, side: 'buy' })}>
-        Buy {position.token.symbol}
+      <Button size="sm" variant="quiet-buy" onClick={() => openTrade({ tokenId: position.token.id, side: 'buy' })} aria-label={`Buy ${position.token.symbol}`}>
+        Buy
       </Button>
-      <Button size="sm" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })}>
-        Sell {position.token.symbol}
+      <Button size="sm" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })} aria-label={`Sell ${position.token.symbol}`}>
+        Sell
       </Button>
       <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
     </div>

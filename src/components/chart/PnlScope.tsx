@@ -149,7 +149,7 @@ export function PnlScope({ points, height = 260, dim = false, money = USD_FORMAT
         <DailyBars points={points} window={[a, b]} money={money} />
       </div>
 
-      <ReadoutStrip cols="grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6" className="bg-line-soft">
+      <ReadoutStrip cols="grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6" inset className="rounded-md border border-line">
         <ReadoutSlot legend="Cursor A" value={pa ? money.full(pa.cumulative, { signed: true }) : '—'} sub={pa ? formatDate(pa.t) : ''} />
         <ReadoutSlot legend="Cursor B" value={pb ? money.full(pb.cumulative, { signed: true }) : '—'} sub={pb ? formatDate(pb.t) : ''} />
         <ReadoutSlot legend="Δ PnL (B − A)" value={<span className={toneOf(delta)}>{money.full(delta, { signed: true })}</span>} sub="realized between cursors" />

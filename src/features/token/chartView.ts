@@ -1,3 +1,4 @@
+import { formatClock, formatDate } from '@/lib/format'
 import { CHART_RANGES } from '@/services/near/candles'
 import type { ChartRange, PricePoint } from '@/types/domain'
 
@@ -16,6 +17,17 @@ export interface ChartView {
   partial: boolean
   /** When the market started, if the source knows: a window reaching further back has nothing before it. */
   since: number | null
+}
+
+const DAY_MS = 24 * 3_600_000
+
+/**
+ * The label a time axis prints for `range`: the time of day while the window sits within a day,
+ * the date beyond it. Short on purpose, so four of them fit under a phone-width plot; the full
+ * date and time of any point is in its readout.
+ */
+export function axisTime(range: ChartRange): (t: number) => string {
+  return CHART_RANGES[range].windowMs <= DAY_MS ? formatClock : formatDate
 }
 
 /** A page that only watches sees a price a minute at most (its poll), so a gap longer than that is one. */

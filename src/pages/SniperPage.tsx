@@ -177,7 +177,7 @@ function Sniper() {
               value={trigger}
               onChange={setTrigger}
               options={[
-                { value: 'liquidity-added', label: 'Liquidity added' },
+                { value: 'liquidity-added', label: 'Liquidity' },
                 { value: 'first-trade', label: 'First trade' },
                 { value: 'at-time', label: 'At a time' },
               ]}

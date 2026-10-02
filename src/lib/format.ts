@@ -201,12 +201,18 @@ export function formatUntil(at: number, now = Date.now()): string {
   return `in ${formatDuration(diff)}`
 }
 
-const dateTime = new Intl.DateTimeFormat(LOCALE, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+// h23, not hour12: false: in en-US that one prints the hour after midnight as 24.
+const dateTime = new Intl.DateTimeFormat(LOCALE, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+const clock = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 const dateOnly = new Intl.DateTimeFormat(LOCALE, { month: 'short', day: 'numeric' })
 const dateYear = new Intl.DateTimeFormat(LOCALE, { month: 'short', day: 'numeric', year: 'numeric' })
 
 export function formatDateTime(at: number): string {
   return dateTime.format(at)
+}
+/** Time of day alone, for an axis whose whole window sits within a day. */
+export function formatClock(at: number): string {
+  return clock.format(at)
 }
 export function formatDate(at: number, withYear = false): string {
   return (withYear ? dateYear : dateOnly).format(at)

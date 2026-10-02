@@ -112,15 +112,8 @@ function Readouts() {
         legend="Available NEAR"
         aside={<Wallet size={16} aria-hidden="true" />}
         loading={loading}
-        value={
-          off || !s ? (
-            <span className="text-fg-4">0.00</span>
-          ) : (
-            <>
-              {formatAmount(s.availableNear, 2)} <span className="hidden font-sans text-base font-medium text-fg-3 @[11rem]:inline">NEAR</span>
-            </>
-          )
-        }
+        value={off || !s ? <span className="text-fg-4">0.00</span> : formatAmount(s.availableNear, 2)}
+        unit={off || !s ? undefined : 'NEAR'}
         sub={off || !s ? '—' : s.availableNearUsd === null ? `Main ${formatAmount(s.mainNear, 2)}` : `≈ ${formatUsd(s.availableNearUsd)}`}
       />
       <ReadoutSlot

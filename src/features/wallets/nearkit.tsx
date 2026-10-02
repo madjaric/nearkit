@@ -131,11 +131,11 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
           A NearKit wallet trades, joins a Multi Buy and sends without a browser wallet: NearKit executes each one with the wallet’s own key, which only its signer holds.
         </EmptyState>
       ) : (
-        <>
+        <div className="@container">
           <p className="border-b border-line-soft px-4 py-2 text-xs text-fg-3">
             Trade, Multi Buy, Multi Sell and Send right here: NearKit executes each wallet’s own transactions with that wallet’s key. No wallet prompt.
           </p>
-          <div className="hidden md:block">
+          <div className="hidden @[48rem]:block">
             <Table label="NearKit wallets" minWidth={760}>
               <thead>
                 <tr>
@@ -198,7 +198,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
               </tbody>
             </Table>
           </div>
-          <ul className="divide-y divide-line-soft md:hidden" aria-label="NearKit wallets">
+          <ul className="divide-y divide-line-soft @[48rem]:hidden" aria-label="NearKit wallets">
             {wallets.map((w) => {
               const s = snapshotOf(w)
               return (
@@ -229,7 +229,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
               )
             })}
           </ul>
-        </>
+        </div>
       )}
       <CreateWalletModal open={creating} onClose={() => setCreating(false)} />
       <RenameWalletModal wallet={renaming} onClose={() => setRenaming(null)} />

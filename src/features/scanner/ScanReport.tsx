@@ -103,7 +103,7 @@ export function ScanReportView({ report, onRescan, rescanning }: { report: Repor
             <Figures>{`Scanned ${formatDateTime(report.scannedAt)}`}</Figures>
           </span>
         </div>
-        <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-6" className="rounded-none border-x-0 border-b-0">
+        <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-6" inset className="border-t border-line-soft">
           <ReadoutSlot legend="Supply" value={formatCompact(report.totalSupply, 2)} sub={`${formatNumber(report.totalSupply, 0, 0)} ${report.symbol}`} />
           <ReadoutSlot legend="Holders" value={formatNumber(report.holders, 0, 0)} sub="accounts with a balance" />
           <ReadoutSlot

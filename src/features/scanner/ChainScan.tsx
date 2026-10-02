@@ -77,7 +77,7 @@ export function ChainScanView({ report, onRescan, rescanning }: { report: ChainS
             <Figures>{`Scanned ${formatDateTime(report.scannedAt)}`}</Figures>
           </span>
         </div>
-        <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-6" className="rounded-none border-x-0 border-b-0">
+        <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-6" inset className="border-t border-line-soft">
           <Slot fact={fact('supply')} />
           <Slot fact={fact('holders')} />
           <Slot fact={fact('top10')} />

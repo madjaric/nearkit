@@ -37,7 +37,7 @@ function NetworkPanel() {
               <Led tone="idle" /> NEAR · demo data
             </p>
           </Row>
-          <Row label="Real network" hint="Run NearKit with VITE_NEARKIT_SERVICES=near to use testnet or mainnet.">
+          <Row label="Real network" hint="The demo never touches a network: nothing here is signed or sent.">
             <p className="pt-1 text-sm text-fg-3">Not in the demo</p>
           </Row>
         </div>
@@ -47,9 +47,9 @@ function NetworkPanel() {
   const exec = caps.execution
   return (
     <Panel>
-      <PanelHeader title="Network" actions={<Tag tone={caps.network === 'mainnet' ? 'warn' : 'neutral'}>{caps.networkLabel}</Tag>} />
+      <PanelHeader title="Network" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
       <div className="divide-y divide-line-soft">
-        <Row label="Network" hint="Set when NearKit is built (VITE_NEAR_NETWORK). Testnet and mainnet never mix in one page.">
+        <Row label="Network" hint="This site runs on one network. Testnet and mainnet never mix in one page.">
           <p className="flex items-center gap-2 pt-1 text-sm text-fg">
             <Led tone="on" /> NEAR {caps.networkLabel.toLowerCase()}
           </p>
@@ -60,7 +60,7 @@ function NetworkPanel() {
             <Figures>{exec.enabled ? 'Enabled: you sign every transaction in your wallet.' : (exec.reason ?? 'Disabled in this build.')}</Figures>
           </p>
         </Row>
-        <Row label="RPC endpoints" hint="Reads and transaction status, in failover order. Override with VITE_NEAR_RPC_URL.">
+        <Row label="RPC endpoints" hint="Where NearKit reads balances and checks transactions, in failover order.">
           <ol className="flex flex-col gap-1 pt-1">
             {caps.rpcUrls.map((url, i) => (
               <li key={url} className="num truncate text-xs text-fg-2" title={url}>

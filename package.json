@@ -26,6 +26,7 @@
     "e2e:telegram": "node scripts/e2e-telegram.mjs",
     "smoke:live": "vitest run --config vitest.smoke.config.ts",
     "shots": "node scripts/shoot.mjs",
+    "qa:layout": "node scripts/qa-layout.mjs",
     "server:build": "vite build -c vite.server.config.ts --logLevel warn",
     "server": "npm run server:build && node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/main.js",
     "server:start": "node --disable-warning=ExperimentalWarning --enable-source-maps dist-server/main.js",

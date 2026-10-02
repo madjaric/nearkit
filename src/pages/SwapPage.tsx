@@ -46,7 +46,7 @@ function MarketPanel({ token }: { token: TokenListing }) {
           )
         }
       />
-      <ReadoutStrip cols="grid-cols-2" className="rounded-none border-0">
+      <ReadoutStrip cols="grid-cols-2" inset>
         <ReadoutSlot
           legend="Price"
           value={
@@ -112,7 +112,7 @@ function WalletBalances({ fromId, toId, walletId, onPick }: { fromId: TokenId; t
               <tr>
                 <Th>Wallet</Th>
                 {cols.map((c) => (
-                  <Th key={c} align="right">
+                  <Th key={c} align="right" className="max-sm:px-2">
                     {symbol(c)}
                   </Th>
                 ))}
@@ -126,14 +126,14 @@ function WalletBalances({ fromId, toId, walletId, onPick }: { fromId: TokenId; t
                     <Td>
                       <button type="button" aria-pressed={active} onClick={() => onPick(w.id)} className="flex items-center gap-2 text-left">
                         <Led tone={active ? 'on' : 'off'} />
-                        <span className="flex flex-col">
-                          <span className={cn('text-sm', active ? 'text-fg' : 'text-fg-2')}>{w.label}</span>
+                        <span className="flex min-w-0 max-w-[5.5rem] flex-col sm:max-w-none">
+                          <span className={cn('truncate text-sm', active ? 'text-fg' : 'text-fg-2')}>{w.label}</span>
                           <AccountText id={w.accountId} className="text-[11px] text-fg-4" />
                         </span>
                       </button>
                     </Td>
                     {cols.map((c) => (
-                      <Td key={c} align="right">
+                      <Td key={c} align="right" className="max-sm:px-2">
                         <Amount value={bal(w.id, c)} minDecimals={c === NEAR ? 2 : 0} className={bal(w.id, c) > 0 ? 'text-fg-2' : 'text-fg-4'} />
                       </Td>
                     ))}

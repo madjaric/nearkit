@@ -19,7 +19,7 @@ interface TokenSelectProps {
   /** Show balances held by this wallet in the list. */
   walletId?: string
   size?: 'md' | 'lg'
-  /** Symbol only at full height, for sitting beside an amount field. */
+  /** Symbol only, as a chip that sits inside an amount field. */
   compact?: boolean
   className?: string
   id?: string
@@ -93,8 +93,10 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
           setOpen((o) => !o)
         }}
         className={cn(
-          'flex w-full items-center gap-2.5 rounded-sm border border-line-strong bg-well text-left transition-colors hover:border-fg-4 focus-visible:border-accent',
-          size === 'lg' ? 'h-11 px-3' : 'h-9 px-2.5',
+          'flex items-center rounded-md border text-left transition-colors focus-visible:border-accent',
+          compact
+            ? 'h-10 max-w-[11.5rem] gap-2 border-line bg-raised pl-2 pr-2.5 hover:border-line-strong'
+            : cn('w-full gap-2.5 border-line-strong bg-well hover:border-fg-4', size === 'lg' ? 'h-11 px-3' : 'h-9 px-2.5'),
           className,
         )}
       >
@@ -128,7 +130,7 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
         anchorRef={triggerRef}
         open={open}
         onClose={close}
-        placement="bottom-start"
+        placement={compact ? 'bottom-end' : 'bottom-start'}
         matchWidth={size === 'lg' && !compact}
         label={label}
         className={cn((size === 'md' || compact) && 'w-72')}

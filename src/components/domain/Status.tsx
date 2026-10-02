@@ -77,7 +77,7 @@ export function ExecutionTag({ trading = false }: { trading?: boolean }) {
       </Tag>
     )
   }
-  return <Tag tone={caps.network === 'mainnet' ? 'warn' : 'neutral'}>{caps.networkLabel}</Tag>
+  return <Tag tone="neutral">{caps.networkLabel}</Tag>
 }
 
 /** Where the figures on a page come from: demo data, or the named network. */

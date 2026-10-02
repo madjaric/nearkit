@@ -25,8 +25,8 @@ export function NearTicker({ className, showAge = false }: { className?: string;
   const previous = usePrevious(data?.priceUsd)
   const dir = data && previous !== undefined ? (data.priceUsd > previous ? 'up' : data.priceUsd < previous ? 'down' : null) : null
   return (
-    <div className={cn('items-baseline gap-2', className)} aria-label="NEAR price">
-      <span className="legend">NEAR/USD</span>
+    <div className={cn('min-w-0 items-baseline gap-2 overflow-hidden whitespace-nowrap', className)} aria-label="NEAR price">
+      <span className="legend max-[339px]:hidden">NEAR/USD</span>
       {data ? (
         <>
           <span key={data.updatedAt} className={cn('num text-sm text-fg', dir === 'up' && 'animate-tick-up', dir === 'down' && 'animate-tick-down')}>
@@ -48,7 +48,8 @@ export function NearTicker({ className, showAge = false }: { className?: string;
   )
 }
 
-export function NetworkChip() {
+/** The network readout: a bordered chip in the top bar, flat (`bare`) where a bar already frames it. */
+export function NetworkChip({ bare = false }: { bare?: boolean }) {
   const caps = useCapabilities()
   const network = useNetworkWording()
   const demo = caps.mode === 'demo'
@@ -62,7 +63,7 @@ export function NetworkChip() {
         : `NEAR ${network.name}. You sign every transaction in your wallet, and NearKit confirms it on chain.`
   return (
     <Tip content={tip}>
-      <span tabIndex={0} className="flex h-10 items-center gap-2 rounded-md border border-line bg-panel px-3">
+      <span tabIndex={0} className={cn('flex shrink-0 items-center gap-2', bare ? 'h-7' : 'h-10 rounded-md border border-line bg-panel px-3')}>
         <Led tone={demo ? 'idle' : viewOnly ? 'warn' : 'on'} />
         <span className="text-xs font-semibold tracking-[0.07em] text-fg-2" style={{ fontStretch: '90%' }}>
           NEAR
@@ -86,8 +87,11 @@ function WalletButton() {
   if (isPending) return <Skeleton className="h-10 w-36" />
   if (!session)
     return (
-      <Button variant="primary" size="lg" onClick={promptConnect}>
-        Connect wallet
+      // A phone's bar has room for a 36px key; under 360px the label drops to its verb.
+      <Button variant="primary" size="lg" aria-label="Connect wallet" className="max-sm:h-9 max-sm:px-4 max-sm:text-xs" onClick={promptConnect}>
+        <span>
+          Connect<span className="max-[359px]:hidden"> wallet</span>
+        </span>
       </Button>
     )
 
@@ -147,7 +151,7 @@ function WalletButton() {
           {...props}
           type="button"
           title={session.accountId}
-          className="flex h-10 min-w-0 max-w-[14rem] items-center gap-2 rounded-md border border-line bg-panel px-3 transition-colors hover:border-line-strong aria-expanded:border-line-strong"
+          className="flex h-10 min-w-0 max-w-[14rem] items-center gap-2 rounded-md border border-line bg-panel px-3 transition-colors hover:border-line-strong aria-expanded:border-line-strong max-sm:gap-1.5 max-sm:px-2.5"
         >
           <Led tone={session.issue ? 'warn' : 'on'} />
           <span className="num truncate text-sm text-fg">{formatAccount(session.accountId, 20)}</span>
@@ -185,11 +189,11 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
             <div className="hidden max-w-[480px] flex-1 lg:block">
               <GlobalSearch />
             </div>
-            <div className="ml-auto flex items-center gap-2 lg:gap-3">
+            <div className="ml-auto flex min-w-0 items-center gap-2 lg:gap-3">
               <IconButton label="Search" onClick={() => setSearching(true)} className="lg:hidden">
                 <Search size={17} />
               </IconButton>
-              <BalanceRefreshStatus />
+              <BalanceRefreshStatus terse />
               <NearTicker className="hidden sm:flex" showAge />
               <div className="hidden md:block">
                 <NetworkChip />
@@ -213,7 +217,7 @@ export function StatusStrip() {
   return (
     <div className="flex h-11 items-center justify-between gap-3 border-b border-line-soft bg-well px-4 sm:hidden">
       <NearTicker className="flex" showAge />
-      <NetworkChip />
+      <NetworkChip bare />
     </div>
   )
 }

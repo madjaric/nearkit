@@ -6,6 +6,7 @@ import { SimMark } from '@/components/domain/SimMark'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Page, PageHeader, RequireWallet } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
+import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Segmented } from '@/components/ui/Form'
 import { InfoTip, Term } from '@/components/ui/Help'
@@ -396,7 +397,7 @@ function NotTracked() {
       <EmptyState
         title="PnL isn't tracked yet"
         action={
-          <Link to="/positions" className="keycap inline-flex h-8 items-center rounded-sm border border-line px-3 text-xs text-fg-2 hover:border-line-strong hover:text-fg">
+          <Link to="/positions" className={buttonClass()}>
             See positions
           </Link>
         }

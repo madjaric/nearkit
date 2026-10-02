@@ -15,6 +15,7 @@ import { Pct } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { cn } from '@/lib/cn'
 import { formatUnits, formatUnitsShown } from '@/lib/amounts'
 import { formatAccount, formatAgo, formatAmount, formatCompact, formatDateTime, formatUsdCompact, formatUsdPrice } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
@@ -36,7 +37,7 @@ import {
 } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 import type { ChartRange, Holding, MarketFigure, Token } from '@/types/domain'
-import { chartView } from './chartView'
+import { axisTime, chartView } from './chartView'
 import { livePrices, recordPrice, subscribeLivePrices } from './livePrices'
 import { SendTokenButton } from './SendToken'
 
@@ -107,6 +108,37 @@ function figureSub(f: MarketFigure | undefined, now: number): { text: string; ti
   if (f.state === 'stale') return { text: `${f.source} · stale, ${formatAgo(f.at, now)}`, title: f.reason }
   if (f.state === 'unavailable') return { text: 'Unavailable', title: f.reason }
   return { text: 'Not applicable', title: f.reason }
+}
+
+/** A parenthetical in a source's name is detail for Details, not for a card's caption. */
+const shortSource = (source: string) => source.replace(/\s*\([^)]*\)\s*$/, '')
+
+/**
+ * The caption of a figure's card: where it comes from and how old it is, or that it's missing.
+ * On a narrow card the age takes its own line, and every card of the row does, so their values
+ * stay level. The source in full, and why a figure is stale or missing, is the title, and in Details.
+ */
+function FigureCaption({ figure, now }: { figure: MarketFigure | undefined; now: number }) {
+  if (!figure) return null
+  if (figure.state === 'unavailable' || figure.state === 'not-applicable')
+    return (
+      <span title={figure.reason}>
+        {figure.state === 'unavailable' ? 'Unavailable' : 'Not applicable'}
+        <span aria-hidden="true" className="block @[9.5rem]:hidden">
+          &nbsp;
+        </span>
+      </span>
+    )
+  const stale = figure.state === 'stale'
+  return (
+    <span title={stale ? `${figure.source}: ${figure.reason}` : figure.source}>
+      {shortSource(figure.source)}
+      <span aria-hidden="true" className="hidden @[9.5rem]:inline">
+        {' · '}
+      </span>
+      <span className={cn('block @[9.5rem]:inline', stale && 'text-warn')}>{stale ? `stale, ${formatAgo(figure.at, now)}` : formatAgo(figure.at, now)}</span>
+    </span>
+  )
 }
 
 /** The figure's whole story, for Details. */
@@ -210,8 +242,9 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel className="flex flex-col gap-4 p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <Panel className="@container flex flex-col gap-4 p-4 sm:p-5">
+        {/* Name and price sit side by side where the panel has room; on a phone the price goes under the name, aligned with it. */}
+        <div className="flex flex-col gap-3 @[34rem]:flex-row @[34rem]:items-start @[34rem]:justify-between @[34rem]:gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <TokenGlyph symbol={token.symbol} tokenId={token.id} size={32} />
             <div className="min-w-0">
@@ -230,9 +263,9 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
               </p>
             </div>
           </div>
-          <div className="text-right" aria-live="polite">
+          <div className="min-w-0 @[34rem]:max-w-[55%] @[34rem]:text-right" aria-live="polite">
             {market.isPending ? (
-              <Skeleton className="ml-auto h-8 w-36" />
+              <Skeleton className="h-8 w-36 @[34rem]:ml-auto" />
             ) : priceValue !== null ? (
               <p className="num text-2xl text-fg" aria-label={`${token.symbol} price`}>
                 {formatUsdPrice(priceValue)}
@@ -240,7 +273,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             ) : (
               <p className="text-lg text-fg-3">Price unavailable</p>
             )}
-            <p className="mt-0.5 flex items-center justify-end gap-1.5 text-xs text-fg-3">
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-fg-3 @[34rem]:justify-end">
               {valueOf(m?.change24hPct) !== null && (
                 <>
                   <Pct value={valueOf(m?.change24hPct) as number} /> <span>24h</span> <span aria-hidden="true">·</span>
@@ -250,26 +283,6 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             </p>
           </div>
         </div>
-
-        <ReadoutStrip>
-          {figures.map((f) => {
-            const v = valueOf(f.figure)
-            const sub = figureSub(f.figure, now)
-            return (
-              <ReadoutSlot
-                key={f.key}
-                legend={f.label}
-                loading={market.isPending}
-                value={v !== null ? f.format(v) : <span className="text-fg-3">—</span>}
-                sub={
-                  <span className="block truncate" title={sub.title}>
-                    {sub.text}
-                  </span>
-                }
-              />
-            )
-          })}
-        </ReadoutStrip>
 
         {pair && (
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-3">
@@ -342,6 +355,22 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         )}
       </Panel>
 
+      {/* The market's figures, as the page's stat cards: on the canvas like the Dashboard's, never inside the panel above. */}
+      <ReadoutStrip>
+        {figures.map((f) => {
+          const v = valueOf(f.figure)
+          return (
+            <ReadoutSlot
+              key={f.key}
+              legend={f.label}
+              loading={market.isPending}
+              value={v !== null ? f.format(v) : <span className="text-fg-3">—</span>}
+              sub={<FigureCaption figure={f.figure} now={now} />}
+            />
+          )
+        })}
+      </ReadoutStrip>
+
       <Panel>
         <PanelHeader title="Price" actions={<Segmented label="Chart window" size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: r }))} />} />
         <div className="flex flex-col gap-2 p-4">
@@ -355,6 +384,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
               formatValue={formatUsdPrice}
               formatTick={formatUsdPrice}
               formatTime={formatDateTime}
+              formatAxis={axisTime(range)}
               height={220}
             />
           ) : (
@@ -390,11 +420,11 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             {activity.data.slice(0, 25).map((t) => (
               <li
                 key={`${t.hash}-${t.account}-${t.side}`}
-                className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-sm sm:grid-cols-[3rem_9rem_minmax(0,1fr)_minmax(0,9rem)_4.5rem]"
+                className="grid grid-cols-[3rem_auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-sm sm:grid-cols-[3rem_9rem_minmax(0,1fr)_minmax(0,9rem)_4.5rem]"
               >
                 <span className={t.side === 'buy' ? 'keycap text-2xs text-accent' : 'keycap text-2xs text-neg'}>{t.side === 'buy' ? 'Buy' : 'Sell'}</span>
-                <span className="num text-fg">{`${formatUnitsShown(BigInt(t.near), 24, 4)} NEAR`}</span>
-                <span className="num truncate text-fg-2">{`${formatUnitsShown(BigInt(t.amount), token.decimals, 2)} ${token.symbol}`}</span>
+                <span className="num whitespace-nowrap text-fg">{`${formatUnitsShown(BigInt(t.near), 24, 4)} NEAR`}</span>
+                <span className="num truncate text-right text-fg-2 sm:text-left">{`${formatUnitsShown(BigInt(t.amount), token.decimals, 2)} ${token.symbol}`}</span>
                 <span className="num hidden truncate text-xs text-fg-3 sm:block" title={t.account}>
                   {formatAccount(t.account, 18)}
                 </span>
@@ -424,15 +454,18 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
 
       <Panel>
         <PanelHeader title="Details" />
-        <div className="grid grid-cols-1 gap-x-8 gap-y-2 p-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-2 p-4 md:grid-cols-2 [&_dt]:shrink-0">
           <Lines>
             <Line label="Your balance" emphasis>
               <Figures>{held.length ? `${totalOf(held, native ? 24 : token.decimals)} ${token.symbol}` : `0 ${token.symbol}`}</Figures>
             </Line>
             <Line label="Contract">
               {token.contract ? (
-                <span className="flex items-center gap-1">
-                  <AccountText id={token.contract} className="text-fg-2" />
+                <span className="flex items-center justify-end gap-1">
+                  <span className="num text-fg-2 sm:hidden" title={token.contract}>
+                    {formatAccount(token.contract, 22)}
+                  </span>
+                  <AccountText id={token.contract} className="hidden text-fg-2 sm:inline" />
                   <CopyButton value={token.contract} label={`Copy ${token.symbol} contract`} />
                   {caps.explorerUrl && (
                     <a
@@ -466,7 +499,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
                 <Figures>{`${formatCompact(m.supply.circulating, 2)} (${m.supply.source ?? 'source'})`}</Figures>
               </Line>
             )}
-            {!inList && token.contract && <Line label="Your token list">Not in it. Adding it keeps it in your lists and tickets; it changes nothing else.</Line>}
+            {!inList && token.contract && <Line label="Your list">Not in it. Adding it keeps it in your lists and tickets; it changes nothing else.</Line>}
           </Lines>
           <Lines>
             <Line label="Price">{figureNote(m?.priceUsd, now)}</Line>
