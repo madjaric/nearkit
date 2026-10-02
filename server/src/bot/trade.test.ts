@@ -4,7 +4,7 @@ import { accountsModule } from './accounts'
 import type { Command } from './context'
 import { coreModule } from './core'
 import { settingsModule } from './settings'
-import { ALICE, botHarness } from './testing'
+import { ALICE, botHarness, GROUP } from './testing'
 import { tradeModule } from './trade'
 
 const ONE = 10n ** 24n
@@ -247,5 +247,65 @@ describe('trading from Telegram', () => {
     const h = await bot()
     for (let i = 0; i < 7; i++) await h.say(`/buy ${USDT} 0.1`)
     expect(h.last()?.text).toContain('Too many quotes')
+  })
+})
+
+describe('a pasted contract', () => {
+  it('opens the buy flow for that token at its amount step, prepares nothing, and adds the token to the user’s list', async () => {
+    const h = await bot()
+    await h.say(FRESH)
+    const ask = h.last()
+    expect(ask?.text).toContain('<b>Buy FRESH</b>')
+    expect(ask?.text).toContain('How much NEAR?')
+    expect(h.buttons().map((b) => b.text)).toContain('✖ Cancel')
+    expect(await h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+    expect(await h.store.userTokens(ALICE.id, 'testnet')).toEqual([FRESH])
+  })
+
+  it('a token Rhea does not route still opens the buy flow; the quote says why and prepares nothing', async () => {
+    const h = await bot({ noRoute: true })
+    await h.say(USDT)
+    expect(h.last()?.text).toContain('<b>Buy USDT</b>')
+    await h.press(h.buttons().find((b) => b.text === '1 NEAR')?.data ?? '')
+    expect(h.last()?.text).toMatch(/Rhea’s (router|aggregator) refused this quote \(code 1: no path\)/)
+    expect(await h.store.db.all('SELECT * FROM handoffs')).toEqual([])
+  })
+
+  it('an address that is no token says so, and waits for nothing', async () => {
+    const h = await bot()
+    await h.say('nobody.testnet')
+    expect(h.last()?.text).toContain('Token not found')
+    expect(h.last()?.text).not.toContain('/help')
+    // No step was left waiting: the next message is not read as a token.
+    await h.say('hello')
+    expect(h.last()?.text).toContain('Send /help to see what I can do')
+  })
+
+  it('arbitrary text, including a bare symbol, still gets the help pointer', async () => {
+    const h = await bot()
+    await h.say('what can you do')
+    expect(h.last()?.text).toContain('Send /help to see what I can do')
+    await h.say('USDT')
+    expect(h.last()?.text).toContain('Send /help to see what I can do')
+    expect(h.fake.messages()).toHaveLength(2)
+  })
+
+  it('asks to link a wallet first, as /buy does', async () => {
+    const h = await bot({ link: false })
+    await h.say(FRESH)
+    expect(h.last()?.text).toContain('Link a NEAR account first')
+  })
+
+  it('is ignored in a group', async () => {
+    const h = await bot()
+    await h.say(FRESH, ALICE, GROUP)
+    expect(h.fake.messages()).toHaveLength(0)
+  })
+
+  it('a step that is waiting for text keeps it', async () => {
+    const h = await bot()
+    await h.say('/sell')
+    await h.say(USDT)
+    expect(h.last()?.text).toContain('<b>Sell USDT</b>')
   })
 })

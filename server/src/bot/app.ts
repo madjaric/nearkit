@@ -38,6 +38,7 @@ export function createBotApp(
 ): BotApp {
   const membership = modules.flatMap((m) => (m.onMembership ? [m.onMembership] : []))
   const migrations = modules.flatMap((m) => (m.onChatMigrated ? [m.onChatMigrated] : []))
+  const texts = modules.flatMap((m) => (m.onText ? [m.onText] : []))
   const commands = new Map<string, Command>()
   const callbacks = new Map<string, NonNullable<BotModule['callbacks']>[string]>()
   const flows = new Map<string, NonNullable<BotModule['flows']>[string]>()
@@ -158,7 +159,17 @@ export function createBotApp(
       await guarded(ctx, `flow ${session.flow}`, () => flow(ctx, message.text ?? message.caption ?? '', session.data, message))
       return
     }
-    if (ctx.isPrivate && message.text) await ctx.reply('Send /help to see what I can do, or /start for the menu.')
+    if (!ctx.isPrivate || !message.text) return
+    // A plain message: a module may know what it is (a pasted token contract opens the buy flow).
+    for (const onText of texts) {
+      // A handler that fails has answered (guarded says so): the help pointer would be a second reply.
+      let handled = true
+      await guarded(ctx, 'text', async () => {
+        handled = await onText(ctx, message.text ?? '')
+      })
+      if (handled) return
+    }
+    await ctx.reply('Send /help to see what I can do, or /start for the menu.')
   }
 
   async function onCallback(query: TgCallbackQuery) {

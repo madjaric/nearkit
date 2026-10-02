@@ -53,6 +53,7 @@ export function help(config: Pick<ServerConfig, 'network'>, commands: { name: st
     sections.join('\n\n'),
     '',
     esc(feeNote(config)),
+    'Paste a token’s contract ID on its own to buy it.',
     'Trades from your NearKit wallet run right here when you confirm. Trades from a linked wallet are signed in your own wallet.',
     SAFETY,
   ].join('\n')

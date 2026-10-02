@@ -324,6 +324,21 @@ await step('a buy prepared in Telegram is signed in NearKit, checked on chain an
 })
 
 let mainAddress = ''
+await step('a token contract pasted on its own opens the buy flow at its amount step, prepares nothing, and a plain word still points to /help', async () => {
+  let from = tg.sent.length
+  say(TG_USER, USDT)
+  const ask = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Buy USDT'), { from })
+  if (!ask.text.includes('How much NEAR?')) throw new Error(`the buy flow did not reach its amount step: ${ask.text.slice(0, 200)}`)
+  if (ask.buttons.some((b) => b.url?.includes('/swap?'))) throw new Error('a pasted contract prepared a trade by itself')
+  from = tg.sent.length
+  say(TG_USER, '/cancel')
+  await tg.waitFor(TG_USER.id, (x) => /cancel/i.test(x.text), { from })
+  from = tg.sent.length
+  say(TG_USER, 'hello')
+  const help = await tg.waitFor(TG_USER.id, () => true, { from })
+  if (!help.text.includes('/help')) throw new Error(`a plain word did not get the help pointer: ${help.text.slice(0, 120)}`)
+})
+
 await step('a NearKit wallet is created in Telegram: one address even on a double tap, and /health says wallets are on', async () => {
   const health = await fetch(`http://127.0.0.1:${API_PORT}/health`).then((r) => r.json())
   if (health.wallets !== 'on') throw new Error(`wallets: ${health.wallets}`)

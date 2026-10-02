@@ -89,11 +89,20 @@ function tokenHeader(side: Side, t: TokenListing): string {
   return `${side === 'buy' ? '🟢' : '🔴'} ${bold(`${side === 'buy' ? 'Buy' : 'Sell'} ${t.symbol}`)}${t.contract ? `\n${code(t.contract)}` : ''}`
 }
 
-async function chooseToken(ctx: BotCtx, state: TradeState, query: string) {
+/**
+ * The token step of a trade. `pasted`: the query was a contract pasted on its own, outside any
+ * flow, so a miss says "Token not found" and leaves no step waiting for a retry.
+ */
+async function chooseToken(ctx: BotCtx, state: TradeState, query: string, pasted = false) {
   const match = await resolveToken(ctx.deps.near, query, await userTokens(ctx, state.account))
   if (match.kind === 'none') {
+    const why = match.error ? errorText(ctx, match.error) : esc(match.message)
+    if (pasted) {
+      await ctx.reply(`⚠️ Token not found: ${why}\n\nPaste a token’s exact contract ID, or send /buy.`)
+      return
+    }
     await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
-    await ctx.reply(`⚠️ ${match.error ? errorText(ctx, match.error) : esc(match.message)}\n\nSend another symbol or contract, or /cancel.`)
+    await ctx.reply(`⚠️ ${why}\n\nSend another symbol or contract, or /cancel.`)
     return
   }
   if (match.kind === 'many') {
@@ -259,12 +268,33 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
   )
 }
 
-async function startTrade(ctx: BotCtx, side: Side, args: string) {
+/** The wallet a trade runs on, and the state it starts with; null after asking the user to link one. */
+async function tradeStart(ctx: BotCtx, side: Side): Promise<TradeState | null> {
   const nearkit = await tradingWallet(ctx.deps, ctx.user.id)
   const account = nearkit?.accountId ?? (await needAccount(ctx))
-  if (!account) return
+  if (!account) return null
+  return { side, account, native: nearkit !== null, ...(nearkit ? { walletId: nearkit.id } : {}) }
+}
+
+/**
+ * A token contract pasted on its own is the token to buy: the /buy flow from its token step,
+ * through the same resolver, quote, confirmation and checks. Only an exact contract (an account
+ * ID with a dot, or an implicit account) counts; a bare word could be anything, so a symbol
+ * alone keeps the /help pointer. Nothing is quoted or sent here: the amount step comes next.
+ */
+async function buyPastedContract(ctx: BotCtx, text: string): Promise<boolean> {
+  const contract = text.trim().toLowerCase()
+  if (!looksLikeContract(contract)) return false
+  const state = await tradeStart(ctx, 'buy')
+  if (state) await chooseToken(ctx, state, contract, true)
+  return true
+}
+
+async function startTrade(ctx: BotCtx, side: Side, args: string) {
+  const state = await tradeStart(ctx, side)
+  if (!state) return
+  const { account } = state
   const [tokenArg = '', amountArg = ''] = plainText(args, 200).split(' ')
-  const state: TradeState = { side, account, native: nearkit !== null, ...(nearkit ? { walletId: nearkit.id } : {}) }
   if (!tokenArg) {
     await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.token', state, FLOW_TTL_MS)
     await ctx.reply(`${side === 'buy' ? '🟢 Buy' : '🔴 Sell'}: which token? Send its symbol or exact contract ID.`, keyboard([btn('✖ Cancel', 'tr:cancel')]))
@@ -348,6 +378,7 @@ export function tradeModule(): BotModule {
         await quoteAndConfirm(ctx, { ...state, amount: plainText(text, 40).replace(',', '.').replace(/\s/g, '') })
       },
     },
+    onText: buyPastedContract,
     callbacks: {
       tr: async (ctx, action, arg) => {
         const { store } = ctx.deps

@@ -86,6 +86,12 @@ export interface BotModule {
   commands?: Record<string, Command>
   callbacks?: Record<string, CallbackHandler>
   flows?: Record<string, FlowHandler>
+  /**
+   * A plain message in a private chat that no command or waiting step claimed. True when the
+   * module acted on it; otherwise the next module is asked, and at the end the user is pointed
+   * to /help.
+   */
+  onText?: (ctx: BotCtx, text: string) => Promise<boolean>
   /** The bot was added to or removed from a chat. */
   onMembership?: (deps: BotDeps, update: TgChatMemberUpdated) => Promise<void>
   /** A group became a supergroup with a new ID. */
