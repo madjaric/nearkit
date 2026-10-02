@@ -97,7 +97,7 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
         onKeyDown={onKeyDown}
         spellCheck={false}
         autoComplete="off"
-        className="h-8 w-full rounded-sm border border-line bg-panel pl-9 pr-10 text-sm text-fg transition-colors placeholder:text-fg-3 hover:border-line-strong focus:border-accent focus:outline-none"
+        className="h-10 w-full rounded-md border border-line bg-panel pl-9 pr-10 text-sm text-fg transition-colors placeholder:text-fg-3 hover:border-line-strong focus:border-accent focus:outline-none"
       />
       <Kbd className="pointer-events-none absolute right-2">/</Kbd>
 
@@ -121,7 +121,7 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
                   onMouseEnter={() => setActive(i)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => go(r)}
-                  className={cn('mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5', i === active ? 'bg-hover' : '')}
+                  className={cn('mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2', i === active ? 'bg-hover' : '')}
                 >
                   {r.token ? (
                     <TokenGlyph symbol={r.token.symbol} tokenId={r.token.id} size={20} />

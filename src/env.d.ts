@@ -22,3 +22,5 @@ interface ImportMeta {
  * wallet entirely (asserted by scripts/e2e-real.mjs).
  */
 declare const __NEARKIT_E2E__: boolean
+/** The app's version from package.json, set by the Vite config. */
+declare const __NEARKIT_VERSION__: string

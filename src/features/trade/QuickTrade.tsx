@@ -219,6 +219,7 @@ export function QuickTrade({ initialTokenId, initialSide = 'buy', variant = 'pan
           quote={q}
           inSymbol={spendSymbol}
           outSymbol={receiveSymbol}
+          outTokenId={side === 'buy' ? tokenId : NEAR}
           outDecimals={side === 'sell' ? 2 : 0}
           outPriceUsd={side === 'buy' ? token?.market?.priceUsd : nearPrice}
           stale={stale}
@@ -228,7 +229,7 @@ export function QuickTrade({ initialTokenId, initialSide = 'buy', variant = 'pan
       </div>
 
       <div className="flex flex-col gap-2">
-        <Button size="lg" block variant={cta.variant} disabled={cta.disabled} title={cta.reason} onClick={cta.onClick} aria-describedby={`${uid}-arm`}>
+        <Button size="xl" block variant={cta.variant} disabled={cta.disabled} title={cta.reason} onClick={cta.onClick} aria-describedby={`${uid}-arm`}>
           {cta.label}
         </Button>
         <ArmStatus id={`${uid}-arm`} armedAt={armedAt} tone={side} blocked={cta.reason} onCancel={disarm} />

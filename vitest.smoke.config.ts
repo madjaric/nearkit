@@ -9,7 +9,7 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
-  define: { __NEARKIT_E2E__: 'false' },
+  define: { __NEARKIT_E2E__: 'false', __NEARKIT_VERSION__: '"test"' },
   test: {
     environment: 'node',
     include: ['src/**/*.smoke.ts'],

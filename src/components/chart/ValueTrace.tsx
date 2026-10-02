@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { cn } from '@/lib/cn'
 import { formatPct } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
@@ -47,6 +47,7 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
   const hi = ticks[ticks.length - 1] ?? 1
   const y = yScale([lo, hi], plotH)
   const path = linePath(values, y)
+  const fillId = useId()
   const first = points[0]
   const last = points[n - 1]
   const axis = n > 1 ? [0, Math.round((n - 1) / 3), Math.round(((n - 1) * 2) / 3), n - 1] : []
@@ -132,6 +133,14 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
                     className="fill-fg/[0.035]"
                   />
                 )}
+                <defs>
+                  <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.2" />
+                    <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {/* A faint fill under the trace, fading to the panel: the line stays the measurement. */}
+                <path d={`${path} L ${VIEW_W} ${plotH} L 0 ${plotH} Z`} fill={`url(#${fillId})`} stroke="none" />
                 <path d={path} fill="none" className="stroke-accent" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
               </svg>
               {last && <Dot frac={1} y={y(last.v)} />}

@@ -88,7 +88,7 @@ export function RequestedToken({ contract }: { contract: string }) {
         <p className="num break-all text-xs text-fg-3">
           {t.name} · {t.decimals} decimals · {t.contract}
         </p>
-        <p className="text-[11px] text-fg-4">Read from chain. Adding it only keeps it in your list; whether a trade can route shows in the quote.</p>
+        <p className="text-[11px] text-fg-4">Found on chain. Adding it puts it in your token list.</p>
         {importer.isError && <p className="text-xs text-neg">{describeError(importer.error).message}</p>}
       </div>
       <Button variant="secondary" loading={importer.isPending} disabled={importer.isPending} onClick={() => importer.mutate(contract)}>

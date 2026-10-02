@@ -1,35 +1,37 @@
-import { Layers, SendHorizontal, Split } from 'lucide-react'
+import { Coins, Layers, PieChart, SendHorizontal, Wallet } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
+import { Sparkline } from '@/components/chart/Sparkline'
 import { Freshness } from '@/components/domain/Freshness'
 import { SimMark } from '@/components/domain/SimMark'
 import { DataTag, StatusLamp } from '@/components/domain/Status'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Page, PageGrid, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
+import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Figures } from '@/components/ui/Figures'
-import { Term } from '@/components/ui/Help'
 import { Tag } from '@/components/ui/Indicators'
-import { Pct, Price, Usd } from '@/components/ui/Num'
-import { toneOf } from '@/lib/tone'
+import { Pct, Price } from '@/components/ui/Num'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
+import { isComingSoon } from '@/config/release'
 import { ActivityList } from '@/features/portfolio/ActivityList'
 import { PositionsTable } from '@/features/portfolio/PositionsTable'
 import { ValuePanel } from '@/features/portfolio/ValuePanel'
 import { QuickTrade } from '@/features/trade/QuickTrade'
+import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
 import { formatAmount, formatUsd } from '@/lib/format'
-import { useActivity, useCapabilities, useOrders, usePositions, useSession, useSummary, useTokens } from '@/services/queries'
-import { useConnectPrompt } from '@/state/contexts'
-import { isComingSoon } from '@/config/release'
+import { toneOf } from '@/lib/tone'
+import { useActivity, useCapabilities, useOrders, usePositions, useSession, useSummary, useTokens, useValueHistory } from '@/services/queries'
+import { useConnectPrompt, useTradeDrawer } from '@/state/contexts'
 
-const linkKey = 'keycap inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-2xs text-fg-2 transition-colors hover:bg-raised hover:text-fg'
+const linkKey = 'keycap inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-2xs text-fg-2 transition-colors hover:bg-raised hover:text-fg'
 
 /** An action the public beta holds back: kept in place and tagged SOON, but not clickable. */
 function SoonKey({ children }: { children: ReactNode }) {
   return (
-    <span aria-disabled="true" className="keycap inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-2xs text-fg-2">
+    <span aria-disabled="true" className="keycap inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-2xs text-fg-2">
       <span className="inline-flex items-center gap-1.5 opacity-40">{children}</span>
       <Tag tone="soon">Soon</Tag>
     </span>
@@ -43,87 +45,98 @@ function useOrderView() {
   return { demo, status: demo ? ('open' as const) : ('draft' as const), noun: demo ? 'Open orders' : 'Order drafts' }
 }
 
+/** BUY, SELL, SEND and MULTI BUY: the page's actions, always in view. */
+function QuickActions() {
+  const { openTrade } = useTradeDrawer()
+  const tokenId = useDefaultTradeToken()
+  const multiSoon = isComingSoon('/multi-trade')
+  return (
+    <>
+      <Button variant="primary" size="lg" onClick={() => openTrade({ tokenId, side: 'buy' })}>
+        Buy
+      </Button>
+      <Button variant="secondary" size="lg" onClick={() => openTrade({ tokenId, side: 'sell' })}>
+        Sell
+      </Button>
+      <Link to="/batch-send" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
+        <SendHorizontal size={15} aria-hidden="true" /> Send
+      </Link>
+      {multiSoon ? (
+        <SoonKey>
+          <Layers size={14} aria-hidden="true" /> Multi buy
+        </SoonKey>
+      ) : (
+        <Link to="/multi-trade" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
+          <Layers size={15} aria-hidden="true" /> Multi buy
+        </Link>
+      )}
+    </>
+  )
+}
+
 function Readouts() {
   const { data: session } = useSession()
   const caps = useCapabilities()
-  const view = useOrderView()
   const summary = useSummary()
-  const { data: orders = [] } = useOrders()
-  const open = orders.filter((o) => o.status === view.status)
+  const history = useValueHistory(7)
   const zeroUsd = caps.prices ? '$0.00' : '—'
-  const byType = (type: string) => open.filter((o) => o.type === type).length
   const s = summary.data
   const loading = summary.isPending
   const off = !session
+  const trace = !off && history.data && history.data.length > 1 ? <Sparkline values={history.data.map((p) => p.valueUsd)} width={84} /> : undefined
   return (
-    <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+    <ReadoutStrip cols="grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr]">
       <ReadoutSlot
-        className="col-span-2 md:col-span-1"
+        className="col-span-2 xl:col-span-1"
         size="lg"
         legend="Portfolio value"
         aside={!off && s ? <Freshness at={s.updatedAt} /> : undefined}
         loading={loading}
         value={off || !s ? <span className="text-fg-4">{zeroUsd}</span> : s.valueUsd === null ? <span className="text-fg-4">—</span> : formatUsd(s.valueUsd)}
-        sub={off || !s ? 'Connect a wallet' : s.valueUsd === null ? 'no USD prices on testnet' : `across ${s.walletCount} wallets`}
-      />
-      <ReadoutSlot
-        legend="24h PnL"
-        loading={loading}
-        value={
-          off || !s ? (
-            <span className="text-fg-4">{zeroUsd}</span>
-          ) : s.pnl24hUsd === null ? (
-            <span className="text-fg-4">—</span>
-          ) : (
-            <span className={toneOf(s.pnl24hUsd)}>{formatUsd(s.pnl24hUsd, { signed: true })}</span>
-          )
-        }
         sub={
           off || !s ? (
-            '—'
+            'Connect a wallet'
+          ) : s.valueUsd === null ? (
+            'no USD prices on testnet'
           ) : s.pnl24hPct === null ? (
-            'not tracked yet'
+            `across ${s.walletCount} wallets`
           ) : (
-            <>
-              <Pct value={s.pnl24hPct} /> <Figures>vs 24h ago</Figures>
-            </>
+            <span className={toneOf(s.pnl24hUsd ?? 0)}>
+              <Pct value={s.pnl24hPct} /> <Figures>(24h)</Figures>
+            </span>
           )
         }
+        trace={trace}
       />
       <ReadoutSlot
         legend="Available NEAR"
+        aside={<Wallet size={16} aria-hidden="true" />}
         loading={loading}
         value={
           off || !s ? (
             <span className="text-fg-4">0.00</span>
           ) : (
             <>
-              {formatAmount(s.availableNear, 2)} <span className="font-sans text-sm font-medium text-fg-3">NEAR</span>
+              {formatAmount(s.availableNear, 2)} <span className="hidden font-sans text-base font-medium text-fg-3 @[11rem]:inline">NEAR</span>
             </>
           )
         }
-        sub={off || !s ? '—' : s.availableNearUsd === null ? `Main ${formatAmount(s.mainNear, 2)}` : `≈ ${formatUsd(s.availableNearUsd)} · Main ${formatAmount(s.mainNear, 2)}`}
+        sub={off || !s ? '—' : s.availableNearUsd === null ? `Main ${formatAmount(s.mainNear, 2)}` : `≈ ${formatUsd(s.availableNearUsd)}`}
       />
       <ReadoutSlot
         legend="Active positions"
+        aside={<PieChart size={16} aria-hidden="true" />}
         loading={loading}
         value={off || !s ? <span className="text-fg-4">0</span> : s.activePositions}
-        sub={
-          off || !s ? (
-            '—'
-          ) : (
-            <span>
-              <Term term="unrealizedPnl">Unrealized</Term> <Usd value={s.unrealizedPnlUsd} signed colored />
-            </span>
-          )
-        }
+        sub={off || !s ? '—' : `${s.activePositions === 1 ? 'token' : 'tokens'}`}
       />
       <ReadoutSlot
-        className="md:col-span-2 xl:col-span-1"
-        legend={view.noun}
+        className="col-span-2 xl:col-span-1"
+        legend="Total wallets"
+        aside={<Coins size={16} aria-hidden="true" />}
         loading={loading}
-        value={off || !s ? <span className="text-fg-4">0</span> : view.demo ? s.openOrders : open.length}
-        sub={off ? '—' : view.demo ? `${byType('limit')} limit · ${byType('take-profit')} TP · ${byType('stop-loss')} SL` : 'saved here, not monitored'}
+        value={off || !s ? <span className="text-fg-4">0</span> : s.walletCount}
+        sub={off || !s ? '—' : caps.mode === 'demo' ? 'demo wallets' : 'NearKit and connected wallets'}
       />
     </ReadoutStrip>
   )
@@ -170,7 +183,7 @@ function OpenOrdersPanel() {
             const distance = price ? ((o.triggerPriceUsd - price) / price) * 100 : 0
             return (
               <li key={o.id} className="flex items-center gap-3 px-4 py-2.5">
-                <TokenGlyph symbol={token?.symbol ?? '?'} tokenId={o.tokenId} size={20} />
+                <TokenGlyph symbol={token?.symbol ?? '?'} tokenId={o.tokenId} size={24} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-sm">
                     <Tag tone={o.side === 'buy' ? 'accent' : 'neg'}>{o.side}</Tag>
@@ -207,33 +220,17 @@ export default function DashboardPage() {
         status={<DataTag />}
         description={
           session
-            ? `${session.accountId}${summary ? ` · ${summary.walletCount} wallets` : ''} · ${caps.mode === 'demo' ? 'demo prices move every few seconds' : `${caps.networkLabel.toLowerCase()} balances, refreshed every 30 s`}`
+            ? `${summary ? `${summary.walletCount} wallets · ` : ''}${caps.mode === 'demo' ? 'Demo · prices move every few seconds' : `${caps.networkLabel} · balances refreshed every 30 s`}`
             : 'Connect a wallet to load your portfolio.'
         }
-        actions={
-          <>
-            {isComingSoon('/multi-trade') ? (
-              <SoonKey>
-                <Layers size={14} aria-hidden="true" /> Multi buy
-              </SoonKey>
-            ) : (
-              <Link to="/multi-trade" className={linkKey}>
-                <Layers size={14} aria-hidden="true" /> Multi buy
-              </Link>
-            )}
-            <Link to="/split" className={linkKey}>
-              <Split size={14} aria-hidden="true" /> Split
-            </Link>
-            <Link to="/batch-send" className={linkKey}>
-              <SendHorizontal size={14} aria-hidden="true" /> Batch send
-            </Link>
-          </>
-        }
+        actions={<QuickActions />}
       />
 
       <Readouts />
 
-      <PageGrid aside={<QuickTrade />} asideWidth={372} asideFirst stickyAside>
+      <PageGrid aside={<QuickTrade />} asideWidth={380} asideFirst stickyAside>
+        <ValuePanel />
+
         <Panel>
           <PanelHeader
             title="Positions"
@@ -259,8 +256,6 @@ export default function DashboardPage() {
             <PositionsTable positions={positions.data ?? []} loading={positions.isPending} compact />
           )}
         </Panel>
-
-        <ValuePanel />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel>

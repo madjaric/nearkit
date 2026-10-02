@@ -71,19 +71,19 @@ function TradeKeys({ position }: { position: Position }) {
         <span className="text-xs text-fg-4" title="NEAR is the base currency; trade tokens against it">
           Base
         </span>
-        <SendTokenButton token={position.token} label="Send" size="xs" variant="ghost" icon={false} />
+        <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
       </div>
     )
   }
   return (
     <div className="flex justify-end gap-1">
-      <Button size="xs" variant="quiet-buy" onClick={() => openTrade({ tokenId: position.token.id, side: 'buy' })} aria-label={`Buy ${position.token.symbol}`}>
+      <Button size="sm" variant="quiet-buy" onClick={() => openTrade({ tokenId: position.token.id, side: 'buy' })} aria-label={`Buy ${position.token.symbol}`}>
         Buy
       </Button>
-      <Button size="xs" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })} aria-label={`Sell ${position.token.symbol}`}>
+      <Button size="sm" variant="quiet-sell" onClick={() => openTrade({ tokenId: position.token.id, side: 'sell' })} aria-label={`Sell ${position.token.symbol}`}>
         Sell
       </Button>
-      <SendTokenButton token={position.token} label="Send" size="xs" variant="ghost" icon={false} />
+      <SendTokenButton token={position.token} label="Send" size="sm" variant="ghost" icon={false} />
     </div>
   )
 }
@@ -91,7 +91,7 @@ function TradeKeys({ position }: { position: Position }) {
 function TokenCell({ position }: { position: Position }) {
   return (
     <div className="flex items-center gap-2.5">
-      <TokenGlyph symbol={position.token.symbol} tokenId={position.token.id} size={24} />
+      <TokenGlyph symbol={position.token.symbol} tokenId={position.token.id} size={28} />
       <div className="flex min-w-0 flex-col">
         <span className="flex items-center gap-1.5 font-semibold text-fg">
           {/* The token's screen: live price, chart, balance, Buy / Sell / Send. */}
@@ -146,7 +146,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
     <>
       {/* ≥768px: terminal table */}
       <div className="hidden md:block">
-        <Table label="Positions" rows="double" minWidth={compact ? 620 : 860}>
+        <Table label="Positions" rows="double" minWidth={compact ? 560 : 860}>
           <thead>
             <tr>
               <Th sort={thSort('token')}>Token</Th>
@@ -164,7 +164,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
               <Th align="right" sort={thSort('value')}>
                 Value
               </Th>
-              <Th align="right" sort={thSort('pnl')}>
+              <Th align="right" sort={thSort('pnl')} className={compact ? 'hidden 2xl:table-cell' : undefined}>
                 Unrealized
               </Th>
               {!compact && (
@@ -221,7 +221,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                     <Td align="right">
                       <Usd value={p.valueUsd} className="text-fg" />
                     </Td>
-                    <Td align="right">
+                    <Td align="right" className={compact ? 'hidden 2xl:table-cell' : undefined}>
                       <Usd value={p.pnlUsd} signed colored />
                       {compact && (
                         <div>

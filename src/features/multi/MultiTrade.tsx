@@ -257,7 +257,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
               setPicked(null)
             }}
             className={cn(
-              'keycap h-7 rounded-xs border px-2.5 text-2xs transition-colors',
+              'keycap h-8 rounded-md border px-3 text-2xs transition-colors',
               presetId === p.id ? 'border-accent/50 bg-accent/10 text-accent' : 'border-line text-fg-2 hover:border-line-strong hover:text-fg',
             )}
           >
@@ -469,7 +469,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
                   aria-pressed={sellPct === v}
                   onClick={() => setSellPctText(String(v))}
                   className={cn(
-                    'keycap h-7 rounded-xs border text-2xs transition-colors',
+                    'keycap h-8 rounded-md border text-2xs transition-colors',
                     sellPct === v ? 'border-neg/50 bg-neg/10 text-neg' : 'border-line bg-raised/50 text-fg-2 hover:border-line-strong hover:text-fg',
                   )}
                 >

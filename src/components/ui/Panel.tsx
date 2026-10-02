@@ -1,11 +1,12 @@
+import { ChevronRight } from 'lucide-react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { Figures } from './Figures'
 
-/** A module on the front panel: one bordered surface, never nested inside another. */
+/** A module of the terminal: one bordered surface, never nested inside another. */
 export function Panel({ className, children, ...rest }: HTMLAttributes<HTMLElement> & { children: ReactNode }) {
   return (
-    <section className={cn('min-w-0 rounded-md border border-line bg-panel', className)} {...rest}>
+    <section className={cn('min-w-0 rounded-lg border border-line bg-panel', className)} {...rest}>
       {children}
     </section>
   )
@@ -20,16 +21,17 @@ interface PanelHeaderProps {
   id?: string
 }
 
+/** The module's name line: a chevron, the title in uppercase mono, a count, and its controls at right. */
 export function PanelHeader({ title, meta, actions, className, id }: PanelHeaderProps) {
   return (
-    <header className={cn('flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line-soft px-4 py-2', className)}>
-      <div className="flex min-w-0 items-baseline gap-2">
-        <h2 id={id} className="flex items-center gap-2 text-xs font-semibold uppercase tracking-legend text-fg-2" style={{ fontStretch: '88%' }}>
-          <span aria-hidden="true" className="h-2 w-1.5 shrink-0 border-l border-t border-line-strong" />
+    <header className={cn('flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line-soft px-4 py-2', className)}>
+      <div className="flex min-w-0 items-center gap-2">
+        <h2 id={id} className="num flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.06em] text-fg-2">
+          <ChevronRight size={13} strokeWidth={2.25} aria-hidden="true" className="shrink-0 text-fg-4" />
           {title}
         </h2>
         {meta !== undefined && meta !== null && meta !== false && (
-          <span className="text-xs text-fg-3">
+          <span className="num text-xs text-fg-3">
             <Figures>{meta}</Figures>
           </span>
         )}
@@ -69,7 +71,7 @@ export function Lines({ children, className, dense = false }: { children: ReactN
   )
 }
 
-/** Hairline with a silkscreen legend, used to group controls inside a panel. */
+/** A small uppercase label with a rule, used to group controls inside a panel. */
 export function Legend({ children, className, action }: { children: ReactNode; className?: string; action?: ReactNode }) {
   return (
     <div className={cn('flex items-center gap-3', className)}>

@@ -32,13 +32,13 @@ export function PageHeader({ title, description, actions, status }: PageHeaderPr
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-lg font-[650] leading-7 text-fg" style={{ fontStretch: '110%' }}>
+            <h1 className="text-2xl font-bold leading-8 tracking-[-0.01em] text-fg" style={{ fontStretch: '104%' }}>
               {title}
             </h1>
             {soon ? <ComingSoon /> : status}
           </div>
           {description && (
-            <p className="mt-0.5 max-w-[70ch] text-sm text-fg-3">
+            <p className="mt-1 max-w-[70ch] text-sm text-fg-3">
               <Figures>{description}</Figures>
             </p>
           )}
@@ -46,7 +46,7 @@ export function PageHeader({ title, description, actions, status }: PageHeaderPr
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>
       {soon && (
-        <p className="rounded-md border border-dashed border-line-strong px-4 py-3 text-sm text-fg-2">
+        <p className="rounded-lg border border-dashed border-line-strong px-4 py-3 text-sm text-fg-2">
           {title} is not part of the public beta yet. You can look around, but nothing on this page can be signed, sent or saved.
         </p>
       )}
@@ -79,7 +79,7 @@ export function PageGrid({ children, aside, asideWidth = 360, asideFirst = false
 
 /** Page body wrapper: consistent gutters and vertical rhythm on every route. */
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('flex flex-col gap-4 px-4 pb-8 pt-4 lg:px-6', className)}>{children}</div>
+  return <div className={cn('flex flex-col gap-5 px-4 pb-8 pt-5 lg:px-6', className)}>{children}</div>
 }
 
 /**

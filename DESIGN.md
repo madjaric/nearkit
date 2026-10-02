@@ -1,19 +1,19 @@
 ---
 name: NearKit
-description: The trading toolkit for NEAR, drawn as a measuring instrument's front panel.
+description: The trading toolkit for NEAR, drawn as a dark, dense trading terminal.
 colors:
-  well: "oklch(0.132 0.004 115)"
-  canvas: "oklch(0.155 0.004 115)"
-  panel: "oklch(0.188 0.005 115)"
-  raised: "oklch(0.228 0.006 115)"
-  hover: "oklch(0.255 0.007 115)"
-  line-soft: "oklch(0.245 0.006 115)"
-  line: "oklch(0.29 0.007 115)"
-  line-strong: "oklch(0.38 0.008 115)"
-  fg: "oklch(0.955 0.006 115)"
-  fg-2: "oklch(0.775 0.008 115)"
-  fg-3: "oklch(0.64 0.009 115)"
-  fg-4: "oklch(0.5 0.008 115)"
+  well: "oklch(0.122 0.006 250)"
+  canvas: "oklch(0.145 0.006 250)"
+  panel: "oklch(0.18 0.007 250)"
+  raised: "oklch(0.225 0.008 250)"
+  hover: "oklch(0.255 0.009 250)"
+  line-soft: "oklch(0.235 0.008 250)"
+  line: "oklch(0.28 0.009 250)"
+  line-strong: "oklch(0.37 0.01 250)"
+  fg: "oklch(0.965 0.004 250)"
+  fg-2: "oklch(0.79 0.006 250)"
+  fg-3: "oklch(0.64 0.008 250)"
+  fg-4: "oklch(0.49 0.008 250)"
   accent: "oklch(0.905 0.19 124)"
   accent-hi: "oklch(0.94 0.16 124)"
   accent-ink: "oklch(0.19 0.035 124)"
@@ -81,10 +81,11 @@ typography:
     letterSpacing: "0.045em"
     fontVariation: "'wdth' 90"
 rounded:
-  xs: "2px"
-  sm: "3px"
-  md: "4px"
-  lg: "6px"
+  xs: "4px"
+  sm: "6px"
+  md: "8px"
+  lg: "10px"
+  xl: "12px"
   full: "9999px"
 spacing:
   hair: "1px"
@@ -234,6 +235,34 @@ components:
 # Design System: NearKit
 
 ## Overview
+
+> **Direction of record (2026-10-02): the Dashboard reference.** The owner's Dashboard reference is the source of
+> truth for the whole app: a professional trading terminal, dark and technical, never a glossy Web3 page. Where
+> the older text below disagrees, this block wins.
+>
+> - **Ground:** near-black, slightly cool neutrals (hue 250): `canvas` for the page, sidebar and top bar, `panel`
+>   for modules, `well` for fields. Thin low-contrast borders; no shadows at rest; no glow.
+> - **One lit color:** lime for the primary action, the active state and gains. Red only for sell, loss, danger.
+>   Amber only for caution. Row-level BUY keys carry the lime text at rest; SELL lights red on hover.
+> - **Type:** page title 28px bold; stat values 28-32px mono; panel names 12px uppercase mono after a chevron;
+>   table heads and group labels in the small uppercase legend; body 14px, tables 13px. Mono only for figures,
+>   addresses and hashes.
+> - **Shape:** 4px tags, 6px small keys and nav items, 8px keys and fields, 10px panels and stat cards, 12px
+>   dialogs. Status dots and token glyphs are round.
+> - **Stats are cards** (`ReadoutStrip` / `ReadoutSlot`): a plain label, a large mono value, one caption line,
+>   an icon or sparkline at the edge. The value steps down in a narrow card; the sparkline appears only in a
+>   wide one. Never cards inside cards.
+> - **Keys:** 28 / 32 / 36 / 40 / 52px (`xs` to `xl`); the ticket's fire key is `xl`. Segmented BUY / SELL fill
+>   solid lime / red when selected. Fire keys keep a constant label; the blocking reason prints below.
+> - **Fields:** 40px (36px small) on `well`; the amount field of a ticket is 64px with a 32px mono figure and its
+>   unit inside. Preset keys (25 / 50 / 75 / MAX, slippage) are separate 36px bordered keys.
+> - **Shell:** 232px sidebar (40px items, a lime bar and raised ground on the active one, plain uppercase group
+>   labels, the version in its footer), 64px top bar (40px search, ticker, network chip, wallet chip), 64px
+>   phone tab bar.
+> - **Page head:** title, status tag, one line of context, and the page's actions at right; the Dashboard's are
+>   BUY, SELL, SEND and MULTI BUY.
+> - **Charts:** a lime trace on the graticule with a faint fill fading to the panel (20% to 0). Candles and
+>   points are only ever observed data.
 
 **Creative North Star: "The Wallet Oscilloscope"**
 

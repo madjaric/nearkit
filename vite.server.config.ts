@@ -10,7 +10,7 @@ import { defineConfig, normalizePath } from 'vite'
  * node_modules at run time.
  */
 export default defineConfig({
-  define: { __NEARKIT_E2E__: 'false' },
+  define: { __NEARKIT_E2E__: 'false', __NEARKIT_VERSION__: '"test"' },
   resolve: {
     alias: { '@': normalizePath(fileURLToPath(new URL('./src', import.meta.url))) },
   },

@@ -14,7 +14,7 @@ const PERCENTS = [
 /** 25 / 50 / 75 / MAX keys. `active` lights the key whose fraction the current amount matches. */
 export function PercentKeys({ onPick, active, disabled, className }: { onPick: (fraction: number) => void; active?: number | null; disabled?: boolean; className?: string }) {
   return (
-    <div className={cn('grid grid-cols-4 gap-1', className)} role="group" aria-label="Amount presets">
+    <div className={cn('grid grid-cols-4 gap-2', className)} role="group" aria-label="Amount presets">
       {PERCENTS.map((p) => {
         const on = active !== null && active !== undefined && Math.abs(active - p.fraction) < 1e-6
         return (
@@ -25,8 +25,8 @@ export function PercentKeys({ onPick, active, disabled, className }: { onPick: (
             aria-pressed={on}
             onClick={() => onPick(p.fraction)}
             className={cn(
-              'keycap h-7 rounded-xs border text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40',
-              on ? 'border-accent/50 bg-accent/10 text-accent' : 'border-line bg-raised/50 text-fg-2 hover:border-line-strong hover:text-fg',
+              'keycap h-9 rounded-md border text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+              on ? 'border-accent/60 bg-accent/10 text-accent' : 'border-line bg-panel text-fg-2 hover:border-line-strong hover:bg-raised hover:text-fg',
             )}
           >
             {p.label}
@@ -51,7 +51,7 @@ export function SlippageControl({ value, onChange, className, hideLabel = false 
           Slippage <InfoTip term="slippage" />
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-1" role="group" aria-labelledby={`${id}-label`}>
+      <div className="grid grid-cols-4 gap-2" role="group" aria-labelledby={`${id}-label`}>
         {SLIPPAGE_PRESETS.map((p) => (
           <button
             key={p}
@@ -62,8 +62,8 @@ export function SlippageControl({ value, onChange, className, hideLabel = false 
               onChange(p)
             }}
             className={cn(
-              'num h-7 rounded-xs border text-xs transition-colors',
-              value === p && custom === '' ? 'border-accent/50 bg-accent/10 text-accent' : 'border-line bg-raised/50 text-fg-2 hover:border-line-strong hover:text-fg',
+              'num h-9 rounded-md border text-sm transition-colors',
+              value === p && custom === '' ? 'border-accent/60 bg-accent/10 text-accent' : 'border-line bg-panel text-fg-2 hover:border-line-strong hover:bg-raised hover:text-fg',
             )}
           >
             {p}%
@@ -71,7 +71,7 @@ export function SlippageControl({ value, onChange, className, hideLabel = false 
         ))}
         <div
           className={cn(
-            'flex h-7 items-center rounded-xs border bg-well pr-1.5 transition-colors focus-within:border-accent',
+            'flex h-9 items-center rounded-md border bg-well pr-2 transition-colors focus-within:border-accent',
             custom !== '' ? (issue?.level === 'error' ? 'border-neg' : 'border-accent/50') : 'border-line',
           )}
         >
@@ -89,7 +89,7 @@ export function SlippageControl({ value, onChange, className, hideLabel = false 
               if (next === '') onChange(SLIPPAGE_PRESETS[1])
             }}
             aria-invalid={custom !== '' && issue?.level === 'error'}
-            className="num h-full w-full min-w-0 bg-transparent px-1.5 text-center text-xs text-fg placeholder:font-sans placeholder:text-fg-3 focus:outline-none"
+            className="num h-full w-full min-w-0 bg-transparent px-2 text-center text-sm text-fg placeholder:font-sans placeholder:text-fg-3 focus:outline-none"
           />
           {custom !== '' && <span className="text-xs text-fg-3">%</span>}
         </div>

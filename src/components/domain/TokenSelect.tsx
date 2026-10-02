@@ -175,9 +175,7 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
                     <span className="shrink-0 text-xs text-fg-2">{importer.isPending ? 'Importing…' : 'Import'}</span>
                   </button>
                   <p className="px-3 pb-2 text-[11px] text-fg-4">
-                    {importer.isError
-                      ? describeError(importer.error).message
-                      : 'Read from chain. Importing only keeps it in your list; whether a trade can route shows in the quote.'}
+                    {importer.isError ? describeError(importer.error).message : 'Found on chain. Importing adds it to your token list.'}
                   </p>
                 </>
               ) : (

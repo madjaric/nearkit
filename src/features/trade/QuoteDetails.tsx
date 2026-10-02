@@ -1,4 +1,5 @@
 import { QuoteFreshness } from '@/components/domain/QuoteFreshness'
+import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { InfoTip, Term } from '@/components/ui/Help'
 import { Line, Lines } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
@@ -13,6 +14,8 @@ interface QuoteDetailsProps {
   quote: Quote | undefined
   inSymbol: string
   outSymbol: string
+  /** The output token's id, for its glyph on the estimate. */
+  outTokenId?: string
   /** Decimals for the output amount (NEAR keeps 2, tokens 0 for large values). */
   outDecimals: number
   /** USD price of the output token, for the estimate's dollar value. */
@@ -28,7 +31,19 @@ interface QuoteDetailsProps {
  * The quote, printed the same way on every ticket: estimate first, then the
  * lines a trader checks before firing. Empty slots hold their place with a dash.
  */
-export function QuoteDetails({ quote: q, inSymbol, outSymbol, outDecimals, outPriceUsd, stale, settling, error, showPath = false, showReceive = true }: QuoteDetailsProps) {
+export function QuoteDetails({
+  quote: q,
+  inSymbol,
+  outSymbol,
+  outTokenId,
+  outDecimals,
+  outPriceUsd,
+  stale,
+  settling,
+  error,
+  showPath = false,
+  showReceive = true,
+}: QuoteDetailsProps) {
   const caps = useCapabilities()
   const impact = q?.priceImpactPct ?? null
   const impactTone = impact === null ? 'text-fg-4' : impact > 10 ? 'text-neg' : impact > 3 ? 'text-warn' : 'text-fg-2'
@@ -52,15 +67,17 @@ export function QuoteDetails({ quote: q, inSymbol, outSymbol, outDecimals, outPr
   return (
     <div className="flex flex-col gap-1.5">
       {showReceive && (
-        <>
+        <div className="mb-1 flex flex-col gap-1.5">
           <div className="flex items-baseline justify-between gap-3">
             <span className="legend">You receive (est.)</span>
             {q && outPriceUsd !== undefined && <span className="num text-xs text-fg-3">≈ {formatUsd(q.amountOut * outPriceUsd)}</span>}
           </div>
-          <div className={cn('num truncate text-xl leading-7 transition-opacity duration-200', q ? 'text-fg' : 'text-fg-4', fade)} aria-live="polite">
-            {q ? formatAmount(q.amountOut, outDecimals) : '0'} <span className="font-sans text-sm font-medium text-fg-3">{outSymbol}</span>
+          <div className={cn('flex h-14 items-center gap-3 rounded-md border border-line bg-well px-3.5 transition-opacity duration-200', fade)} aria-live="polite">
+            <TokenGlyph symbol={outSymbol} tokenId={outTokenId} size={24} />
+            <span className={cn('num min-w-0 flex-1 truncate text-xl', q ? 'text-fg' : 'text-fg-4')}>{q ? formatAmount(q.amountOut, outDecimals) : '—'}</span>
+            <span className="shrink-0 text-sm font-semibold tracking-[0.04em] text-fg-3">{outSymbol}</span>
           </div>
-        </>
+        </div>
       )}
       <Lines dense className={cn('transition-opacity duration-200', fade)}>
         <Line label={<Term term="minReceived" />}>{q ? `${formatAmount(q.minAmountOut, outDecimals)} ${outSymbol}` : '—'}</Line>

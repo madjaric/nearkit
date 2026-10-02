@@ -42,7 +42,7 @@ export function Th({ align = 'left', sort, className, children, ...rest }: ThPro
     <th
       scope="col"
       aria-sort={sort ? (sort.active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}
-      className={cn('h-9 whitespace-nowrap border-b border-line px-3 font-normal first:pl-4 last:pr-4', alignClass, className)}
+      className={cn('h-10 whitespace-nowrap border-b border-line px-3 font-normal first:pl-4 last:pr-4', alignClass, className)}
       {...rest}
     >
       {sort ? (
@@ -90,7 +90,7 @@ export function Td({ align = 'left', mono = false, className, children, ...rest 
   return (
     <td
       className={cn(
-        'h-9 whitespace-nowrap px-3 first:pl-4 last:pr-4 group-data-[rows=double]/table:h-11',
+        'h-11 whitespace-nowrap px-3 first:pl-4 last:pr-4 group-data-[rows=double]/table:h-14',
         align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left',
         mono && 'num',
         className,

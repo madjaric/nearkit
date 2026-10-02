@@ -93,10 +93,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   const titleId = useId()
   return (
     <DialogBase open={open} onClose={onClose} dismissible={dismissible} labelledBy={titleId} className="m-0 mt-auto w-full sm:m-auto sm:w-fit">
-      <div className={cn('flex max-h-[88dvh] flex-col border border-line bg-panel shadow-pop', 'animate-sheet-up rounded-t-lg sm:animate-rise sm:rounded-md', MODAL_WIDTH[size])}>
-        <header className="flex items-start justify-between gap-4 border-b border-line-soft px-5 pb-3.5 pt-4">
+      <div className={cn('flex max-h-[88dvh] flex-col border border-line bg-panel shadow-pop', 'animate-sheet-up rounded-t-xl sm:animate-rise sm:rounded-xl', MODAL_WIDTH[size])}>
+        <header className="flex items-start justify-between gap-4 border-b border-line-soft px-5 pb-4 pt-5">
           <div className="min-w-0">
-            <h2 id={titleId} className="text-md font-semibold leading-6 text-fg">
+            <h2 id={titleId} className="text-lg font-semibold leading-6 text-fg">
               {title}
             </h2>
             {description && <p className="mt-0.5 text-sm text-fg-3">{description}</p>}
@@ -137,7 +137,7 @@ const SHEET_POSITION: Record<SheetProps['side'], string> = {
 const SHEET_SURFACE: Record<SheetProps['side'], string> = {
   left: 'h-full w-[min(300px,86vw)] animate-sheet-left border-r',
   right: 'h-full w-[min(440px,100vw)] animate-sheet-right border-l',
-  bottom: 'max-h-[92dvh] w-full animate-sheet-up rounded-t-lg border-t',
+  bottom: 'max-h-[92dvh] w-full animate-sheet-up rounded-t-xl border-t',
 }
 
 /** Edge-anchored panel: navigation drawer on phones, trade ticket drawer anywhere. */

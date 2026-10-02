@@ -149,7 +149,7 @@ export default function SettingsPage() {
         }
       />
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <div className="flex max-w-[920px] flex-col gap-4">
         <Panel>
           <PanelHeader title="Trading" actions={<Tag tone="accent">Live in this session</Tag>} />
           <div className="divide-y divide-line-soft">

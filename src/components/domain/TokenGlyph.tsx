@@ -6,7 +6,7 @@ const SIZE = { 18: 'size-[18px] text-[9px]', 20: 'size-5 text-[10px]', 24: 'size
 
 /**
  * Token monogram. NearKit ships no third-party logos: each token gets a neutral
- * key-cap with its initial. $KIT (the demo token, or the configured contract) uses the NearKit mark.
+ * round tile with its initial. $KIT (the demo token, or the configured contract) uses the NearKit mark.
  */
 export function TokenGlyph({ symbol, tokenId, size = 24, className }: { symbol: string; tokenId?: string; size?: keyof typeof SIZE; className?: string }) {
   const { kitContract } = useCapabilities()
@@ -14,7 +14,7 @@ export function TokenGlyph({ symbol, tokenId, size = 24, className }: { symbol: 
   return (
     <span
       aria-hidden="true"
-      className={cn('grid shrink-0 place-items-center rounded-[3px] border border-line bg-raised font-mono font-semibold leading-none text-fg-2', SIZE[size], className)}
+      className={cn('grid shrink-0 place-items-center rounded-full border border-line bg-raised font-mono font-semibold leading-none text-fg-2', SIZE[size], className)}
     >
       {symbol.slice(0, 1)}
     </span>

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, normalizePath } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -17,9 +18,12 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 }
 
+/** The app's version, printed in the sidebar. */
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
+
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
-  define: { __NEARKIT_E2E__: JSON.stringify(mode === 'e2e') },
+  define: { __NEARKIT_E2E__: JSON.stringify(mode === 'e2e'), __NEARKIT_VERSION__: JSON.stringify(version) },
   resolve: {
     // Forward slashes on Windows, so '@/x' and './x' resolve to one module id and
     // the dev server invalidates both on change.

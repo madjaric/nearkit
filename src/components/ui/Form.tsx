@@ -43,7 +43,7 @@ export function Field({ label, aside, hint, error, warning, children, className,
 // ─── inputs ─────────────────────────────────────────────────────────────────
 
 export const controlBase =
-  'w-full rounded-sm border border-line-strong bg-well text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-fg-3 hover:border-fg-4 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 aria-[invalid=true]:border-neg aria-[invalid=true]:focus:ring-neg/20 disabled:cursor-not-allowed disabled:opacity-50'
+  'w-full rounded-md border border-line-strong bg-well text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-fg-3 hover:border-fg-4 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 aria-[invalid=true]:border-neg aria-[invalid=true]:focus:ring-neg/20 disabled:cursor-not-allowed disabled:opacity-50'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   mono?: boolean
@@ -52,7 +52,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export function Input({ className, mono = false, inputSize = 'md', ref, ...rest }: InputProps) {
-  return <input ref={ref} className={cn(controlBase, inputSize === 'sm' ? 'h-8 px-2.5 text-sm' : 'h-9 px-3 text-base', mono && 'num placeholder:font-sans', className)} {...rest} />
+  return (
+    <input ref={ref} className={cn(controlBase, inputSize === 'sm' ? 'h-9 px-3 text-sm' : 'h-10 px-3.5 text-base', mono && 'num placeholder:font-sans', className)} {...rest} />
+  )
 }
 
 export function Textarea({ className, ref, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
@@ -72,9 +74,9 @@ export function AmountInput({ value, onValueChange, unit, size = 'md', className
   return (
     <div
       className={cn(
-        'flex items-center rounded-sm border border-line-strong bg-well transition-[border-color,box-shadow] duration-150 hover:border-fg-4',
+        'flex items-center rounded-md border border-line-strong bg-well transition-[border-color,box-shadow] duration-150 hover:border-fg-4',
         'focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 has-[input[aria-invalid=true]]:border-neg has-[input[aria-invalid=true]]:focus-within:ring-neg/20',
-        size === 'lg' ? 'h-11' : size === 'sm' ? 'h-8' : 'h-9',
+        size === 'lg' ? 'h-16' : size === 'sm' ? 'h-9' : 'h-11',
         className,
       )}
     >
@@ -89,12 +91,12 @@ export function AmountInput({ value, onValueChange, unit, size = 'md', className
           if (next === '' || /^\d*\.?\d*$/.test(next)) onValueChange(next)
         }}
         className={cn(
-          'num h-full min-w-0 flex-1 bg-transparent px-3 text-fg placeholder:text-fg-4 focus:outline-none',
-          size === 'lg' ? 'text-xl' : size === 'sm' ? 'text-sm' : 'text-base',
+          'num h-full min-w-0 flex-1 bg-transparent px-3.5 text-fg placeholder:text-fg-4 focus:outline-none',
+          size === 'lg' ? 'text-3xl' : size === 'sm' ? 'text-sm' : 'text-lg',
         )}
         {...rest}
       />
-      {unit && <span className="shrink-0 pr-3 text-xs font-semibold tracking-[0.04em] text-fg-3">{unit}</span>}
+      {unit && <span className={cn('shrink-0 pr-3.5 font-semibold tracking-[0.04em] text-fg-3', size === 'lg' ? 'text-sm' : 'text-xs')}>{unit}</span>}
     </div>
   )
 }
@@ -107,7 +109,7 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 export function Select({ className, selectSize = 'md', children, ref, ...rest }: SelectProps) {
   return (
     <div className={cn('relative', className)}>
-      <select ref={ref} className={cn(controlBase, 'appearance-none pr-8', selectSize === 'sm' ? 'h-8 pl-2.5 text-sm' : 'h-9 pl-3 text-base')} {...rest}>
+      <select ref={ref} className={cn(controlBase, 'appearance-none pr-8', selectSize === 'sm' ? 'h-9 pl-3 text-sm' : 'h-10 pl-3.5 text-base')} {...rest}>
         {children}
       </select>
       <ChevronDown size={14} aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-3" />
@@ -178,13 +180,13 @@ export function Switch({ checked, onChange, label, description, disabled, ariaLa
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative mt-0.5 h-[18px] w-8 shrink-0 rounded-xs border transition-colors duration-150 disabled:opacity-40',
-          checked ? 'border-accent bg-accent/20' : 'border-line-strong bg-well',
+          'relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors duration-150 disabled:opacity-40',
+          checked ? 'border-accent bg-accent' : 'border-line-strong bg-well',
         )}
       >
         <span
           aria-hidden="true"
-          className={cn('absolute top-[2px] size-3 rounded-[2px] transition-[left,background-color] duration-150', checked ? 'left-[16px] bg-accent' : 'left-[2px] bg-fg-3')}
+          className={cn('absolute top-[3px] size-3 rounded-full transition-[left,background-color] duration-150', checked ? 'left-[19px] bg-accent-ink' : 'left-[3px] bg-fg-3')}
         />
       </button>
     </div>
@@ -212,8 +214,8 @@ interface SegmentedProps<T extends string> {
 
 const TONE_ON = {
   default: 'bg-raised text-fg shadow-[inset_0_0_0_1px_var(--color-line-strong)]',
-  buy: 'bg-accent/14 text-accent shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-accent)_40%,transparent)]',
-  sell: 'bg-neg/14 text-neg shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-neg)_45%,transparent)]',
+  buy: 'bg-accent text-accent-ink',
+  sell: 'bg-neg-solid text-neg-ink',
 }
 
 /** Radio group drawn as panel keys. Arrow keys move the selection. */
@@ -241,7 +243,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, s
       role="radiogroup"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className={cn('gap-0.5 rounded-sm border border-line bg-well p-0.5', block ? 'grid w-full auto-cols-fr grid-flow-col' : 'inline-flex', className)}
+      className={cn('gap-1 rounded-md border border-line bg-well p-1', block ? 'grid w-full auto-cols-fr grid-flow-col' : 'inline-flex', className)}
     >
       {options.map((option, index) => {
         const checked = option.value === value
@@ -258,8 +260,8 @@ export function Segmented<T extends string>({ value, onChange, options, label, s
             tabIndex={checked ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
-              'keycap whitespace-nowrap rounded-xs px-3 transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40',
-              size === 'sm' ? 'h-6 px-2 text-2xs' : size === 'lg' ? 'h-9' : 'h-7',
+              'keycap whitespace-nowrap rounded-sm px-3 transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40',
+              size === 'sm' ? 'h-7 px-2.5 text-2xs' : size === 'lg' ? 'h-10 text-sm' : 'h-8 text-xs',
               checked ? TONE_ON[option.tone ?? 'default'] : 'text-fg-3 hover:bg-raised/60 hover:text-fg-2',
             )}
           >
@@ -314,7 +316,7 @@ export function Tabs<T extends string>({ value, onChange, tabs, label, idBase, c
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(tab.value)}
             className={cn(
-              'keycap relative -mb-px flex h-9 items-center gap-2 border-b-2 transition-colors duration-100',
+              'keycap relative -mb-px flex h-10 items-center gap-2 border-b-2 text-xs transition-colors duration-100',
               selected ? 'border-accent text-fg' : 'border-transparent text-fg-3 hover:text-fg-2',
             )}
           >

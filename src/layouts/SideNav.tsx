@@ -33,27 +33,20 @@ function BuildStatus() {
   )
 }
 
+const entryBase = 'group relative flex h-10 items-center gap-3 rounded-md px-3 text-base transition-colors duration-100'
+const entryOn = 'bg-raised text-fg before:absolute before:left-0 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-accent'
+const entryOff = 'text-fg-2 hover:bg-raised/60 hover:text-fg'
+
 function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const Icon = item.icon
   return (
     <li>
-      <NavLink
-        to={item.to}
-        end={item.end}
-        onClick={onNavigate}
-        className={({ isActive }) =>
-          cn(
-            'group flex h-8 items-center gap-2.5 rounded-sm px-2 text-sm transition-colors duration-100',
-            isActive ? 'bg-raised text-fg' : 'text-fg-2 hover:bg-raised/60 hover:text-fg',
-          )
-        }
-      >
+      <NavLink to={item.to} end={item.end} onClick={onNavigate} className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
         {({ isActive }) => (
           <>
-            <Icon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? 'text-accent' : 'text-fg-3 group-hover:text-fg-2')} />
+            <Icon size={18} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? 'text-accent' : 'text-fg-3 group-hover:text-fg-2')} />
             <span className="flex-1 truncate">{item.label}</span>
             {isSoon(item) && <Tag tone="soon">Soon</Tag>}
-            {isActive && <Led tone="on" label="Current page" />}
           </>
         )}
       </NavLink>
@@ -61,13 +54,11 @@ function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
   )
 }
 
-/** Group legend drawn like a silkscreened bracket on an instrument panel. */
+/** Group label above a run of entries. */
 function GroupLegend({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 px-2 pb-1.5" aria-hidden="true">
-      <span className="h-2 w-1.5 shrink-0 border-l border-t border-line-strong" />
-      <span className="legend">{label}</span>
-      <span className="h-px flex-1 bg-line-soft" />
+    <div className="legend px-3 pb-2" aria-hidden="true">
+      {label}
     </div>
   )
 }
@@ -85,9 +76,9 @@ function QuickTradeEntry({ entry, onNavigate }: { entry: NavAction; onNavigate?:
           onNavigate?.()
           openTrade({ tokenId, side: 'buy' })
         }}
-        className="group flex h-8 w-full items-center gap-2.5 rounded-sm px-2 text-left text-sm text-fg-2 transition-colors duration-100 hover:bg-raised/60 hover:text-fg"
+        className={cn(entryBase, entryOff, 'w-full text-left')}
       >
-        <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-fg-3 group-hover:text-fg-2" />
+        <Icon size={18} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-fg-3 group-hover:text-fg-2" />
         <span className="flex-1 truncate">{entry.label}</span>
       </button>
     </li>
@@ -98,21 +89,10 @@ function QuickTradeEntry({ entry, onNavigate }: { entry: NavAction; onNavigate?:
 function KitEntry({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <li>
-      <NavLink
-        to="/kit"
-        onClick={onNavigate}
-        className={({ isActive }) =>
-          cn('group flex h-8 items-center gap-2.5 rounded-sm px-2 text-sm transition-colors', isActive ? 'bg-raised text-fg' : 'text-fg-2 hover:bg-raised/60 hover:text-fg')
-        }
-      >
-        {({ isActive }) => (
-          <>
-            <LogoMark size={16} />
-            <span className="num flex-1 text-[12.5px] tracking-[0.02em]">$KIT</span>
-            <Tag tone="soon">Soon</Tag>
-            {isActive && <Led tone="on" label="Current page" />}
-          </>
-        )}
+      <NavLink to="/kit" onClick={onNavigate} className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
+        <LogoMark size={18} />
+        <span className="num flex-1 text-sm tracking-[0.02em]">$KIT</span>
+        <Tag tone="soon">Soon</Tag>
       </NavLink>
     </li>
   )
@@ -128,23 +108,23 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
   const soon = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_FOOTER].filter((i): i is NavItem => !isNavAction(i) && isSoon(i))
   return (
     <>
-      <nav aria-label="Main" className="flex-1 overflow-y-auto px-2 py-3">
+      <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4">
         <ul>
           <NavEntry item={NAV_HOME} onNavigate={onNavigate} />
         </ul>
         {groups.map((group) => (
-          <div key={group.label} className="mt-4" role="group" aria-label={group.label}>
+          <div key={group.label} className="mt-6" role="group" aria-label={group.label}>
             <GroupLegend label={group.label} />
-            <ul className="flex flex-col gap-px">
+            <ul className="flex flex-col gap-0.5">
               {group.items.map((item) =>
                 isNavAction(item) ? <QuickTradeEntry key={item.action} entry={item} onNavigate={onNavigate} /> : <NavEntry key={item.to} item={item} onNavigate={onNavigate} />,
               )}
             </ul>
           </div>
         ))}
-        <div className="mt-4" role="group" aria-label="Coming soon">
+        <div className="mt-6" role="group" aria-label="Coming soon">
           <GroupLegend label="Coming soon" />
-          <ul className="flex flex-col gap-px">
+          <ul className="flex flex-col gap-0.5">
             {soon.map((item) => (
               <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
             ))}
@@ -152,15 +132,16 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
           </ul>
         </div>
       </nav>
-      <div className="border-t border-line px-2 py-2">
-        <ul className="flex flex-col gap-px">
+      <div className="border-t border-line px-3 py-3">
+        <ul className="flex flex-col gap-0.5">
           {NAV_FOOTER.filter((item) => !isSoon(item)).map((item) => (
             <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
           ))}
         </ul>
       </div>
-      <div className="flex items-center gap-2 border-t border-line px-4 py-2.5 text-[11px] text-fg-3">
+      <div className="flex items-center gap-2 border-t border-line px-5 py-3 text-xs text-fg-3">
         <BuildStatus />
+        <span className="num ml-auto text-fg-4">v{__NEARKIT_VERSION__}</span>
       </div>
     </>
   )
@@ -168,9 +149,9 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Sidebar() {
   return (
-    <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-line bg-well lg:flex">
-      <NavLink to="/" className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-4" aria-label="NearKit dashboard">
-        <LogoMark size={20} />
+    <aside className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col border-r border-line bg-canvas lg:flex">
+      <NavLink to="/" className="flex h-16 shrink-0 items-center gap-3 border-b border-line px-5" aria-label="NearKit dashboard">
+        <LogoMark size={24} />
         <Wordmark />
       </NavLink>
       <NavBody />

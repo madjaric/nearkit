@@ -179,7 +179,7 @@ await step('Dashboard: the limit-order shortcuts are tagged SOON; Multi buy is l
   if (!/soon/i.test(await manage.innerText())) throw new Error('Manage has no SOON tag')
   if ((await main.locator('a[href="/limit-orders"]', { hasText: /place a limit order/i }).count()) !== 0) throw new Error('Place a limit order still links')
   // The live shortcuts are untouched.
-  for (const route of ['/split', '/batch-send']) {
+  for (const route of ['/batch-send']) {
     if (/soon/i.test(await main.locator(`header a[href="${route}"]`).innerText())) throw new Error(`${route} is tagged SOON`)
   }
   await shot('beta-02-dashboard')

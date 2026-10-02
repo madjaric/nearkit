@@ -62,12 +62,12 @@ export function NetworkChip() {
         : `NEAR ${network.name}. You sign every transaction in your wallet, and NearKit confirms it on chain.`
   return (
     <Tip content={tip}>
-      <span tabIndex={0} className="flex h-8 items-center gap-2 rounded-sm border border-line px-2.5">
+      <span tabIndex={0} className="flex h-10 items-center gap-2 rounded-md border border-line bg-panel px-3">
         <Led tone={demo ? 'idle' : viewOnly ? 'warn' : 'on'} />
         <span className="text-xs font-semibold tracking-[0.07em] text-fg-2" style={{ fontStretch: '90%' }}>
           NEAR
         </span>
-        <Tag tone={demo ? 'neutral' : caps.network === 'mainnet' ? 'warn' : 'neutral'}>{network.tag}</Tag>
+        <Tag tone={demo ? 'neutral' : caps.network === 'mainnet' ? 'accent' : 'neutral'}>{network.tag}</Tag>
         {viewOnly && <Tag tone="soon">View only</Tag>}
       </span>
     </Tip>
@@ -83,10 +83,10 @@ function WalletButton() {
   const navigate = useNavigate()
   const toast = useToast()
 
-  if (isPending) return <Skeleton className="h-8 w-32" />
+  if (isPending) return <Skeleton className="h-10 w-36" />
   if (!session)
     return (
-      <Button variant="primary" onClick={promptConnect}>
+      <Button variant="primary" size="lg" onClick={promptConnect}>
         Connect wallet
       </Button>
     )
@@ -147,10 +147,10 @@ function WalletButton() {
           {...props}
           type="button"
           title={session.accountId}
-          className="flex h-8 min-w-0 max-w-[13rem] items-center gap-2 rounded-sm border border-line bg-panel px-2.5 transition-colors hover:border-line-strong aria-expanded:border-line-strong"
+          className="flex h-10 min-w-0 max-w-[14rem] items-center gap-2 rounded-md border border-line bg-panel px-3 transition-colors hover:border-line-strong aria-expanded:border-line-strong"
         >
           <Led tone={session.issue ? 'warn' : 'on'} />
-          <span className="num truncate text-xs text-fg">{formatAccount(session.accountId, 20)}</span>
+          <span className="num truncate text-sm text-fg">{formatAccount(session.accountId, 20)}</span>
           <ChevronDown size={13} className="shrink-0 text-fg-3" aria-hidden="true" />
         </button>
       )}
@@ -164,7 +164,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-canvas">
-      <div className="flex h-12 items-center gap-2 px-3 lg:gap-4 lg:px-5">
+      <div className="flex h-16 items-center gap-2 px-3 lg:gap-4 lg:px-6">
         {searching ? (
           <>
             <GlobalSearch autoFocus onDone={() => setSearching(false)} className="flex-1" />
@@ -182,7 +182,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
               <LogoMark size={20} className="hidden sm:block" />
               <Wordmark />
             </Link>
-            <div className="hidden max-w-[420px] flex-1 lg:block">
+            <div className="hidden max-w-[480px] flex-1 lg:block">
               <GlobalSearch />
             </div>
             <div className="ml-auto flex items-center gap-2 lg:gap-3">
@@ -211,7 +211,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
 /** Phone status strip: the ticker and network readout that the top bar has no room for. */
 export function StatusStrip() {
   return (
-    <div className="flex h-9 items-center justify-between gap-3 border-b border-line-soft bg-well px-4 sm:hidden">
+    <div className="flex h-11 items-center justify-between gap-3 border-b border-line-soft bg-well px-4 sm:hidden">
       <NearTicker className="flex" showAge />
       <NetworkChip />
     </div>
