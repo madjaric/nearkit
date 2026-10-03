@@ -358,7 +358,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       }
       const max =
         token.contract === NATIVE_TOKEN_ID
-          ? await readWallet(deps.near, wallet).then((v) => (v.near === null ? null : maxNearWithdraw(v.near)))
+          ? await readWallet(deps.near, wallet).then((v) => (v.near === null ? null : maxNearWithdraw(v.near, to)))
           : await deps.near.ctx.reader.balanceOf(token.contract, wallet.accountId).catch(() => null)
       if (max === null) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
       const amount = parsed?.ok ? parsed.value : max

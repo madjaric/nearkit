@@ -353,11 +353,12 @@ describe('Send from NearKit web: reviewed and executed on the web', () => {
     const available = (await readWallet(h.deps.near, wallet)).near
     if (available === null) throw new Error('unread')
     const r = await call('/api/web/send/review', { session: token, walletId: a, token: 'near', amount: 'max', to: LINKED })
-    expect((r.review as { amount: string }).amount).toBe(maxNearWithdraw(available).toString())
+    // The destination is known here, so MAX keeps back that transfer's own hold.
+    expect((r.review as { amount: string }).amount).toBe(maxNearWithdraw(available, LINKED).toString())
     const got = h.chain.accounts.get(LINKED)?.amount ?? 0n
     await call('/api/web/send/execute', { session: token, intentId: r.intentId })
     await webRunsSettled()
-    expect((h.chain.accounts.get(LINKED)?.amount ?? 0n) - got).toBe(maxNearWithdraw(available))
+    expect((h.chain.accounts.get(LINKED)?.amount ?? 0n) - got).toBe(maxNearWithdraw(available, LINKED))
   })
 
   it('an address the custody model hasn’t approved gets nothing: the web is told how it gets approved', async () => {
