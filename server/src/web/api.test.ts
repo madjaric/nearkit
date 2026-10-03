@@ -127,22 +127,28 @@ describe('NearKit wallets on the web', () => {
     expect(((await call('/api/web/wallets', { session: token })).wallets as unknown[]).length).toBe(1)
   })
 
-  it('the notice in Telegram shows the shortened address, and its Copy address key carries the full account id, never the shortened one', async () => {
+  it('the notice shows the shortened address as plain text that nothing copies; its only copy action, Copy address, carries the full account id', async () => {
     const { call, signIn, noticeToAlice } = await webApp({ link: false })
     const token = await signIn()
-    const r = await call('/api/web/wallets/create', { session: token, name: 'Test 03', createKey: 'web-key-000001' })
+    const r = await call('/api/web/wallets/create', { session: token, name: 'Test 09', createKey: 'web-key-000001' })
     const accountId = String((r.wallet as { accountId: string }).accountId)
     expect(accountId).toMatch(/^[0-9a-f]{64}$/)
+    const short = shortAccount(accountId)
+    expect(short).toMatch(/^[0-9a-f]{6}…[0-9a-f]{4}$/)
     const notice = noticeToAlice()
     expect(notice?.text).toContain('NearKit wallet created on NearKit web')
-    // Compact on screen: name and the shortened address, not the 64-character id.
-    expect(notice?.text).toContain(`<b>Test 03</b> <code>${shortAccount(accountId)}</code>`)
+    // 1. The shortened address is there to read, as plain text: no <code> (Telegram copies monospace on tap) and no link.
+    expect(notice?.text).toContain(`<b>Test 09</b> ${short}`)
+    expect(notice?.text).not.toContain(`<code>${short}</code>`)
+    expect(notice?.text).not.toMatch(/<code>|<pre>|<a /)
+    // The full 64-character id is never in the message body.
     expect(notice?.text).not.toContain(accountId)
-    // The key copies the full id from the wallet record: exactly, never shortened.
+    // 2. Nothing copies the shortened address.
+    expect(notice?.buttons.filter((b) => b.copy !== undefined).map((b) => b.copy)).toEqual([accountId])
+    expect(notice?.buttons.some((b) => b.copy === short || (b.copy ?? '').includes('…'))).toBe(false)
+    // 3 and 4. A separate Copy address key, whose payload is exactly the wallet record's account id.
     const copy = notice?.buttons.find((b) => b.text === '📋 Copy address')
-    expect(copy?.copy).toBe(accountId)
-    expect(copy?.copy).not.toBe(shortAccount(accountId))
-    expect(copy?.copy).not.toContain('…')
+    expect(copy).toEqual({ text: '📋 Copy address', copy: accountId })
     // The other keys are as before.
     expect(notice?.buttons.map((b) => [b.text, b.data ?? b.copy])).toEqual([
       ['📋 Copy address', accountId],
@@ -161,7 +167,8 @@ describe('NearKit wallets on the web', () => {
     expect(a).not.toBe(b)
     expect(first?.buttons.find((k) => k.text === '📋 Copy address')?.copy).toBe(a)
     expect(second?.buttons.find((k) => k.text === '📋 Copy address')?.copy).toBe(b)
-    expect(second?.text).toContain(`<b>Beta</b> <code>${shortAccount(b)}</code>`)
+    expect(second?.text).toContain(`<b>Beta</b> ${shortAccount(b)}`)
+    expect(second?.text).not.toMatch(/<code>/)
   })
 
   it('the notice’s other keys still work: My wallets lists the wallet, Sign out everywhere ends the web session', async () => {

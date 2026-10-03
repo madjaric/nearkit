@@ -18,7 +18,7 @@ import type { Store } from '../db/store'
 import { randomToken } from '../ids'
 import type { Logger } from '../log'
 import type { ServerNear } from '../near'
-import { bold, code, plainText, shortAccount } from '../telegram/html'
+import { bold, esc, plainText, shortAccount } from '../telegram/html'
 import type { InlineKeyboard } from '../telegram/types'
 import { startRun, WEB_CHAT, WEB_CONCURRENCY } from './execute'
 import { latestOf, legStatus, legView, tradeFacts } from './multi'
@@ -206,15 +206,16 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       }
       if (created.created && name) await custody.store.setLabel(created.wallet.id, name)
       const wallet = (await custody.store.ownedWallet(userId, created.wallet.id)) ?? created.wallet
-      // A security notice, not a step: nothing waits for it. The address is shortened on screen;
-      // the Copy key hands Telegram the full account id from the wallet record.
+      // A security notice, not a step: nothing waits for it. The address is shortened on screen as plain
+      // text (Telegram copies monospace on tap, so <code> would copy the short form); the Copy key is the
+      // only copy action and hands Telegram the full account id from the wallet record.
       if (created.created)
         await deps
           .notify(
             userId,
             [
               `🆕 ${bold('NearKit wallet created on NearKit web')}`,
-              `${bold(walletName(wallet))} ${code(shortAccount(wallet.accountId))}`,
+              `${bold(walletName(wallet))} ${esc(shortAccount(wallet.accountId))}`,
               'If this wasn’t you, sign out of NearKit web everywhere.',
             ].join('\n'),
             keyboard([copyBtn('📋 Copy address', wallet.accountId), btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),

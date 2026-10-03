@@ -426,6 +426,9 @@ await step('Create wallet on NearKit web: named, listed at once, announced in Te
   // The notice shows the address shortened; its Copy address key carries the full id from the wallet record.
   const notice = tg.sent.slice(from).find((x) => x.chatId === TG_USER.id && x.text.includes('NearKit wallet created on NearKit web'))
   if (!notice || notice.text.includes(degenAddress)) throw new Error('the notice shows the full address, or is missing')
+  // The shortened address is plain text: nothing in the message copies it.
+  if (!notice.text.includes(`${degenAddress.slice(0, 6)}…${degenAddress.slice(-4)}`) || /<code>|<pre>/.test(notice.text))
+    throw new Error(`the shortened address is missing or copyable: ${notice.text}`)
   const copyKey = notice.buttons.find((b) => b.text === '📋 Copy address')
   if (copyKey?.copy_text?.text !== degenAddress) throw new Error(`Copy address carries ${JSON.stringify(copyKey)}`)
   // On the web, the wallet's copy control copies the same 64-character id in full.
