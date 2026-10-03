@@ -45,9 +45,11 @@ export interface SwapQuote {
   amountInRaw: string
   /** Expected output, raw. */
   amountOut: string
-  /** The lowest output the route enforces: what the user authorizes. */
+  /** The lowest output the user can receive: what the user authorizes. */
   minOut: string
   path: string[]
+  /** Direct DCL routes on a launch token that taxes its pool: the tax on this trade, already in the figures. */
+  tax?: { inBps: number; outBps: number }
   priceImpactPct: number | null
   /** NearKit's fee as charged on this route (none on testnet). */
   fee: { charged: boolean; bps: number; amountRaw: string | null; token: string | null; routerShareBps: number | null }
@@ -157,7 +159,7 @@ export function routeFacts(r: RoutedSwap): SwapRouteFacts {
     msg: r.msg,
     routeTokens: r.routeTokens,
     minOut: r.minOut,
-    ...(r.router === 'aggregator' ? { signedMin: r.signedMin } : {}),
+    ...(r.router === 'aggregator' || r.router === 'dcl' ? { signedMin: r.signedMin } : {}),
     ...(r.router === 'dcl'
       ? { pools: r.pools ?? [], direct: { swapAmount: r.swapAmount, fee: r.fee?.transfer?.amount ?? 0n, feeRecipient: r.fee?.transfer ? r.fee.recipient : null } }
       : {}),
@@ -276,6 +278,7 @@ export function createSwapService(near: ServerNear) {
     return {
       router: r.router,
       source: r.source,
+      ...(r.tax && (r.tax.inBps || r.tax.outBps) ? { tax: r.tax } : {}),
       amountInRaw: r.amountIn.toString(),
       amountOut: r.amountOut.toString(),
       minOut: r.minOut.toString(),

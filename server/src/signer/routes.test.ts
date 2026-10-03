@@ -292,6 +292,21 @@ describe('mainnet direct DCL routes, checked by the signer itself', () => {
     )
   })
 
+  it('checks the message minimum against its own quote when the token taxes the output, and refuses a message minimum below the user’s', async () => {
+    const p = dclPolicy(onChain(18_000n))
+    const poolMin = (MIN_SING * 100n) / 99n
+    const taxed = dcl({ signedMin: poolMin, msg: dclSwapMsg({ pools, outputToken: SING, minOut: poolMin, skipUnwrapNear: false }) })
+    await expect(verifySwapRoute(taxed, WALLET, p)).resolves.toEqual({ routeTokens: [WRAP, SING], verified: null })
+    await expect(verifySwapRoute(dcl({ signedMin: poolMin }), WALLET, p)).rejects.toThrow(/differs from the verified route/)
+    const below = dcl({ signedMin: MIN_SING - 1n, msg: dclSwapMsg({ pools, outputToken: SING, minOut: MIN_SING - 1n, skipUnwrapNear: false }) })
+    await expect(verifySwapRoute(below, WALLET, p)).rejects.toThrow(/above what its message enforces/)
+    // The floor applies to what the message enforces: a message minimum far below the quote is refused even if `minOut` looks fine.
+    const low = (QUOTE * 90n) / 100n
+    await expect(
+      verifySwapRoute(dcl({ minOut: low, signedMin: low, msg: dclSwapMsg({ pools, outputToken: SING, minOut: low, skipUnwrapNear: false }) }), WALLET, p),
+    ).rejects.toThrow(/further below/)
+  })
+
   it('refuses a minimum far below the DCL contract’s current quote (a compromised app can’t sell the user out)', async () => {
     // The pool pays twice what the route's minimum assumes: more than the 5% cap below.
     await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(36_000n)))).rejects.toThrow(/further below the DCL contract/)

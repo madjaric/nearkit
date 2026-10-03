@@ -787,6 +787,25 @@ describe('real swaps on mainnet through DCL directly (fake chain)', () => {
     expect(plan.swap).toMatchObject({ router: 'dcl', source: 'dcl', tokenOut: { contract: null } })
   })
 
+  it('a token that taxes its DCL pair: the quote is on what the pool receives, the amounts shown are after the tax, and the review says so', async () => {
+    const opts = dclChain()
+    ;(opts.tokens as Record<string, { tax?: unknown }>)[SING]!.tax = { buyBps: 100, sellBps: 100, pairs: [DCL] }
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: opts, session: session(['example.near']) })
+    rheaRefuses(chain)
+    const buy = await services.trading.prepareSwap(buyRequest)
+    const poolMin = (OUT * 99n) / 100n
+    expect(buy.swap).toMatchObject({ expectedOut: { raw: (OUT - OUT / 100n).toString() }, minOut: { raw: (poolMin - poolMin / 100n).toString() } })
+    const buyMsg = JSON.parse(String(argsOf(buy.transactions[0]?.actions.at(-1)).msg)) as { Swap: { min_output_amount: string } }
+    expect(buyMsg.Swap.min_output_amount).toBe(poolMin.toString())
+    expect(buy.warnings.join(' ')).toMatch(/SINGULARTY takes a 1% tax on tokens leaving its DCL pool/)
+    const sell = await services.trading.prepareSwap({ tokenIn: SING, tokenOut: 'near', amountIn: '10000', slippagePct: 1, walletId: 'example.near' })
+    const poolGets = 9950n * 10n ** 18n - (9950n * 10n ** 18n) / 100n
+    const quote = rate(SING, poolGets)
+    expect(sell.swap).toMatchObject({ expectedOut: { raw: quote.toString() }, minOut: { raw: ((quote * 99n) / 100n).toString() } })
+    expect(sell.transactions[0]?.actions.at(-1)).toMatchObject({ args: { amount: (9950n * 10n ** 18n).toString() } })
+    expect(sell.warnings.join(' ')).toMatch(/SINGULARTY takes a 1% tax on tokens entering its DCL pool/)
+  })
+
   it('Multi Buy routes each wallet on DCL separately: each signs its own transaction with its own fee transfer', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near', 'bob.near']) })
     rheaRefuses(chain)

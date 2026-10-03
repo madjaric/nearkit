@@ -186,8 +186,17 @@ Rhea"); the fee is 0.50% exactly once on every route (policy, signer, web disclo
 pass (fee account, fee rate, remainder, pools, message, minimum, registrations, extra actions, forged clients).
 
 Known limits, documented in the review and the README: a direct swap the exchange refunds after the fee transfer keeps
-the fee (the server re-quotes right before signing, the minimum is enforced on chain); tokens with a transfer tax
-(nearlytrade launches, about 1%) deliver less than the pool quotes, and NearKit reports what arrived.
+the fee (the server re-quotes right before signing, the minimum is enforced on chain); a token that taxes transfers
+through an interface other than nearlytrade's `get_tax` is quoted as if untaxed, and NearKit reports what arrived.
+
+Production-safety review (2026-10-03, `src/services/dcl/tax.ts` and the tax-aware adapter came out of it): nearlytrade
+launch tokens tax 1% of every transfer to or from their DCL pair (`get_tax`: `buy_bps`, `sell_bps`, `pairs`). Before the
+fix a direct sell was quoted on the pre-tax amount, so the pool received 1% less than quoted and a 0.5%–1% slippage sell
+could revert, costing the user the fee and the tax. Now the pool's input is quoted after the sell tax, a buy's expected
+and minimum amounts are shown after the buy tax, the message minimum stays the pool's (`signedMin`; policy and signer
+accept it above the user's `minOut`, never below), and the signer's price floor applies to the message minimum against
+its own untaxed quote (conservative). Verified by the adapter, router, policy, signer, web and Telegram tests and the
+live read-only smoke (`get_tax` on SINGULARTY, both directions quoted).
 
 Deployment: nothing deployed. Pushing `main` deploys the web through Vercel, and the app server and signer deploy by hand,
 so the commit stays local until the owner reviews this architecture (production safety, items 1–8 of the brief).

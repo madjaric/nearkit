@@ -9,6 +9,7 @@ import { fetchNearUsd, fetchTokenPrices } from '@/services/near/prices'
 import { createRpcClient } from '@/services/near/rpc'
 import { createDclPoolReader, dclPoolId } from '@/services/dcl/pools'
 import { bestDclRoute } from '@/services/dcl/quote'
+import { readTransferTax } from '@/services/dcl/tax'
 import { storageBoundsMin } from '@/services/near/storage'
 import { createTokenReader } from '@/services/near/tokens'
 import { createFindPathClient } from '@/services/rhea/classic'
@@ -175,6 +176,12 @@ describe('mainnet (live, read-only)', () => {
     const sell = await bestDclRoute(rpc, dcl, reader, net, sing, net.wrapContract, 100_000n * 10n ** 18n)
     expect(sell?.amountOut ?? 0n).toBeGreaterThan(0n)
     expect([sell?.tokens[0], sell?.tokens.at(-1)]).toEqual([sing, net.wrapContract])
+    // The token taxes transfers to and from its pool (get_tax, 1% each way on 2026-10-03); NearKit quotes after it. wNEAR has no such tax.
+    const tax = await readTransferTax(rpc, sing, dcl)
+    expect(tax.buyBps).toBeGreaterThan(0)
+    expect(tax.sellBps).toBeGreaterThan(0)
+    expect(Math.max(tax.buyBps, tax.sellBps)).toBeLessThanOrEqual(1000)
+    expect(await readTransferTax(rpc, net.wrapContract, dcl)).toEqual({ buyBps: 0, sellBps: 0 })
   })
 
   it('prices: Rhea lists wNEAR and Coinbase or CoinGecko quote NEAR/USD', async () => {

@@ -129,15 +129,19 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
       throw new PolicyViolation('no fee is charged on this network')
     }
     if (direct.swapAmount !== route.amountIn - direct.fee) throw new PolicyViolation('the exchange does not receive the amount less the fee')
+    // The message's minimum is what the pools must pay; the user's minimum is that less the output token's own tax, never more.
+    const poolMin = route.signedMin ?? route.minOut
+    if (poolMin < route.minOut) throw new PolicyViolation('the route’s minimum is above what its message enforces')
     const expectedMsg = dclSwapMsg({
       pools: route.pools,
       outputToken: route.routeOut,
-      minOut: route.minOut,
+      minOut: poolMin,
       skipUnwrapNear: !route.nativeOut && route.routeOut === p.network.wrapContract,
     })
     if (route.msg !== expectedMsg) throw new PolicyViolation('the swap message differs from the verified route')
+    // The signer's own quote is for the input as sent (a launch token's sell tax is not read here, so the floor is conservative).
     const expected = await ask()
-    if (route.minOut < floor(expected)) throw new PolicyViolation('the route’s minimum is further below the DCL contract’s current quote than the signer allows')
+    if (poolMin < floor(expected)) throw new PolicyViolation('the route’s minimum is further below the DCL contract’s current quote than the signer allows')
     return { routeTokens: route.routeTokens, verified: null }
   }
 

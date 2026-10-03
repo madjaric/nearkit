@@ -22,6 +22,7 @@ import { friendlyError, nearText, UNKNOWN } from './ui'
 
 const CALLBACK_TTL_MS = 30 * 60_000
 const fmt = (raw: bigint, decimals: number, maxFraction = 6) => formatUnits(raw, decimals, { maxFraction, group: true })
+const taxPct = (bps: number) => String(bps / 100)
 
 export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<string> {
   const p = intent.params as unknown as SwapParams
@@ -60,6 +61,8 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     ...(need !== null && available !== null && available < need
       ? [`⚠️ Your NearKit wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
       : []),
+    ...(q.tax?.inBps ? [`Token tax ${taxPct(q.tax.inBps)}% on tokens entering the pool (${esc(p.symbol)}’s own), already in the figures`] : []),
+    ...(q.tax?.outBps ? [`Token tax ${taxPct(q.tax.outBps)}% on tokens leaving the pool (${esc(p.symbol)}’s own), already in the figures`] : []),
     `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     ...(q.busy ? [`⚠️ ${esc(NETWORK_BUSY_WARNING)}`] : []),
     '',

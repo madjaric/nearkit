@@ -46,7 +46,10 @@ export interface SwapRouteFacts {
   routeTokens: string[]
   /** The lowest output the route itself enforces (after an output-side fee, on the aggregator). */
   minOut: bigint
-  /** Aggregator only: the minimum Rhea signed into the route (the sum of its final minimums). */
+  /**
+   * The minimum the route itself enforces: aggregator, the sum of the final minimums Rhea signed;
+   * DCL, the Swap message's minimum (the user's `minOut` is that less the output token's own tax).
+   */
   signedMin?: bigint
   /** DCL only: the pools of the path, in order (`tokenX|tokenY|fee`). */
   pools?: string[]
@@ -285,7 +288,10 @@ function checkDclSwap(
   if (d.swapAmount !== r.amountIn - d.fee) refuse('the exchange does not receive the amount less the fee')
   if (r.minOut <= 0n) refuse('the route has no minimum output')
   if (r.minOut < op.authorizedMinOut) refuse('the route’s minimum is below the minimum you confirmed')
-  const expectedMsg = dclSwapMsg({ pools, outputToken: r.routeOut, minOut: r.minOut, skipUnwrapNear: !r.nativeOut && r.routeOut === network.wrapContract })
+  // The message's minimum is what the pools must pay; the user's minimum is that less the output token's own tax, never more.
+  const poolMin = r.signedMin ?? r.minOut
+  if (poolMin < r.minOut) refuse('the route’s minimum is above what its message enforces')
+  const expectedMsg = dclSwapMsg({ pools, outputToken: r.routeOut, minOut: poolMin, skipUnwrapNear: !r.nativeOut && r.routeOut === network.wrapContract })
   if (canonical(JSON.parse(r.msg)) !== canonical(JSON.parse(expectedMsg))) refuse('the swap message differs from the verified route')
 
   const swapTx = plan[plan.length - 1] as WalletTxPlan

@@ -1,9 +1,11 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { mulBps } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
 import { createDclPoolReader, type DclPoolReader } from '@/services/dcl/pools'
 import { bestDclRoute } from '@/services/dcl/quote'
 import { dclSwapMsg, directFee } from '@/services/dcl/swap'
+import { readTransferTax } from '@/services/dcl/tax'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { storageBoundsMin, storageStatus } from '@/services/near/storage'
@@ -70,6 +72,8 @@ export interface RoutedSwap {
   msg: string
   /** Direct DCL routes: the pools of the path, in order. */
   pools?: string[]
+  /** Direct DCL routes: the tokens' own tax on this trade (what enters the pool, what leaves it), already in the amounts. */
+  tax?: { inBps: number; outBps: number }
   deadline: number | null
   fee: SwapFeeInfo | null
   quotedAt: number
@@ -253,24 +257,33 @@ export function createSwapRouter(ctx: NearContext) {
 
   /**
    * DCL v2 directly: the pools of the pair (and through a stablecoin) read and quoted on the
-   * contract. The fee comes off the input first; the pools are quoted for the rest.
+   * contract. The fee comes off the input first; the pools are quoted for the rest, less the
+   * input token's own tax on what enters a pool (nearlytrade launches). The contract enforces
+   * the minimum on what the pools pay; the output token's own tax on what leaves a pool comes
+   * off after that, so the user's expected and minimum amounts are shown after it.
    */
   async function dclRoute(p: Pair): Promise<RoutedSwap> {
     const recipient = feeCharged ? feeRecipient() : null
     const fee = recipient ? directFee(p.amountIn) : 0n
     const swapAmount = p.amountIn - fee
     if (swapAmount <= 0n) throw new NearKitError('INVALID_AMOUNT', 'The amount is too small to trade')
-    const [best] = await Promise.all([
-      bestDclRoute(ctx.rpc, dcl.contract, dclPools, ctx.network, p.routeIn, p.routeOut, swapAmount),
+    const [inTax, outTax] = await Promise.all([
+      readTransferTax(ctx.rpc, p.routeIn, dcl.contract),
+      readTransferTax(ctx.rpc, p.routeOut, dcl.contract),
       p.verify && recipient ? assertFeeAccountExists(recipient) : null,
     ])
+    const poolGets = swapAmount - mulBps(swapAmount, inTax.sellBps)
+    if (poolGets <= 0n) throw new NearKitError('INVALID_AMOUNT', 'The amount is too small to trade')
+    const best = await bestDclRoute(ctx.rpc, dcl.contract, dclPools, ctx.network, p.routeIn, p.routeOut, poolGets)
     if (!best)
       throw new NearKitError(
         'QUOTE_UNAVAILABLE',
         `DCL has no pool with liquidity for ${p.tokenIn.symbol} → ${p.tokenOut.symbol}, directly or through a stablecoin, that fills this amount.`,
       )
-    const minOut = (best.amountOut * (PPM - BigInt(Math.round(p.slippage * 1_000_000)))) / PPM
-    if (minOut <= 0n) throw new NearKitError('QUOTE_UNAVAILABLE', `DCL pays nothing for this amount of ${p.tokenIn.symbol}.`)
+    const poolMin = (best.amountOut * (PPM - BigInt(Math.round(p.slippage * 1_000_000)))) / PPM
+    if (poolMin <= 0n) throw new NearKitError('QUOTE_UNAVAILABLE', `DCL pays nothing for this amount of ${p.tokenIn.symbol}.`)
+    const amountOut = best.amountOut - mulBps(best.amountOut, outTax.buyBps)
+    const minOut = poolMin - mulBps(poolMin, outTax.buyBps)
     return {
       router: 'dcl',
       source: 'dcl',
@@ -280,16 +293,17 @@ export function createSwapRouter(ctx: NearContext) {
       routeOut: p.routeOut,
       amountIn: p.amountIn,
       swapAmount,
-      amountOut: best.amountOut,
-      signedMin: minOut,
+      amountOut,
+      signedMin: poolMin,
       minOut,
       slippagePct: p.slippagePct,
       routeTokens: best.tokens,
       stepContracts: [p.routeIn],
       multiDex: false,
       receiver: dcl.contract,
-      msg: dclSwapMsg({ pools: best.pools, outputToken: p.routeOut, minOut, skipUnwrapNear: !p.nativeOut && p.routeOut === ctx.network.wrapContract }),
+      msg: dclSwapMsg({ pools: best.pools, outputToken: p.routeOut, minOut: poolMin, skipUnwrapNear: !p.nativeOut && p.routeOut === ctx.network.wrapContract }),
       pools: best.pools,
+      tax: { inBps: inTax.sellBps, outBps: outTax.buyBps },
       deadline: null,
       fee: recipient ? { stage: 'input', token: p.routeIn, appPpm: NEARKIT_FEE_BPS * 100, protocolPpm: 0, routerShareBps: 0, recipient, transfer: { amount: fee } } : null,
       quotedAt: p.quotedAt,

@@ -384,6 +384,18 @@ describe('signer policy: direct DCL swaps', () => {
     expect(() => checkPlan(op(buy), extra, mainWallet, main, FEES)).toThrow(PolicyViolation)
   })
 
+  it('accepts a message minimum above the user’s minimum (the token’s own tax comes off after the pool pays), never below', () => {
+    const buy = direct('buy', ONE)
+    const poolMin = (buy.minOut * 100n) / 99n
+    const taxed: SwapRouteFacts = { ...buy, signedMin: poolMin, msg: dclSwapMsg({ pools, outputToken: SING, minOut: poolMin, skipUnwrapNear: false }) }
+    expect(() => checkPlan(op(taxed), plan(taxed), mainWallet, main, FEES)).not.toThrow()
+    // The message must carry the message minimum, not the user's.
+    refusedWith({ ...taxed, msg: buy.msg }, plan(buy), /differs from the verified route/)
+    // A message minimum below the user's minimum would deliver less than confirmed.
+    const below: SwapRouteFacts = { ...buy, signedMin: buy.minOut - 1n, msg: dclSwapMsg({ pools, outputToken: SING, minOut: buy.minOut - 1n, skipUnwrapNear: false }) }
+    refusedWith(below, plan(below), /above what its message enforces/)
+  })
+
   it('on testnet a direct route carries no fee, and a fee there is refused', () => {
     const net = NETWORKS.testnet
     const T = 'fresh.nearlytrade.testnet'

@@ -115,6 +115,65 @@ function mainnet(options: { rhea?: (tokenIn: string, tokenOut: string, amountIn:
   return { router: createSwapRouter(ctx), chain }
 }
 
+describe('a token that taxes transfers to and from its DCL pair (nearlytrade launches)', () => {
+  const taxed = () => {
+    const chain = createFakeChain({
+      accounts: { 'trader.near': { amount: 10n ** 25n }, [FEES]: { amount: 10n ** 24n } },
+      tokens: {
+        [WRAP]: { symbol: 'wNEAR', decimals: 24, registered: [AGG, DCL, 'trader.near', FEES], boundsMin: MIN_STORAGE },
+        [USDC]: { symbol: 'USDC', decimals: 6, registered: [AGG, DCL, 'trader.near'], boundsMin: MIN_STORAGE },
+        [SING]: {
+          symbol: 'SINGULARTY',
+          name: 'Singularity is NEAR',
+          decimals: 18,
+          registered: [DCL, 'trader.near', FEES],
+          boundsMin: MIN_STORAGE,
+          balances: { 'trader.near': 10n ** 22n },
+          // 1% on tokens entering the pool, 1% on tokens leaving it, as singularty.nearlytrade.near answers get_tax (2026-10-03).
+          tax: { buyBps: 100, sellBps: 100, pairs: [DCL] },
+        },
+      },
+      aggregator: { contract: AGG, whitelist: [WRAP, USDC], protocolPpm: 1000, registered: {} },
+      dcl: { contract: DCL, pools: { [dclPoolId(SING, WRAP, 10000)]: pool(SING, 18000n) } },
+    })
+    chain.route('https://smartx.rhea.finance/', () => ({ result_code: 1008, result_message: '', result_data: null }))
+    const { env } = parseEnv({ VITE_NEAR_NETWORK: 'mainnet', VITE_NEARKIT_FEE_RECIPIENT: FEES })
+    return createSwapRouter(createNearContext({ env, network: NETWORKS.mainnet, fetch: chain.fetch, kv: memoryStorage() }))
+  }
+
+  it('sells on what the pool receives after the sell tax, so the minimum in the message holds', async () => {
+    const r = await taxed().route({ tokenIn: SING, tokenOut: 'near', amountIn: '9000', slippagePct: 1, walletId: 'w' }, 'trader.near', true)
+    const amountIn = 9000n * 10n ** 18n
+    const swapAmount = amountIn - (amountIn * 50n) / 10_000n
+    const poolGets = swapAmount - swapAmount / 100n
+    const quote = pool(SING, 18000n).rate(SING, poolGets)
+    expect(r.swapAmount).toBe(swapAmount)
+    expect(r.amountOut).toBe(quote)
+    expect(r.signedMin).toBe((quote * 99n) / 100n)
+    expect(r.minOut).toBe(r.signedMin)
+    expect(JSON.parse(r.msg).Swap.min_output_amount).toBe(r.signedMin.toString())
+    expect(r.tax).toEqual({ inBps: 100, outBps: 0 })
+  })
+
+  it('buys with the buy tax off what the pool pays: the message minimum is the pool’s, the user’s minimum and expected amount are after the tax', async () => {
+    const r = await taxed().route({ tokenIn: 'near', tokenOut: SING, amountIn: '1', slippagePct: 1, walletId: 'w' }, 'trader.near', true)
+    const swapAmount = ONE - 5n * 10n ** 21n
+    const quote = pool(SING, 18000n).rate(WRAP, swapAmount)
+    const poolMin = (quote * 99n) / 100n
+    expect(r.signedMin).toBe(poolMin)
+    expect(JSON.parse(r.msg).Swap.min_output_amount).toBe(poolMin.toString())
+    expect(r.amountOut).toBe(quote - quote / 100n)
+    expect(r.minOut).toBe(poolMin - poolMin / 100n)
+    expect(r.tax).toEqual({ inBps: 0, outBps: 100 })
+  })
+
+  it('a token without get_tax, and a tax that names another pair, change nothing', async () => {
+    const r = await mainnet().router.route({ tokenIn: 'near', tokenOut: SING, amountIn: '1', slippagePct: 1, walletId: 'w' }, 'trader.near', true)
+    expect(r.tax).toEqual({ inBps: 0, outBps: 0 })
+    expect(r.minOut).toBe(r.signedMin)
+  })
+})
+
 describe('routing a token Rhea does not index, through DCL directly', () => {
   it('buys SINGULARTY with NEAR: the DCL pool of the pair, read from chain, with the fee off the input first', async () => {
     const { router } = mainnet()

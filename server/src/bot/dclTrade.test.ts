@@ -71,6 +71,36 @@ describe('a token outside every list, routed on DCL directly, from the NearKit w
     expect(nearOf(h, w.accountId) - before).toBeGreaterThan(9n * 10n ** 22n)
   })
 
+  it('a token that taxes its pool 1% each way: the quote and the result are what the wallet actually gets, and the sell does not revert', async () => {
+    const h = await walletBot({
+      chain: {
+        accounts,
+        tokens: { [FRESH]: { ...FRESH_TOKEN, tax: { buyBps: 100, sellBps: 100, pairs: [DCL] } } },
+        dcl: { contract: DCL, pools: { [POOL]: { tokenX: FRESH, tokenY: WRAP, fee: 10000, liquidity: 10n ** 23n, rate } } },
+      },
+    })
+    const w = await h.funded(3n * ONE)
+    await h.say(`/buy ${FRESH} 0.1`)
+    const quote = h.last()?.text ?? ''
+    expect(quote).toContain('You receive <b>≈ 98.01 FRESH</b>')
+    expect(quote).toContain('Minimum 97.0299 FRESH')
+    expect(quote).toContain('Token tax 1% on tokens leaving the pool')
+    await h.press(h.button('Confirm buy'))
+    expect(h.last()?.text).toContain('Received <b>98.01 FRESH</b>')
+    expect(freshOf(h, w.accountId)).toBe(9801n * 10n ** 16n)
+    await h.say(`/sell ${FRESH}`)
+    await h.press(h.button('100%'))
+    const sellQuote = h.last()?.text ?? ''
+    // 98.01 FRESH sold: the pool receives 97.0299 after the sell tax, and pays 1,000 wNEAR per million less 1%.
+    expect(sellQuote).toContain('You pay <b>98.01 FRESH</b>')
+    expect(sellQuote).toContain('You receive <b>≈ 0.096059 NEAR</b>')
+    expect(sellQuote).toContain('Token tax 1% on tokens entering the pool')
+    await h.press(h.button('Confirm sell'))
+    expect(h.last()?.text).toContain('Sell confirmed')
+    expect(h.last()?.text).toContain('Received <b>0.096059 NEAR</b>')
+    expect(freshOf(h, w.accountId)).toBe(0n)
+  })
+
   it('with no pool and no Rhea route, the quote says no executable route was found, never that the token is unsupported', async () => {
     const h = await bot({})
     await h.funded(3n * ONE)

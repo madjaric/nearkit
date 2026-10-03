@@ -5,6 +5,7 @@ import { createFakeChain } from '@/services/real/testing/fakeChain'
 import { createDclPoolReader, DCL_FEE_TIERS, dclPoolId, dclPoolTokens, parseDclPool } from './pools'
 import { bestDclRoute, dclQuote, dclTokenPaths } from './quote'
 import { dclPathTokens, dclSwapMsg, directFee } from './swap'
+import { NO_TAX, readTransferTax } from './tax'
 
 /**
  * DCL v2 read from the contract itself: deterministic pool ids per fee tier, on-chain quotes
@@ -148,6 +149,29 @@ describe('quotes', () => {
     expect(best).toEqual({ pools: [dclPoolId(USDC, WRAP, 400), dclPoolId(NEW, USDC, 10000)], tokens: [WRAP, USDC, NEW], amountIn: ONE, amountOut: 12500n * ONE })
     // Nothing fills a pair with no pools.
     expect(await bestDclRoute(rpc, DCL, reader, NETWORKS.mainnet, WRAP, 'nobody.near', ONE)).toBeNull()
+  })
+})
+
+describe('transfer tax', () => {
+  const DEX = 'dclv2.ref-labs.near'
+  const chain = () =>
+    createFakeChain({
+      tokens: {
+        'taxed.nearlytrade.near': { symbol: 'TAXED', decimals: 18, boundsMin: null, tax: { buyBps: 100, sellBps: 250, pairs: [DEX] } },
+        'elsewhere.nearlytrade.near': { symbol: 'ELSE', decimals: 18, boundsMin: null, tax: { buyBps: 100, sellBps: 100, pairs: ['v2.ref-finance.near'] } },
+        'plain.near': { symbol: 'PLAIN', decimals: 18, boundsMin: null },
+      },
+    })
+
+  it('reads buy and sell basis points when the DCL contract is one of the token’s pairs', async () => {
+    const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: chain().fetch })
+    expect(await readTransferTax(rpc, 'taxed.nearlytrade.near', DEX)).toEqual({ buyBps: 100, sellBps: 250 })
+  })
+
+  it('reports no tax for a token without get_tax, or whose tax names other pairs', async () => {
+    const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: chain().fetch })
+    expect(await readTransferTax(rpc, 'plain.near', DEX)).toEqual(NO_TAX)
+    expect(await readTransferTax(rpc, 'elsewhere.nearlytrade.near', DEX)).toEqual(NO_TAX)
   })
 })
 

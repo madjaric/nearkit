@@ -275,6 +275,8 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       w.push(
         `This route goes to the exchange directly. The NearKit fee leaves with the swap's own transaction; if the exchange then refunds the swap (the price moved past your slippage), the fee is not refunded.`,
       )
+    if (r.tax?.inBps) w.push(`${r.tokenIn.symbol} takes a ${r.tax.inBps / 100}% tax on tokens entering its DCL pool; the quote is for what the pool receives after it.`)
+    if (r.tax?.outBps) w.push(`${r.tokenOut.symbol} takes a ${r.tax.outBps / 100}% tax on tokens leaving its DCL pool; the amounts shown are after it.`)
     return w
   }
 

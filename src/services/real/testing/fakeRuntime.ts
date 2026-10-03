@@ -193,14 +193,19 @@ export function createRuntime(state: RuntimeState) {
   const registered = (t: FakeToken, id: string) =>
     t.boundsMin === null || t.registered.has(id) || (state.exchange !== null && id === state.exchange.contract) || (state.dcl !== null && id === state.dcl.contract)
 
-  function moveToken(contract: string, from: string, to: string, amount: bigint) {
+  /** Moves tokens; returns what `to` received (a launch token taxes transfers to and from its pairs and keeps the tax). */
+  function moveToken(contract: string, from: string, to: string, amount: bigint): bigint {
     const t = tokenOf(contract)
     const have = t.balances.get(from) ?? 0n
     if (amount <= 0n) throw new Panic('The amount should be a positive number')
     if (have < amount) throw new Panic('The account doesn’t have enough balance')
     if (!registered(t, to)) throw new Panic(`The account ${to} is not registered`)
+    const bps = t.tax ? (t.tax.pairs.includes(to) ? t.tax.sellBps : t.tax.pairs.includes(from) ? t.tax.buyBps : 0) : 0
+    const tax = (amount * BigInt(bps)) / 10_000n
     t.balances.set(from, have - amount)
-    t.balances.set(to, (t.balances.get(to) ?? 0n) + amount)
+    t.balances.set(to, (t.balances.get(to) ?? 0n) + amount - tax)
+    if (tax > 0n) t.balances.set(contract, (t.balances.get(contract) ?? 0n) + tax)
+    return amount - tax
   }
 
   const transferLog = (contract: string, from: string, to: string, amount: bigint) =>
@@ -237,12 +242,15 @@ export function createRuntime(state: RuntimeState) {
       return
     }
     if (!registered(book, sender)) throw new Panic(`The account ${sender} is not registered`)
-    book.balances.set(sender, (book.balances.get(sender) ?? 0n) + out)
+    // A launch token's buy tax comes off what leaves the pool.
+    const tax = book.tax && book.tax.pairs.includes(dex) ? (out * BigInt(book.tax.buyBps)) / 10_000n : 0n
+    book.balances.set(sender, (book.balances.get(sender) ?? 0n) + out - tax)
+    if (tax > 0n) book.balances.set(outToken, (book.balances.get(outToken) ?? 0n) + tax)
     trail.push({
       predecessor: dex,
       receiver: outToken,
       actions: [{ FunctionCall: { method_name: 'ft_transfer', args: b64json({ receiver_id: sender, amount: out.toString() }), gas: 1, deposit: '1' } }],
-      logs: [transferLog(outToken, dex, sender, out)],
+      logs: [transferLog(outToken, dex, sender, out - tax), ...(tax > 0n ? [ftEvent(dex, outToken, tax)] : [])],
       ok: true,
       value: '',
       after: [],
@@ -361,8 +369,9 @@ export function createRuntime(state: RuntimeState) {
         if (deposit !== 1n) throw new Panic('Requires attached deposit of exactly 1 yoctoNEAR')
         const to = String(args.receiver_id)
         const amount = BigInt(String(args.amount))
-        moveToken(receiver, predecessor, to, amount)
-        logs.push(transferLog(receiver, predecessor, to, amount))
+        const received = moveToken(receiver, predecessor, to, amount)
+        logs.push(transferLog(receiver, predecessor, to, received))
+        if (received < amount) logs.push(ftEvent(predecessor, receiver, amount - received))
         return ''
       }
       case 'ft_transfer_call': {
@@ -371,15 +380,18 @@ export function createRuntime(state: RuntimeState) {
         const amount = BigInt(String(args.amount))
         const toDcl = state.dcl !== null && to === state.dcl.contract
         if (!toDcl && (!state.exchange || to !== state.exchange.contract)) throw new Panic(`${to} has no ft_on_transfer`)
-        moveToken(receiver, predecessor, to, amount)
-        logs.push(transferLog(receiver, predecessor, to, amount))
+        const received = moveToken(receiver, predecessor, to, amount)
+        logs.push(transferLog(receiver, predecessor, to, received))
+        if (received < amount) logs.push(ftEvent(predecessor, receiver, amount - received))
         // ft_on_transfer runs in its own receipt: if it fails, the transfer is refunded in full.
         const inner: Exec[] = []
         const restore = snapshot()
         const onTransfer: Exec = {
           predecessor: receiver,
           receiver: to,
-          actions: [{ FunctionCall: { method_name: 'ft_on_transfer', args: b64json({ sender_id: predecessor, amount: amount.toString(), msg: args.msg }), gas: 1, deposit: '0' } }],
+          actions: [
+            { FunctionCall: { method_name: 'ft_on_transfer', args: b64json({ sender_id: predecessor, amount: received.toString(), msg: args.msg }), gas: 1, deposit: '0' } },
+          ],
           logs: [],
           ok: true,
           value: '0',
@@ -387,8 +399,8 @@ export function createRuntime(state: RuntimeState) {
         }
         let unused = amount
         try {
-          unused = toDcl ? dclSwap(predecessor, receiver, amount, String(args.msg ?? ''), inner) : swap(predecessor, String(args.msg ?? ''), inner)
-          onTransfer.logs.push(`Swapped ${amount} ${receiver}`)
+          unused = toDcl ? dclSwap(predecessor, receiver, received, String(args.msg ?? ''), inner) : swap(predecessor, String(args.msg ?? ''), inner)
+          onTransfer.logs.push(`Swapped ${received} ${receiver}`)
         } catch (e) {
           restore()
           onTransfer.ok = false

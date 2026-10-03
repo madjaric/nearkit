@@ -19,6 +19,8 @@ export interface FakeToken {
   /** `storage_balance_bounds.min`; null = no NEP-145 on this contract. */
   boundsMin: bigint | null
   totalSupply?: bigint
+  /** A launch token's tax (`get_tax`): basis points on tokens leaving a pair (buy) and entering one (sell), kept by the token. */
+  tax?: { buyBps: number; sellBps: number; pairs: string[] }
 }
 
 export interface FakeDclPool {
@@ -137,6 +139,9 @@ export function createFakeChain(options: FakeChainOptions = {}) {
           return { result: (token.balances.get(String(args.account_id)) ?? 0n).toString() }
         case 'ft_total_supply':
           return { result: (token.totalSupply ?? [...token.balances.values()].reduce((a, b) => a + b, 0n)).toString() }
+        case 'get_tax':
+          if (!token.tax) break
+          return { result: { tax: { buy_bps: token.tax.buyBps, sell_bps: token.tax.sellBps, pairs: token.tax.pairs, admin: 'launch.near', exempt: [] }, pending: '0' } }
         case 'storage_balance_bounds':
           return token.boundsMin === null
             ? { error: 'wasm execution failed with error: MethodResolveError(MethodNotFound)' }
