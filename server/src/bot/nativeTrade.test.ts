@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
-import { formatUnits } from '@/lib/amounts'
+import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import type { SwapQuote } from '../custody/swap'
 import { buyReserve } from '../custody/swap'
 import { ALICE } from './testing'
@@ -37,12 +37,22 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
       'You receive <b>≈ 0.4 USDT</b>',
       'Minimum 0.398 USDT · 1% slippage',
       'NearKit fee none on testnet',
-      'Network fee ≈',
+      'Actual network fee ≈',
       'Registration 0.0025 NEAR',
-      'of it is gas held while the swap runs, back within seconds',
+      'Gas reserve (refunded) <b>',
+      'Temporarily held while the transaction runs. Unused gas is refunded automatically. This is not an additional NearKit fee.',
+      'available in all, gas reserve included',
       'Route NEAR → USDT · Rhea',
     ])
       expect(quote).toContain(part)
+    expect(quote).not.toMatch(/^Network fee/m)
+    expect(quote).not.toContain('gas held while the swap runs')
+    // The reserve shown is the planner's own figure: what the trade needs beyond the amount and the registrations.
+    const q = (await h.custody.store.intent(shownIntent(h)))?.quote as unknown as SwapQuote
+    const reserve = BigInt(q.need ?? '0') - BigInt(q.amountInRaw) - BigInt(q.registration)
+    expect(reserve).toBeGreaterThan(ONE / 4n)
+    expect(quote).toContain(`Gas reserve (refunded) <b>${formatUnitsUp(reserve, 24, 4)} NEAR</b>`)
+    expect(quote).toContain(`Needs <b>${formatUnitsUp(BigInt(q.need ?? '0'), 24, 4)} NEAR</b> available in all`)
     expect(quote).not.toContain('Deposit at least')
     // No browser, no web hand-off: the button runs the trade here.
     expect(h.buttons().some((b) => b.url)).toBe(false)
@@ -104,7 +114,7 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     const refused = h.last()?.text ?? ''
     expect(refused).toContain('Buy failed')
     expect(refused).toMatch(
-      /This buy needs [\d.]+ NEAR available and your NearKit wallet has 0\.2 NEAR: 0\.1 NEAR to swap, [\d.]+ NEAR for one-time registrations and [\d.]+ NEAR for gas/,
+      /This buy needs [\d.]+ NEAR available and your NearKit wallet has 0\.2 NEAR: 0\.1 NEAR to swap, [\d.]+ NEAR for one-time registrations and a [\d.]+ NEAR gas reserve, which NEAR holds while the swap runs and refunds automatically, all but the actual network fee \(not a NearKit fee\)/,
     )
     expect(refused).toContain('Deposit at least')
     expect(refused).toContain('Nothing was sent.')

@@ -1,6 +1,7 @@
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { GAS_RESERVE_LABEL, GAS_RESERVE_NOT_FEE, GAS_RESERVE_NOTE, gasReserveYocto } from '@/lib/gasReserve'
 import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import { formatPct } from '@/lib/format'
@@ -53,10 +54,14 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     `Minimum ${esc(`${fmt(BigInt(q.minOut), outDecimals)} ${outSymbol}`)} · ${p.slippagePct}% slippage`,
     `Price impact ${q.priceImpactPct === null ? `${UNKNOWN} (no prices on ${esc(deps.config.network.id)})` : esc(formatPct(q.priceImpactPct, { decimals: 2 }))}`,
     `NearKit fee ${esc(fee)}`,
-    `Network fee ≈ ${esc(nearText(BigInt(q.networkFeeNear)))} NEAR`,
+    `Actual network fee ≈ ${esc(nearText(BigInt(q.networkFeeNear)))} NEAR`,
     ...(registration > 0n ? [`Registration ${esc(nearText(registration, 5))} NEAR · first time with a token here`] : []),
     ...(need !== null
-      ? [`Needs ${bold(`${up(need)} NEAR`)} available · ${up(need - (buy ? BigInt(q.amountInRaw) : 0n) - registration)} of it is gas held while the swap runs, back within seconds`]
+      ? [
+          `${esc(GAS_RESERVE_LABEL)} ${bold(`${up(gasReserveYocto(need, buy ? BigInt(q.amountInRaw) : 0n, registration))} NEAR`)}`,
+          esc(`${GAS_RESERVE_NOTE} ${GAS_RESERVE_NOT_FEE}`),
+          `Needs ${bold(`${up(need)} NEAR`)} available in all, gas reserve included`,
+        ]
       : []),
     ...(need !== null && available !== null && available < need
       ? [`⚠️ Your NearKit wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]

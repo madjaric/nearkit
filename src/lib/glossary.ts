@@ -1,4 +1,5 @@
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from './fees'
+import { GAS_RESERVE_LABEL, GAS_RESERVE_TOOLTIP } from './gasReserve'
 
 /**
  * One definition per term, shared by tooltips and the documentation page so the
@@ -27,7 +28,11 @@ export const GLOSSARY = {
   },
   networkFee: {
     term: 'Network fee',
-    text: 'Gas paid to the NEAR network to process each transaction. Estimated here; the exact amount is known at execution.',
+    text: 'The gas the NEAR network actually burns to process each transaction. Estimated here; the exact amount is known at execution. It is separate from the gas reserve, which is only held while the transaction runs and then refunded.',
+  },
+  gasReserveRefunded: {
+    term: GAS_RESERVE_LABEL,
+    text: GAS_RESERVE_TOOLTIP,
   },
   storageDeposit: {
     term: 'Storage deposit',

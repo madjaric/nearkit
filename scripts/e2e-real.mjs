@@ -248,6 +248,7 @@ await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and
   await page.goto(BASE + '/swap', { waitUntil: 'networkidle' })
   await page.getByPlaceholder('0.00').first().fill('1')
   await visible('Not charged on testnet')
+  await visible('Actual network fee (est.)')
   await visible(/1 NEAR ≈ 4\.0\d USDT/)
   // Two-step confirmation (the default): the first press arms, the second opens the review.
   await page.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
@@ -257,6 +258,9 @@ await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and
   await modal.getByText('NEAR → USDT · Rhea', { exact: true }).first().waitFor({ timeout: 10000 })
   await modal.getByText('Not charged', { exact: true }).waitFor()
   await modal.getByText(/refund arrives as wNEAR/).waitFor()
+  // The gas reserve is named and explained as held and refunded, never as a fee.
+  await modal.getByText('Gas reserve (refunded)').first().waitFor()
+  await modal.getByText('Temporarily held while the transaction runs. Unused gas is refunded automatically.').first().waitFor()
   await shot('real-04-swap-review')
   await modal.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
   await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })

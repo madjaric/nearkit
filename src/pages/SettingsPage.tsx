@@ -110,7 +110,7 @@ function FeesPanel() {
             No NearKit fee on Batch Send, Split or Consolidate
           </Line>
           <Line label="Network fees" mono={false}>
-            Paid to NEAR. Gas is bought upfront and mostly refunded
+            Paid to NEAR. A gas reserve is held while each transaction runs and refunded automatically
           </Line>
           <Line label="Storage deposits" mono={false}>
             Paid to token contracts for first-time holders

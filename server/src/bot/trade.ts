@@ -142,12 +142,12 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
     const gas = await balanceOf(ctx, state.account, NATIVE_TOKEN_ID).catch(() => null)
     if (gas !== null && gas < sellReserve(network))
       head.push(
-        `⚠️ Selling needs up to ${esc(nearText(sellReserve(network)))} NEAR available, mostly gas the network holds while the swap runs and gives back within seconds. Deposit NEAR first.`,
+        `⚠️ Selling needs up to ${esc(nearText(sellReserve(network)))} NEAR available, mostly a gas reserve: NEAR holds it while the swap runs and refunds unused gas automatically. Deposit NEAR first.`,
       )
   }
   if (buy && state.native && balance !== null && balance < buyReserve(network))
     head.push(
-      `⚠️ Buying needs up to ${esc(nearText(buyReserve(network)))} NEAR available besides the amount, mostly gas the network holds while the swap runs and gives back within seconds. The quote shows the exact amount.`,
+      `⚠️ Buying needs up to ${esc(nearText(buyReserve(network)))} NEAR available besides the amount, mostly a gas reserve: NEAR holds it while the swap runs and refunds unused gas automatically. The quote shows the exact amount.`,
     )
 
   if (!buy && balance === 0n) {
@@ -194,7 +194,7 @@ function quoteText(ctx: BotCtx, side: Side, token: TokenListing, amountIn: strin
     `Price impact ${q.priceImpactPct === null ? `${UNKNOWN} (no prices on ${esc(ctx.deps.config.network.id)})` : esc(formatPct(q.priceImpactPct, { decimals: 2 }))}`,
     `NearKit fee ${esc(fee)}`,
     ...(f.charged && f.routerFeeBps !== null ? [`Rhea fee ${esc(`${(f.routerFeeBps / 100).toFixed(2)}%`)} · pool fees are in the rate`] : []),
-    `Network fee ≈ ${esc(q.networkFeeNear.toFixed(4))} NEAR`,
+    `Actual network fee ≈ ${esc(q.networkFeeNear.toFixed(4))} NEAR`,
     `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     '',
     `⏱ Quote for ${seconds}s. NearKit quotes again right before you sign in your wallet.`,

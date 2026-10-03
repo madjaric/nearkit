@@ -181,7 +181,7 @@ export function createTransferService(ctx: NearContext, wallets: Pick<WalletServ
         const parts = [
           token.contract ? null : `${formatUnits(amount, token.decimals)} to send`,
           storage > 0n ? `${nearText(storage)} for storage registration` : null,
-          `${nearText(upfront)} of gas bought upfront, mostly refunded`,
+          `${nearText(upfront)} gas reserve, refunded automatically except the actual network fee`,
         ].filter(Boolean)
         throw new NearKitError('INSUFFICIENT_GAS', `${s.label} needs ${nearText(nearNeeded)} NEAR available to sign (${parts.join(' + ')}). It has ${nearText(available)} NEAR.`)
       }

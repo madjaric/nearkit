@@ -1,4 +1,5 @@
 import { AccountText } from '@/components/domain/Account'
+import { GasReserveLine } from '@/components/domain/GasReserve'
 import { Figures } from '@/components/ui/Figures'
 import { Tag } from '@/components/ui/Indicators'
 import { Line, Lines } from '@/components/ui/Panel'
@@ -119,7 +120,7 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
           </>
         )}
         {storage && <Line label="Storage deposits">{`${g(plan.totals.storage.display)} NEAR`}</Line>}
-        {upfront && <Line label="Gas bought upfront (mostly refunded)">{`≈ ${formatUnitsUp(BigInt(plan.totals.upfrontNear.raw), 24, 4, { group: true })} NEAR`}</Line>}
+        {upfront && <GasReserveLine value={`≈ ${formatUnitsUp(BigInt(plan.totals.upfrontNear.raw), 24, 4, { group: true })} NEAR`} />}
         <Line label="Transactions">{`${plan.transactions.length} in ${plan.groups.length} ${plan.groups.length === 1 ? 'approval' : 'approvals'}`}</Line>
         {plan.fee ? <FeeLines fee={plan.fee} demo={plan.mode === 'demo'} /> : !swap && <Line label="NearKit fee">None on transfers</Line>}
       </Lines>

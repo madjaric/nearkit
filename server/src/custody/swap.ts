@@ -2,6 +2,7 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/net
 import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
+import { gasReserveYocto } from '@/lib/gasReserve'
 import { accountState } from '@/services/near/account'
 import { createCongestionProbe } from '@/services/near/congestion'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
@@ -132,7 +133,7 @@ function fundsText(side: 'buy' | 'sell', need: bigint, nearIn: bigint, registrat
     ...(nearIn ? [`${formatUnits(nearIn, NEAR_DECIMALS)} NEAR to swap`] : []),
     ...(registration ? [`${formatUnitsUp(registration, NEAR_DECIMALS, 5)} NEAR for one-time registrations`] : []),
   ]
-  const gas = `${up(need - nearIn - registration)} NEAR for gas, which the network holds while the swap runs and gives back within seconds, all but the network fee`
+  const gas = `a ${up(gasReserveYocto(need, nearIn, registration))} NEAR gas reserve, which NEAR holds while the swap runs and refunds automatically, all but the actual network fee (not a NearKit fee)`
   return (
     `This ${side} needs ${up(need)} NEAR available and your NearKit wallet has ${formatUnits(available, NEAR_DECIMALS, { maxFraction: 4 })} NEAR: ` +
     `${parts.length ? `${parts.join(', ')} and ${gas}` : gas}. Deposit at least ${up(need - available)} NEAR more.`

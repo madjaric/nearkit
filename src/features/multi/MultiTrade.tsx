@@ -20,6 +20,7 @@ import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { formatUnits, fractionOf, splitEqual, tryParseUnits } from '@/lib/amounts'
 import { cn } from '@/lib/cn'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { ACTUAL_NETWORK_FEE_LABEL } from '@/lib/gasReserve'
 import { floorTo, formatAmount, formatCompact, formatNumber, formatPct, parseAmount, toInputString } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
 import { canExecute, executesViaNearKit, presetMembers, signsInBrowser } from '@/lib/wallets'
@@ -511,7 +512,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
                   ? 'Not charged on testnet'
                   : `${formatNumber(q.nearkitFeeTotal, 2, 6)} ${q.feeTokenId === NATIVE_TOKEN_ID ? 'NEAR' : symbol}`}
             </Line>
-            <Line label={<Term term="networkFee">Network fee (est.)</Term>}>{q ? `${formatNumber(q.networkFeeNear, 4, 4)} NEAR · ${liveLegs} tx` : '—'}</Line>
+            <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>{q ? `≈ ${formatNumber(q.networkFeeNear, 4, 4)} NEAR · ${liveLegs} tx` : '—'}</Line>
           </Lines>
           <QuoteFreshness quotedAt={q?.quotedAt} expiresAt={q?.expiresAt} fetching={settling} />
           {shortWallets > 0 && (

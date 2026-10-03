@@ -253,7 +253,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const parts = [
         nearIn ? `${formatUnits(nearIn, NEAR_DECIMALS)} to swap` : null,
         storage ? `${nearText(storage)} for registrations` : null,
-        `${nearText(upfront)} of gas bought upfront, mostly refunded`,
+        `${nearText(upfront)} gas reserve, refunded automatically except the actual network fee`,
       ].filter(Boolean)
       throw new NearKitError(
         'INSUFFICIENT_GAS',

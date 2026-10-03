@@ -134,7 +134,8 @@ export default function DocsPage() {
               </p>
               <p>Batch send, Split and Consolidate carry no NearKit fee. Testnet trades are not charged, and the demo charges nothing.</p>
               <p>
-                Network fees are paid to NEAR per transaction; gas is bought upfront and mostly refunded. Token contracts may charge a one-time storage deposit (often{' '}
+                Network fees are paid to NEAR per transaction. Each transaction also needs a gas reserve: NEAR holds the attached gas while it runs and refunds what it doesn’t use
+                automatically, so only the actual network fee is spent, and it is not a NearKit fee. Token contracts may charge a one-time storage deposit (often{' '}
                 <span className="num text-fg">{STORAGE_DEPOSIT_NEAR} NEAR</span>, read from each contract) the first time an account holds their token. MAX leaves{' '}
                 <span className="num text-fg">{GAS_RESERVE_NEAR} NEAR</span> in a wallet for gas.
               </p>

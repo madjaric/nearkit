@@ -463,6 +463,12 @@ await step('Multi Buy across NearKit wallets runs from the web: the server quote
   await execute.waitFor({ timeout: 15000 })
   await modal.getByText('Main', { exact: true }).waitFor()
   await modal.getByText('Sniper A', { exact: true }).waitFor()
+  // The gas reserve is its own line, explained; the actual network fee and NearKit's fee are theirs.
+  await modal.getByText('Gas reserve (refunded)').first().waitFor()
+  await modal.getByText('Temporarily held while the transaction runs. Unused gas is refunded automatically.').first().waitFor()
+  await modal.getByText('Actual network fee (est.)').first().waitFor()
+  await modal.getByText('NearKit fee', { exact: true }).first().waitFor()
+  if ((await modal.getByText('Network fee (est.)', { exact: true }).count()) !== 0) throw new Error('the review still labels a figure Network fee')
   await shot('tg-08-web-multi-review')
   await execute.click()
   // Each wallet reports its own result. This fake network can't run a server-signed transaction,

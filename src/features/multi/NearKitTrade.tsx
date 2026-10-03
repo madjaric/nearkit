@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { GasReserveLine } from '@/components/domain/GasReserve'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Dialog'
 import { Figures } from '@/components/ui/Figures'
+import { Term } from '@/components/ui/Help'
 import { Skeleton, Tag, type TagTone } from '@/components/ui/Indicators'
 import { Line, Lines } from '@/components/ui/Panel'
 import { NEAR_DECIMALS } from '@/config/networks'
-import { formatUnits, formatUnitsUp } from '@/lib/amounts'
+import { formatUnits, formatUnitsUp, tryParseUnits } from '@/lib/amounts'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { ACTUAL_NETWORK_FEE_LABEL, gasReserveYocto } from '@/lib/gasReserve'
 import { formatPct } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { describeError } from '@/services/errors'
@@ -171,8 +174,22 @@ function NearKitTrade({
       },
     )
 
+  /** A wallet's gas reserve: what its plan needs beyond the NEAR it swaps and its registrations. */
+  const reserveOf = (l: WebTradeLeg): bigint | null => {
+    if (l.need === null) return null
+    const nearIn = buy ? tryParseUnits(l.amountIn, NEAR_DECIMALS) : null
+    return gasReserveYocto(BigInt(l.need), nearIn?.ok ? nearIn.value : 0n, BigInt(l.registration))
+  }
+  const reserves = shown.map(reserveOf).filter((r): r is bigint => r !== null)
+  const reserveMax = reserves.length ? reserves.reduce((a, b) => (b > a ? b : a)) : null
+  const reserveText =
+    reserveMax === null
+      ? null
+      : `${multi && reserves.some((r) => r !== reserveMax) ? 'up to ' : ''}${formatUnitsUp(reserveMax, NEAR_DECIMALS, 4)} NEAR${multi ? ' per wallet' : ''}`
+
   const legRow = (l: WebTradeLeg) => {
     const short = l.need !== null && l.available !== null && BigInt(l.available) < BigInt(l.need)
+    const reserve = reserveOf(l)
     return (
       <li key={l.walletId} className="flex flex-col gap-1 px-3 py-2">
         <div className="flex items-center justify-between gap-3">
@@ -186,7 +203,7 @@ function NearKitTrade({
         </p>
         {!running && short && (
           <p className="text-xs text-warn">
-            <Figures>{`Has ${formatUnits(BigInt(l.available as string), NEAR_DECIMALS, { maxFraction: 4 })} NEAR available, needs ${formatUnitsUp(BigInt(l.need as string), NEAR_DECIMALS, 4)}: this wallet’s trade fails unless it gets more NEAR first.`}</Figures>
+            <Figures>{`Has ${formatUnits(BigInt(l.available as string), NEAR_DECIMALS, { maxFraction: 4 })} NEAR available, needs ${formatUnitsUp(BigInt(l.need as string), NEAR_DECIMALS, 4)}${reserve !== null ? `, including a ${formatUnitsUp(reserve, NEAR_DECIMALS, 4)} NEAR gas reserve that is refunded after the trade` : ''}: this wallet’s trade fails unless it gets more NEAR first.`}</Figures>
           </p>
         )}
         {l.status === 'requoted' && <p className="text-xs text-warn">The price moved past its minimum, so nothing was sent from it. This is its new quote.</p>}
@@ -210,10 +227,11 @@ function NearKitTrade({
           )}
           <Line label="NearKit fee">{g.fee.charged ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `Not charged on ${caps.networkLabel.toLowerCase()}`}</Line>
           <Line label="Price impact">{g.priceImpactPct === null ? 'Unknown' : formatPct(g.priceImpactPct, { decimals: 2 })}</Line>
-          <Line label="Network fee (est.)">
-            <Figures>{`${formatUnits(BigInt(g.networkFeeNear), NEAR_DECIMALS, { maxFraction: 4 })} NEAR ${multi ? 'per wallet' : ''}`}</Figures>
+          <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>
+            <Figures>{`≈ ${formatUnits(BigInt(g.networkFeeNear), NEAR_DECIMALS, { maxFraction: 4 })} NEAR${multi ? ' per wallet' : ''}`}</Figures>
           </Line>
           <Line label="Route">{g.path.length ? `${g.path.join(' → ')} · Rhea` : '—'}</Line>
+          {reserveText !== null && <GasReserveLine value={reserveText} />}
         </Lines>
       )}
       {g.busy && !running && <p className="text-xs text-warn">NEAR network is currently busy. This trade may take longer than usual.</p>}

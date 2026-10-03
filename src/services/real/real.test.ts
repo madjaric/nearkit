@@ -204,12 +204,13 @@ describe('real transfers (testnet, fake chain)', () => {
     })
   })
 
-  it('keeps enough NEAR for gas: a NEAR send that leaves nothing for gas is refused', async () => {
+  it('keeps enough NEAR for gas: a NEAR send that leaves nothing for gas is refused, and says the gas reserve is refunded', async () => {
     const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
     await expect(
       services.transfers.prepare({ kind: 'batch-send', tokenId: 'near', sourceWalletId: 'alice.testnet', lines: [{ accountId: 'bob.testnet', amount: '5' }] }),
     ).rejects.toMatchObject({
       code: 'INSUFFICIENT_GAS',
+      message: expect.stringMatching(/needs [\d.]+ NEAR available to sign \(5 to send \+ [\d.]+ gas reserve, refunded automatically except the actual network fee\)/),
     })
   })
 

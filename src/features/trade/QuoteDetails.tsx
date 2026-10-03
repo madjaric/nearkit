@@ -4,6 +4,7 @@ import { InfoTip, Term } from '@/components/ui/Help'
 import { Line, Lines } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { ACTUAL_NETWORK_FEE_LABEL } from '@/lib/gasReserve'
 import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { formatAmount, formatNumber, formatPct, formatPrice, formatUsd } from '@/lib/format'
 import { useCapabilities } from '@/services/queries'
@@ -121,7 +122,7 @@ export function QuoteDetails({
           )}
         </Line>
         {fee?.routerFeeBps ? <Line label="Rhea protocol fee">{bpsLabel(fee.routerFeeBps)}</Line> : null}
-        <Line label={<Term term="networkFee">Network fee (est.)</Term>}>{q ? `${formatNumber(q.networkFeeNear, 4, 4)} NEAR` : '—'}</Line>
+        <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>{q ? `≈ ${formatNumber(q.networkFeeNear, 4, 4)} NEAR` : '—'}</Line>
       </Lines>
       <QuoteFreshness quotedAt={q?.quotedAt} expiresAt={q?.expiresAt} fetching={settling} className="mt-0.5" />
       {error && <p className="text-xs text-neg">{error}</p>}
