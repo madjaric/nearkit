@@ -428,6 +428,11 @@ await step('Create wallet on NearKit web: named, listed at once, announced in Te
   if (!notice || notice.text.includes(degenAddress)) throw new Error('the notice shows the full address, or is missing')
   const copyKey = notice.buttons.find((b) => b.text === '📋 Copy address')
   if (copyKey?.copy_text?.text !== degenAddress) throw new Error(`Copy address carries ${JSON.stringify(copyKey)}`)
+  // On the web, the wallet's copy control copies the same 64-character id in full.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.getByRole('button', { name: 'Copy Degen 1 address' }).locator('visible=true').first().click()
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  if (copied !== degenAddress) throw new Error(`the web copy control copied ${copied}`)
   const html = await page.content()
   if (/ed25519:|privateKey|sealed/.test(html)) throw new Error('key material reached the page')
   await shot('tg-07-web-created')

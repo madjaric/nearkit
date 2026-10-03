@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router'
+import { CopyButton } from '@/components/ui/Copy'
 import { AccountText } from '@/components/domain/Account'
 import { SimMark } from '@/components/domain/SimMark'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
@@ -287,6 +288,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
                                 <span className="flex min-w-0 items-center gap-2">
                                   <span className="text-fg-2">{wallet?.label ?? w.walletId}</span>
                                   {wallet && <AccountText id={wallet.accountId} className="text-fg-4" />}
+                                  {wallet && <CopyButton value={wallet.accountId} label={`Copy ${wallet.label} account`} className="size-5" />}
                                   {wallet && !canExecute(wallet) && <Tag tone="soon">Watch only</Tag>}
                                 </span>
                                 <span className="flex items-center gap-2">

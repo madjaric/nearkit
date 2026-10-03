@@ -522,6 +522,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="text-fg-2">{wallet.label}</span>
                   <AccountText id={wallet.accountId} className="text-xs text-fg-4" />
+                  <CopyButton value={wallet.accountId} label={`Copy ${wallet.label} account`} className="size-5" />
                   {!canExecute(wallet) && <Tag tone="soon">Watch only</Tag>}
                   {executesViaNearKit(wallet) && <Tag>NearKit</Tag>}
                 </span>

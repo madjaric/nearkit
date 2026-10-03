@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { CopyButton } from '@/components/ui/Copy'
 import { AccountText } from '@/components/domain/Account'
 import { AllocationBar } from '@/components/domain/AllocationBar'
 import { QuoteFreshness } from '@/components/domain/QuoteFreshness'
@@ -327,7 +328,10 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
                       <Td>
                         <div className="flex flex-col">
                           <span className={cn('text-sm', isSelected ? 'text-fg' : 'text-fg-3')}>{w.label}</span>
-                          <AccountText id={w.accountId} className="text-[11px] text-fg-4" />
+                          <span className="flex items-center gap-0.5">
+                            <AccountText id={w.accountId} className="text-[11px] text-fg-4" />
+                            <CopyButton value={w.accountId} label={`Copy ${w.label} account`} className="size-4" />
+                          </span>
                         </div>
                       </Td>
                       <Td align="right" mono className={isSelected ? 'text-fg-2' : 'text-fg-4'}>

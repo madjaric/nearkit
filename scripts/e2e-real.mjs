@@ -459,6 +459,17 @@ await step('add a watch-only account, validated on chain', async () => {
   await page.getByText('Watch only', { exact: true }).visible().first().waitFor()
 })
 
+await step('the Wallets page copies a wallet’s full account id, the watched one too', async () => {
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto(BASE + '/wallets', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Copy Main account' }).locator('visible=true').first().click()
+  const main = await page.evaluate(() => navigator.clipboard.readText())
+  if (main !== USER) throw new Error(`Copy Main account copied ${main}`)
+  await page.getByRole('button', { name: 'Copy Bob account' }).locator('visible=true').first().click()
+  const bob = await page.evaluate(() => navigator.clipboard.readText())
+  if (bob !== 'bob.testnet') throw new Error(`Copy Bob account copied ${bob}`)
+})
+
 await step('the dashboard counts executable wallets only: the watched account is listed, never summed', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await visible(/2 executable · 1 watch-only/)

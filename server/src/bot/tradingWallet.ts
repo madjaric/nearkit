@@ -8,7 +8,7 @@ import { createTradingWallet, ownerForNewWallet, readWallet, WalletLimitError, t
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import { randomToken } from '../ids'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
-import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from './context'
+import { copyBtn, btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { amountText, nearText, UNKNOWN, walletErrorText } from './ui'
 import { linkedAccount, nearAvailable, needAccount, showWallet } from './wallet'
@@ -181,10 +181,11 @@ async function showWallets(ctx: BotCtx, note?: string) {
       '',
       ...wallets.map((w) => `${w.id === selected?.id ? '✅' : '▫️'} ${w.slot}. ${walletLine(w)}`),
       '',
-      'Each wallet has its own key and balance. Trades and withdrawals use the ✅ one; tap another to switch.',
+      'Each wallet has its own key and balance. Trades and withdrawals use the ✅ one; tap another to switch. 📋 copies its full address.',
     ].join('\n'),
     keyboard(
-      ...wallets.map((w) => [btn(`${w.id === selected?.id ? '✅ ' : ''}${w.slot}. ${walletName(w)}`, `cw:sel:${w.id}`)]),
+      // The switch key and the copy key of a wallet share its row; copying never switches (a copy key has no callback).
+      ...wallets.map((w) => [btn(`${w.id === selected?.id ? '✅ ' : ''}${w.slot}. ${walletName(w)}`, `cw:sel:${w.id}`), copyBtn('📋 Copy', w.accountId)]),
       [...(wallets.length < MAX_ACTIVE_WALLETS_PER_USER ? [newWalletButton('➕ New wallet')] : []), ...(selected ? [btn('✏️ Rename', `cw:ren:${selected.id}`)] : [])],
       [btn('« Wallet', 'cw:home')],
     ),
@@ -239,12 +240,12 @@ async function create(ctx: BotCtx, createKey: string) {
       created ? `✅ ${bold('NearKit wallet created')} · ${walletLine(wallet)}` : `👛 ${walletLine(wallet)}`,
       code(wallet.accountId),
       '',
-      `It’s empty. Send ${ctx.deps.config.network.id === 'testnet' ? 'testnet ' : ''}NEAR to this address to start trading here. Tap the address to copy it.`,
+      `It’s empty. Send ${ctx.deps.config.network.id === 'testnet' ? 'testnet ' : ''}NEAR to this address to start trading here. Tap the address, or 📋 Copy address, to copy it.`,
       wallet.ownerAccount
         ? 'Once it’s funded, add your owner wallet as its backup key (🔐 Recovery): then it’s yours even without NearKit.'
         : 'This Telegram account controls it: deposits, trades and withdrawals need nothing else. Linking your own NEAR wallet later is optional (🔐 Recovery).',
     ].join('\n'),
-    keyboard([btn('📥 Deposit', 'cw:dep'), btn('👛 Wallet', 'cw:home')]),
+    keyboard([copyBtn('📋 Copy address', wallet.accountId)], [btn('📥 Deposit', 'cw:dep'), btn('👛 Wallet', 'cw:home')]),
   )
 }
 
@@ -259,9 +260,9 @@ async function deposit(ctx: BotCtx) {
       '',
       `Network: ${bold(networkName(ctx.deps))}`,
       ctx.deps.config.network.id === 'testnet' ? 'Send testnet NEAR or testnet tokens only.' : 'Send NEAR or NEAR tokens only.',
-      'Tap the address to copy it. The balance updates once the transfer is on chain.',
+      'Tap the address, or 📋 Copy address, to copy it. The balance updates once the transfer is on chain.',
     ].join('\n'),
-    keyboard([btn('🔄 Refresh balance', 'cw:home'), btn('« Wallet', 'cw:home')]),
+    keyboard([copyBtn('📋 Copy address', w.accountId)], [btn('🔄 Refresh balance', 'cw:home'), btn('« Wallet', 'cw:home')]),
   )
 }
 
