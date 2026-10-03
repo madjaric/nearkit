@@ -23,12 +23,29 @@ export interface TelegramLaunch {
   startParam: string
 }
 
-/** The launch in this page's address (`#tgWebAppData=…`), or null outside Telegram or without a request's digest. */
-export function readTelegramLaunch(hash: string, search: string): TelegramLaunch | null {
+/**
+ * Where the page was opened from, read from its address:
+ * - `outside`: no launch data, so not Telegram (a browser, a copied link);
+ * - `direct`: Telegram's signed launch data with no request to approve (the bot's Open button,
+ *   the main Mini App);
+ * - `approval`: the launch data carries a request's digest as the start parameter Telegram
+ *   signed (the Approve button in the chat, `startapp=<digest>`), or the direct-link parameter.
+ * Being inside Telegram never makes an approval: only the digest does, and the signer checks
+ * Telegram's signature over it.
+ */
+export type TelegramLaunchContext = { kind: 'outside' } | { kind: 'direct'; initData: string } | { kind: 'approval'; launch: TelegramLaunch }
+
+export function telegramLaunchContext(hash: string, search: string): TelegramLaunchContext {
   const initData = new URLSearchParams(hash.replace(/^#/, '')).get('tgWebAppData')
-  if (!initData) return null
+  if (!initData) return { kind: 'outside' }
   const startParam = new URLSearchParams(initData).get('start_param') ?? new URLSearchParams(search).get('tgWebAppStartParam') ?? ''
-  return /^[A-Za-z0-9_-]{43}$/.test(startParam) ? { initData, startParam } : null
+  return /^[A-Za-z0-9_-]{43}$/.test(startParam) ? { kind: 'approval', launch: { initData, startParam } } : { kind: 'direct', initData }
+}
+
+/** The approval launch in this page's address (`#tgWebAppData=…`), or null outside Telegram or without a request's digest. */
+export function readTelegramLaunch(hash: string, search: string): TelegramLaunch | null {
+  const context = telegramLaunchContext(hash, search)
+  return context.kind === 'approval' ? context.launch : null
 }
 
 /** Why the page must not offer to approve `r`, or null when it is exactly the request the link names, on this network. */

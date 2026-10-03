@@ -2,19 +2,29 @@ import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { Button } from '@/components/ui/Button'
+import { buttonClass } from '@/components/ui/buttonClass'
 import { ENV } from '@/config/env'
 import { describeError } from '@/services/errors'
-import { fetchTelegramRequest, readTelegramLaunch, sendTelegramApproval, telegramRequestProblem, type TelegramRequestView } from '@/services/telegramApproval'
+import {
+  fetchTelegramRequest,
+  sendTelegramApproval,
+  telegramLaunchContext,
+  telegramRequestProblem,
+  type TelegramLaunchContext,
+  type TelegramRequestView,
+} from '@/services/telegramApproval'
 
 /**
- * NearKit's Telegram Mini App: approve, inside Telegram, a withdrawal address (or the first
- * owner wallet) of a NearKit wallet with no owner wallet. It shows the request only if it is
- * exactly what the link names (its digest is the start parameter Telegram signed), and on
- * Approve sends Telegram's signed launch data, which NearKit's signer checks itself.
+ * NearKit's Telegram Mini App. Opened from the Approve button in the chat, it approves a
+ * withdrawal address (or the first owner wallet) of a NearKit wallet with no owner wallet:
+ * it shows the request only if it is exactly what the link names (its digest is the start
+ * parameter Telegram signed), and on Approve sends Telegram's signed launch data, which
+ * NearKit's signer checks itself. Opened directly from the bot (its Open button), it is a
+ * plain landing: nothing to approve, nothing wrong. Outside Telegram it says where to open it.
  */
 
 /** Captured at load: Telegram puts its launch data in the address the page was opened with. */
-const launch = typeof window === 'undefined' ? null : readTelegramLaunch(window.location.hash, window.location.search)
+const context: TelegramLaunchContext = typeof window === 'undefined' ? { kind: 'outside' } : telegramLaunchContext(window.location.hash, window.location.search)
 
 interface TelegramWebApp {
   ready(): void
@@ -26,7 +36,7 @@ const webApp = (): TelegramWebApp | null => (window as unknown as { Telegram?: {
 /** Telegram's own script: fits the page to the chat, and lets it close itself. Optional: the page works without it. */
 function useTelegramScript() {
   useEffect(() => {
-    if (!launch || document.querySelector('script[data-telegram-web-app]')) return
+    if (context.kind === 'outside' || document.querySelector('script[data-telegram-web-app]')) return
     const s = document.createElement('script')
     s.src = 'https://telegram.org/js/telegram-web-app.js'
     s.async = true
@@ -41,6 +51,8 @@ function useTelegramScript() {
 
 type View =
   | { step: 'loading' }
+  | { step: 'home' }
+  | { step: 'outside' }
   | { step: 'refused'; message: string }
   | { step: 'review'; request: TelegramRequestView; walletName: string | null; status: 'open' | 'used' | 'expired' | null; error?: string }
   | { step: 'sending'; request: TelegramRequestView; walletName: string | null }
@@ -83,11 +95,28 @@ function Notice({ tone, children }: { tone: 'ok' | 'neg'; children: ReactNode })
 }
 
 const title = (r: TelegramRequestView) => (r.kind === 'destination' ? 'Approve a withdrawal address' : 'Make an owner wallet')
+const botLink = ENV.telegramBot ? `https://t.me/${ENV.telegramBot}` : null
+
+/** Back to the chat: Telegram closes the Mini App; without its script, the bot's link. */
+function backToBot() {
+  const app = webApp()
+  if (app) app.close()
+  else if (botLink) window.location.assign(botLink)
+}
+
+function Landing({ children }: { children: ReactNode }) {
+  return (
+    <Shell>
+      <h1 className="text-lg font-semibold">Telegram Mini App</h1>
+      <p className="text-sm leading-6 text-fg-2">{children}</p>
+    </Shell>
+  )
+}
 
 export default function TelegramApprovePage() {
   useTelegramScript()
   useEffect(() => {
-    document.title = 'Approve · NearKit'
+    document.title = context.kind === 'approval' ? 'Approve · NearKit' : 'NearKit · Telegram'
   }, [])
   const [view, setView] = useState<View>({ step: 'loading' })
   const apiUrl = ENV.apiUrl
@@ -95,7 +124,10 @@ export default function TelegramApprovePage() {
   useEffect(() => {
     let live = true
     const run = async (): Promise<View> => {
-      if (!launch) return { step: 'refused', message: 'Open this from NearKit’s bot in Telegram: it’s the page Telegram shows when you tap Approve in Telegram.' }
+      if (context.kind === 'outside') return { step: 'outside' }
+      if (context.kind === 'direct') return { step: 'home' }
+      // An approval: exactly the request the link names, or nothing.
+      const { launch } = context
       if (!apiUrl) return { step: 'refused', message: 'This NearKit build has no server to send approvals to.' }
       const r = await fetchTelegramRequest(apiUrl, launch.startParam)
       if (!r.request) return { step: 'refused', message: 'This request is unknown. Start again in Telegram.' }
@@ -112,10 +144,10 @@ export default function TelegramApprovePage() {
   }, [apiUrl])
 
   const approve = async (request: TelegramRequestView, walletName: string | null) => {
-    if (!launch || !apiUrl) return
+    if (context.kind !== 'approval' || !apiUrl) return
     setView({ step: 'sending', request, walletName })
     try {
-      await sendTelegramApproval(apiUrl, launch.initData)
+      await sendTelegramApproval(apiUrl, context.launch.initData)
       setView({ step: 'done', request })
       setTimeout(() => webApp()?.close(), 2500)
     } catch (e) {
@@ -128,6 +160,30 @@ export default function TelegramApprovePage() {
       <Shell>
         <p className="text-sm text-fg-2">Reading the request…</p>
       </Shell>
+    )
+  if (view.step === 'home')
+    return (
+      <Landing>
+        This app is used for secure NearKit wallet actions and approvals. When NearKit’s bot asks you to approve something, the Approve button in the chat opens it here.
+        <span className="mt-5 block">
+          <Button variant="secondary" size="lg" block onClick={backToBot}>
+            Back to NearKit bot
+          </Button>
+        </span>
+      </Landing>
+    )
+  if (view.step === 'outside')
+    return (
+      <Landing>
+        This page is NearKit’s Telegram Mini App, where secure NearKit wallet actions and approvals are confirmed. Open it from NearKit’s bot in Telegram.
+        {botLink && (
+          <span className="mt-5 block">
+            <a href={botLink} className={buttonClass({ variant: 'primary', size: 'lg', block: true })}>
+              Open NearKit in Telegram
+            </a>
+          </span>
+        )}
+      </Landing>
     )
   if (view.step === 'refused')
     return (

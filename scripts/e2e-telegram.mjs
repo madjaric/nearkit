@@ -554,6 +554,49 @@ await step('unlinking from Telegram removes the account', async () => {
   await tg.waitFor(TG_USER.id, (x) => x.text.includes('No NEAR account is linked'), { from })
 })
 
+await step('the Mini App: a direct open from Telegram is a plain landing, outside Telegram it says where to open it, and an approval link reads its request', async () => {
+  const tg = await newPage({ accounts: [USER] })
+  // Telegram's script, which the page loads inside Telegram: a stand-in that records close().
+  await tg.route('https://telegram.org/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.Telegram={WebApp:{ready(){},expand(){},close(){window.__nearkitClosed=true}}}' }),
+  )
+  const address = (data) => WEB + '/tg#' + new URLSearchParams({ tgWebAppData: data, tgWebAppVersion: '8.0', tgWebAppPlatform: 'ios' }).toString()
+  const plain = new URLSearchParams({ auth_date: '1790000000', user: '{"id":101}', signature: 'x', hash: 'y' }).toString()
+  // Direct open (the bot's Open button): signed launch data, nothing to approve.
+  await tg.goto(address(plain), { waitUntil: 'networkidle' })
+  await tg.getByRole('heading', { name: 'Telegram Mini App' }).waitFor()
+  await tg
+    .getByText(/secure NearKit wallet actions and approvals/)
+    .first()
+    .waitFor()
+  if ((await tg.getByRole('alert').count()) !== 0) throw new Error('a direct open showed an error')
+  await tg.getByRole('button', { name: 'Back to NearKit bot' }).click()
+  if ((await tg.evaluate(() => window.__nearkitClosed)) !== true) throw new Error('Back to NearKit bot did not close the Mini App')
+  // Outside Telegram: no launch data at all.
+  await tg.goto(WEB + '/tg', { waitUntil: 'networkidle' })
+  await tg
+    .getByText(/Open it from NearKit’s bot in Telegram/)
+    .first()
+    .waitFor()
+  await tg.getByRole('link', { name: 'Open NearKit in Telegram' }).waitFor()
+  if ((await tg.getByRole('alert').count()) !== 0) throw new Error('outside Telegram showed an error')
+  if ((await tg.getByRole('button', { name: 'Approve' }).count()) !== 0) throw new Error('outside Telegram offered Approve')
+  // An approval link: the digest Telegram signed is looked up with the server; an unknown one is refused and nothing is offered.
+  const digest = 'vVmfsy7_EOvYV1bUzufrNWV66n0fl92XVUcTOHa02CY'
+  const signed = new URLSearchParams({ auth_date: '1790000000', start_param: digest, user: '{"id":101}', signature: 'x', hash: 'y' }).toString()
+  // Telegram loads the Mini App fresh; from the same page a changed fragment alone would not.
+  await tg.goto(address(signed))
+  await tg.reload({ waitUntil: 'networkidle' })
+  // The approval path refuses what the signer can't vouch for (an unknown request, or approvals not set up on this server): a refusal, never the landing, never Approve.
+  const refusal = tg.getByRole('alert')
+  await refusal.waitFor({ timeout: 10000 })
+  const reason = (await refusal.innerText()).trim()
+  if (/Open it from NearKit’s bot/.test(reason) || !/request|approval|Telegram/i.test(reason)) throw new Error(`Unexpected refusal: ${reason}`)
+  if ((await tg.getByRole('heading', { name: 'Telegram Mini App' }).count()) !== 0) throw new Error('an approval link showed the landing')
+  if ((await tg.getByRole('button', { name: 'Approve' }).count()) !== 0) throw new Error('an unknown request offered Approve')
+  await tg.close()
+})
+
 await step('no request left for a live network, and no token in the server log', async () => {
   if (near.state.external.length) throw new Error(`external requests: ${near.state.external.slice(0, 3).join(', ')}`)
   if (serverLog.join('').includes(TOKEN)) throw new Error('the bot token reached the server log')
