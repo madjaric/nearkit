@@ -275,7 +275,10 @@ await step('a token outside every list trades on DCL: the pair’s pool read fro
   await sheet.getByText('Trade FRESH').waitFor()
   await sheet.getByPlaceholder('0.00').first().fill('1')
   // Rhea's router has no path for FRESH; the DCL pool pays 1,000 per NEAR less its 1% fee.
-  await sheet.getByText(/1 NEAR ≈ 990 FRESH/).first().waitFor({ timeout: 10000 })
+  await sheet
+    .getByText(/1 NEAR ≈ 990 FRESH/)
+    .first()
+    .waitFor({ timeout: 10000 })
   await sheet.getByText('Not charged on testnet').first().waitFor()
   // Two-step fire: the first press arms, the second opens the review.
   await sheet.getByRole('button', { name: 'Buy FRESH' }).click()
@@ -292,7 +295,8 @@ await step('a token outside every list trades on DCL: the pair’s pool read fro
   const call = swap.actions.at(-1).params.args
   const msg = JSON.parse(call.msg)
   if (call.receiver_id !== DCL || msg.Swap?.pool_ids?.[0] !== POOL || msg.Swap?.output_token !== FRESH) throw new Error(`Unexpected DCL swap: ${call.msg}`)
-  if (txs.length !== 2 || txs[0].receiverId !== FRESH || txs[0].actions[0].params.methodName !== 'storage_deposit') throw new Error('Expected the wallet’s registration on FRESH first')
+  if (txs.length !== 2 || txs[0].receiverId !== FRESH || txs[0].actions[0].params.methodName !== 'storage_deposit')
+    throw new Error('Expected the wallet’s registration on FRESH first')
   await page.keyboard.press('Escape')
   await sheet.waitFor({ state: 'hidden' })
 })
@@ -306,7 +310,10 @@ await step('…and sells it on DCL: the pool pays wNEAR, unwrapped to NEAR by th
   const sheet = page.getByRole('dialog', { name: 'Trade ticket' })
   await sheet.getByText('Trade FRESH').waitFor()
   await sheet.getByPlaceholder('0.00').first().fill('100')
-  await sheet.getByText(/0\.099/).first().waitFor({ timeout: 10000 })
+  await sheet
+    .getByText(/0\.099/)
+    .first()
+    .waitFor({ timeout: 10000 })
   await sheet.getByRole('button', { name: 'Sell FRESH' }).click()
   await sheet.getByRole('button', { name: 'Confirm sell FRESH' }).click()
   const modal = page.getByRole('dialog', { name: 'Review sell' })
