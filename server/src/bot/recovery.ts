@@ -140,7 +140,7 @@ async function revokeReview(deps: BotDeps, intent: Intent): Promise<string> {
   return [
     `🧹 ${bold('Remove NearKit’s access')}${w ? ` · ${walletLine(w)}` : ''}`,
     '',
-    `NearKit deletes its own key from ${code(w ? shortAccount(w.accountId) : '')} and erases its copy.`,
+    `NearKit deletes its own key from ${esc(w ? shortAccount(w.accountId) : '')} and erases its copy.`,
     'After this only your own wallet controls it: NearKit can’t trade or withdraw for it any more. This can’t be undone; you can create a new NearKit wallet any time.',
     'Your funds stay in the wallet.',
   ].join('\n')
@@ -289,7 +289,7 @@ export function recoveryModule(): BotModule {
 
 /** Sent to Telegram when the key was exported in the web app: the owner hears about it either way. */
 export function exportedText(wallet: string, owner: string): string {
-  return `🔐 Your NearKit wallet ${code(shortAccount(wallet))} key was just exported in NearKit web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
+  return `🔐 Your NearKit wallet ${esc(shortAccount(wallet))} key was just exported in NearKit web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
 }
 
 /** Sent to Telegram when an approval given in the Mini App counted (Telegram signed it). */
@@ -299,15 +299,15 @@ export function telegramApprovedText(r: { kind: 'destination' | 'bind-owner'; ac
 } {
   if (r.kind === 'destination')
     return {
-      text: `✅ ${code(r.target)} can now receive withdrawals from your NearKit wallet ${code(shortAccount(r.accountId))}: approved in Telegram.\n\nIf this wasn’t you, move your funds now.`,
+      text: `✅ ${code(r.target)} can now receive withdrawals from your NearKit wallet ${esc(shortAccount(r.accountId))}: approved in Telegram.\n\nIf this wasn’t you, move your funds now.`,
       markup: keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]),
     }
   return {
-    text: `🔐 ${code(r.target)} is now the owner of your NearKit wallet ${code(shortAccount(r.accountId))}, for good.\n\nWithdrawals now go to it or to addresses it approves in NearKit web, and it can add the backup key or export the key (🔐 Recovery).`,
+    text: `🔐 ${code(r.target)} is now the owner of your NearKit wallet ${esc(shortAccount(r.accountId))}, for good.\n\nWithdrawals now go to it or to addresses it approves in NearKit web, and it can add the backup key or export the key (🔐 Recovery).`,
     markup: keyboard([btn('🔐 Recovery', `cr:show:${r.walletId}`), btn('👛 Wallet', 'cw:home')]),
   }
 }
 
 export function approvedText(wallet: string, destination: string): string {
-  return `✅ ${code(destination)} can now receive withdrawals from your NearKit wallet ${code(shortAccount(wallet))}: approved with its owner wallet.\n\nIf this wasn’t you, move your funds now.`
+  return `✅ ${code(destination)} can now receive withdrawals from your NearKit wallet ${esc(shortAccount(wallet))}: approved with its owner wallet.\n\nIf this wasn’t you, move your funds now.`
 }

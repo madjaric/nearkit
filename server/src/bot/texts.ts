@@ -12,7 +12,7 @@ export function networkNote(config: Pick<ServerConfig, 'network'>): string {
 
 /** The /start header: who is trading, with what, on which network. */
 export function welcome(config: Pick<ServerConfig, 'network'>, wallet: { accountId: string; near: string | null; nearkit?: boolean } | null): string {
-  const who = wallet ? (wallet.nearkit ? `NearKit wallet ${code(shortAccount(wallet.accountId))}` : code(wallet.accountId)) : null
+  const who = wallet ? (wallet.nearkit ? `NearKit wallet ${esc(shortAccount(wallet.accountId))}` : code(wallet.accountId)) : null
   return [
     `${bold('NearKit')} · NEAR trading`,
     wallet ? `👛 ${who}${wallet.near !== null ? ` · ${esc(wallet.near)} NEAR` : ''}` : '👛 No wallet linked yet',

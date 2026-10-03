@@ -39,9 +39,12 @@ describe('wallet addresses in Telegram: shown short, copied in full', () => {
     const text = h.last()?.text ?? ''
     for (const w of wallets) {
       expect(text).toContain(`${w.slot}. <b>`)
-      expect(text).toContain(`<code>${shortAccount(w.accountId)}</code>`)
+      // Shown shortened as plain text: nothing copies the short form.
+      expect(text).toContain(shortAccount(w.accountId))
+      expect(text).not.toContain(`<code>${shortAccount(w.accountId)}</code>`)
       expect(text).not.toContain(w.accountId)
     }
+    expect(text).not.toMatch(/<code>|<pre>/)
     const copies = h.buttons().filter((b) => b.copy !== undefined)
     expect(copies.map((b) => b.copy)).toEqual(wallets.map((w) => w.accountId))
     for (const b of copies) {

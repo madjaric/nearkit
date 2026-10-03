@@ -134,7 +134,7 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
   const head = [
     tokenHeader(state.side, token),
     '',
-    state.native ? `From your NearKit wallet ${code(shortAccount(state.account))}` : `Wallet ${code(state.account)}`,
+    state.native ? `From your NearKit wallet ${esc(shortAccount(state.account))}` : `Wallet ${code(state.account)}`,
     `Balance ${balance === null ? UNKNOWN : bold(`${fmt(balance, decimals, 4)} ${esc(unit)}`)}`,
   ]
   const network = ctx.deps.config.network

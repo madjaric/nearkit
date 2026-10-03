@@ -58,7 +58,8 @@ export async function flowWallet(ctx: BotCtx, walletId: string | undefined): Pro
 }
 
 /** How every screen names a wallet: its name and its short address. */
-export const walletLine = (w: Pick<TradingWallet, 'slot' | 'label' | 'accountId'>) => `${bold(walletName(w))} ${code(shortAccount(w.accountId))}`
+/** A wallet's name and shortened address. Plain text: Telegram copies <code> on tap, and a short form must never be what gets copied (📋 keys copy the full id). */
+export const walletLine = (w: Pick<TradingWallet, 'slot' | 'label' | 'accountId'>) => `${bold(walletName(w))} ${esc(shortAccount(w.accountId))}`
 
 const networkName = (deps: BotDeps) => `NEAR ${deps.config.network.label}`
 const walletRow = [btn('👛 Wallet', 'cw:home'), btn('« Menu', 'menu:home')]
