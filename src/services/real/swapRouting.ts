@@ -1,21 +1,34 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { mapLimit } from '@/lib/async'
 import { MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
+import { createDclPoolReader, type DclPoolReader } from '@/services/dcl/pools'
+import { bestDclRoute } from '@/services/dcl/quote'
+import { dclSwapMsg, directFee } from '@/services/dcl/swap'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { storageBoundsMin, storageStatus } from '@/services/near/storage'
 import { classicSwapMsg, createFindPathClient, type FindPathClient } from '@/services/rhea/classic'
 import { feeTokenFor, trueMinimum, type FeeStage } from '@/services/rhea/fees'
 import { checkSmartxRoute, createSmartxClient, decodeSmartxMsg, verifySmartxSignature, type SmartxClient } from '@/services/rhea/smartx'
+import { selectRoute, type RouteSource } from '@/services/routing/select'
 import type { QuoteRequest } from '@/types/domain'
 import type { TokenRef } from '@/types/operations'
 import { parseAmount, resolveToken } from './common'
 import type { NearContext } from './context'
 
 /**
- * Routing and on-chain prerequisites for swaps. Mainnet routes go through Rhea's
- * aggregator with NearKit's app fee (`appFeeRate` = NEARKIT_FEE_BPS) and are verified before
- * anything is signed; testnet routes use Rhea's classic router with no fee.
+ * NearKit's router: one place that turns a quote request into an executable route, for the
+ * web app and the server alike (ROUTING_PLAN.md). Every source that can quote the pair is
+ * asked, every answer is verified, and the one that pays the most is returned:
+ *
+ * - Rhea's aggregator (mainnet): server-signed routes across Rhea's DEXs, checked field by
+ *   field before anything is signed, carrying NearKit's app fee.
+ * - Rhea's classic router (testnet, where there is no aggregator): no fee.
+ * - DCL v2 directly, on both networks: the pools of the pair read from the contract itself,
+ *   quoted on chain, so a pool created a minute ago is tradable now. NearKit's fee is a
+ *   transfer to the fee account in the same transaction as the swap.
+ *
+ * On-chain prerequisites (registrations) are read right before a plan is built.
  */
 
 export interface SwapFeeInfo {
@@ -26,16 +39,22 @@ export interface SwapFeeInfo {
   protocolPpm: number
   routerShareBps: number
   recipient: string
+  /** Direct routes: the fee is this transfer to the recipient, in the swap's own transaction. */
+  transfer?: { amount: bigint }
 }
 
 export interface RoutedSwap {
-  router: 'aggregator' | 'classic'
+  router: 'aggregator' | 'classic' | 'dcl'
+  source: RouteSource
   tokenIn: TokenRef
   tokenOut: TokenRef
   /** Routing contracts: wNEAR stands in for NEAR. */
   routeIn: string
   routeOut: string
+  /** What the user puts in. */
   amountIn: bigint
+  /** What the DEX receives: `amountIn` less a direct route's fee transfer. */
+  swapAmount: bigint
   amountOut: bigint
   /** Minimum the route itself enforces. */
   signedMin: bigint
@@ -49,6 +68,8 @@ export interface RoutedSwap {
   /** Contract the swap's `ft_transfer_call` goes to, and its msg. */
   receiver: string
   msg: string
+  /** Direct DCL routes: the pools of the path, in order. */
+  pools?: string[]
   deadline: number | null
   fee: SwapFeeInfo | null
   quotedAt: number
@@ -61,11 +82,36 @@ export interface Prerequisites {
 }
 
 const NATIVE = NATIVE_TOKEN_ID
+const PPM = 1_000_000n
+
+/** What a quote asks for, resolved: the routing contracts and the exact input. */
+interface Pair {
+  tokenIn: TokenRef
+  tokenOut: TokenRef
+  routeIn: string
+  routeOut: string
+  nativeOut: boolean
+  amountIn: bigint
+  slippage: number
+  slippagePct: number
+  user: string | null
+  verify: boolean
+  quotedAt: number
+}
+
+/** Fees still to come off a quoted output, for comparing routes (an aggregator fee taken from the output). */
+export function outputFeePpm(r: Pick<RoutedSwap, 'fee'>): number {
+  return r.fee && r.fee.stage === 'output' ? r.fee.appPpm + r.fee.protocolPpm : 0
+}
 
 export function createSwapRouter(ctx: NearContext) {
   const agg = ctx.network.rhea.aggregator
+  const dcl = ctx.network.dex.dcl
   const smartx: SmartxClient | null = agg ? createSmartxClient({ baseUrl: agg.quoteUrl, fetch: ctx.fetch, now: ctx.now }) : null
   const findPath: FindPathClient = createFindPathClient({ baseUrl: ctx.network.rhea.classic.findPathUrl, fetch: ctx.fetch })
+  const dclPools: DclPoolReader = createDclPoolReader(ctx.rpc, dcl.contract, ctx.now)
+  /** The fee is collected on mainnet only (testnet charges nothing, on any route). */
+  const feeCharged = ctx.network.id === 'mainnet'
 
   let feeConfig: Promise<{ whitelist: Set<string>; protocolPpm: number }> | null = null
 
@@ -79,6 +125,12 @@ export function createSwapRouter(ctx: NearContext) {
         `The NearKit fee account ${accountId} does not exist on ${ctx.network.label.toLowerCase()}, so trades are blocked. Nothing was signed.`,
       )
     feeAccountExists = accountId
+  }
+  function feeRecipient(): string {
+    const recipient = ctx.env.feeRecipient
+    if (!recipient)
+      throw new NearKitError('EXECUTION_DISABLED', ctx.capabilities.execution.trading.reason ?? 'The NearKit fee account is not configured, so trades are blocked on mainnet')
+    return recipient
   }
   const aggregatorFeeConfig = () => {
     if (!agg) throw new Error('No aggregator on this network')
@@ -98,9 +150,168 @@ export function createSwapRouter(ctx: NearContext) {
     return feeConfig
   }
 
+  /** Rhea's aggregator: a signed route with NearKit's app fee, verified before it is trusted. */
+  async function aggregatorRoute(p: Pair): Promise<RoutedSwap> {
+    if (!agg || !smartx) throw new Error('No aggregator on this network')
+    const recipient = feeRecipient()
+    const appPpm = NEARKIT_FEE_BPS * 100
+    const [quote, fees] = await Promise.all([
+      smartx.quote({
+        tokenIn: p.routeIn,
+        tokenOut: p.routeOut,
+        amountIn: p.amountIn,
+        slippage: p.slippage,
+        user: p.user,
+        skipUnwrapNativeToken: !p.nativeOut,
+        appFeeRate: NEARKIT_FEE_BPS,
+        appFeeRecipient: recipient,
+        symbolIn: p.tokenIn.symbol,
+        symbolOut: p.tokenOut.symbol,
+      }),
+      aggregatorFeeConfig(),
+      p.verify ? assertFeeAccountExists(recipient) : null,
+    ])
+    if (p.verify && !(await verifySmartxSignature(quote.msg, quote.signature, agg.signerKey))) {
+      throw new NearKitError('QUOTE_REJECTED', 'NearKit refused Rhea’s route: its signature did not verify. Nothing was signed.')
+    }
+    const checked = checkSmartxRoute(
+      quote,
+      decodeSmartxMsg(quote.msg),
+      {
+        user: p.user ?? '',
+        tokenIn: p.routeIn,
+        tokenOut: p.routeOut,
+        amountIn: p.amountIn,
+        slippage: p.slippage,
+        skipUnwrapNear: !p.nativeOut,
+        appFeePpm: appPpm,
+        appFeeRecipient: recipient,
+        dexReceivers: agg.dexReceivers,
+        referrals: agg.referrals,
+      },
+      ctx.now(),
+    )
+    const stepContracts = checked.steps.map((s) => s.contract)
+    const stage = feeTokenFor(checked.routeTokens, stepContracts, fees.whitelist)
+    return {
+      router: 'aggregator',
+      source: 'rhea-aggregator',
+      tokenIn: p.tokenIn,
+      tokenOut: p.tokenOut,
+      routeIn: p.routeIn,
+      routeOut: p.routeOut,
+      amountIn: p.amountIn,
+      swapAmount: p.amountIn,
+      amountOut: quote.amountOut,
+      signedMin: quote.minAmountOut,
+      minOut: trueMinimum(quote.minAmountOut, stage.stage, appPpm, fees.protocolPpm),
+      slippagePct: p.slippagePct,
+      routeTokens: checked.routeTokens,
+      stepContracts,
+      multiDex: checked.multiDex,
+      receiver: agg.contract,
+      msg: JSON.stringify({ msg: quote.msg, signature: quote.signature }),
+      deadline: checked.deadline,
+      fee: { stage: stage.stage, token: stage.token, appPpm, protocolPpm: fees.protocolPpm, routerShareBps: agg.appFeeRouterShareBps, recipient },
+      quotedAt: p.quotedAt,
+    }
+  }
+
+  /** Rhea's classic router (testnet): the exchange's message, no fee. */
+  async function classicRoute(p: Pair): Promise<RoutedSwap> {
+    const r = await findPath.quote({
+      tokenIn: p.routeIn,
+      tokenOut: p.routeOut,
+      amountIn: p.amountIn,
+      slippage: p.slippage,
+      symbolIn: p.tokenIn.symbol,
+      symbolOut: p.tokenOut.symbol,
+    })
+    return {
+      router: 'classic',
+      source: 'rhea-classic',
+      tokenIn: p.tokenIn,
+      tokenOut: p.tokenOut,
+      routeIn: p.routeIn,
+      routeOut: p.routeOut,
+      amountIn: p.amountIn,
+      swapAmount: p.amountIn,
+      amountOut: r.amountOut,
+      signedMin: r.minAmountOut,
+      minOut: r.minAmountOut,
+      slippagePct: p.slippagePct,
+      routeTokens: r.routeTokens,
+      stepContracts: [p.routeIn],
+      multiDex: false,
+      receiver: ctx.network.rhea.classic.exchange,
+      msg: classicSwapMsg(r, { unwrapNear: p.nativeOut }),
+      deadline: null,
+      fee: null,
+      quotedAt: p.quotedAt,
+    }
+  }
+
   /**
-   * A fresh route. `user` binds an aggregator route to its signer; `verify` also
-   * checks Rhea's signature (always done before a plan is built).
+   * DCL v2 directly: the pools of the pair (and through a stablecoin) read and quoted on the
+   * contract. The fee comes off the input first; the pools are quoted for the rest.
+   */
+  async function dclRoute(p: Pair): Promise<RoutedSwap> {
+    const recipient = feeCharged ? feeRecipient() : null
+    const fee = recipient ? directFee(p.amountIn) : 0n
+    const swapAmount = p.amountIn - fee
+    if (swapAmount <= 0n) throw new NearKitError('INVALID_AMOUNT', 'The amount is too small to trade')
+    const [best] = await Promise.all([
+      bestDclRoute(ctx.rpc, dcl.contract, dclPools, ctx.network, p.routeIn, p.routeOut, swapAmount),
+      p.verify && recipient ? assertFeeAccountExists(recipient) : null,
+    ])
+    if (!best)
+      throw new NearKitError(
+        'QUOTE_UNAVAILABLE',
+        `DCL has no pool with liquidity for ${p.tokenIn.symbol} → ${p.tokenOut.symbol}, directly or through a stablecoin, that fills this amount.`,
+      )
+    const minOut = (best.amountOut * (PPM - BigInt(Math.round(p.slippage * 1_000_000)))) / PPM
+    if (minOut <= 0n) throw new NearKitError('QUOTE_UNAVAILABLE', `DCL pays nothing for this amount of ${p.tokenIn.symbol}.`)
+    return {
+      router: 'dcl',
+      source: 'dcl',
+      tokenIn: p.tokenIn,
+      tokenOut: p.tokenOut,
+      routeIn: p.routeIn,
+      routeOut: p.routeOut,
+      amountIn: p.amountIn,
+      swapAmount,
+      amountOut: best.amountOut,
+      signedMin: minOut,
+      minOut,
+      slippagePct: p.slippagePct,
+      routeTokens: best.tokens,
+      stepContracts: [p.routeIn],
+      multiDex: false,
+      receiver: dcl.contract,
+      msg: dclSwapMsg({ pools: best.pools, outputToken: p.routeOut, minOut, skipUnwrapNear: !p.nativeOut && p.routeOut === ctx.network.wrapContract }),
+      pools: best.pools,
+      deadline: null,
+      fee: recipient ? { stage: 'input', token: p.routeIn, appPpm: NEARKIT_FEE_BPS * 100, protocolPpm: 0, routerShareBps: 0, recipient, transfer: { amount: fee } } : null,
+      quotedAt: p.quotedAt,
+    }
+  }
+
+  const pairLabel = (p: Pair) => `${p.tokenIn.symbol} → ${p.tokenOut.symbol}`
+
+  /**
+   * No source could route the pair: one message that says so, with each source's own reason.
+   * A refusal that isn't "no route" (a configuration problem, a rejected route) is raised as is.
+   */
+  function noRoute(p: Pair, failures: { source: RouteSource; error: unknown }[]): never {
+    const serious = failures.map((f) => toNearKitError(f.error, 'QUOTE_UNAVAILABLE')).find((e) => e.code !== 'QUOTE_UNAVAILABLE' && e.code !== 'RPC_ERROR')
+    if (serious) throw serious
+    const reasons = failures.map((f) => `${f.source === 'dcl' ? 'DCL' : 'Rhea'}: ${toNearKitError(f.error, 'QUOTE_UNAVAILABLE').message}`)
+    throw new NearKitError('QUOTE_UNAVAILABLE', `No executable route found for ${pairLabel(p)} right now. ${reasons.join(' ')}`.trim())
+  }
+
+  /**
+   * A fresh route from the best source. `user` binds an aggregator route to its signer;
+   * `verify` also checks Rhea's signature and the fee account (always done before a plan is built).
    */
   async function route(request: QuoteRequest, user: string | null, verify: boolean): Promise<RoutedSwap> {
     if (request.tokenIn === request.tokenOut) throw new NearKitError('INVALID_TOKEN', 'Choose two different tokens')
@@ -111,96 +322,38 @@ export function createSwapRouter(ctx: NearContext) {
     const routeIn = tokenIn.contract ?? ctx.network.wrapContract
     const routeOut = tokenOut.contract ?? ctx.network.wrapContract
     if (routeIn === routeOut) throw new NearKitError('INVALID_TOKEN', 'Wrapping or unwrapping NEAR is not a swap')
-    const nativeOut = tokenOut.contract === null
-    const slippage = request.slippagePct / 100
-    const quotedAt = ctx.now()
-
-    if (agg && smartx) {
-      const recipient = ctx.env.feeRecipient
-      if (!recipient)
-        throw new NearKitError('EXECUTION_DISABLED', ctx.capabilities.execution.trading.reason ?? 'The NearKit fee account is not configured, so trades are blocked on mainnet')
-      const appPpm = NEARKIT_FEE_BPS * 100
-      const [quote, fees] = await Promise.all([
-        smartx.quote({
-          tokenIn: routeIn,
-          tokenOut: routeOut,
-          amountIn,
-          slippage,
-          user,
-          skipUnwrapNativeToken: !nativeOut,
-          appFeeRate: NEARKIT_FEE_BPS,
-          appFeeRecipient: recipient,
-          symbolIn: tokenIn.symbol,
-          symbolOut: tokenOut.symbol,
-        }),
-        aggregatorFeeConfig(),
-        verify ? assertFeeAccountExists(recipient) : null,
-      ])
-      if (verify && !(await verifySmartxSignature(quote.msg, quote.signature, agg.signerKey))) {
-        throw new NearKitError('QUOTE_REJECTED', 'NearKit refused Rhea’s route: its signature did not verify. Nothing was signed.')
-      }
-      const checked = checkSmartxRoute(
-        quote,
-        decodeSmartxMsg(quote.msg),
-        {
-          user: user ?? '',
-          tokenIn: routeIn,
-          tokenOut: routeOut,
-          amountIn,
-          slippage,
-          skipUnwrapNear: !nativeOut,
-          appFeePpm: appPpm,
-          appFeeRecipient: recipient,
-          dexReceivers: agg.dexReceivers,
-          referrals: agg.referrals,
-        },
-        ctx.now(),
-      )
-      const stepContracts = checked.steps.map((s) => s.contract)
-      const stage = feeTokenFor(checked.routeTokens, stepContracts, fees.whitelist)
-      return {
-        router: 'aggregator',
-        tokenIn,
-        tokenOut,
-        routeIn,
-        routeOut,
-        amountIn,
-        amountOut: quote.amountOut,
-        signedMin: quote.minAmountOut,
-        minOut: trueMinimum(quote.minAmountOut, stage.stage, appPpm, fees.protocolPpm),
-        slippagePct: request.slippagePct,
-        routeTokens: checked.routeTokens,
-        stepContracts,
-        multiDex: checked.multiDex,
-        receiver: agg.contract,
-        msg: JSON.stringify({ msg: quote.msg, signature: quote.signature }),
-        deadline: checked.deadline,
-        fee: { stage: stage.stage, token: stage.token, appPpm, protocolPpm: fees.protocolPpm, routerShareBps: agg.appFeeRouterShareBps, recipient },
-        quotedAt,
-      }
-    }
-
-    const r = await findPath.quote({ tokenIn: routeIn, tokenOut: routeOut, amountIn, slippage, symbolIn: tokenIn.symbol, symbolOut: tokenOut.symbol })
-    return {
-      router: 'classic',
+    const p: Pair = {
       tokenIn,
       tokenOut,
       routeIn,
       routeOut,
+      nativeOut: tokenOut.contract === null,
       amountIn,
-      amountOut: r.amountOut,
-      signedMin: r.minAmountOut,
-      minOut: r.minAmountOut,
+      slippage: request.slippagePct / 100,
       slippagePct: request.slippagePct,
-      routeTokens: r.routeTokens,
-      stepContracts: [routeIn],
-      multiDex: false,
-      receiver: ctx.network.rhea.classic.exchange,
-      msg: classicSwapMsg(r, { unwrapNear: nativeOut }),
-      deadline: null,
-      fee: null,
-      quotedAt,
+      user,
+      verify,
+      quotedAt: ctx.now(),
     }
+    const sources: { source: RouteSource; ask: () => Promise<RoutedSwap> }[] = [
+      agg && smartx ? { source: 'rhea-aggregator' as const, ask: () => aggregatorRoute(p) } : { source: 'rhea-classic' as const, ask: () => classicRoute(p) },
+      { source: 'dcl', ask: () => dclRoute(p) },
+    ]
+    const answers = await Promise.all(
+      sources.map(async (s) =>
+        s.ask().then(
+          (r) => ({ ok: true as const, r }),
+          (error: unknown) => ({ ok: false as const, source: s.source, error }),
+        ),
+      ),
+    )
+    const found = answers.flatMap((a) => (a.ok ? [a.r] : []))
+    if (found.length === 0)
+      return noRoute(
+        p,
+        answers.flatMap((a) => (a.ok ? [] : [{ source: a.source, error: a.error }])),
+      )
+    return selectRoute(found.map((r) => ({ ...r, outputFeePpm: outputFeePpm(r) })))
   }
 
   const boundsCache = new Map<string, Promise<bigint | null>>()
@@ -240,6 +393,12 @@ export function createSwapRouter(ctx: NearContext) {
         const min = await boundsOf(contract)
         if (min !== null) registrations.push({ contract, accountId: signer, deposit: min })
       })
+
+      // A direct route's fee is a token transfer: the fee account must hold that token.
+      if (r.fee?.transfer && r.fee.recipient !== signer && (await storageStatus(ctx.rpc, r.routeIn, [r.fee.recipient])).get(r.fee.recipient) === false) {
+        const min = await boundsOf(r.routeIn)
+        if (min !== null) registrations.push({ contract: r.routeIn, accountId: r.fee.recipient, deposit: min })
+      }
 
       const aggregatorEntries: Prerequisites['aggregatorEntries'] = []
       if (r.router === 'aggregator' && agg && r.fee) {

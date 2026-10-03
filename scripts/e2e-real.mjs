@@ -35,6 +35,9 @@ const USDT = 'usdt.itachicara.testnet'
 const MIN = '1250000000000000000000'
 /** A token launched after every list was built: found only by its exact contract. */
 const FRESH = 'fresh.nearlytrade.testnet'
+/** Ref's DCL exchange on testnet, where FRESH has its only pool (Rhea's router knows nothing of it). */
+const DCL = 'dclv2.ref-dev.testnet'
+const POOL = `${FRESH}|wrap.testnet|10000`
 
 const near = createFakeNear({
   accounts: {
@@ -45,6 +48,7 @@ const near = createFakeNear({
     [USDT]: { amount: String(ONE), code: true },
     'wrap.testnet': { amount: String(ONE), code: true },
     [FRESH]: { amount: String(ONE), global: 'GlobalTokenContract1111111111111' },
+    [DCL]: { amount: String(ONE), code: true },
   },
   tokens: {
     [USDT]: {
@@ -57,6 +61,19 @@ const near = createFakeNear({
     },
     'wrap.testnet': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, balances: {}, registered: ['ref-finance-101.testnet'], boundsMin: MIN },
     [FRESH]: { symbol: 'FRESH', name: 'Fresh Launch Token', decimals: 18, balances: {}, registered: [], boundsMin: MIN },
+  },
+  // 1 wNEAR (24 decimals) buys 1,000 FRESH (18 decimals), less the pool's 1% fee; and back.
+  dcl: {
+    contract: DCL,
+    pools: {
+      [POOL]: {
+        tokenX: FRESH,
+        tokenY: 'wrap.testnet',
+        fee: 10000,
+        liquidity: '100000000000000000000000',
+        rate: (tokenIn, amountIn) => ((tokenIn === 'wrap.testnet' ? amountIn / 1000n : amountIn * 1000n) * 99n) / 100n,
+      },
+    },
   },
 })
 
@@ -236,7 +253,8 @@ await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and
   await page.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
   await page.getByRole('button', { name: 'Confirm swap' }).click()
   const modal = page.getByRole('dialog', { name: 'Review swap' })
-  await modal.getByText('NEAR → USDT', { exact: true }).first().waitFor({ timeout: 10000 })
+  // The review names the route and its source.
+  await modal.getByText('NEAR → USDT · Rhea', { exact: true }).first().waitFor({ timeout: 10000 })
   await modal.getByText('Not charged', { exact: true }).waitFor()
   await modal.getByText(/refund arrives as wNEAR/).waitFor()
   await shot('real-04-swap-review')
@@ -248,6 +266,60 @@ await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and
   const msg = JSON.parse(tx.actions.at(-1).params.args.msg)
   if (msg.actions?.[0]?.pool_id !== 1352 || tx.actions.at(-1).params.args.receiver_id !== 'ref-finance-101.testnet') throw new Error('Unexpected swap message')
   await page.keyboard.press('Escape')
+})
+
+await step('a token outside every list trades on DCL: the pair’s pool read from chain, the review says DCL, fee not charged, the swap goes to the DCL contract', async () => {
+  await page.goto(BASE + `/token/${FRESH}`, { waitUntil: 'networkidle' })
+  await page.locator('main').getByRole('button', { name: 'Buy FRESH' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Trade ticket' })
+  await sheet.getByText('Trade FRESH').waitFor()
+  await sheet.getByPlaceholder('0.00').first().fill('1')
+  // Rhea's router has no path for FRESH; the DCL pool pays 1,000 per NEAR less its 1% fee.
+  await sheet.getByText(/1 NEAR ≈ 990 FRESH/).first().waitFor({ timeout: 10000 })
+  await sheet.getByText('Not charged on testnet').first().waitFor()
+  // Two-step fire: the first press arms, the second opens the review.
+  await sheet.getByRole('button', { name: 'Buy FRESH' }).click()
+  await sheet.getByRole('button', { name: 'Confirm buy FRESH' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review buy' })
+  await modal.getByText('NEAR → FRESH · DCL', { exact: true }).first().waitFor({ timeout: 10000 })
+  await shot('real-04b-dcl-review')
+  await modal.getByRole('button', { name: 'Buy FRESH' }).click()
+  await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })
+  const txs = (await signedLog()).at(-1).transactions
+  const swap = txs.at(-1)
+  const methods = swap.actions.map((a) => a.params.methodName)
+  if (swap.receiverId !== 'wrap.testnet' || methods.join() !== 'storage_deposit,near_deposit,ft_transfer_call') throw new Error(`Signed ${swap.receiverId}: ${methods}`)
+  const call = swap.actions.at(-1).params.args
+  const msg = JSON.parse(call.msg)
+  if (call.receiver_id !== DCL || msg.Swap?.pool_ids?.[0] !== POOL || msg.Swap?.output_token !== FRESH) throw new Error(`Unexpected DCL swap: ${call.msg}`)
+  if (txs.length !== 2 || txs[0].receiverId !== FRESH || txs[0].actions[0].params.methodName !== 'storage_deposit') throw new Error('Expected the wallet’s registration on FRESH first')
+  await page.keyboard.press('Escape')
+  await sheet.waitFor({ state: 'hidden' })
+})
+
+await step('…and sells it on DCL: the pool pays wNEAR, unwrapped to NEAR by the exchange, in one transaction on the token', async () => {
+  const fresh = near.state.tokens.get(FRESH)
+  fresh.balances.set(USER, String(1000n * 10n ** 18n))
+  fresh.registered.add(USER)
+  await page.goto(BASE + `/token/${FRESH}`, { waitUntil: 'networkidle' })
+  await page.locator('main').getByRole('button', { name: 'Sell FRESH' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Trade ticket' })
+  await sheet.getByText('Trade FRESH').waitFor()
+  await sheet.getByPlaceholder('0.00').first().fill('100')
+  await sheet.getByText(/0\.099/).first().waitFor({ timeout: 10000 })
+  await sheet.getByRole('button', { name: 'Sell FRESH' }).click()
+  await sheet.getByRole('button', { name: 'Confirm sell FRESH' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review sell' })
+  await modal.getByText('FRESH → NEAR · DCL', { exact: true }).first().waitFor({ timeout: 10000 })
+  await modal.getByRole('button', { name: 'Sell FRESH' }).click()
+  await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })
+  const tx = (await signedLog()).at(-1).transactions.at(-1)
+  const call = tx.actions.at(-1).params
+  const msg = JSON.parse(call.args.msg)
+  if (tx.receiverId !== FRESH || call.methodName !== 'ft_transfer_call' || call.args.receiver_id !== DCL || msg.Swap?.output_token !== 'wrap.testnet' || msg.Swap?.skip_unwrap_near)
+    throw new Error(`Unexpected DCL sell: ${call.args.msg}`)
+  await page.keyboard.press('Escape')
+  await sheet.waitFor({ state: 'hidden' })
 })
 
 await step('after a confirmed swap the balances refresh on their own, with no reload: "Updating balances…" meanwhile', async () => {
@@ -394,7 +466,9 @@ await step('a watch-only account never joins a Multi Buy or a preset: not offere
 await step('activity shows what NearKit sent, with explorer links', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await visible('Sent from this browser')
-  await visible(/Send USDT from Main to 2 recipients/)
+  // The Dashboard lists the latest six operations: the DCL sell and buy are the newest.
+  await visible(/100 FRESH → min 0\.09801 NEAR/)
+  await visible(/1 NEAR → min 980\.1 FRESH/)
 })
 
 await step('PnL card: the figures on screen, exported as a PNG', async () => {

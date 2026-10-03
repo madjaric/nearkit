@@ -7,6 +7,8 @@ import { NearKitError } from '@/services/near/errors'
 import { discoverFtHoldings } from '@/services/near/discovery'
 import { fetchNearUsd, fetchTokenPrices } from '@/services/near/prices'
 import { createRpcClient } from '@/services/near/rpc'
+import { createDclPoolReader, dclPoolId } from '@/services/dcl/pools'
+import { bestDclRoute } from '@/services/dcl/quote'
 import { storageBoundsMin } from '@/services/near/storage'
 import { createTokenReader } from '@/services/near/tokens'
 import { createFindPathClient } from '@/services/rhea/classic'
@@ -160,6 +162,19 @@ describe('mainnet (live, read-only)', () => {
         (e: unknown) => (e instanceof NearKitError ? e.code : String(e)),
       )
     expect(answer === 'QUOTE_UNAVAILABLE' || answer.startsWith('route ')).toBe(true)
+  })
+
+  it('DCL quotes NEAR ↔ SINGULARTY on the pair’s pool, read from the contract itself, both ways (read-only)', async () => {
+    const sing = 'singularty.nearlytrade.near'
+    const dcl = net.dex.dcl.contract
+    const reader = createDclPoolReader(rpc, dcl)
+    expect((await reader.pools(sing, net.wrapContract)).map((p) => p.id)).toContain(dclPoolId(sing, net.wrapContract, 10000))
+    const buy = await bestDclRoute(rpc, dcl, reader, net, net.wrapContract, sing, ONE)
+    expect(buy?.amountOut ?? 0n).toBeGreaterThan(0n)
+    expect([buy?.tokens[0], buy?.tokens.at(-1)]).toEqual([net.wrapContract, sing])
+    const sell = await bestDclRoute(rpc, dcl, reader, net, sing, net.wrapContract, 100_000n * 10n ** 18n)
+    expect(sell?.amountOut ?? 0n).toBeGreaterThan(0n)
+    expect([sell?.tokens[0], sell?.tokens.at(-1)]).toEqual([sing, net.wrapContract])
   })
 
   it('prices: Rhea lists wNEAR and Coinbase or CoinGecko quote NEAR/USD', async () => {

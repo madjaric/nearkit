@@ -295,7 +295,7 @@ await step('a buy prepared in Telegram is signed in NearKit, checked on chain an
   await page.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
   await page.getByRole('button', { name: 'Confirm swap' }).click()
   const modal = page.getByRole('dialog', { name: 'Review swap' })
-  await modal.getByText('NEAR → USDT', { exact: true }).first().waitFor({ timeout: 10000 })
+  await modal.getByText('NEAR → USDT · Rhea', { exact: true }).first().waitFor({ timeout: 10000 })
   await shot('tg-04-trade-review')
   await modal.getByRole('button', { name: 'Swap NEAR → USDT' }).click()
   await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })

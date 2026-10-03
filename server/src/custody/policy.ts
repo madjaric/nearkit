@@ -1,5 +1,8 @@
 import type { NetworkConfig } from '@/config/networks'
+import { mulBps } from '@/lib/amounts'
+import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountKind, isForeignToNetwork } from '@/lib/validation'
+import { dclPathTokens, dclSwapMsg } from '@/services/dcl/swap'
 import { GAS, MAX_TX_GAS } from '@/services/near/gas'
 import { parseEd25519PublicKey } from '@/services/near/nep413'
 import { MAX_REGISTRATION_YOCTO } from '@/services/near/storage'
@@ -30,7 +33,7 @@ export interface WalletTxPlan {
 
 /** A swap route as NearKit's router verified it. The swap may carry exactly this and nothing else. */
 export interface SwapRouteFacts {
-  router: 'classic' | 'aggregator'
+  router: 'classic' | 'aggregator' | 'dcl'
   /** Contract the input leaves from (wNEAR's for NEAR). */
   routeIn: string
   routeOut: string
@@ -45,6 +48,10 @@ export interface SwapRouteFacts {
   minOut: bigint
   /** Aggregator only: the minimum Rhea signed into the route (the sum of its final minimums). */
   signedMin?: bigint
+  /** DCL only: the pools of the path, in order (`tokenX|tokenY|fee`). */
+  pools?: string[]
+  /** Direct routes: what the DEX receives, and NearKit's fee transferred first (0 and null where no fee is charged). */
+  direct?: { swapAmount: bigint; fee: bigint; feeRecipient: string | null }
 }
 
 export type WalletOperation =
@@ -76,7 +83,8 @@ const refuse = (reason: string): never => {
 }
 
 const MAX_TXS = 4
-const MAX_ACTIONS = 4
+/** A first direct buy: two registrations, the wrap, the fee transfer and the swap. */
+const MAX_ACTIONS = 5
 const REGISTRATION_GAS = 30n * 10n ** 12n
 
 /** JSON with sorted keys, so key order never decides equality. */
@@ -240,8 +248,65 @@ function checkAggregatorSwap(
   for (const a of actions) expectRegistration(a, registrants)
 }
 
+/**
+ * A direct swap on DCL v2 (either network): the wallet's and the fee account's registrations
+ * on route tokens, then one transaction on the input token: the wrap (NEAR in), NearKit's fee
+ * as one `ft_transfer` to the canonical fee account, and `ft_transfer_call` of exactly the
+ * rest to the DCL contract with the verified `Swap` message. The route (pools, quote) is
+ * checked by the signer itself (signer/routes.ts).
+ */
+function checkDclSwap(
+  op: Extract<WalletOperation, { kind: 'swap' }>,
+  plan: readonly WalletTxPlan[],
+  wallet: PolicyWallet,
+  network: NetworkConfig,
+  feeRecipient: string | null,
+): void {
+  const r = op.route
+  const dcl = network.dex.dcl
+  if (r.receiver !== dcl.contract) refuse('the swap goes to a contract that is not the DCL exchange')
+  if (r.nativeIn && r.routeIn !== network.wrapContract) refuse('NEAR must be swapped from the wrap contract')
+  if (r.amountIn <= 0n) refuse('the swap amount is not positive')
+  const pools = r.pools
+  if (!pools || pools.length === 0 || pools.length > 3) return refuse('the route names no pools')
+  const path = dclPathTokens(pools, r.routeIn)
+  if (!path || path.at(-1) !== r.routeOut) return refuse('the route’s pools do not connect the input to the output')
+  if (path.join(',') !== r.routeTokens.join(',')) refuse('the route’s tokens differ from its pools')
+  const d = r.direct
+  if (!d) return refuse('a direct route must state what the exchange receives and the fee')
+  // Mainnet: NearKit's fee, to the one canonical account. Testnet: no fee on any route.
+  if (network.id === 'mainnet') {
+    if (!feeRecipient) refuse('no NearKit fee account is configured')
+    if (d.feeRecipient !== feeRecipient) refuse('the fee goes to an account that is not NearKit’s fee account')
+    if (d.fee !== mulBps(r.amountIn, NEARKIT_FEE_BPS)) refuse('the fee is not NearKit’s fee rate of the amount')
+  } else if (d.fee !== 0n || d.feeRecipient !== null) {
+    refuse('no fee is charged on this network')
+  }
+  if (d.swapAmount !== r.amountIn - d.fee) refuse('the exchange does not receive the amount less the fee')
+  if (r.minOut <= 0n) refuse('the route has no minimum output')
+  if (r.minOut < op.authorizedMinOut) refuse('the route’s minimum is below the minimum you confirmed')
+  const expectedMsg = dclSwapMsg({ pools, outputToken: r.routeOut, minOut: r.minOut, skipUnwrapNear: !r.nativeOut && r.routeOut === network.wrapContract })
+  if (canonical(JSON.parse(r.msg)) !== canonical(JSON.parse(expectedMsg))) refuse('the swap message differs from the verified route')
+
+  const swapTx = plan[plan.length - 1] as WalletTxPlan
+  if (swapTx.receiverId !== r.routeIn) refuse('the swap transaction goes to a different token contract')
+  const registrants = new Set([wallet.accountId, ...(d.fee > 0n && d.feeRecipient ? [d.feeRecipient] : [])])
+  const routeContracts = new Set([...r.routeTokens, network.wrapContract])
+  for (const tx of plan.slice(0, -1)) {
+    if (!routeContracts.has(tx.receiverId)) refuse('a registration is on a contract outside the route')
+    for (const a of tx.actions) expectRegistration(a, registrants)
+  }
+  const actions = [...swapTx.actions]
+  expectCall(actions.pop(), 'ft_transfer_call', { receiver_id: dcl.contract, amount: d.swapAmount.toString(), msg: r.msg }, 1n, GAS.SWAP_CALL)
+  if (d.fee > 0n) expectCall(actions.pop(), 'ft_transfer', { receiver_id: d.feeRecipient, amount: d.fee.toString() }, 1n, GAS.FT_TRANSFER)
+  if (r.nativeIn) expectCall(actions.pop(), 'near_deposit', {}, r.amountIn, GAS.NEAR_DEPOSIT)
+  if (actions.length > 2) refuse('the swap transaction has unexpected actions')
+  for (const a of actions) expectRegistration(a, registrants)
+}
+
 function checkSwap(op: Extract<WalletOperation, { kind: 'swap' }>, plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig, feeRecipient: string | null): void {
-  // Mainnet: the aggregator, with NearKit's fee. Testnet (no aggregator): the classic exchange.
+  // DCL directly, on either network; else mainnet: the aggregator, with NearKit's fee; testnet (no aggregator): the classic exchange.
+  if (op.route.router === 'dcl') return checkDclSwap(op, plan, wallet, network, feeRecipient)
   if (network.rhea.aggregator) return checkAggregatorSwap(op, plan, wallet, network, feeRecipient)
   const r = op.route
   if (r.router !== 'classic') refuse('only Rhea’s classic router is allowed for trading wallets on this network')

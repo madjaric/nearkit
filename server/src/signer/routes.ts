@@ -1,6 +1,10 @@
 import type { NetworkConfig } from '@/config/networks'
+import { mulBps } from '@/lib/amounts'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
+import { dclQuote } from '@/services/dcl/quote'
+import { dclPathTokens, dclSwapMsg } from '@/services/dcl/swap'
 import { NearKitError } from '@/services/near/errors'
+import { createRpcClient } from '@/services/near/rpc'
 import { createFindPathClient } from '@/services/rhea/classic'
 import { checkSmartxRoute, createSmartxClient, decodeSmartxMsg, verifySmartxSignature, type VerifiedRoute } from '@/services/rhea/smartx'
 import { PolicyViolation, type SwapRouteFacts } from '../custody/policy'
@@ -13,21 +17,27 @@ import { PolicyViolation, type SwapRouteFacts } from '../custody/policy'
  *   knows itself: the wallet as the only user and receiver, NearKit's fee rate, and the
  *   fee account (the one canonical account, from the signer's own configuration).
  * - Testnet: only Rhea's classic exchange (no fee there).
- * - Everywhere: the signer asks Rhea for its own quote of the same swap, right now, and
- *   refuses a route whose minimum is more than its slippage cap below that quote. An app
- *   that is compromised can't get a swap signed at a price far from the market.
+ * - DCL directly (either network): the pools must connect the input to the output, the fee
+ *   transfer must be NearKit's rate to the canonical account (mainnet) or absent (testnet),
+ *   and the message must be exactly the one for those pools and that minimum.
+ * - Everywhere: the signer asks for its own quote of the same swap, right now (Rhea for Rhea's
+ *   routes, the DCL contract on chain for DCL routes), and refuses a route whose minimum is
+ *   more than its slippage cap below that quote. An app that is compromised can't get a swap
+ *   signed at a price far from the market.
  */
 
 export interface RouteOracle {
-  /** Rhea's expected output for this swap right now, asked by the signer itself. */
+  /** The expected output for this swap right now, asked by the signer itself (Rhea, or the DCL contract for `pools`). */
   expectedOut(q: {
     router: SwapRouteFacts['router']
     tokenIn: string
     tokenOut: string
+    /** What the exchange receives (a direct route's input less its fee). */
     amountIn: bigint
     user: string
     nativeOut: boolean
     feeRecipient: string | null
+    pools?: readonly string[]
   }): Promise<bigint>
 }
 
@@ -35,8 +45,14 @@ export function createRouteOracle(network: NetworkConfig, fetchImpl?: typeof fet
   const agg = network.rhea.aggregator
   const smartx = agg ? createSmartxClient({ baseUrl: agg.quoteUrl, fetch: fetchImpl }) : null
   const findPath = createFindPathClient({ baseUrl: network.rhea.classic.findPathUrl, fetch: fetchImpl })
+  const rpc = createRpcClient({ urls: network.rpcUrls, fetch: fetchImpl })
   return {
     async expectedOut(q) {
+      if (q.router === 'dcl') {
+        const out = await dclQuote(rpc, network.dex.dcl.contract, { pools: q.pools ?? [], tokenIn: q.tokenIn, tokenOut: q.tokenOut, amountIn: q.amountIn })
+        if (out <= 0n) throw new PolicyViolation('the DCL contract quotes nothing for this route right now')
+        return out
+      }
       if (q.router === 'aggregator') {
         if (!smartx || !q.feeRecipient) throw new PolicyViolation('there is no fee-bearing router on this network')
         const quote = await smartx.quote({
@@ -83,16 +99,46 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
         router: route.router,
         tokenIn: route.routeIn,
         tokenOut: route.routeOut,
-        amountIn: route.amountIn,
+        amountIn: route.direct ? route.direct.swapAmount : route.amountIn,
         user: walletAccount,
         nativeOut: route.nativeOut,
         feeRecipient: p.feeRecipient,
+        ...(route.pools ? { pools: route.pools } : {}),
       })
     } catch (e) {
       if (e instanceof PolicyViolation) throw e
       // No independent quote, no signature: fail closed.
-      throw new PolicyViolation(`the signer could not check the price with Rhea (${e instanceof Error ? e.message : 'no answer'})`)
+      throw new PolicyViolation(`the signer could not check the price (${e instanceof Error ? e.message : 'no answer'})`)
     }
+  }
+
+  if (route.router === 'dcl') {
+    const dcl = p.network.dex.dcl
+    if (route.receiver !== dcl.contract) throw new PolicyViolation('the swap goes to a contract that is not the DCL exchange')
+    if (!route.pools || route.pools.length === 0 || route.pools.length > 3) throw new PolicyViolation('the route names no pools')
+    const path = dclPathTokens(route.pools, route.routeIn)
+    if (!path || path.at(-1) !== route.routeOut) throw new PolicyViolation('the route’s pools do not connect the input to the output')
+    if (path.join(',') !== route.routeTokens.join(',')) throw new PolicyViolation('the route’s tokens differ from its pools')
+    const direct = route.direct
+    if (!direct) throw new PolicyViolation('a direct route must state what the exchange receives and the fee')
+    if (p.network.id === 'mainnet') {
+      if (!p.feeRecipient) throw new PolicyViolation('no NearKit fee account is configured for the signer')
+      if (direct.feeRecipient !== p.feeRecipient) throw new PolicyViolation('the fee goes to an account that is not NearKit’s fee account')
+      if (direct.fee !== mulBps(route.amountIn, NEARKIT_FEE_BPS)) throw new PolicyViolation('the fee is not NearKit’s fee rate of the amount')
+    } else if (direct.fee !== 0n || direct.feeRecipient !== null) {
+      throw new PolicyViolation('no fee is charged on this network')
+    }
+    if (direct.swapAmount !== route.amountIn - direct.fee) throw new PolicyViolation('the exchange does not receive the amount less the fee')
+    const expectedMsg = dclSwapMsg({
+      pools: route.pools,
+      outputToken: route.routeOut,
+      minOut: route.minOut,
+      skipUnwrapNear: !route.nativeOut && route.routeOut === p.network.wrapContract,
+    })
+    if (route.msg !== expectedMsg) throw new PolicyViolation('the swap message differs from the verified route')
+    const expected = await ask()
+    if (route.minOut < floor(expected)) throw new PolicyViolation('the route’s minimum is further below the DCL contract’s current quote than the signer allows')
+    return { routeTokens: route.routeTokens, verified: null }
   }
 
   if (!agg) {

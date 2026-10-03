@@ -40,6 +40,8 @@ export interface SwapParams {
 
 export interface SwapQuote {
   router: RoutedSwap['router']
+  /** Where the route comes from (older quotes have none: Rhea). */
+  source?: RoutedSwap['source']
   amountInRaw: string
   /** Expected output, raw. */
   amountOut: string
@@ -80,8 +82,9 @@ const RESERVE_MSG = 'x'.repeat(4096)
 
 /**
  * The largest plan a first trade can have: every registration at the high price, Rhea entries
- * for three route tokens and two fee tokens, a long route message. Amount 0: a buy's amount
- * adds to its peak one for one.
+ * for three route tokens and two fee tokens, a long route message, a direct route's fee
+ * transfer. Amount 0 (one yocto wrapped, which that transfer carries): a buy's amount adds to
+ * its peak one for one.
  */
 function reservePlan(network: NetworkConfig, side: 'buy' | 'sell'): PlannedTransaction[] {
   const per = network.rhea.aggregator ? BigInt(network.rhea.aggregator.tokenStorageDeposit) : 0n
@@ -89,7 +92,7 @@ function reservePlan(network: NetworkConfig, side: 'buy' | 'sell'): PlannedTrans
   const input = side === 'buy' ? wrap : RESERVE_TOKEN
   return buildSwapTransactions({
     signerId: RESERVE_WALLET,
-    wrap: side === 'buy' ? { contract: wrap, amount: 0n, registerDeposit: HIGH_REGISTRATION_YOCTO } : null,
+    wrap: side === 'buy' ? { contract: wrap, amount: 1n, registerDeposit: HIGH_REGISTRATION_YOCTO } : null,
     registrations: [{ contract: side === 'buy' ? RESERVE_TOKEN : wrap, accountId: RESERVE_WALLET, deposit: HIGH_REGISTRATION_YOCTO }],
     aggregatorDeposits: per
       ? {
@@ -101,6 +104,8 @@ function reservePlan(network: NetworkConfig, side: 'buy' | 'sell'): PlannedTrans
         }
       : null,
     swap: { tokenContract: input, receiverId: RESERVE_ROUTER, amount: 0n, msg: RESERVE_MSG },
+    // A direct route's fee transfer rides along (the one yocto wrapped): the reserve covers its gas too.
+    feeTransfer: { recipient: 'fee.near', amount: 1n },
     label: 'reserve',
   })
 }
@@ -153,6 +158,9 @@ export function routeFacts(r: RoutedSwap): SwapRouteFacts {
     routeTokens: r.routeTokens,
     minOut: r.minOut,
     ...(r.router === 'aggregator' ? { signedMin: r.signedMin } : {}),
+    ...(r.router === 'dcl'
+      ? { pools: r.pools ?? [], direct: { swapAmount: r.swapAmount, fee: r.fee?.transfer?.amount ?? 0n, feeRecipient: r.fee?.transfer ? r.fee.recipient : null } }
+      : {}),
   }
 }
 
@@ -176,10 +184,10 @@ const walletTrade = (result: RpcTxResult, token: string, walletAccount: string, 
  * ran (minutes later under congestion): done for the user, reported as bought right away. The
  * swap transaction may still be running (`last.result` partial); its final record is filed when
  * it settles. Null until the tokens arrived, and for anything but a buy through Rhea's
- * aggregator: sells (NEAR out) and the classic router are judged when final.
+ * aggregator or directly on DCL: sells (NEAR out) and the classic router are judged when final.
  */
 export function deliveredTrade(params: SwapParams, walletAccount: string, earlier: ConfirmedTx[], last: ConfirmedTx, network: NetworkConfig): IntentResult | null {
-  if (params.side !== 'buy' || !network.rhea.aggregator) return null
+  if (params.side !== 'buy') return null
   const verdict = swapDelivered(last.result, plannedOf(walletAccount, last.plan), { token: params.token, recipient: walletAccount })
   const received = verdict?.swap?.received
   if (!verdict || !received) return null
@@ -232,7 +240,8 @@ export function createSwapService(near: ServerNear) {
       wrap: r.tokenIn.contract === null ? { contract: r.routeIn, amount: r.amountIn, registerDeposit: pre.wrapRegister } : null,
       registrations: pre.registrations,
       aggregatorDeposits: pre.aggregatorEntries.length && ctx.network.rhea.aggregator ? { contract: ctx.network.rhea.aggregator.contract, entries: pre.aggregatorEntries } : null,
-      swap: { tokenContract: r.routeIn, receiverId: r.receiver, amount: r.amountIn, msg: r.msg },
+      swap: { tokenContract: r.routeIn, receiverId: r.receiver, amount: r.swapAmount, msg: r.msg },
+      feeTransfer: r.fee?.transfer ? { recipient: r.fee.recipient, amount: r.fee.transfer.amount } : null,
       label: `${r.tokenIn.symbol} → ${r.tokenOut.symbol}`,
     })
     return { txs, registration: txs.reduce((s, t) => s + txStorageYocto(t), 0n) }
@@ -248,7 +257,10 @@ export function createSwapService(near: ServerNear) {
     ])
     const path = symbols.map((s, i) => ((i === 0 && r.tokenIn.contract === null) || (i === symbols.length - 1 && r.tokenOut.contract === null) ? 'NEAR' : s))
     let fee: SwapQuote['fee'] = { charged: false, bps: NEARKIT_FEE_BPS, amountRaw: null, token: null, routerShareBps: null }
-    if (r.fee) {
+    if (r.fee?.transfer) {
+      // A direct route: the fee is one transfer from the input, all of it NearKit's.
+      fee = { charged: true, bps: NEARKIT_FEE_BPS, amountRaw: r.fee.transfer.amount.toString(), token: r.tokenIn.contract ?? NATIVE_TOKEN_ID, routerShareBps: 0 }
+    } else if (r.fee) {
       const input = r.fee.stage === 'input'
       const base = input ? r.amountIn : grossOf(r.amountOut, r.fee.appPpm, r.fee.protocolPpm)
       const split = aggregatorFee({ base, appFeePpm: r.fee.appPpm, protocolFeePpm: r.fee.protocolPpm, routerShareBps: r.fee.routerShareBps })
@@ -263,6 +275,7 @@ export function createSwapService(near: ServerNear) {
     const burn = SWAP_BURN_YOCTO + (r.tokenIn.contract === null ? WRAP_BURN_YOCTO : 0n)
     return {
       router: r.router,
+      source: r.source,
       amountInRaw: r.amountIn.toString(),
       amountOut: r.amountOut.toString(),
       minOut: r.minOut.toString(),

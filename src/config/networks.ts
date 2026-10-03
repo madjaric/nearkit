@@ -39,6 +39,12 @@ export interface RheaAggregatorConfig {
   appFeeRouterShareBps: number
 }
 
+/** A DEX NearKit routes to directly, from its own on-chain state (no indexer in between). */
+export interface DclConfig {
+  /** Ref/Rhea DCL v2 (concentrated liquidity): `get_pool`, `quote`, and swaps by `ft_transfer_call`. */
+  contract: string
+}
+
 export interface NetworkConfig {
   id: NetworkId
   label: 'Mainnet' | 'Testnet'
@@ -65,6 +71,8 @@ export interface NetworkConfig {
    */
   market: { dexscreener: string; geckoterminal: string; coingeckoMarkets: string } | null
   rhea: RheaNetworkConfig
+  /** DEXs NearKit quotes and swaps on directly, beside Rhea's routers (ROUTING_PLAN.md). */
+  dex: { dcl: DclConfig }
   /** Contract IDs NearKit lists by default. Metadata is always fetched from chain. */
   knownTokens: readonly string[]
   /** Token the trade tickets open on. */
@@ -106,6 +114,8 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
       }),
       indexerUrl: 'https://api.rhea.finance',
     }),
+    // Read live 2026-10-03: pools are `tokenX|tokenY|fee`, `get_pool` answers null for a missing tier, `quote` works.
+    dex: Object.freeze({ dcl: Object.freeze({ contract: 'dclv2.ref-labs.near' }) }),
     market: Object.freeze({
       dexscreener: 'https://api.dexscreener.com',
       geckoterminal: 'https://api.geckoterminal.com/api/v2/networks/near',
@@ -143,6 +153,7 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
       aggregator: null,
       indexerUrl: null,
     }),
+    dex: Object.freeze({ dcl: Object.freeze({ contract: 'dclv2.ref-dev.testnet' }) }),
     // Testnet tokens with the deepest wrap.testnet pools on ref-finance-101.testnet (verified 2026-09-28).
     market: null,
     knownTokens: Object.freeze(['wrap.testnet', 'usdt.itachicara.testnet', 'usdc.itachicara.testnet', 'ref.fakes.testnet']),

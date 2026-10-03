@@ -68,10 +68,13 @@ function outcomeContext(plan: OperationPlan): OutcomeContext {
  */
 function deliveryOf(plan: OperationPlan, planned: PlannedTransaction): DeliveryExpectation | null {
   const swap = plan.swap
-  if (!swap || swap.router !== 'aggregator' || swap.tokenOut.contract === null) return null
+  if (!swap) return null
   const last = planned.actions.at(-1)
   if (last?.kind !== 'call' || last.method !== 'ft_transfer_call') return null
-  return { token: swap.tokenOut.contract, recipient: planned.signerId }
+  // Rhea's aggregator reports a token withdrawal; a direct DCL swap delivers the token, or the unwrapped NEAR, itself.
+  if (swap.router === 'aggregator') return swap.tokenOut.contract === null ? null : { token: swap.tokenOut.contract, recipient: planned.signerId }
+  if (swap.router === 'dcl') return { token: swap.tokenOut.contract ?? 'near', recipient: planned.signerId }
+  return null
 }
 
 export function initialProgress(plan: OperationPlan, simulated = false, now = Date.now()): OperationProgress {

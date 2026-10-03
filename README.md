@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/madjaric/nearkit/actions/workflows/ci.yml/badge.svg)](https://github.com/madjaric/nearkit/actions/workflows/ci.yml)
 
-The trading toolkit for NEAR. Phase 2 runs on the real NEAR network: wallet connection through NEAR Connect, balances and token metadata read from chain, NEP-141 transfers (Batch Send, Split, Consolidate), and swaps through Rhea. The Phase 1 demo still ships as a separate mode.
+The trading toolkit for NEAR. Phase 2 runs on the real NEAR network: wallet connection through NEAR Connect, balances and token metadata read from chain, NEP-141 transfers (Batch Send, Split, Consolidate), and swaps routed across Rhea's aggregator, Rhea's classic router and Ref's DCL exchange directly: any NEAR token with an executable route trades, listed or not (see "Routing"). The Phase 1 demo still ships as a separate mode.
 
 Mainnet execution is **off by default**. Prove the testnet checklist below before turning it on.
 
@@ -44,8 +44,8 @@ npm run preview        # serves dist/ on http://localhost:5197
 
 | Mode | Services | What signs |
 |---|---|---|
-| `near` on testnet (default) | wallet, RPC, indexers, Rhea classic router | your wallet; no NearKit fee |
-| `near` on mainnet | same, Rhea aggregator for swaps | your wallet, only when `VITE_ENABLE_MAINNET_EXECUTION=true` |
+| `near` on testnet (default) | wallet, RPC, indexers, Rhea classic router, DCL v2 directly | your wallet; no NearKit fee |
+| `near` on mainnet | same, Rhea aggregator and DCL v2 directly for swaps | your wallet, only when `VITE_ENABLE_MAINNET_EXECUTION=true` |
 | `demo` | in-memory simulator | nothing; every result is simulated |
 | `e2e` | real services + a scripted wallet | nothing real; test builds only, absent from production bundles |
 
@@ -72,10 +72,10 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | NEAR and NEP-141 balances | Real: `view_account` and `ft_balance_of`; indexers only suggest which tokens to check |
 | Token metadata, import by contract | Real, validated (`ft_metadata`, `ft_total_supply`) |
 | Batch Send, Split, Consolidate | Real: exact amounts, recipient checks, NEP-145 registration, chunking, per-transaction status |
-| Swap, Quick Trade | Real: Rhea aggregator on mainnet (NearKit's 0.50% app fee), Rhea classic router on testnet (no fee) |
+| Swap, Quick Trade | Real: every route source is asked and the best executable route wins (see "Routing"): Rhea's aggregator on mainnet (NearKit's 0.50% app fee), Rhea's classic router on testnet (no fee), Ref's DCL v2 pools directly on both (0.50% transferred with the swap on mainnet). The review names the source |
 | Multi Trade | Real: one verified route per wallet, signed wallet by wallet. No all-or-nothing: it stops at a failed step or an expired quote, wallets already done keep their swaps, and wallets that can't cover their share are left out |
 | Wallet classes | NearKit wallets (custody, signed in with the bot's `/web` link) buy, sell, join a Multi Buy or Multi Sell and send right on the web: NearKit's server executes each wallet's own transactions, nothing is confirmed in Telegram. Connected accounts sign in their own wallet; watched accounts are observe-only, and the services and the server refuse them anywhere funds move |
-| Token screen (`/token/:id`) | Where search leads. Market data from the sources that have it, each figure naming its source or why it's missing: DEX Screener's deepest indexed pair (price, 24h change, liquidity, 24h volume, FDV), NEAR itself from Coinbase and CoinGecko, and a market cap only when CoinGecko knows a circulating supply (via GeckoTerminal), never the FDV relabelled. Chart: real candle closes over 1H to 1M (GeckoTerminal's for the pair, Coinbase's for NEAR), then the live price; gaps are never filled in. Live activity: recent buys and sells against NEAR from FastNEAR's transaction index, classified by the same code as PnL. Whether the token is in your own list is shown apart from all of that; whether Rhea routes a trade shows in the quote, with Rhea's actual reason when it doesn't. Buy, Sell and Send open the existing flows |
+| Token screen (`/token/:id`) | Where search leads. Market data from the sources that have it, each figure naming its source or why it's missing: DEX Screener's deepest indexed pair (price, 24h change, liquidity, 24h volume, FDV), NEAR itself from Coinbase and CoinGecko, and a market cap only when CoinGecko knows a circulating supply (via GeckoTerminal), never the FDV relabelled. Chart: real candle closes over 1H to 1M (GeckoTerminal's for the pair, Coinbase's for NEAR), then the live price; gaps are never filled in. Live activity: recent buys and sells against NEAR from FastNEAR's transaction index, classified by the same code as PnL. Whether the token is in your own list is shown apart from all of that; whether a trade has an executable route shows in the quote, with each source's own reason when it doesn't. Buy, Sell and Send open the existing flows |
 | Transaction history | Real for operations sent from this browser, reconciled with the chain |
 | Scanner | Real: every figure is labelled verified, derived or unknown; never safe/scam |
 | Positions, PnL | Real: balances from chain, Rhea prices, average-cost PnL from each account's on-chain history (see "Positions and PnL") |
@@ -110,6 +110,24 @@ One engine, `src/lib/pnl.ts`, computes every PnL figure NearKit shows: the Posit
   - A missing price leaves unrealized PnL unknown, not zero.
 - **Share card:** the PnL page and each position can export their figures as a 1200×630 PNG (`src/features/portfolio/pnlCard.ts`). The card marks partial figures and demo data, and shows the account only if the user adds it.
 
+## Routing
+
+NearKit is a router over NEAR's DEXes, not a front end for one of them. Every quote asks every source that can trade the pair, in parallel, and the best executable route wins (`src/services/real/swapRouting.ts`, `src/services/routing/select.ts`).
+
+| Source | Where | Quoted from | NearKit fee |
+|---|---|---|---|
+| Rhea aggregator (`aggregatedex.near`) | mainnet | Rhea's quote server, a signed route | 0.50% app fee inside the swap (NearKit 0.40%, Rhea 0.10%) |
+| Rhea classic router | testnet | Rhea's path finder | none (testnet) |
+| Ref DCL v2 directly (`dclv2.ref-labs.near`, `dclv2.ref-dev.testnet`) | both | the pair's pools (four fee tiers, deterministic ids) and the contract's own `quote`, read from chain; directly, or through wNEAR or a stablecoin | 0.50% transferred with the swap (mainnet), none on testnet |
+
+- A route is executable or it is nothing: its pools exist, run and have liquidity, the quote is for this amount, and the minimum sits one slippage below it. Rhea's "token not routed" (code 1008) is one source's answer, not a verdict.
+- Selection is deterministic: the highest net expected output after every fee; a Rhea route within 0.25% of the best keeps Rhea (production-proven). The review and the Telegram quote name the source ("Route NEAR → SINGULARTY · DCL").
+- Token lists are a convenience of the UI. Any valid NEP-141 contract trades the moment a route exists for it, with no import: a pool created today is routable today, because pool state is read from the contract, not from an index.
+- No token is special-cased: there is no "if token X then DEX Y". SINGULARTY (`singularty.nearlytrade.near`), which Rhea does not index, trades through the generic DCL adapter like any other pair with a pool.
+- When no source can route the pair, the ticket says "No executable route found for NEAR → X right now." followed by each source's own reason, never "not supported" or "not listed".
+- The client (web page or Telegram) only ever submits an intent: token, side, amount, slippage. The server resolves and validates the route and builds the only transaction shapes it supports; the signer re-checks every fact on its own (see "Security model"). Multi Trade routes each wallet separately, and each wallet signs its own transactions.
+- Not yet a source: Ref's classic v1 pools directly (no on-chain token-to-pool index; Rhea's router covers them), and limit orders on DCL (see [COMING_SOON.md](COMING_SOON.md)).
+
 ## Testnet checklist (before enabling mainnet)
 
 NearKit can't create accounts or sign for you, so this is done by hand with your own testnet wallet (Meteor or Intear, funded from the testnet faucet). Run `npm run dev` and:
@@ -132,6 +150,8 @@ The production fee account is `nearkitfee.near` (owner decision, 2026-09-29); `<
 The NearKit trading fee is 0.50% (50 bps) on Swap and Quick Trade. It is set in one place, `NEARKIT_FEE` in `src/lib/fees.ts`, and everything derives from it: quotes on the web and in Telegram, the rate Rhea is asked to collect, the route checks, reviews, docs and tests.
 
 Rhea's aggregator (`aggregatedex.near`) collects the fee as an app fee. NearKit's account receives 0.40% and Rhea keeps 0.10% (20% of the app fee). Rhea also charges its own separate 0.10% protocol fee on every swap, and pools charge their own fees. `feeLedger` is ready for referrals: it splits a collected fee into Rhea's share, what NearKit received, a referrer's share and NearKit's net. Referrals are off. Fees accrue as an internal balance on the aggregator, not as transfers. Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate from this fee and not implemented here.
+
+On a direct DCL route the aggregator is not involved, so the fee is a transfer: `floor(amountIn × 0.50%)` of the input token goes to `<fee account>` by `ft_transfer` in the same transaction as the swap, before the exchange receives the rest (`src/services/dcl/swap.ts`, `src/services/rhea/swapTransactions.ts`). NearKit receives all of it (no router share); the pool's own fee is in the rate. It is never charged twice: a route is either an aggregator route with the app fee or a direct route with the transfer. The fee account must be registered on the fee token (read live on 2026-10-03, `nearkitfee.near` is registered on neither `wrap.near` nor new tokens); the plan adds that one-time `storage_deposit`, paid by the trader and shown in the review. Known limit: when the exchange refunds a swap after the transfer (the price moved past the slippage between the final re-quote and execution), the fee stays with NearKit; the review says so, and collecting after delivery would need a NearKit contract on chain.
 
 1. **Register the fee account** with the aggregator for the five fee-whitelist tokens (wNEAR, USDC, USDt, USDC.e, USDT.e), 0.005 NEAR each. When a swap's fee lands in another token, NearKit adds that one registration to the user's transaction and shows it as a storage cost.
 
@@ -208,6 +228,7 @@ Roll it out as `Content-Security-Policy-Report-Only` on a preview deployment fir
   - they are decoded, and only an exact set of fields is accepted at each level;
   - each field is compared with the request: signer, recipient, fee rate and account, amounts, tokens, DEX contracts, referral and minimums;
   - the signed minimum must sit within the chosen slippage of the signed expected output.
+- **Direct DCL routes** are built by NearKit from pool state read on chain, never from anything the client sends, and checked before signing (and again by the signer itself, for NearKit wallets: `server/src/custody/policy.ts`, `server/src/signer/routes.ts`): the swap goes to the network's DCL contract; the pools connect the input to the output and match the route's tokens; the message is exactly the canonical `Swap` with the verified minimum; the fee transfer is exactly 0.50% of the input to the one fee account and the exchange receives exactly the rest (no fee on testnet); registrations are of the wallet or the fee account on route tokens only; nothing else is in the transaction; and the minimum sits within the slippage cap of the contract's own `quote`, which the signer reads from chain itself. A direct swap counts as done only once its output provably reached the wallet: the output token's transfer from the exchange, or the exchange's NEAR transfer for an unwrapped output (`src/services/near/outcome.ts`).
 - **Storage deposits** are set by token contracts. NearKit warns above 0.0125 NEAR and refuses the token above 0.1 NEAR per registration.
 - **Token decimals** are re-read from the chain when a plan is prepared, and cached metadata with a future timestamp is ignored.
 - **The wallet list** is vendored and pinned (operator task 5). NEAR Connect's auto-connect is off, stale debug wallets are cleared on start, and NearKit refuses to connect a wallet while framed.
@@ -223,6 +244,7 @@ These are known and accepted for now. Each needs a decision or infrastructure be
 - **Tokens opened by link.** A link such as `/swap?to=<contract>` opens any contract without an explicit import. The review shows the full contract and warns when its symbol copies a known token.
 - **Testnet routes** come unsigned from a third-party server. NearKit checks them against the request, and testnet carries no fee.
 - **Rhea's DEX contracts** may honour route fields NearKit hasn't audited. The exact-field allowlists refuse any field they don't know, and single-use plans stop a route from being replayed from NearKit.
+- **A direct route refunded after the fee.** On a DCL route the fee leaves in the swap's own transaction, before the exchange runs; a swap the exchange refunds keeps the fee (rare: re-quoted right before signing, minimum enforced on chain). The review says so. Tokens with a transfer tax (nearlytrade launches take about 1%) deliver less than the pool quotes; NearKit reports what arrived.
 
 More documents:
 - `PHASE2_IMPLEMENTATION.md`: the full design, research and decisions.
@@ -241,7 +263,7 @@ UI (pages, features, components)
   │  only hooks from src/services/queries.ts
   ▼
 TanStack Query hooks ──► NearKitServices interfaces (src/services/types.ts)
-                            ├─ real/  NEAR: wallet, RPC, indexers, Rhea, executor
+                            ├─ real/  NEAR: wallet, RPC, indexers, Rhea, DCL, executor
                             └─ mock/  demo simulator
 ```
 
@@ -251,6 +273,8 @@ src/
   services/
     near/      RPC client, accounts, tokens, storage, plans, executor, outcomes, errors, wallet adapters
     rhea/      aggregator quotes and route checks, classic router, fee math, swap transactions
+    dcl/       Ref DCL v2: pool ids and state, on-chain quotes and paths, swap messages, the direct-route fee
+    routing/   route selection across sources: net output, Rhea kept when equivalent
     real/      service implementations, local stores, activity, scanner
     mock/      demo implementation
   features/    trade/ multi/ split/ consolidate/ batch/ wallets/ orders/ scanner/ portfolio/ tools/

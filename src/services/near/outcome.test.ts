@@ -294,3 +294,112 @@ describe('sameActions: a transaction found on chain is the planned one', () => {
     expect(sameActions(incident.transaction.actions ?? [], cheaper)).toBe(false)
   })
 })
+
+// ─── direct DCL swaps (real mainnet transactions) ────────────────────────────
+
+import directBuy from './fixtures/flows/direct-buy-wrap-dcl.rpc.json'
+import directSell from './fixtures/flows/direct-sell-dcl.rpc.json'
+
+const SING = 'singularty.nearlytrade.near'
+const DCLV2 = 'dclv2.ref-labs.near'
+const singNames = (id: string) => (id === SING ? { symbol: 'SINGULARTY', decimals: 18 } : id === 'wrap.near' ? { symbol: 'wNEAR', decimals: 24 } : null)
+const buy = directBuy as unknown as RpcTxResult
+const sell = directSell as unknown as RpcTxResult
+/** The same transaction with NearKit's fee transfer in the batch, as NearKit plans a direct route. */
+function withFee(r: RpcTxResult, recipient = 'nearkitfee.near', amount = '5000000000000000000000'): RpcTxResult {
+  const actions = [...(r.transaction.actions as unknown[])]
+  actions.splice(actions.length - 1, 0, {
+    FunctionCall: { method_name: 'ft_transfer', args: btoa(JSON.stringify({ receiver_id: recipient, amount })), gas: 10_000_000_000_000, deposit: '1' },
+  })
+  return { ...r, transaction: { ...r.transaction, actions } }
+}
+
+describe('classifyOutcome: direct swaps on the DCL exchange', () => {
+  it('a buy is complete once the token’s transfer to the user succeeded; what arrived counts, after the token’s own tax', () => {
+    const v = classifyOutcome(buy, planOf(buy), { describeToken: singNames })
+    expect(v.phase).toBe('success')
+    expect(v.swap?.received).toEqual({ token: SING, raw: '69099416000669574619652' })
+    expect(v.swap?.refunded).toBeNull()
+    expect(v.swap?.appFee).toBeNull()
+    expect(v.note).toMatch(/^Received 69,099\.416 SINGULARTY$/)
+  })
+
+  it('is unknown, never success, while the output’s transfer to the user is not confirmed', () => {
+    const stripped = { ...buy, receipts_outcome: buy.receipts_outcome.filter((o) => o.outcome.executor_id !== SING) }
+    const v = classifyOutcome(stripped, planOf(buy), { describeToken: singNames })
+    expect(v.phase).toBe('unknown')
+    expect(v.note).toMatch(/couldn’t confirm/)
+  })
+
+  it('a sell for NEAR is complete once the exchange’s NEAR transfer to the user succeeded', () => {
+    const v = classifyOutcome(sell, planOf(sell), { describeToken: singNames })
+    expect(v.phase).toBe('success')
+    expect(v.swap?.received).toEqual({ token: 'near', raw: '6466620529704459818356932' })
+    expect(v.note).toMatch(/^Received 6\.46662\d* NEAR$/)
+    const user = sell.transaction.signer_id
+    const without = { ...sell, receipts: (sell.receipts ?? []).filter((x) => !(x.predecessor_id === DCLV2 && x.receiver_id === user)) }
+    expect(classifyOutcome(without, planOf(sell)).phase).toBe('unknown')
+  })
+
+  it('reports NearKit’s fee from the plan’s own transfer, carried by the same transaction', () => {
+    const r = withFee(buy)
+    const v = classifyOutcome(r, planOf(r), { describeToken: singNames })
+    expect(v.phase).toBe('success')
+    expect(v.swap?.appFee).toEqual({ token: 'wrap.near', raw: '5000000000000000000000', recipient: 'nearkitfee.near' })
+    expect(v.note).toMatch(/^Received 69,099\.416 SINGULARTY · NearKit fee 0\.005 wNEAR$/)
+  })
+})
+
+describe('swapDelivered: a direct DCL swap reached the user, before the exchange’s callbacks', () => {
+  const user = buy.transaction.signer_id
+  const expect_ = { token: SING, recipient: user }
+
+  it('a buy is delivered as soon as the token’s transfer to the user succeeded', () => {
+    const partial = upTo(buy, (o) => o.outcome.executor_id === SING)
+    expect(partial.receipts_outcome.some((o) => o.outcome.executor_id === DCLV2 && o.outcome.logs.some((l) => l.includes('callback')))).toBe(false)
+    const v = swapDelivered(partial, planOf(buy), expect_, { describeToken: singNames })
+    expect(v?.phase).toBe('success')
+    expect(v?.swap?.received).toEqual({ token: SING, raw: '69099416000669574619652' })
+    expect(v?.note).toMatch(/^Received 69,099\.416 SINGULARTY$/)
+    expect(classifyOutcome(partial, planOf(buy)).phase).toBe('unknown')
+  })
+
+  it('is not delivered while only the exchange has run', () => {
+    expect(
+      swapDelivered(
+        upTo(buy, (o) => o.outcome.executor_id === DCLV2),
+        planOf(buy),
+        expect_,
+      ),
+    ).toBeNull()
+    expect(swapDelivered(upTo(buy, logged('Deposit 1000000000000000000000000 NEAR')), planOf(buy), expect_)).toBeNull()
+  })
+
+  it('counts only the expected token reaching the expected account', () => {
+    const partial = upTo(buy, (o) => o.outcome.executor_id === SING)
+    expect(swapDelivered(partial, planOf(buy), { token: 'wrap.near', recipient: user })).toBeNull()
+    expect(swapDelivered(partial, planOf(buy), { token: SING, recipient: 'someone.near' })).toBeNull()
+  })
+
+  it('a sell for NEAR is delivered once the exchange’s NEAR transfer to the user succeeded', () => {
+    const seller = sell.transaction.signer_id
+    const transfer = (sell.receipts ?? []).find((x) => x.predecessor_id === DCLV2 && x.receiver_id === seller)?.receipt_id ?? ''
+    const delivered = upTo(sell, (o) => o.id === transfer)
+    const v = swapDelivered(delivered, planOf(sell), { token: 'near', recipient: seller }, { describeToken: singNames })
+    expect(v?.phase).toBe('success')
+    expect(v?.swap?.received).toEqual({ token: 'near', raw: '6466620529704459818356932' })
+    expect(swapDelivered(upTo(sell, logged('Withdraw 6466620529704459818356932 NEAR')), planOf(sell), { token: 'near', recipient: seller })).toBeNull()
+  })
+
+  it('carries NearKit’s fee from the plan, and the final classifier agrees', () => {
+    const r = withFee(buy)
+    const v = swapDelivered(
+      upTo(r, (o) => o.outcome.executor_id === SING),
+      planOf(r),
+      expect_,
+      { describeToken: singNames },
+    )
+    expect(v?.swap?.appFee).toEqual({ token: 'wrap.near', raw: '5000000000000000000000', recipient: 'nearkitfee.near' })
+    expect(classifyOutcome(r, planOf(r)).phase).toBe('success')
+  })
+})

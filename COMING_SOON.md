@@ -52,7 +52,7 @@ Each feature has one category:
 - **Today:** orders are validated drafts saved in the browser. Nothing watches the price or executes them.
 - **A real path exists:** Rhea DCL v2 limit orders are on chain and non-custodial, and the pool fills them when the price crosses. DCL v2 is `dclv2.ref-labs.near` on mainnet (2,085 pools) and `dclv2.ref-dev.testnet` on testnet (464 pools), both read live on 2026-09-29. That path would cover a limit buy below the price and a take-profit sell above it, for pairs that have a DCL pool.
 - **Decisions needed first:**
-  1. **Fee.** The NearKit fee (0.50%) is collected by Rhea's aggregator, and DCL orders don't go through it. Choose between no fee on limit orders and another fee mechanism.
+  1. **Fee.** Swaps on DCL carry the NearKit fee (0.50%) as a transfer in the swap's own transaction (README, "Operator tasks"). A limit order fills later, so its fee would be charged either at placement (paid even if the order never fills) or at fill, which needs a NearKit contract on chain. Decide.
   2. **Expiry.** DCL orders don't expire. The 1h, 24h, 7d and 30d options would have to go, or be done by manual cancel.
   3. **Price unit.** Orders fill at a NEAR-per-token price. A USD trigger would drift with NEAR's price.
   4. **Stop-loss.** It can't be a DCL order, because a sell below the price fills at once. It needs a keeper that signs for the user (D).

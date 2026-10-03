@@ -113,7 +113,9 @@ export interface FeeDisclosure {
 }
 
 export interface SwapDetails {
-  router: 'aggregator' | 'classic' | 'demo'
+  router: 'aggregator' | 'classic' | 'dcl' | 'demo'
+  /** Where the route comes from; absent in the demo. */
+  source?: 'rhea-aggregator' | 'rhea-classic' | 'dcl'
   tokenIn: TokenRef
   tokenOut: TokenRef
   amountIn: AmountValue

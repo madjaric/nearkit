@@ -649,6 +649,181 @@ describe('real swaps (testnet classic router, fake chain)', () => {
 
 // ─── multi trade on testnet ─────────────────────────────────────────────────
 
+// ─── swaps on mainnet through DCL directly (a token Rhea does not index) ────
+
+describe('real swaps on mainnet through DCL directly (fake chain)', () => {
+  const SING = 'singularty.nearlytrade.near'
+  const DCL = 'dclv2.ref-labs.near'
+  const POOL = 'singularty.nearlytrade.near|wrap.near|10000'
+  const FEES = 'fees.example.near'
+  /** 1 wNEAR (24 decimals) buys 18,000 SINGULARTY (18 decimals), less the pool's 1% fee; and back. */
+  const rate = (tokenIn: string, amountIn: bigint) => ((tokenIn === 'wrap.near' ? (amountIn * 18_000n) / 10n ** 6n : (amountIn * 10n ** 6n) / 18_000n) * 99n) / 100n
+  const dclChain = (opts: { feeRegistered?: boolean } = {}): FakeChainOptions => ({
+    accounts: {
+      'example.near': { amount: NEAR(10) },
+      'bob.near': { amount: NEAR(10) },
+      [FEES]: { amount: NEAR(1) },
+      [DCL]: { amount: NEAR(1), code: true },
+      [SING]: { amount: NEAR(1), global: '1uGuBEpx3dFRDrr2wNzm5Vcb5sF3jWY3AKQ3Gopd6we' },
+    },
+    tokens: {
+      [SING]: {
+        symbol: 'SINGULARTY',
+        name: 'Singularity is NEAR',
+        decimals: 18,
+        boundsMin: MIN_STORAGE,
+        registered: [DCL, 'example.near', FEES],
+        balances: { 'example.near': 50_000n * 10n ** 18n },
+      },
+      'wrap.near': { symbol: 'wNEAR', decimals: 24, registered: [AGG, DCL, 'example.near', 'bob.near', ...(opts.feeRegistered === false ? [] : [FEES])], boundsMin: MIN_STORAGE },
+      [USDC_MAIN]: { symbol: 'USDC', decimals: 6, registered: [AGG, DCL], boundsMin: MIN_STORAGE },
+    },
+    aggregator: { contract: AGG, whitelist: ['wrap.near', USDC_MAIN], protocolPpm: 1000, registered: { 'example.near': ['wrap.near'] } },
+    dcl: { contract: DCL, pools: { [POOL]: { tokenX: SING, tokenY: 'wrap.near', fee: 10000, liquidity: 10n ** 23n, rate } } },
+  })
+  /** Rhea's quote server does not index the token: code 1008, as the real one answers. */
+  const rheaRefuses = (chain: FakeChain) => chain.route('https://smartx.rhea.finance/swapMultiDexPath', () => ({ result_code: 1008, result_message: '', result_data: null }))
+  const buyRequest = { tokenIn: 'near', tokenOut: SING, amountIn: '1', slippagePct: 1, walletId: 'example.near' }
+  const SWAP_IN = NEAR(1) - NEAR(0.005)
+  const OUT = rate('wrap.near', SWAP_IN)
+  const method = (a: { kind: string; method?: string }) => (a.kind === 'call' ? a.method : a.kind)
+  const argsOf = (a: unknown) => (a as { args: Record<string, unknown> }).args
+  /** The buy as dclv2 records it: its swap event, then SINGULARTY's transfer to the wallet. */
+  const dclBuy = (hash: string, signer: string): RpcTxResult => ({
+    ...successOutcome(hash, signer, 'wrap.near', btoa(`"${SWAP_IN}"`)),
+    receipts_outcome: [
+      {
+        id: 'r1',
+        outcome: {
+          executor_id: DCL,
+          logs: [
+            `EVENT_JSON:${JSON.stringify({ standard: 'dcl.ref', version: '1.0.0', event: 'swap', data: [{ swapper: signer, token_in: 'wrap.near', token_out: SING, amount_in: SWAP_IN.toString(), amount_out: OUT.toString(), pool_id: POOL, total_fee: '0', protocol_fee: '0', referral_fee: '0', referral_id: null }] })}`,
+          ],
+          receipt_ids: ['r2'],
+          gas_burnt: 1,
+          tokens_burnt: '0',
+          status: { SuccessValue: 'IjAi' },
+        },
+      },
+      {
+        id: 'r2',
+        outcome: {
+          executor_id: SING,
+          logs: [
+            `EVENT_JSON:${JSON.stringify({ standard: 'nep141', version: '1.0.0', event: 'ft_transfer', data: [{ old_owner_id: DCL, new_owner_id: signer, amount: OUT.toString() }] })}`,
+          ],
+          receipt_ids: [],
+          gas_burnt: 1,
+          tokens_burnt: '0',
+          status: { SuccessValue: '' },
+        },
+      },
+    ],
+  })
+
+  it('routes a token Rhea does not index through its DCL pool, with no import: 0.50% to NearKit’s fee account first, the rest to the pool, in one transaction', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near']) })
+    rheaRefuses(chain)
+    expect((await services.tokens.listTokens()).some((t) => t.id === SING)).toBe(false)
+    const plan = await services.trading.prepareSwap(buyRequest)
+    expect(plan.swap).toMatchObject({ router: 'dcl', source: 'dcl', tokenOut: { contract: SING }, minOut: { raw: ((OUT * 99n) / 100n).toString() } })
+    expect(plan.fee).toMatchObject({
+      charged: true,
+      bps: 50,
+      recipient: FEES,
+      amount: { raw: '5000000000000000000000', display: '0.005' },
+      received: { bps: 50, amount: { raw: '5000000000000000000000' } },
+      routerShare: null,
+      routerFee: null,
+      estimated: false,
+    })
+    expect(plan.fee?.note).toMatch(/same transaction/)
+    expect(plan.transactions.map((t) => t.receiverId)).toEqual(['wrap.near'])
+    const actions = plan.transactions[0]?.actions ?? []
+    expect(actions.map(method)).toEqual(['near_deposit', 'ft_transfer', 'ft_transfer_call'])
+    expect(actions[0]).toMatchObject({ deposit: NEAR(1).toString() })
+    expect(actions[1]).toMatchObject({ args: { receiver_id: FEES, amount: '5000000000000000000000' }, deposit: '1' })
+    expect(actions[2]).toMatchObject({ args: { receiver_id: DCL, amount: SWAP_IN.toString() }, gas: '300000000000000', deposit: '1' })
+    expect(JSON.parse(String(argsOf(actions[2]).msg))).toEqual({ Swap: { pool_ids: [POOL], output_token: SING, min_output_amount: plan.swap?.minOut.raw } })
+    expect(plan.warnings.join(' ')).toMatch(/fee is not refunded/)
+    // The quote the ticket shows says where the route comes from.
+    const quote = await services.trading.quote(buyRequest)
+    expect(quote).toMatchObject({ router: 'dcl', source: 'dcl', path: ['NEAR', 'SINGULARTY'] })
+  })
+
+  it('signs, confirms from the exchange’s swap event and the token’s transfer to the wallet, and reports the fee', async () => {
+    const { services, chain, outcomes, run } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near']) })
+    rheaRefuses(chain)
+    outcomes.set('wrap.near', dclBuy)
+    const plan = await services.trading.prepareSwap(buyRequest)
+    const progress = await run(plan)
+    expect(progress.phase).toBe('success')
+    expect(progress.txs.at(-1)?.note).toBe('Received 17,730.9 SINGULARTY · NearKit fee 0.005 wNEAR')
+  })
+
+  it('registers NearKit’s fee account on the fee token when it is missing, as a disclosed one-time cost in the same transaction', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain({ feeRegistered: false }), session: session(['example.near']) })
+    rheaRefuses(chain)
+    const plan = await services.trading.prepareSwap(buyRequest)
+    const actions = plan.transactions[0]?.actions ?? []
+    expect(actions.map(method)).toEqual(['storage_deposit', 'near_deposit', 'ft_transfer', 'ft_transfer_call'])
+    expect(actions[0]).toMatchObject({ args: { account_id: FEES, registration_only: true }, deposit: MIN_STORAGE.toString() })
+    expect(plan.warnings.join(' ')).toMatch(/registers NearKit’s fee account/)
+  })
+
+  it('sells for NEAR: the fee is 0.50% of the tokens sold, the exchange unwraps the wNEAR, no router share', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near']) })
+    rheaRefuses(chain)
+    const plan = await services.trading.prepareSwap({ tokenIn: SING, tokenOut: 'near', amountIn: '10000', slippagePct: 1, walletId: 'example.near' })
+    expect(plan.transactions.map((t) => t.receiverId)).toEqual([SING])
+    const actions = plan.transactions[0]?.actions ?? []
+    expect(actions.map(method)).toEqual(['ft_transfer', 'ft_transfer_call'])
+    expect(actions[0]).toMatchObject({ args: { receiver_id: FEES, amount: (50n * 10n ** 18n).toString() } })
+    expect(actions[1]).toMatchObject({ args: { receiver_id: DCL, amount: (9950n * 10n ** 18n).toString() } })
+    const msg = JSON.parse(String(argsOf(actions[1]).msg)) as { Swap: Record<string, unknown> }
+    expect(msg.Swap).toMatchObject({ pool_ids: [POOL], output_token: 'wrap.near' })
+    expect(msg.Swap.skip_unwrap_near).toBeUndefined()
+    expect(plan.fee).toMatchObject({ charged: true, token: { id: SING }, amount: { raw: (50n * 10n ** 18n).toString(), display: '50' }, routerShare: null })
+    expect(plan.swap).toMatchObject({ router: 'dcl', source: 'dcl', tokenOut: { contract: null } })
+  })
+
+  it('Multi Buy routes each wallet on DCL separately: each signs its own transaction with its own fee transfer', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near', 'bob.near']) })
+    rheaRefuses(chain)
+    const plan = await services.trading.prepareMulti({
+      side: 'buy',
+      tokenId: SING,
+      slippagePct: 1,
+      legs: [
+        { walletId: 'example.near', amountIn: '1' },
+        { walletId: 'bob.near', amountIn: '2' },
+      ],
+    })
+    expect(plan.signers).toEqual(['example.near', 'bob.near'])
+    const swaps = plan.transactions.filter((t) => t.actions.some((a) => a.kind === 'call' && a.method === 'ft_transfer_call'))
+    expect(swaps.map((t) => [t.signerId, argsOf(t.actions.find((a) => a.kind === 'call' && a.method === 'ft_transfer')).amount, argsOf(t.actions.at(-1)).receiver_id])).toEqual([
+      ['example.near', '5000000000000000000000', DCL],
+      ['bob.near', '10000000000000000000000', DCL],
+    ])
+    expect(plan.fee?.charged).toBe(true)
+    expect(plan.swap).toMatchObject({ source: 'dcl' })
+  })
+
+  it('with no pool and no Rhea route, says no executable route was found for the pair, never that the token is unsupported', async () => {
+    const opts = dclChain()
+    opts.dcl = { contract: DCL, pools: {} }
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: opts, session: session(['example.near']) })
+    rheaRefuses(chain)
+    const err = await services.trading.prepareSwap(buyRequest).then(
+      () => null,
+      (e: unknown) => e as { code: string; message: string },
+    )
+    expect(err?.code).toBe('QUOTE_UNAVAILABLE')
+    expect(err?.message).toMatch(/^No executable route found for NEAR → SINGULARTY right now\./)
+    expect(err?.message).not.toMatch(/not supported|not listed|unsupported/i)
+  })
+})
+
 describe('multi trade (testnet classic router, fake chain)', () => {
   const OUT = 'usdt.itachicara.testnet'
   const T0 = Date.UTC(2026, 8, 29, 4, 0, 0)

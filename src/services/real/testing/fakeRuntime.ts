@@ -39,6 +39,11 @@ export interface RuntimeState {
   validity: number
   wrapContract: string
   exchange: { contract: string; rate: (tokenIn: string, tokenOut: string, amountIn: bigint) => bigint } | null
+  /** A DCL v2 contract: `ft_on_transfer` with a `Swap` message over its pools. */
+  dcl: {
+    contract: string
+    pools: Map<string, { tokenX: string; tokenY: string; fee: number; liquidity: bigint; rate: (tokenIn: string, amountIn: bigint) => bigint; state?: string }>
+  } | null
   /** Gas refunds land after `lag` more reads of the signer's balance (0: with the transaction). */
   refunds: { lag: number; pending: { account: string; amount: bigint; reads: number }[] }
 }
@@ -185,7 +190,8 @@ export function createRuntime(state: RuntimeState) {
     return t
   }
 
-  const registered = (t: FakeToken, id: string) => t.boundsMin === null || t.registered.has(id) || (state.exchange !== null && id === state.exchange.contract)
+  const registered = (t: FakeToken, id: string) =>
+    t.boundsMin === null || t.registered.has(id) || (state.exchange !== null && id === state.exchange.contract) || (state.dcl !== null && id === state.dcl.contract)
 
   function moveToken(contract: string, from: string, to: string, amount: bigint) {
     const t = tokenOf(contract)
@@ -209,6 +215,85 @@ export function createRuntime(state: RuntimeState) {
     value: unknown
     failure?: unknown
     after: Exec[]
+  }
+
+  /** Pays a swap's output: the token to the sender, or NEAR when it is wNEAR to be unwrapped. */
+  function payOut(dex: string, sender: string, outToken: string, out: bigint, unwrap: boolean, trail: Exec[]) {
+    const book = tokenOf(outToken)
+    book.balances.set(dex, (book.balances.get(dex) ?? 0n) - out)
+    if (outToken === state.wrapContract && unwrap) {
+      // Unwrap and pay NEAR: near_withdraw on the wrap contract, then a Transfer to the sender.
+      trail.push({
+        predecessor: dex,
+        receiver: state.wrapContract,
+        actions: [{ FunctionCall: { method_name: 'near_withdraw', args: b64json({ amount: out.toString() }), gas: 1, deposit: '1' } }],
+        logs: [`Withdraw ${out} NEAR from ${dex}`],
+        ok: true,
+        value: '',
+        after: [],
+      })
+      credit(sender, out)
+      trail.push({ predecessor: dex, receiver: sender, actions: [{ Transfer: { deposit: out.toString() } }], logs: [], ok: true, value: '', after: [] })
+      return
+    }
+    if (!registered(book, sender)) throw new Panic(`The account ${sender} is not registered`)
+    book.balances.set(sender, (book.balances.get(sender) ?? 0n) + out)
+    trail.push({
+      predecessor: dex,
+      receiver: outToken,
+      actions: [{ FunctionCall: { method_name: 'ft_transfer', args: b64json({ receiver_id: sender, amount: out.toString() }), gas: 1, deposit: '1' } }],
+      logs: [transferLog(outToken, dex, sender, out)],
+      ok: true,
+      value: '',
+      after: [],
+    })
+  }
+
+  /** DCL v2: `ft_on_transfer` with `{"Swap":{pool_ids, output_token, min_output_amount}}` over the pools, in order. Returns the unused amount. */
+  function dclSwap(sender: string, tokenIn: string, amount: bigint, msgText: string, trail: Exec[]): bigint {
+    const dcl = state.dcl as NonNullable<RuntimeState['dcl']>
+    const msg = JSON.parse(msgText) as { Swap?: { pool_ids: string[]; output_token: string; min_output_amount: string; skip_unwrap_near?: boolean } }
+    if (!msg.Swap) throw new Panic('E100_INVALID_MSG')
+    let current = tokenIn
+    let got = amount
+    // One `swap` event per pool, as dclv2.ref-labs.near logs them (fees in millionths).
+    const swaps: string[] = []
+    for (const id of msg.Swap.pool_ids) {
+      const p = dcl.pools.get(id)
+      if (!p) throw new Panic(`E405_POOL_NOT_EXIST ${id}`)
+      if ((p.state ?? 'Running') !== 'Running') throw new Panic('E401_POOL_PAUSED')
+      const next = current === p.tokenX ? p.tokenY : current === p.tokenY ? p.tokenX : null
+      if (!next) throw new Panic('E200_INVALID_PATH')
+      const out = p.rate(current, got)
+      const data = {
+        swapper: sender,
+        token_in: current,
+        token_out: next,
+        amount_in: got.toString(),
+        amount_out: out.toString(),
+        pool_id: id,
+        total_fee: ((got * BigInt(p.fee)) / 1_000_000n).toString(),
+        protocol_fee: ((got * BigInt(p.fee)) / 5_000_000n).toString(),
+        referral_fee: '0',
+        referral_id: null,
+      }
+      swaps.push(`EVENT_JSON:${JSON.stringify({ standard: 'dcl.ref', version: '1.0.0', event: 'swap', data: [data] })}`)
+      got = out
+      current = next
+    }
+    if (current !== msg.Swap.output_token) throw new Panic('E200_INVALID_PATH')
+    if (got < BigInt(msg.Swap.min_output_amount)) throw new Panic('E204_SLIPPAGE_ERR')
+    trail.push({
+      predecessor: dcl.contract,
+      receiver: dcl.contract,
+      actions: [],
+      logs: swaps,
+      ok: true,
+      value: '',
+      after: [],
+    })
+    payOut(dcl.contract, sender, current, got, msg.Swap.skip_unwrap_near !== true, trail)
+    return 0n
   }
 
   /** Rhea's classic exchange: `ft_on_transfer` with a swap message. Returns the unused amount. */
@@ -284,7 +369,8 @@ export function createRuntime(state: RuntimeState) {
         if (deposit !== 1n) throw new Panic('Requires attached deposit of exactly 1 yoctoNEAR')
         const to = String(args.receiver_id)
         const amount = BigInt(String(args.amount))
-        if (!state.exchange || to !== state.exchange.contract) throw new Panic(`${to} has no ft_on_transfer`)
+        const toDcl = state.dcl !== null && to === state.dcl.contract
+        if (!toDcl && (!state.exchange || to !== state.exchange.contract)) throw new Panic(`${to} has no ft_on_transfer`)
         moveToken(receiver, predecessor, to, amount)
         logs.push(transferLog(receiver, predecessor, to, amount))
         // ft_on_transfer runs in its own receipt: if it fails, the transfer is refunded in full.
@@ -301,7 +387,7 @@ export function createRuntime(state: RuntimeState) {
         }
         let unused = amount
         try {
-          unused = swap(predecessor, String(args.msg ?? ''), inner)
+          unused = toDcl ? dclSwap(predecessor, receiver, amount, String(args.msg ?? ''), inner) : swap(predecessor, String(args.msg ?? ''), inner)
           onTransfer.logs.push(`Swapped ${amount} ${receiver}`)
         } catch (e) {
           restore()

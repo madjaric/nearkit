@@ -21,6 +21,16 @@ export interface FakeToken {
   totalSupply?: bigint
 }
 
+export interface FakeDclPool {
+  tokenX: string
+  tokenY: string
+  fee: number
+  liquidity: bigint
+  /** Output for an input through this pool, after its fee. */
+  rate: (tokenIn: string, amountIn: bigint) => bigint
+  state?: 'Running' | 'Paused'
+}
+
 export interface FakeChainOptions {
   /**
    * `global`: the account runs a shared global contract (NEP-591) instead of local code.
@@ -31,6 +41,8 @@ export interface FakeChainOptions {
   aggregator?: { contract: string; whitelist: string[]; protocolPpm: number; registered?: Record<string, string[]> }
   /** Rhea's classic exchange for signed swaps (fakeRuntime.ts): output per input at this rate. */
   exchange?: { contract: string; rate: (tokenIn: string, tokenOut: string, amountIn: bigint) => bigint }
+  /** A DCL v2 contract with these pools (fakeRuntime.ts): `get_pool`, `quote` and swaps by `ft_transfer_call`. */
+  dcl?: { contract: string; pools: Record<string, FakeDclPool> }
   wrapContract?: string
   /** Blocks a transaction stays valid after its anchor block (86,400 on NEAR). */
   validity?: number
@@ -74,6 +86,7 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     validity: options.validity ?? 86_400,
     wrapContract: options.wrapContract ?? 'wrap.testnet',
     exchange: options.exchange ?? null,
+    dcl: options.dcl ? { contract: options.dcl.contract, pools: new Map(Object.entries(options.dcl.pools)) } : null,
     refunds: { lag: 0, pending: [] },
   }
   const runtime = createRuntime(state)
@@ -131,6 +144,31 @@ export function createFakeChain(options: FakeChainOptions = {}) {
         case 'storage_balance_of':
           if (token.boundsMin === null) return { error: 'wasm execution failed with error: MethodResolveError(MethodNotFound)' }
           return { result: token.registered.has(String(args.account_id)) ? { total: token.boundsMin.toString(), available: '0' } : null }
+      }
+    }
+    if (state.dcl && contract === state.dcl.contract) {
+      const pools = state.dcl.pools
+      switch (method) {
+        case 'get_pool': {
+          const p = pools.get(String(args.pool_id))
+          if (!p) return { result: null }
+          return { result: { pool_id: args.pool_id, token_x: p.tokenX, token_y: p.tokenY, fee: p.fee, liquidity: p.liquidity.toString(), state: p.state ?? 'Running' } }
+        }
+        case 'quote': {
+          const ids = Array.isArray(args.pool_ids) ? (args.pool_ids as string[]) : []
+          let current = String(args.input_token)
+          let amount = BigInt(String(args.input_amount))
+          for (const id of ids) {
+            const p = pools.get(id)
+            if (!p) return { error: `wasm execution failed with error: Smart contract panicked: E405_POOL_NOT_EXIST ${id}` }
+            const next = current === p.tokenX ? p.tokenY : current === p.tokenY ? p.tokenX : null
+            if (!next) return { error: 'wasm execution failed with error: Smart contract panicked: E200_INVALID_PATH' }
+            amount = p.rate(current, amount)
+            current = next
+          }
+          if (current !== String(args.output_token)) return { error: 'wasm execution failed with error: Smart contract panicked: E200_INVALID_PATH' }
+          return { result: { amount: amount.toString(), tag: args.tag ?? null } }
+        }
       }
     }
     if (agg && contract === agg.contract) {
@@ -260,6 +298,8 @@ export function createFakeChain(options: FakeChainOptions = {}) {
     accounts,
     tokens,
     aggregator: agg,
+    /** The DCL contract's pools, for tests that add liquidity or pause a pool. */
+    dclPools: state.dcl?.pools ?? null,
     /** Answer requests (GET or POST) whose URL starts with this prefix: a value as JSON, or a Response as is. */
     route(prefix: string, handler: (url: URL, body: unknown) => unknown) {
       http.set(prefix, handler)

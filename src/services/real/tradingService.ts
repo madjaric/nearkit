@@ -78,6 +78,11 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
   /** App fee as the user pays it: exact from the input, estimated from a later token. */
   function feeSplit(r: RoutedSwap) {
     if (!r.fee) return null
+    if (r.fee.transfer) {
+      // A direct route: one transfer from the input, all of it NearKit's.
+      const app = r.fee.transfer.amount
+      return { split: { app, nearkit: app, router: 0n, protocol: 0n }, token: r.tokenIn, estimated: false }
+    }
     const input = r.fee.stage === 'input'
     const base = input ? r.amountIn : grossOf(r.amountOut, r.fee.appPpm, r.fee.protocolPpm)
     const token = input ? r.tokenIn : r.tokenOut
@@ -135,6 +140,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       networkFeeNear: display(burn, NEAR_DECIMALS),
       path: pathOf(r, refs),
       router: r.router,
+      source: r.source,
       quotedAt: r.quotedAt,
       expiresAt: r.quotedAt + DISPLAY_TTL_MS,
     }
@@ -157,6 +163,21 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       }
     }
     const d = f.token.decimals
+    if (r.fee.transfer) {
+      return {
+        label: 'NearKit fee',
+        bps: NEARKIT_FEE_BPS,
+        amount: amountValue(f.split.app, d),
+        token: f.token,
+        charged: true,
+        recipient: r.fee.recipient,
+        received: { bps: NEARKIT_FEE_BPS, amount: amountValue(f.split.app, d), party: 'NearKit' },
+        routerShare: null,
+        routerFee: null,
+        estimated: false,
+        note: `Transferred from your ${f.token.symbol} to ${r.fee.recipient} in the same transaction as the swap, before the exchange receives the rest. NearKit receives all of it; the exchange's pool fee is in the rate.`,
+      }
+    }
     const shareBps = (NEARKIT_FEE_BPS * r.fee.routerShareBps) / 10_000
     return {
       label: 'NearKit fee',
@@ -192,7 +213,8 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       wrap: r.tokenIn.contract === null ? { contract: r.routeIn, amount: r.amountIn, registerDeposit: pre.wrapRegister } : null,
       registrations: pre.registrations,
       aggregatorDeposits: pre.aggregatorEntries.length && ctx.network.rhea.aggregator ? { contract: ctx.network.rhea.aggregator.contract, entries: pre.aggregatorEntries } : null,
-      swap: { tokenContract: r.routeIn, receiverId: r.receiver, amount: r.amountIn, msg: r.msg },
+      swap: { tokenContract: r.routeIn, receiverId: r.receiver, amount: r.swapAmount, msg: r.msg },
+      feeTransfer: r.fee?.transfer ? { recipient: r.fee.recipient, amount: r.fee.transfer.amount } : null,
       label: `${r.tokenIn.contract === null ? 'Wrap and swap' : 'Swap'} ${formatUnits(r.amountIn, r.tokenIn.decimals)} ${inSym} → ${outSym}`,
     })
     return { wallet, route: r, txs, refs }
@@ -249,6 +271,10 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       )
     if (r.multiDex)
       w.push(`This route crosses two exchanges. If the second one misses its minimum, you keep the intermediate token instead of ${r.tokenOut.symbol}, and no fee is charged.`)
+    if (r.fee?.transfer)
+      w.push(
+        `This route goes to the exchange directly. The NearKit fee leaves with the swap's own transaction; if the exchange then refunds the swap (the price moved past your slippage), the fee is not refunded.`,
+      )
     return w
   }
 
@@ -269,10 +295,19 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
   function feeAccountWarning(r: RoutedSwap, txs: PlannedTransaction[]): string[] {
     if (!r.fee) return []
     const recipient = r.fee.recipient
-    const deposits = txs.flatMap((t) => t.actions).filter((a) => a.kind === 'call' && a.method === 'tokens_storage_deposit' && a.args.user === recipient)
-    if (!deposits.length) return []
-    const total = sumRaw(deposits.map((a) => BigInt(a.deposit)))
-    return [`This swap also registers NearKit’s fee account (${recipient}) with Rhea for the token the fee is taken in: ${nearText(total)} NEAR, one time.`]
+    const actions = txs.flatMap((t) => t.actions)
+    const withRhea = actions.filter((a) => a.kind === 'call' && a.method === 'tokens_storage_deposit' && a.args.user === recipient)
+    const onToken = actions.filter((a) => a.kind === 'call' && a.method === 'storage_deposit' && a.args.account_id === recipient)
+    const w: string[] = []
+    if (withRhea.length)
+      w.push(
+        `This swap also registers NearKit’s fee account (${recipient}) with Rhea for the token the fee is taken in: ${nearText(sumRaw(withRhea.map((a) => BigInt(a.deposit))))} NEAR, one time.`,
+      )
+    if (onToken.length)
+      w.push(
+        `This swap also registers NearKit’s fee account (${recipient}) on ${r.tokenIn.symbol}’s contract, so it can receive the fee: ${nearText(sumRaw(onToken.map((a) => BigInt(a.deposit))))} NEAR, one time.`,
+      )
+    return w
   }
 
   async function signerFor(walletId: string): Promise<Wallet> {
@@ -305,6 +340,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const now = ctx.now()
       const swap: SwapDetails = {
         router: r.router,
+        source: r.source,
         tokenIn: r.tokenIn,
         tokenOut: r.tokenOut,
         amountIn: amountValue(r.amountIn, r.tokenIn.decimals),
@@ -498,6 +534,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const firstLeg = planned[0] as LegPlan
       const swap: SwapDetails = {
         router: first.router,
+        source: first.source,
         tokenIn: first.tokenIn,
         tokenOut: first.tokenOut,
         amountIn: amountValue(sumRaw(planned.map((p) => p.route.amountIn)), first.tokenIn.decimals),

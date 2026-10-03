@@ -74,6 +74,8 @@ export function encodeOp(op: WalletOperation): Obj {
           routeTokens: r.routeTokens,
           minOut: s(r.minOut),
           ...(r.signedMin !== undefined ? { signedMin: s(r.signedMin) } : {}),
+          ...(r.pools !== undefined ? { pools: r.pools } : {}),
+          ...(r.direct !== undefined ? { direct: { swapAmount: s(r.direct.swapAmount), fee: s(r.direct.fee), feeRecipient: r.direct.feeRecipient } } : {}),
         },
       }
     }
@@ -98,8 +100,14 @@ export function decodeOp(v: unknown): WalletOperation {
   switch (v.kind) {
     case 'swap': {
       const o = obj(v, 'the swap', ['kind', 'route', 'authorizedMinOut'])
-      const r = obj(o.route, 'the route', ['router', 'routeIn', 'routeOut', 'nativeIn', 'nativeOut', 'amountIn', 'receiver', 'msg', 'routeTokens', 'minOut'], ['signedMin'])
-      if (r.router !== 'classic' && r.router !== 'aggregator') return bad('the router is unknown')
+      const r = obj(
+        o.route,
+        'the route',
+        ['router', 'routeIn', 'routeOut', 'nativeIn', 'nativeOut', 'amountIn', 'receiver', 'msg', 'routeTokens', 'minOut'],
+        ['signedMin', 'pools', 'direct'],
+      )
+      if (r.router !== 'classic' && r.router !== 'aggregator' && r.router !== 'dcl') return bad('the router is unknown')
+      const direct = r.direct === undefined ? undefined : obj(r.direct, 'the direct route', ['swapAmount', 'fee', 'feeRecipient'])
       const route: SwapRouteFacts = {
         router: r.router,
         routeIn: str(r.routeIn, 'routeIn', ACCOUNT_MAX),
@@ -112,6 +120,16 @@ export function decodeOp(v: unknown): WalletOperation {
         routeTokens: strings(r.routeTokens, 'routeTokens', 8, ACCOUNT_MAX),
         minOut: uint(r.minOut, 'minOut'),
         ...(r.signedMin !== undefined ? { signedMin: uint(r.signedMin, 'signedMin') } : {}),
+        ...(r.pools !== undefined ? { pools: strings(r.pools, 'pools', 3, 160) } : {}),
+        ...(direct
+          ? {
+              direct: {
+                swapAmount: uint(direct.swapAmount, 'swapAmount'),
+                fee: uint(direct.fee, 'fee'),
+                feeRecipient: direct.feeRecipient === null ? null : str(direct.feeRecipient, 'feeRecipient', ACCOUNT_MAX),
+              },
+            }
+          : {}),
       }
       return { kind: 'swap', route, authorizedMinOut: uint(o.authorizedMinOut, 'authorizedMinOut') }
     }

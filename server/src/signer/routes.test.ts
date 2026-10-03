@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
 import { base58Encode } from '@/lib/encoding'
 import { NEARKIT_FEE_BPS, PRODUCTION_FEE_RECIPIENT } from '@/lib/fees'
+import { dclPoolId } from '@/services/dcl/pools'
+import { dclSwapMsg } from '@/services/dcl/swap'
+import { createFakeChain } from '@/services/real/testing/fakeChain'
 import { checkPlan, PolicyViolation, type SwapRouteFacts, type WalletOperation, type WalletTxPlan } from '../custody/policy'
-import { verifySwapRoute, type RouteOracle } from './routes'
+import { createRouteOracle, verifySwapRoute, type RouteOracle } from './routes'
 
 /**
  * Mainnet swaps through Rhea's aggregator, as the signer checks them without trusting
@@ -197,5 +200,144 @@ describe('mainnet swap plans (structure)', () => {
     expect(check([reg(WRAP, 'mallory.near'), swap(route)])).toThrow(/unexpected account/)
     expect(check([swap(route, 'mallory.near')])).toThrow(PolicyViolation)
     expect(() => checkPlan(op(route), [swap(route)], wallet, r.network, null)).toThrow(/no NearKit fee account/)
+  })
+})
+
+// ─── direct DCL routes, checked by the signer itself ─────────────────────────
+
+describe('mainnet direct DCL routes, checked by the signer itself', () => {
+  const net = NETWORKS.mainnet
+  const DCL = net.dex.dcl.contract
+  const SING = 'singularty.nearlytrade.near'
+  const ONE_NEAR = 10n ** 24n
+  const FEE = (ONE_NEAR * BigInt(NEARKIT_FEE_BPS)) / 10_000n
+  /** What the fake pool below pays for the swap amount at 18,000 per wNEAR: 0.995 NEAR × 18,000 × 0.99 (raw units). */
+  const QUOTE = ((ONE_NEAR - FEE) * 18_000n * 99n) / 100n
+  /** The route's minimum: 4% below that quote, within the signer's 5% cap. */
+  const MIN_SING = (QUOTE * 96n) / 100n
+  const pools = [dclPoolId(SING, WRAP, 10000)]
+
+  /** NEAR → SINGULARTY through the pair's 1% pool, NearKit's fee off the input, as the app builds it. */
+  function dcl(over: Partial<SwapRouteFacts> = {}): SwapRouteFacts {
+    const minOut = over.minOut ?? MIN_SING
+    return {
+      router: 'dcl',
+      routeIn: WRAP,
+      routeOut: SING,
+      nativeIn: true,
+      nativeOut: false,
+      amountIn: ONE_NEAR,
+      receiver: DCL,
+      msg: dclSwapMsg({ pools, outputToken: SING, minOut, skipUnwrapNear: false }),
+      routeTokens: [WRAP, SING],
+      minOut,
+      pools,
+      direct: { swapAmount: ONE_NEAR - FEE, fee: FEE, feeRecipient: PRODUCTION_FEE_RECIPIENT },
+      ...over,
+    }
+  }
+  /** The signer's own oracle over a chain whose DCL pool pays `perNear` SINGULARTY per wNEAR, less its 1% fee. */
+  const onChain = (perNear: bigint) => {
+    const chain = createFakeChain({
+      dcl: {
+        contract: DCL,
+        pools: {
+          [dclPoolId(SING, WRAP, 10000)]: {
+            tokenX: SING,
+            tokenY: WRAP,
+            fee: 10000,
+            liquidity: 10n ** 23n,
+            rate: (tokenIn, amountIn) => ((tokenIn === WRAP ? amountIn * perNear : perNear === 0n ? 0n : amountIn / perNear) * 99n) / 100n,
+          },
+        },
+      },
+    })
+    return createRouteOracle(net, chain.fetch)
+  }
+  const dclPolicy = (o: RouteOracle, feeRecipient: string | null = PRODUCTION_FEE_RECIPIENT) => ({
+    network: net,
+    feeRecipient,
+    maxSlippagePpm: 50_000,
+    oracle: o,
+    now: () => Date.now(),
+  })
+
+  it('accepts a route whose minimum is close to the DCL contract’s own quote, which the signer reads from chain itself', async () => {
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n)))).resolves.toEqual({ routeTokens: [WRAP, SING], verified: null })
+  })
+
+  it('refuses a fee to any other account, another fee rate, no fee, or a swap amount that is not the rest', async () => {
+    const p = dclPolicy(onChain(18_000n))
+    await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR - FEE, fee: FEE, feeRecipient: 'testone.near' } }), WALLET, p)).rejects.toThrow(/not NearKit’s fee account/)
+    await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR - FEE + 1n, fee: FEE - 1n, feeRecipient: PRODUCTION_FEE_RECIPIENT } }), WALLET, p)).rejects.toThrow(
+      /fee rate/,
+    )
+    await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR, fee: 0n, feeRecipient: null } }), WALLET, p)).rejects.toThrow(/fee/)
+    await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR - FEE + 1n, fee: FEE, feeRecipient: PRODUCTION_FEE_RECIPIENT } }), WALLET, p)).rejects.toThrow(
+      /amount less the fee/,
+    )
+    // A signer configured with any other account, or none, refuses too.
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n), 'testone.near'))).rejects.toThrow(/not NearKit’s fee account/)
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n), null))).rejects.toThrow(/no NearKit fee account/)
+  })
+
+  it('refuses pools that do not connect the pair, another contract, tokens that differ from the pools, no pools, or a message that is not the verified one', async () => {
+    const p = dclPolicy(onChain(18_000n))
+    await expect(verifySwapRoute(dcl({ pools: [dclPoolId(USDT, WRAP, 400)] }), WALLET, p)).rejects.toThrow(/do not connect/)
+    await expect(verifySwapRoute(dcl({ receiver: 'v2.ref-finance.near' }), WALLET, p)).rejects.toThrow(/not the DCL exchange/)
+    await expect(verifySwapRoute(dcl({ routeTokens: [WRAP, USDT, SING] }), WALLET, p)).rejects.toThrow(/tokens differ from its pools/)
+    await expect(verifySwapRoute(dcl({ pools: [] }), WALLET, p)).rejects.toThrow(/names no pools/)
+    await expect(verifySwapRoute(dcl({ msg: dclSwapMsg({ pools, outputToken: SING, minOut: 1n, skipUnwrapNear: false }) }), WALLET, p)).rejects.toThrow(
+      /differs from the verified route/,
+    )
+  })
+
+  it('refuses a minimum far below the DCL contract’s current quote (a compromised app can’t sell the user out)', async () => {
+    // The pool pays twice what the route's minimum assumes: more than the 5% cap below.
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(36_000n)))).rejects.toThrow(/further below the DCL contract/)
+  })
+
+  it('fails closed when the pool quotes nothing, or the chain can’t be asked', async () => {
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(0n)))).rejects.toThrow(/quotes nothing/)
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(oracle(new Error('timeout'))))).rejects.toThrow(/could not check the price/)
+  })
+
+  it('on testnet a direct route carries no fee, and one that does is refused', async () => {
+    const tnet = NETWORKS.testnet
+    const T = 'fresh.nearlytrade.testnet'
+    const tpools = [dclPoolId(T, tnet.wrapContract, 10000)]
+    const route: SwapRouteFacts = {
+      router: 'dcl',
+      routeIn: tnet.wrapContract,
+      routeOut: T,
+      nativeIn: true,
+      nativeOut: false,
+      amountIn: ONE_NEAR,
+      receiver: tnet.dex.dcl.contract,
+      msg: dclSwapMsg({ pools: tpools, outputToken: T, minOut: 49n * ONE_NEAR, skipUnwrapNear: false }),
+      routeTokens: [tnet.wrapContract, T],
+      minOut: 49n * ONE_NEAR,
+      pools: tpools,
+      direct: { swapAmount: ONE_NEAR, fee: 0n, feeRecipient: null },
+    }
+    const chain = createFakeChain({
+      dcl: {
+        contract: tnet.dex.dcl.contract,
+        pools: {
+          [dclPoolId(T, tnet.wrapContract, 10000)]: {
+            tokenX: T,
+            tokenY: tnet.wrapContract,
+            fee: 10000,
+            liquidity: 10n ** 23n,
+            rate: (tokenIn, amountIn) => (tokenIn === tnet.wrapContract ? amountIn * 50n : amountIn / 50n),
+          },
+        },
+      },
+    })
+    const p = { network: tnet, feeRecipient: null, maxSlippagePpm: 50_000, oracle: createRouteOracle(tnet, chain.fetch), now: () => Date.now() }
+    await expect(verifySwapRoute(route, WALLET, p)).resolves.toEqual({ routeTokens: [tnet.wrapContract, T], verified: null })
+    await expect(verifySwapRoute({ ...route, direct: { swapAmount: ONE_NEAR - 1n, fee: 1n, feeRecipient: 'x.testnet' } }, WALLET, p)).rejects.toThrow(
+      /no fee is charged on this network/,
+    )
   })
 })

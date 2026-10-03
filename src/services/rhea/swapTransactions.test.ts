@@ -62,7 +62,38 @@ describe('buildSwapTransactions', () => {
     expect(methods(txs[2]?.actions ?? [])).toEqual(['storage_deposit', 'ft_transfer_call'])
   })
 
-  it('never pays the NearKit fee with a transfer: the fee travels inside the signed route only', () => {
+  it('a direct route pays the NearKit fee with one ft_transfer right before the swap, in the same transaction', () => {
+    const txs = buildSwapTransactions({
+      ...base,
+      wrap: { contract: 'wrap.near', amount: 2n * ONE, registerDeposit: null },
+      registrations: [{ contract: 'wrap.near', accountId: 'nearkitfee.near', deposit: 1_250_000_000_000_000_000_000n }],
+      swap: { tokenContract: 'wrap.near', receiverId: 'dclv2.ref-labs.near', amount: 2n * ONE - 10n ** 22n, msg: '{"Swap":{}}' },
+      feeTransfer: { recipient: 'nearkitfee.near', amount: 10n ** 22n },
+    })
+    expect(txs).toHaveLength(1)
+    expect(methods(txs[0]?.actions ?? [])).toEqual(['storage_deposit', 'near_deposit', 'ft_transfer', 'ft_transfer_call'])
+    expect(txs[0]?.actions[2]).toEqual({
+      kind: 'call',
+      method: 'ft_transfer',
+      args: { receiver_id: 'nearkitfee.near', amount: (10n ** 22n).toString() },
+      gas: '10000000000000',
+      deposit: '1',
+    })
+    expect(txs[0]?.actions[3]).toMatchObject({ method: 'ft_transfer_call', args: { receiver_id: 'dclv2.ref-labs.near', amount: (2n * ONE - 10n ** 22n).toString() } })
+    // The NEAR wrapped must cover the swap and the fee exactly.
+    expect(() =>
+      buildSwapTransactions({
+        ...base,
+        wrap: { contract: 'wrap.near', amount: 2n * ONE, registerDeposit: null },
+        swap: { tokenContract: 'wrap.near', receiverId: 'dclv2.ref-labs.near', amount: 2n * ONE, msg: '{}' },
+        feeTransfer: { recipient: 'nearkitfee.near', amount: 10n ** 22n },
+      }),
+    ).toThrow(/cover the swap and the fee/)
+    // No fee (testnet): no transfer.
+    expect(methods(buildSwapTransactions({ ...base, feeTransfer: { recipient: 'nearkitfee.near', amount: 0n } })[0]?.actions ?? [])).toEqual(['ft_transfer_call'])
+  })
+
+  it('never pays the NearKit fee with a transfer on Rhea’s aggregator: the fee travels inside the signed route only', () => {
     const txs = buildSwapTransactions({
       ...base,
       aggregatorDeposits: { contract: 'aggregatedex.near', entries: [{ user: 'fees.nearkit.near', tokens: ['wrap.near'], deposit: 5n }] },

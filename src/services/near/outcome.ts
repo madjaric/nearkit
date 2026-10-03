@@ -35,6 +35,7 @@ export interface OutcomeContext {
 }
 
 interface ContractEvent {
+  standard: string
   event: string
   data: Record<string, unknown>
 }
@@ -47,9 +48,14 @@ function eventsOf(result: RpcTxResult, executor: string): ContractEvent[] {
     for (const log of r.outcome.logs) {
       if (!log.startsWith('EVENT_JSON:')) continue
       try {
-        const parsed = JSON.parse(log.slice('EVENT_JSON:'.length)) as { event?: unknown; data?: unknown }
+        const parsed = JSON.parse(log.slice('EVENT_JSON:'.length)) as { standard?: unknown; event?: unknown; data?: unknown }
         const first = Array.isArray(parsed.data) ? parsed.data[0] : undefined
-        if (typeof parsed.event === 'string') events.push({ event: parsed.event, data: first && typeof first === 'object' ? (first as Record<string, unknown>) : {} })
+        if (typeof parsed.event === 'string')
+          events.push({
+            standard: typeof parsed.standard === 'string' ? parsed.standard : '',
+            event: parsed.event,
+            data: first && typeof first === 'object' ? (first as Record<string, unknown>) : {},
+          })
       } catch {
         // not an event we can read
       }
@@ -163,18 +169,71 @@ function nativeDelivered(result: RpcTxResult, from: string, to: unknown, amount:
   })
 }
 
+/** A swap on Ref's DCL exchange, read from its `swap` events (one per pool; the last names the output). */
+interface DclSwap {
+  tokenOut: string
+  amountOut: string
+}
+
+function dclSwapOf(events: ContractEvent[]): DclSwap | null {
+  const last = events.filter((e) => e.standard === 'dcl.ref' && e.event === 'swap').at(-1)
+  const tokenOut = last?.data.token_out
+  const amountOut = last?.data.amount_out
+  return typeof tokenOut === 'string' && typeof amountOut === 'string' && /^\d+$/.test(amountOut) ? { tokenOut, amountOut } : null
+}
+
+/** A NEP-141 transfer of `token` from `from` to `to` in a receipt that succeeded: the amount that arrived (after any tax the token takes). */
+function tokenDelivered(result: RpcTxResult, token: string, from: string, to: string): string | null {
+  for (const r of result.receipts_outcome ?? []) {
+    if (r.outcome.executor_id !== token) continue
+    const status = statusObject(r.outcome.status)
+    if (!status || !('SuccessValue' in status)) continue
+    for (const log of r.outcome.logs) {
+      if (!log.startsWith('EVENT_JSON:')) continue
+      let parsed: { standard?: unknown; event?: unknown; data?: unknown }
+      try {
+        parsed = JSON.parse(log.slice('EVENT_JSON:'.length)) as typeof parsed
+      } catch {
+        continue
+      }
+      if (parsed.standard !== 'nep141' || parsed.event !== 'ft_transfer' || !Array.isArray(parsed.data)) continue
+      for (const d of parsed.data as { old_owner_id?: unknown; new_owner_id?: unknown; amount?: unknown }[]) {
+        if (d.old_owner_id === from && d.new_owner_id === to && typeof d.amount === 'string' && /^\d+$/.test(d.amount) && BigInt(d.amount) > 0n) return d.amount
+      }
+    }
+  }
+  return null
+}
+
+/** What a direct DCL swap delivered to `to`: the output token's transfer, or the exchange's NEAR transfer of the unwrapped output. */
+function dclReceived(result: RpcTxResult, dex: string, to: string, swap: DclSwap): TokenAmount | null {
+  const arrived = tokenDelivered(result, swap.tokenOut, dex, to)
+  if (arrived) return { token: swap.tokenOut, raw: arrived }
+  return nativeDelivered(result, dex, to, swap.amountOut) ? { token: 'near', raw: swap.amountOut } : null
+}
+
+/** NearKit's fee on a direct route: the plan's own transfer to the fee account, carried by the swap's transaction. */
+function directFeeOf(planned: PlannedTransaction): (TokenAmount & { recipient: string }) | null {
+  const fee = planned.actions.find((a) => a.kind === 'call' && a.method === 'ft_transfer')
+  if (!fee || fee.kind !== 'call') return null
+  const { receiver_id, amount } = fee.args
+  return typeof receiver_id === 'string' && typeof amount === 'string' && /^\d+$/.test(amount) ? { token: planned.receiverId, raw: amount, recipient: receiver_id } : null
+}
+
+const UNCONFIRMED_DELIVERY = 'The swap ran, but NearKit couldn’t confirm the output reached your account. Open it in the explorer before trading again.'
+
 /** Whether a transaction's actions, as the chain shows them, are exactly the planned ones. */
 export function sameActions(chain: readonly unknown[], planned: PlannedAction[]): boolean {
   return actionsMismatch([...chain], planned) === null
 }
 
 const shower = (context: OutcomeContext) => (a: TokenAmount, role: TokenRole) => {
-  const t = context.describeToken?.(a.token, role)
+  const t = a.token === 'near' ? { symbol: 'NEAR', decimals: 24 } : context.describeToken?.(a.token, role)
   return t ? `${formatUnits(BigInt(a.raw), t.decimals, { maxFraction: 6, group: true })} ${t.symbol}` : `${a.raw} raw units of ${a.token}`
 }
 
 export interface DeliveryExpectation {
-  /** The output token's contract. */
+  /** The output token's contract, or `near` for native NEAR (a direct route's unwrapped output). */
   token: string
   /** The account that must receive it (the signer). */
   recipient: string
@@ -199,13 +258,21 @@ export function swapDelivered(result: RpcTxResult, planned: PlannedTransaction, 
   if (status && 'Failure' in status) return null
   const events = eventsOf(result, last.args.receiver_id)
   if (events.some((e) => e.event === 'swap_failed_refund_started')) return null
+  const show = shower(context)
+  const dcl = dclSwapOf(events)
+  if (dcl) {
+    const received = dclReceived(result, last.args.receiver_id, expect.recipient, dcl)
+    if (!received || received.token !== expect.token) return null
+    const appFee = directFeeOf(planned)
+    const note = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
+    return { phase: 'success', error: null, note, swap: { received, refunded: null, appFee } }
+  }
   const done = events.find((e) => e.event === 'withdraw_succeeded' && e.data.token_id === expect.token && e.data.receive_id === expect.recipient)
   const received = amountOf(done?.data, 'token_id')
   if (!received || BigInt(received.raw) === 0n) return null
   const feeData = events.find((e) => e.event === 'earn_app_fee')?.data
   const fee = amountOf(feeData, 'token')
   const appFee = fee && typeof feeData?.receipt === 'string' ? { ...fee, recipient: feeData.receipt } : null
-  const show = shower(context)
   const note = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
   return { phase: 'success', error: null, note, swap: { received, refunded: null, appFee } }
 }
@@ -250,6 +317,15 @@ export function classifyOutcome(result: RpcTxResult, planned: PlannedTransaction
     // transfer, so "used" can't tell success from refund: its events decide.
     const receiver = typeof last.args.receiver_id === 'string' ? last.args.receiver_id : ''
     const events = eventsOf(result, receiver)
+    // A direct swap on the DCL exchange: its `swap` event says what came out; done only when that output provably reached the wallet.
+    const dcl = dclSwapOf(events)
+    if (dcl) {
+      const received = dclReceived(result, receiver, planned.signerId, dcl)
+      const appFee = directFeeOf(planned)
+      if (!received) return { phase: 'unknown', error: null, note: UNCONFIRMED_DELIVERY, swap: { received: null, refunded: null, appFee } }
+      const parts = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean)
+      return { phase: 'success', error: null, note: parts.join(' · '), swap: { received, refunded: null, appFee } }
+    }
     if (events.some((e) => AGGREGATOR_EVENTS.has(e.event))) {
       const find = (name: string) => events.find((e) => e.event === name)?.data
       const refunded = amountOf(find('swap_failed_refund_started'), 'token_id')
@@ -275,7 +351,7 @@ export function classifyOutcome(result: RpcTxResult, planned: PlannedTransaction
           return {
             phase: 'unknown',
             error: null,
-            note: 'The swap ran, but NearKit couldn’t confirm the output reached your account. Open it in the explorer before trading again.',
+            note: UNCONFIRMED_DELIVERY,
             swap: { received, refunded: null, appFee },
           }
         }

@@ -1,6 +1,7 @@
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, formatUnitsUp } from '@/lib/amounts'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import { formatPct } from '@/lib/format'
 import type { Intent } from '../custody/store'
@@ -29,7 +30,13 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
   const outDecimals = buy ? p.decimals : NEAR_DECIMALS
   const outSymbol = buy ? p.symbol : 'NEAR'
   const wallet = await deps.custody?.store.wallet(intent.walletId)
-  const fee = q.fee.charged && q.fee.amountRaw !== null ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `none on ${deps.config.network.id}`
+  const feeAmount = q.fee.charged && q.fee.amountRaw !== null ? BigInt(q.fee.amountRaw) : null
+  const fee =
+    feeAmount === null
+      ? `none on ${deps.config.network.id}`
+      : q.fee.routerShareBps === 0
+        ? `${NEARKIT_FEE_LABEL} (${q.fee.token === p.token ? `${fmt(feeAmount, p.decimals)} ${p.symbol}` : `${fmt(feeAmount, NEAR_DECIMALS)} NEAR`}, sent with the swap)`
+        : `${NEARKIT_FEE_LABEL} (included in the rate)`
   const registration = BigInt(q.registration)
   const need = q.need !== undefined ? BigInt(q.need) : null
   const available = q.available !== undefined ? BigInt(q.available) : null
@@ -53,7 +60,7 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     ...(need !== null && available !== null && available < need
       ? [`⚠️ Your NearKit wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
       : []),
-    `Route ${esc(q.path.join(' → '))} · Rhea`,
+    `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     ...(q.busy ? [`⚠️ ${esc(NETWORK_BUSY_WARNING)}`] : []),
     '',
     `⏱ Valid for ${seconds}s. Right before sending, NearKit checks the price again; if you’d get less than the minimum, it asks you first.`,

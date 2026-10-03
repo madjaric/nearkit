@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
+import { dclPoolId } from '@/services/dcl/pools'
+import { dclSwapMsg } from '@/services/dcl/swap'
 import { classicSwapMsg, parseFindPath } from '@/services/rhea/classic'
 import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
 import { checkPlan, PolicyViolation, type SwapRouteFacts, type WalletOperation, type WalletTxPlan } from './policy'
@@ -277,5 +279,139 @@ describe('signer policy: withdrawals, backup key, revoke', () => {
     expect(() => checkPlan({ kind: 'revoke', publicKey: WALLET.publicKey }, del(WALLET.publicKey), WALLET, net)).not.toThrow()
     expect(refused({ kind: 'revoke', publicKey: LINKED_KEY }, del(LINKED_KEY))).toMatch(/only NearKit’s own key/)
     expect(refused({ kind: 'revoke', publicKey: WALLET.publicKey }, del(LINKED_KEY))).toMatch(/only NearKit’s own key/)
+  })
+})
+
+describe('signer policy: direct DCL swaps', () => {
+  const main = NETWORKS.mainnet
+  const DCL = main.dex.dcl.contract
+  const WRAP = main.wrapContract
+  const SING = 'singularty.nearlytrade.near'
+  const FEES = 'nearkitfee.near'
+  const mainWallet = { ...WALLET, network: 'mainnet' }
+  const pools = [dclPoolId(SING, WRAP, 10000)]
+
+  /** A verified direct route: NEAR → SINGULARTY (buy) or SINGULARTY → NEAR (sell), fee off the input. */
+  function direct(side: 'buy' | 'sell', amountIn: bigint, network = main, over: Partial<SwapRouteFacts> = {}): SwapRouteFacts {
+    const fee = network.id === 'mainnet' ? (amountIn * 50n) / 10_000n : 0n
+    const routeIn = side === 'buy' ? WRAP : SING
+    const routeOut = side === 'buy' ? SING : WRAP
+    const minOut = side === 'buy' ? 17_000n * ONE : (99n * ONE) / 200n
+    return {
+      router: 'dcl',
+      routeIn,
+      routeOut,
+      nativeIn: side === 'buy',
+      nativeOut: side === 'sell',
+      amountIn,
+      receiver: DCL,
+      msg: dclSwapMsg({ pools, outputToken: routeOut, minOut, skipUnwrapNear: false }),
+      routeTokens: [routeIn, routeOut],
+      minOut,
+      pools,
+      direct: { swapAmount: amountIn - fee, fee, feeRecipient: network.id === 'mainnet' ? FEES : null },
+      ...over,
+    }
+  }
+  const plan = (r: SwapRouteFacts, registrations: { contract: string; accountId: string }[] = []): WalletTxPlan[] =>
+    buildSwapTransactions({
+      signerId: WALLET.accountId,
+      wrap: r.nativeIn ? { contract: WRAP, amount: r.amountIn, registerDeposit: null } : null,
+      registrations: registrations.map((x) => ({ ...x, deposit: REG })),
+      aggregatorDeposits: null,
+      swap: { tokenContract: r.routeIn, receiverId: r.receiver, amount: r.direct?.swapAmount ?? r.amountIn, msg: r.msg },
+      feeTransfer: r.direct && r.direct.feeRecipient ? { recipient: r.direct.feeRecipient, amount: r.direct.fee } : null,
+      label: 'swap',
+    }).map((t) => ({ receiverId: t.receiverId, actions: t.actions, label: t.label }))
+  const op = (r: SwapRouteFacts): WalletOperation => ({ kind: 'swap', route: r, authorizedMinOut: r.minOut })
+  const refusedWith = (r: SwapRouteFacts, p: WalletTxPlan[], re: RegExp, network = main, fee: string | null = FEES) => {
+    expect(() => checkPlan(op(r), p, { ...WALLET, network: network.id }, network, fee)).toThrow(re)
+  }
+
+  it('accepts exactly: the wrap, the fee transfer to NearKit’s account and the swap call with the rest, and registrations of the wallet or the fee account on route tokens', () => {
+    const buy = direct('buy', ONE)
+    expect(() => checkPlan(op(buy), plan(buy), mainWallet, main, FEES)).not.toThrow()
+    expect(() => checkPlan(op(buy), plan(buy, [{ contract: SING, accountId: WALLET.accountId }]), mainWallet, main, FEES)).not.toThrow()
+    const sell = direct('sell', 9000n * ONE)
+    expect(() => checkPlan(op(sell), plan(sell, [{ contract: SING, accountId: FEES }]), mainWallet, main, FEES)).not.toThrow()
+    expect(plan(sell, [{ contract: SING, accountId: FEES }])[0]?.actions.map((a) => (a.kind === 'call' ? a.method : a.kind))).toEqual([
+      'storage_deposit',
+      'ft_transfer',
+      'ft_transfer_call',
+    ])
+  })
+
+  it('refuses a fee to anyone else, a different fee, no fee, or an exchange amount that is not the rest', () => {
+    const buy = direct('buy', ONE)
+    const fee = buy.direct as NonNullable<SwapRouteFacts['direct']>
+    const to = (over: Partial<NonNullable<SwapRouteFacts['direct']>>) => direct('buy', ONE, main, { direct: { ...fee, ...over } })
+    // Route facts that disagree with NearKit's rate or account are refused whatever the plan says.
+    refusedWith(to({ feeRecipient: 'mallory.near' }), plan(buy), /not NearKit’s fee account/)
+    refusedWith(to({ fee: fee.fee - 1n, swapAmount: fee.swapAmount + 1n }), plan(buy), /fee rate/)
+    refusedWith(to({ fee: 0n, feeRecipient: null, swapAmount: ONE }), plan(buy), /fee/)
+    refusedWith(to({ swapAmount: fee.swapAmount + 1n }), plan(buy), /amount less the fee/)
+    // A plan whose transfer goes elsewhere than the route says is refused too.
+    const elsewhere = plan(to({ feeRecipient: 'mallory.near' }))
+    refusedWith(buy, elsewhere, /different arguments/)
+    // The plan's transfer must match the route's fee exactly.
+    const p = plan(buy)
+    const tx = p[0] as WalletTxPlan
+    const a = tx.actions[1] as Extract<WalletTxPlan['actions'][number], { kind: 'call' }>
+    refusedWith(
+      buy,
+      [
+        {
+          ...tx,
+          actions: [tx.actions[0] as WalletTxPlan['actions'][number], { ...a, args: { ...a.args, receiver_id: 'mallory.near' } }, tx.actions[2] as WalletTxPlan['actions'][number]],
+        },
+      ],
+      /different arguments/,
+    )
+    expect(() => checkPlan(op(buy), plan(buy), mainWallet, main, null)).toThrow(/no NearKit fee account/)
+  })
+
+  it('refuses pools that do not connect, another exchange, a message that is not the verified one, or a lower minimum than confirmed', () => {
+    const buy = direct('buy', ONE)
+    const badPools = direct('buy', ONE, main, { pools: [dclPoolId('usdt.tether-token.near', WRAP, 400)] })
+    refusedWith(badPools, plan(badPools), /do not connect/)
+    const elsewhere = direct('buy', ONE, main, { receiver: 'v2.ref-finance.near' })
+    refusedWith(elsewhere, plan(elsewhere), /not the DCL exchange/)
+    const altered = direct('buy', ONE, main, { msg: dclSwapMsg({ pools, outputToken: SING, minOut: 1n, skipUnwrapNear: false }) })
+    refusedWith(altered, plan(altered), /differs from the verified route/)
+    expect(() => checkPlan({ kind: 'swap', route: buy, authorizedMinOut: buy.minOut + 1n }, plan(buy), mainWallet, main, FEES)).toThrow(/below the minimum you confirmed/)
+    const extra = plan(buy)
+    ;(extra[0] as WalletTxPlan).actions.push({ kind: 'transfer', deposit: '1' })
+    expect(() => checkPlan(op(buy), extra, mainWallet, main, FEES)).toThrow(PolicyViolation)
+  })
+
+  it('on testnet a direct route carries no fee, and a fee there is refused', () => {
+    const net = NETWORKS.testnet
+    const T = 'fresh.nearlytrade.testnet'
+    const testPools = [dclPoolId(T, net.wrapContract, 10000)]
+    const r: SwapRouteFacts = {
+      router: 'dcl',
+      routeIn: net.wrapContract,
+      routeOut: T,
+      nativeIn: true,
+      nativeOut: false,
+      amountIn: ONE,
+      receiver: net.dex.dcl.contract,
+      msg: dclSwapMsg({ pools: testPools, outputToken: T, minOut: 49n * ONE, skipUnwrapNear: false }),
+      routeTokens: [net.wrapContract, T],
+      minOut: 49n * ONE,
+      pools: testPools,
+      direct: { swapAmount: ONE, fee: 0n, feeRecipient: null },
+    }
+    const p = buildSwapTransactions({
+      signerId: WALLET.accountId,
+      wrap: { contract: net.wrapContract, amount: ONE, registerDeposit: null },
+      registrations: [],
+      aggregatorDeposits: null,
+      swap: { tokenContract: net.wrapContract, receiverId: net.dex.dcl.contract, amount: ONE, msg: r.msg },
+      label: 'swap',
+    }).map((t) => ({ receiverId: t.receiverId, actions: t.actions, label: t.label }))
+    expect(() => checkPlan(op(r), p, WALLET, net, null)).not.toThrow()
+    const withFee = { ...r, direct: { swapAmount: ONE - 1n, fee: 1n, feeRecipient: 'x.testnet' } }
+    expect(() => checkPlan(op(withFee), p, WALLET, net, null)).toThrow(/no fee is charged on this network/)
   })
 })

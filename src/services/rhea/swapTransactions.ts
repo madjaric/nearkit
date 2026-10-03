@@ -6,19 +6,24 @@ import type { PlannedAction, PlannedTransaction } from '@/types/operations'
  * The transactions of one swap, in signing order: storage registrations on
  * token contracts, then registrations inside Rhea's aggregator, then the swap
  * itself (with NEAR wrapped in the same transaction when NEAR is the input).
- * The NearKit fee never appears here as a transfer: on mainnet it is part of
- * the signed route (`app_fee_rate`), collected by the aggregator.
+ * Through Rhea's aggregator the NearKit fee never appears here: it is part of the
+ * signed route (`app_fee_rate`), collected by the aggregator. On a direct DEX route
+ * it is one `ft_transfer` to the fee account in the swap's own transaction, right
+ * before the `ft_transfer_call` that hands the DEX the rest.
  */
 
 export interface SwapTxInput {
   signerId: string
   /** NEAR input: wrap this much first, registering with the wrap contract if needed. */
   wrap: { contract: string; amount: bigint; registerDeposit: bigint | null } | null
-  /** NEP-145 `storage_deposit` calls: the signer on route tokens, the aggregator on token contracts. */
+  /** NEP-145 `storage_deposit` calls: the signer on route tokens, the aggregator on token contracts, the fee account on the fee token. */
   registrations: { contract: string; accountId: string; deposit: bigint }[]
   /** Aggregator-internal registrations: `tokens_storage_deposit {user, tokens}` per account. */
   aggregatorDeposits: { contract: string; entries: { user: string; tokens: string[]; deposit: bigint }[] } | null
+  /** `amount`: what the DEX receives. */
   swap: { tokenContract: string; receiverId: string; amount: bigint; msg: string }
+  /** Direct DEX routes: NearKit's fee, transferred from the input token before the swap call. */
+  feeTransfer?: { recipient: string; amount: bigint } | null
   label: string
 }
 
@@ -60,6 +65,11 @@ export function buildSwapTransactions(input: SwapTxInput): PlannedTransaction[] 
       swapActions.unshift(storageDepositAction(input.signerId, input.wrap.registerDeposit))
     }
     swapActions.push({ kind: 'call', method: 'near_deposit', args: {}, gas: GAS.NEAR_DEPOSIT.toString(), deposit: input.wrap.amount.toString() })
+  }
+  const fee = input.feeTransfer
+  if (fee && fee.amount > 0n) {
+    if (input.wrap && input.wrap.amount !== input.swap.amount + fee.amount) throw new Error('The NEAR wrapped must cover the swap and the fee')
+    swapActions.push({ kind: 'call', method: 'ft_transfer', args: { receiver_id: fee.recipient, amount: fee.amount.toString() }, gas: GAS.FT_TRANSFER.toString(), deposit: '1' })
   }
   swapActions.push({
     kind: 'call',

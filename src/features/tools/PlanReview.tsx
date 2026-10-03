@@ -5,6 +5,7 @@ import { Line, Lines } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { formatUnits, formatUnitsUp, groupDigits as g } from '@/lib/amounts'
 import { formatNumber, formatPct } from '@/lib/format'
+import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import type { FeeDisclosure, OperationPlan, PlannedAction, TokenRef } from '@/types/operations'
 
 const near = (yocto: string) => formatUnits(BigInt(yocto), 24, { maxFraction: 6, group: true })
@@ -99,7 +100,7 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
             <Line label="Minimum received" emphasis>{`${estimate(swap.minOut.raw, swap.tokenOut.decimals)} ${swap.tokenOut.symbol}`}</Line>
             <Line label="Slippage limit">{`${formatNumber(swap.slippagePct, 1, 2)}%`}</Line>
             <Line label="Price impact (est.)">{swap.priceImpactPct === null ? 'Unknown' : formatPct(swap.priceImpactPct, { signed: false })}</Line>
-            <Line label="Route">{swap.route.join(' → ')}</Line>
+            <Line label="Route">{`${swap.route.join(' → ')}${swap.source ? ` · ${ROUTE_SOURCE_LABEL[swap.source]}` : ''}`}</Line>
             {swap.routeTokens && swap.routeTokens.length > 2 && (
               <Line label="Route tokens" mono={false}>
                 <span className="flex flex-col items-end text-[11px] text-fg-3">

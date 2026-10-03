@@ -1,3 +1,4 @@
+import type { FakeChainOptions } from '@/services/real/testing/fakeChain'
 import { recoveryRoutes } from '../api/recoveryRoutes'
 import { telegramRoutes } from '../api/telegramRoutes'
 import { botModules } from '../app'
@@ -38,6 +39,8 @@ export async function walletBot(
     env?: Record<string, string>
     /** False: the signer checks no Mini App approvals. */
     telegramApprovals?: boolean
+    /** More of the fake chain: accounts, tokens (outside every list) and a DCL exchange with pools. */
+    chain?: Pick<FakeChainOptions, 'accounts' | 'tokens' | 'dcl'>
   } = {},
 ) {
   const linkedKey = options.linkedKey ?? LINKED_KEY
@@ -59,12 +62,15 @@ export async function walletBot(
         [USDT]: { amount: ONE, code: true },
         [WRAP]: { amount: ONE, code: true },
         [EXCHANGE]: { amount: 1000n * ONE, code: true },
+        ...options.chain?.accounts,
       },
       tokens: {
         [USDT]: { symbol: 'USDT', name: 'Tether USD', decimals: 6, boundsMin: REG, balances: { [EXCHANGE]: 10n ** 15n, [LINKED]: 50_000_000n }, registered: [EXCHANGE, LINKED] },
         [WRAP]: { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, boundsMin: REG, balances: { [EXCHANGE]: 1000n * ONE }, registered: [EXCHANGE] },
+        ...options.chain?.tokens,
       },
       exchange: { contract: EXCHANGE, rate },
+      ...(options.chain?.dcl ? { dcl: options.chain.dcl } : {}),
     },
     modules: (deps) => botModules(deps, () => list()),
   })

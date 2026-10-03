@@ -6,6 +6,7 @@ import { explorerTokenUrl } from '@/services/near/explorer'
 import type { Quote, TokenListing } from '@/types/domain'
 import { buyReserve, sellReserve, type SwapParams } from '../custody/swap'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
+import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { looksLikeContract, resolveToken } from '../trade/tokens'
 import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
 import { Buckets } from './ratelimit'
@@ -194,7 +195,7 @@ function quoteText(ctx: BotCtx, side: Side, token: TokenListing, amountIn: strin
     `NearKit fee ${esc(fee)}`,
     ...(f.charged && f.routerFeeBps !== null ? [`Rhea fee ${esc(`${(f.routerFeeBps / 100).toFixed(2)}%`)} · pool fees are in the rate`] : []),
     `Network fee ≈ ${esc(q.networkFeeNear.toFixed(4))} NEAR`,
-    `Route ${esc(q.path.join(' → '))} · Rhea`,
+    `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     '',
     `⏱ Quote for ${seconds}s. NearKit quotes again right before you sign in your wallet.`,
   ].join('\n')

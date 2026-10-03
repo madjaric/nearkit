@@ -425,7 +425,9 @@ export interface Quote {
   networkFeeNear: number
   /** Route through pools, as token symbols. */
   path: string[]
-  router: 'aggregator' | 'classic' | 'demo'
+  router: 'aggregator' | 'classic' | 'dcl' | 'demo'
+  /** Where the route comes from (Rhea's aggregator, Rhea's classic router, DCL directly); absent in the demo. */
+  source?: 'rhea-aggregator' | 'rhea-classic' | 'dcl'
   quotedAt: Timestamp
   expiresAt: Timestamp
 }

@@ -4,6 +4,7 @@ import { InfoTip, Term } from '@/components/ui/Help'
 import { Line, Lines } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { formatAmount, formatNumber, formatPct, formatPrice, formatUsd } from '@/lib/format'
 import { useCapabilities } from '@/services/queries'
 import type { Quote } from '@/types/domain'
@@ -83,11 +84,18 @@ export function QuoteDetails({
         <Line label={<Term term="minReceived" />}>{q ? `${formatAmount(q.minAmountOut, outDecimals)} ${outSymbol}` : '—'}</Line>
         <Line label="Rate">{q ? `1 ${inSymbol} ≈ ${small ? formatPrice(q.rate) : formatAmount(q.rate)} ${outSymbol}` : '—'}</Line>
         {showPath && (
-          <Line label="Path">
+          <Line label="Route">
             {q ? (
               <span className="flex items-center justify-end gap-1.5">
                 {q.path.join(' → ')}
-                <InfoTip>{q.router === 'demo' ? 'Demo route through NEAR.' : 'Route from Rhea’s router. It is quoted again right before you sign.'}</InfoTip>
+                {q.source && <span className="text-fg-3">· {ROUTE_SOURCE_LABEL[q.source]}</span>}
+                <InfoTip>
+                  {q.router === 'demo'
+                    ? 'Demo route through NEAR.'
+                    : q.source === 'dcl'
+                      ? 'Quoted on the DCL exchange’s own pools, read from chain. It is quoted again right before you sign.'
+                      : 'Route from Rhea’s router. It is quoted again right before you sign.'}
+                </InfoTip>
               </span>
             ) : (
               '—'
