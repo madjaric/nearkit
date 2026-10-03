@@ -168,10 +168,10 @@ export default function SettingsPage() {
             <Row
               label={
                 <span className="flex items-center gap-1.5">
-                  Gas reserve <InfoTip term="gasReserve" />
+                  Minimum wallet reserve <InfoTip term="gasReserve" />
                 </span>
               }
-              hint="MAX leaves this much NEAR in each wallet for gas and storage."
+              hint="NearKit keeps this much NEAR available in each wallet: MAX never spends it. Not the temporary gas reserve a transaction holds while it runs."
             >
               <p className="pt-1 text-sm text-fg-2">
                 <Figures>{`${GAS_RESERVE_NEAR} NEAR per wallet`}</Figures>

@@ -39,8 +39,8 @@ export const GLOSSARY = {
     text: `NEAR token contracts charge a one-time deposit (about ${STORAGE_DEPOSIT_NEAR} NEAR) the first time an account holds a token.`,
   },
   gasReserve: {
-    term: 'Gas reserve',
-    text: `MAX leaves ${GAS_RESERVE_NEAR} NEAR in the wallet so it can still pay for gas.`,
+    term: 'Minimum wallet reserve',
+    text: `The NEAR NearKit keeps available in each wallet: MAX leaves ${GAS_RESERVE_NEAR} NEAR so the wallet can still pay for gas and storage later. This is not the temporary gas reserve a transaction holds while it runs (“${GAS_RESERVE_LABEL}” on reviews).`,
   },
   quoteAge: {
     term: 'Quote age',

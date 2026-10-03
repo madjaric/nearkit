@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { gasCostBoundYocto, gasPurchaseYocto } from '@/services/near/gas'
 import { peakNeedYocto, txStorageYocto } from '@/services/near/plans'
 import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
+import { GAS_RESERVE_NEAR } from './fees'
 import { ACTUAL_NETWORK_FEE_LABEL, GAS_RESERVE_LABEL, GAS_RESERVE_NOT_FEE, GAS_RESERVE_NOTE, GAS_RESERVE_TOOLTIP, gasReserveYocto } from './gasReserve'
 import { GLOSSARY } from './glossary'
 
@@ -45,6 +46,14 @@ describe('the gas reserve, as NearKit names it', () => {
     expect(reserve).toBe(gasCostBoundYocto(reg) + gasCostBoundYocto(agg) + gasPurchaseYocto(swap) + 1n)
     // About a third of a NEAR: 320 TGas of attached gas held at 0.001 NEAR per TGas, and the bound of the two steps before.
     expect(reserve > 32n * 10n ** 22n && reserve < 34n * 10n ** 22n).toBe(true)
+  })
+
+  it('the NEAR that MAX keeps in a wallet has its own name, and says it is not the transaction’s gas reserve', () => {
+    expect(GLOSSARY.gasReserve.term).toBe('Minimum wallet reserve')
+    expect(GLOSSARY.gasReserve.term).not.toBe(GAS_RESERVE_LABEL)
+    expect(GLOSSARY.gasReserve.text).toContain(`${GAS_RESERVE_NEAR} NEAR`)
+    expect(GLOSSARY.gasReserve.text).toMatch(/NearKit keeps available in each wallet/)
+    expect(GLOSSARY.gasReserve.text).toMatch(/not the temporary gas reserve/)
   })
 
   it('is the need less the registrations for a sell (no NEAR in), and never negative', () => {

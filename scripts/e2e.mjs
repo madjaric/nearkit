@@ -347,6 +347,9 @@ await step('disconnect shows connect states; demo account reconnects', async () 
 
 await step('settings: one-click mode fires without arming', async () => {
   await page.goto(BASE + '/settings', { waitUntil: 'networkidle' })
+  // The NEAR MAX keeps back is the minimum wallet reserve, named apart from a transaction's refunded gas reserve.
+  await visible(page, 'Minimum wallet reserve')
+  if ((await page.getByText(/^Gas reserve$/).count()) !== 0) throw new Error('Settings still names it Gas reserve')
   await page.getByRole('switch', { name: 'Two-step confirmation' }).click()
   // Settings live in session state, so move client-side through the sidebar.
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Dashboard' }).click()
