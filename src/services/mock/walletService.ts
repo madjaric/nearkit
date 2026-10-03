@@ -1,4 +1,5 @@
 import { accountIdError, accountKind } from '@/lib/validation'
+import { executableWallets } from '@/lib/wallets'
 import { MAIN_ACCOUNT } from '@/mocks/wallets'
 import { TOKEN_IDS } from '@/mocks/tokens'
 import type { PresetInput, Wallet, WalletPreset } from '@/types/domain'
@@ -21,6 +22,18 @@ function validatePreset(state: MockState, input: PresetInput, ignoreId?: string)
 
 /** Demo wallets: the seeded demo account and its 11 managed wallets. Nothing connects to a real wallet. */
 export function createWalletService(state: MockState): WalletService {
+  /** Balances of exactly these wallets. */
+  const snapshotsOf = (list: MockState['wallets']) =>
+    list.map((w) => {
+      const holdings = state.holdings.filter((h) => h.walletId === w.id).map((h) => ({ ...h }))
+      return {
+        ...withSource(w),
+        nearBalance: balanceOf(state, w.id, TOKEN_IDS.near),
+        holdings,
+        valueUsd: holdings.reduce((s, h) => s + h.amount * priceOf(state, h.tokenId), 0),
+      }
+    })
+
   return {
     async getSession() {
       await wait('read')
@@ -56,15 +69,14 @@ export function createWalletService(state: MockState): WalletService {
       await wait('read')
       if (!state.session) return []
       tickMarket(state)
-      return state.wallets.map((w) => {
-        const holdings = state.holdings.filter((h) => h.walletId === w.id).map((h) => ({ ...h }))
-        return {
-          ...withSource(w),
-          nearBalance: balanceOf(state, w.id, TOKEN_IDS.near),
-          holdings,
-          valueUsd: holdings.reduce((s, h) => s + h.amount * priceOf(state, h.tokenId), 0),
-        }
-      })
+      return snapshotsOf(state.wallets)
+    },
+
+    async listPortfolioSnapshots() {
+      await wait('read')
+      if (!state.session) return []
+      tickMarket(state)
+      return snapshotsOf(executableWallets(state.wallets))
     },
 
     async listHoldings() {

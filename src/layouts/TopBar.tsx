@@ -118,7 +118,7 @@ function WalletButton() {
           ) : (
             summary && (
               <p className="mt-1 text-xs text-fg-3">
-                <Figures>{`${summary.walletCount} wallets · ${formatAmount(summary.availableNear, 2)} NEAR available`}</Figures>
+                <Figures>{`${summary.executableWalletCount} executable ${summary.executableWalletCount === 1 ? 'wallet' : 'wallets'} · ${formatAmount(summary.availableNear, 2)} NEAR available`}</Figures>
               </p>
             )
           )}

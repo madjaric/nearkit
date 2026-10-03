@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseEnv } from '@/config/env'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { NETWORKS, type NetworkId } from '@/config/networks'
+import { tradeWalletPool } from '@/lib/wallets'
 import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import type { RpcTxResult } from '@/services/near/rpc'
 import type { ConnectorTransaction, WalletSession } from '@/services/near/wallet'
@@ -1133,5 +1134,151 @@ describe('wallet classes (real, fake chain)', () => {
       services.transfers.prepare({ kind: 'consolidate', tokenId: USDT, destinationAccountId: 'carol.testnet', sources: [{ walletId: NK2, amount: '1' }] }),
     ).rejects.toEqual(nearkitOnly)
     expect(wallet.signed).toEqual([])
+  })
+})
+
+// ─── the portfolio is made of executable wallets only ────────────────────────
+
+describe('the portfolio counts executable wallets only: watch-only wallets are observed, never aggregated', () => {
+  const BIG = 'big.testnet'
+  /** Alice 10 NEAR and Bob 5 NEAR connected; Carol 100 NEAR and Dave 1,000 NEAR watched: far more than both together. */
+  const chain = (): FakeChainOptions => ({
+    accounts: { 'alice.testnet': { amount: NEAR(10) }, 'bob.testnet': { amount: NEAR(5) }, 'carol.testnet': { amount: NEAR(100) }, 'dave.testnet': { amount: NEAR(1000) } },
+    tokens: {
+      [USDT]: {
+        symbol: 'USDT',
+        decimals: 6,
+        balances: { 'alice.testnet': 100_000_000n, 'carol.testnet': 10_000_000_000n },
+        registered: ['alice.testnet', 'carol.testnet'],
+        boundsMin: MIN_STORAGE,
+      },
+      [BIG]: { symbol: 'BIG', decimals: 18, balances: { 'carol.testnet': 5_000n * 10n ** 18n }, registered: ['carol.testnet'], boundsMin: MIN_STORAGE },
+    },
+  })
+  /** No on-chain history for anyone: positions answer without PnL, at once. */
+  const noHistory = (c: FakeChain) => {
+    c.route('https://tx.test.fastnear.com/v0/account', () => ({ account_txs: [], txs_count: 0 }))
+    c.route('https://tx.test.fastnear.com/v0/transactions', () => ({ transactions: [] }))
+  }
+  /** Rhea's classic router: 4 USDT per NEAR for whatever is asked. */
+  const withRouter = (c: FakeChain) =>
+    c.route('https://smartroutertest.refburrow.top/findPath', (url) => {
+      const amountIn = url.searchParams.get('amountIn') ?? '0'
+      const out = ((BigInt(amountIn) * 4n) / 10n ** 18n).toString()
+      const min = ((BigInt(amountIn) * 4n * 995n) / 1000n / 10n ** 18n).toString()
+      const pool = {
+        pool_id: '1352',
+        token_in: url.searchParams.get('tokenIn'),
+        token_out: url.searchParams.get('tokenOut'),
+        amount_in: amountIn,
+        amount_out: '0',
+        min_amount_out: min,
+      }
+      return { result_code: 0, result_data: { routes: [{ pools: [pool], amount_in: amountIn, min_amount_out: min, amount_out: '0' }], amount_out: out } }
+    })
+  async function portfolio(accounts = ['alice.testnet', 'bob.testnet']) {
+    const t = setup({ chain: chain(), session: session(accounts) })
+    noHistory(t.chain)
+    await t.services.wallets.getSession()
+    await t.services.wallets.addAccount({ accountId: 'carol.testnet', label: 'Carol' })
+    await t.services.wallets.addAccount({ accountId: 'dave.testnet', label: 'Dave' })
+    return t
+  }
+  const nearOf = (list: { accountId: string; nearBalance: number }[], id: string) => list.find((x) => x.accountId === id)?.nearBalance ?? 0
+
+  it('Available NEAR and the counts: the two connected wallets, not the watched ones holding 100 and 1,000 NEAR', async () => {
+    const { services } = await portfolio()
+    const all = await services.wallets.listSnapshots()
+    expect(all.map((w) => [w.accountId, w.source])).toEqual([
+      ['alice.testnet', 'external'],
+      ['bob.testnet', 'external'],
+      ['carol.testnet', 'watch'],
+      ['dave.testnet', 'watch'],
+    ])
+    const summary = await services.portfolio.getSummary()
+    const executable = nearOf(all, 'alice.testnet') + nearOf(all, 'bob.testnet')
+    expect(executable).toBeGreaterThan(14.9)
+    expect(summary.availableNear).toBeCloseTo(executable, 6)
+    expect(summary.availableNear).toBeLessThan(nearOf(all, 'carol.testnet'))
+    expect(summary).toMatchObject({ walletCount: 4, executableWalletCount: 2, mainNear: nearOf(all, 'alice.testnet') })
+  })
+
+  it('positions: the connected wallets’ tokens only; a token held by a watched wallet alone is absent, and no share names a watched wallet', async () => {
+    const { services } = await portfolio()
+    const positions = await services.portfolio.listPositions()
+    // NEAR itself is a position too (the "Base" row): the connected wallets' NEAR, not the watched 1,100.
+    expect(positions.map((p) => p.token.id)).toEqual([USDT, 'near'])
+    expect(positions[0]).toMatchObject({ balance: 100, wallets: [{ walletId: 'alice.testnet', amount: 100 }] })
+    const near = positions[1] as NonNullable<(typeof positions)[1]>
+    expect(near.balance).toBeGreaterThan(14.9)
+    expect(near.balance).toBeLessThan(16)
+    expect(near.wallets.map((w) => w.walletId)).toEqual(['alice.testnet', 'bob.testnet'])
+    expect((await services.portfolio.getSummary()).activePositions).toBe(2)
+    expect((await services.wallets.listPortfolioSnapshots()).map((w) => w.accountId)).toEqual(['alice.testnet', 'bob.testnet'])
+  })
+
+  it('the watched wallets stay visible with their own balances in the wallet views', async () => {
+    const { services } = await portfolio()
+    const all = await services.wallets.listSnapshots()
+    expect(nearOf(all, 'carol.testnet')).toBeGreaterThan(99.9)
+    expect(nearOf(all, 'dave.testnet')).toBeGreaterThan(999.9)
+    expect(all.find((w) => w.accountId === 'carol.testnet')?.holdings.map((h) => h.tokenId)).toEqual(expect.arrayContaining([USDT, BIG]))
+    expect((await services.wallets.listHoldings()).some((h) => h.walletId === 'carol.testnet' && h.tokenId === BIG)).toBe(true)
+  })
+
+  it('an account out of the session is watched and out of the portfolio; in the session, it counts', async () => {
+    const only = setup({ chain: chain(), session: session(['alice.testnet']) })
+    noHistory(only.chain)
+    await only.services.wallets.getSession()
+    await only.services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
+    const watched = await only.services.portfolio.getSummary()
+    expect(watched).toMatchObject({ walletCount: 2, executableWalletCount: 1 })
+    expect(watched.availableNear).toBeLessThan(10.1)
+    const both = setup({ chain: chain(), session: session(['alice.testnet', 'bob.testnet']) })
+    noHistory(both.chain)
+    await both.services.wallets.getSession()
+    const counted = await both.services.portfolio.getSummary()
+    expect(counted).toMatchObject({ walletCount: 2, executableWalletCount: 2 })
+    expect(counted.availableNear).toBeGreaterThan(14.9)
+  })
+
+  it('a trade ticket spends from an executable wallet’s own balance: 50 NEAR from Alice is refused although a watched wallet holds 100', async () => {
+    const { services, chain: c } = await portfolio()
+    withRouter(c)
+    expect(tradeWalletPool(await services.wallets.listWallets()).options.map((w) => w.id)).toEqual(['alice.testnet', 'bob.testnet'])
+    await expect(services.trading.prepareSwap({ tokenIn: 'near', tokenOut: USDT, amountIn: '50', slippagePct: 1, walletId: 'alice.testnet' })).rejects.toMatchObject({
+      code: 'INSUFFICIENT_BALANCE',
+      message: expect.stringMatching(/NEAR available and this swaps 50 NEAR/),
+    })
+  })
+
+  it('Multi Buy totals come from its legs alone, and a watched wallet can’t be a Multi Sell leg', async () => {
+    const { services, chain: c } = await portfolio()
+    withRouter(c)
+    const q = await services.trading.quoteMulti({
+      side: 'buy',
+      tokenId: USDT,
+      slippagePct: 0.5,
+      legs: [
+        { walletId: 'alice.testnet', amountIn: '1' },
+        { walletId: 'bob.testnet', amountIn: '2' },
+      ],
+    })
+    expect(q.totalIn).toBe(3)
+    expect(q.legs.map((l) => l.walletId)).toEqual(['alice.testnet', 'bob.testnet'])
+    await expect(services.trading.prepareMulti({ side: 'sell', tokenId: USDT, slippagePct: 0.5, legs: [{ walletId: 'carol.testnet', amountIn: '1' }] })).rejects.toMatchObject({
+      code: 'NOT_EXECUTABLE',
+      message: expect.stringMatching(/Carol is watch-only/),
+    })
+  })
+
+  it('nothing changes for a portfolio with no watched wallets', async () => {
+    const t = setup({ chain: chain(), session: session(['alice.testnet', 'bob.testnet']) })
+    noHistory(t.chain)
+    await t.services.wallets.getSession()
+    const s = await t.services.portfolio.getSummary()
+    expect(s).toMatchObject({ walletCount: 2, executableWalletCount: 2 })
+    expect(s.availableNear).toBeGreaterThan(14.9)
+    expect((await t.services.portfolio.listPositions()).map((p) => p.token.id)).toEqual([USDT, 'near'])
   })
 })

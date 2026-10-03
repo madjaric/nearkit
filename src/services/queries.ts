@@ -300,7 +300,8 @@ export function useHoldings() {
 export function useAccountMutations() {
   const s = useServices()
   const qc = useQueryClient()
-  const onSuccess = () => qc.invalidateQueries({ queryKey: ['wallets'] })
+  // The account book changes which wallets are watch-only: wallet views and the portfolio both re-read.
+  const onSuccess = () => Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
   return {
     add: useMutation({ mutationFn: (input: { accountId: string; label?: string }) => s.wallets.addAccount(input), onSuccess }),
     remove: useMutation({ mutationFn: (id: string) => s.wallets.removeAccount(id), onSuccess }),

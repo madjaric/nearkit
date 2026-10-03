@@ -207,7 +207,10 @@ export interface PortfolioSummary {
   mainNear: number
   activePositions: number
   openOrders: number
+  /** Every wallet NearKit shows, watch-only ones included. */
   walletCount: number
+  /** The wallets the figures above are made of: never a watch-only one. */
+  executableWalletCount: number
   updatedAt: Timestamp
 }
 

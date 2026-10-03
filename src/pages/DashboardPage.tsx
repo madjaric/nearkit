@@ -99,7 +99,7 @@ function Readouts() {
           ) : s.valueUsd === null ? (
             'no USD prices on testnet'
           ) : s.pnl24hPct === null ? (
-            `across ${s.walletCount} wallets`
+            `across ${s.executableWalletCount} executable ${s.executableWalletCount === 1 ? 'wallet' : 'wallets'}`
           ) : (
             <span className={toneOf(s.pnl24hUsd ?? 0)}>
               <Pct value={s.pnl24hPct} /> <Figures>(24h)</Figures>
@@ -129,7 +129,15 @@ function Readouts() {
         aside={<Coins size={16} aria-hidden="true" />}
         loading={loading}
         value={off || !s ? <span className="text-fg-4">0</span> : s.walletCount}
-        sub={off || !s ? '—' : caps.mode === 'demo' ? 'demo wallets' : 'NearKit and connected wallets'}
+        sub={
+          off || !s
+            ? '—'
+            : caps.mode === 'demo'
+              ? 'demo wallets'
+              : s.walletCount > s.executableWalletCount
+                ? `${s.executableWalletCount} executable · ${s.walletCount - s.executableWalletCount} watch-only`
+                : 'NearKit and connected wallets'
+        }
       />
     </ReadoutStrip>
   )
@@ -213,7 +221,7 @@ export default function DashboardPage() {
         status={<DataTag />}
         description={
           session
-            ? `${summary ? `${summary.walletCount} wallets · ` : ''}${caps.mode === 'demo' ? 'Demo · prices move every few seconds' : `${caps.networkLabel} · balances refreshed every 30 s`}`
+            ? `${summary ? `${summary.executableWalletCount} executable ${summary.executableWalletCount === 1 ? 'wallet' : 'wallets'} · ` : ''}${caps.mode === 'demo' ? 'Demo · prices move every few seconds' : `${caps.networkLabel} · balances refreshed every 30 s`}`
             : 'Connect a wallet to load your portfolio.'
         }
         actions={<QuickActions />}

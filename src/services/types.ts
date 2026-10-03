@@ -147,7 +147,13 @@ export interface WalletService {
    */
   signMessage(request: SignMessageRequest & { accountId?: string }): Promise<SignedMessageResult>
   listWallets(): Promise<Wallet[]>
+  /** Every wallet with its balances: the wallet views, watch-only ones included. */
   listSnapshots(): Promise<WalletSnapshot[]>
+  /**
+   * The snapshots the portfolio is made of: executable wallets only (`executableWallets` in
+   * src/lib/wallets.ts), their balances read for those alone. Watch-only wallets never enter it.
+   */
+  listPortfolioSnapshots(): Promise<WalletSnapshot[]>
   listHoldings(): Promise<Holding[]>
   /** Add a watch-only account to the account book. */
   addAccount(input: { accountId: string; label?: string }): Promise<Wallet>

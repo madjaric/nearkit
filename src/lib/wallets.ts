@@ -23,6 +23,14 @@ export function sourceOf(w: Pick<Wallet, 'source' | 'access'>): WalletSource {
 
 export const canExecute = (w: Pick<Wallet, 'source' | 'access'>) => sourceOf(w) !== 'watch'
 
+/**
+ * The wallets NearKit's portfolio is made of: the ones that can act. Watch-only wallets are
+ * observed in their own views (their balances, their activity) and are never aggregated into
+ * portfolio value, available NEAR, positions, PnL or history. Filter with this before reading
+ * balances; never subtract a watch wallet's figures from a total afterwards.
+ */
+export const executableWallets = <W extends Pick<Wallet, 'source' | 'access'>>(wallets: readonly W[]): W[] => wallets.filter(canExecute)
+
 /** Signed right here by the connected wallet (or the demo simulator). */
 export const signsInBrowser = (w: Pick<Wallet, 'source' | 'access'>) => sourceOf(w) === 'external'
 
@@ -43,4 +51,15 @@ export function presetMembers(
     else executable.push(w)
   }
   return { executable, excluded }
+}
+
+/**
+ * The wallets a trade ticket may spend from: NearKit wallets that aren't frozen, then the
+ * connected wallet's accounts. A watch-only wallet is never in the pool, so no amount, MAX or
+ * percentage preset can ever read its balance.
+ */
+export function tradeWalletPool<W extends Pick<Wallet, 'source' | 'access' | 'frozen'>>(wallets: readonly W[]): { nearkit: W[]; browser: W[]; options: W[] } {
+  const nearkit = wallets.filter((w) => executesViaNearKit(w) && !w.frozen)
+  const browser = wallets.filter(signsInBrowser)
+  return { nearkit, browser, options: [...nearkit, ...browser] }
 }

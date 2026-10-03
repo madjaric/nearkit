@@ -172,6 +172,19 @@ describe('demo portfolio', () => {
 })
 
 describe('demo wallet classes', () => {
+  it('a watch-only account is observed, never counted: the demo portfolio is unchanged by it', async () => {
+    const s = createMockServices()
+    const before = await s.portfolio.getSummary()
+    const watch = await s.wallets.addAccount({ accountId: 'whale.near', label: 'Whale' })
+    const after = await s.portfolio.getSummary()
+    expect(after.walletCount).toBe(before.walletCount + 1)
+    expect(after.executableWalletCount).toBe(before.executableWalletCount)
+    expect(after.availableNear).toBeCloseTo(before.availableNear, 6)
+    expect((await s.portfolio.listPositions()).every((p) => p.wallets.every((x) => x.walletId !== watch.id))).toBe(true)
+    expect((await s.wallets.listPortfolioSnapshots()).some((w) => w.id === watch.id)).toBe(false)
+    expect((await s.wallets.listSnapshots()).some((w) => w.id === watch.id)).toBe(true)
+  })
+
   it('the demo’s wallets are executable; an added account is watch-only', async () => {
     const s = createMockServices()
     const watch = await s.wallets.addAccount({ accountId: 'trader.near', label: 'Trader X' })

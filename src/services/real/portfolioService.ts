@@ -9,10 +9,12 @@ import { buildPnlReport } from './pnlReport'
 import { historyOf, reportTokenIds, reportTokens, withPnl } from './positionsPnl'
 
 /**
- * Portfolio from real balances. Values need a price; where there is none
- * (testnet, unlisted tokens) the figure is null, never zero. Cost basis and PnL
- * come from each account's on-chain history (src/lib/pnl.ts): exact in NEAR,
- * in USD at each trade's hour, and flagged wherever history can't tell.
+ * Portfolio from real balances, of executable wallets only: the wallet service filters
+ * watch-only wallets out before it reads a balance (`listPortfolioSnapshots`), so nothing
+ * here ever sees them. Values need a price; where there is none (testnet, unlisted tokens)
+ * the figure is null, never zero. Cost basis and PnL come from each account's on-chain
+ * history (src/lib/pnl.ts): exact in NEAR, in USD at each trade's hour, and flagged
+ * wherever history can't tell.
  */
 
 /** How long a positions read waits for history before answering without PnL. */
@@ -21,12 +23,12 @@ const PNL_WAIT_MS = 6_000
 export function createPortfolioService(
   ctx: NearContext,
   market: Market,
-  wallets: Pick<WalletService, 'getSession' | 'listSnapshots'>,
+  wallets: Pick<WalletService, 'getSession' | 'listWallets' | 'listPortfolioSnapshots'>,
   active: ReadonlySet<string>,
   tracker: PnlTracker,
 ): PortfolioService {
   async function positions(): Promise<Position[]> {
-    const snapshots = await wallets.listSnapshots()
+    const snapshots = await wallets.listPortfolioSnapshots()
     const held = [...new Set(snapshots.flatMap((s) => s.holdings.map((h) => h.tokenId)))].filter((id) => id !== NATIVE_TOKEN_ID)
     const tokens = new Map<string, TokenListing>((await market.listTokens(held)).map((t) => [t.id, t]))
     const byToken = new Map<string, { walletId: string; amount: number }[]>()
@@ -75,10 +77,11 @@ export function createPortfolioService(
           activePositions: 0,
           openOrders: 0,
           walletCount: 0,
+          executableWalletCount: 0,
           updatedAt: ctx.now(),
         }
       }
-      const [snapshots, list, near] = await Promise.all([wallets.listSnapshots(), positions(), market.nearQuote()])
+      const [snapshots, list, near, all] = await Promise.all([wallets.listPortfolioSnapshots(), positions(), market.nearQuote(), wallets.listWallets()])
       const priced = list.filter((p) => p.valueUsd !== null)
       const availableNear = snapshots.reduce((s, w) => s + w.nearBalance, 0)
       return {
@@ -91,7 +94,8 @@ export function createPortfolioService(
         mainNear: snapshots.find((w) => w.accountId === session.accountId)?.nearBalance ?? 0,
         activePositions: list.length,
         openOrders: 0,
-        walletCount: snapshots.length,
+        walletCount: all.length,
+        executableWalletCount: snapshots.length,
         updatedAt: ctx.now(),
       }
     },
@@ -103,7 +107,7 @@ export function createPortfolioService(
     },
 
     async getPnl(range) {
-      const snapshots = await wallets.listSnapshots()
+      const snapshots = await wallets.listPortfolioSnapshots()
       const accounts = [...new Set(snapshots.map((s) => s.accountId))]
       if (!accounts.length) return null
       const ledgers = await Promise.all(accounts.map((a) => tracker.ledger(a)))

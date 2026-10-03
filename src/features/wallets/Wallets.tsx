@@ -18,7 +18,7 @@ import { useToast } from '@/components/ui/toast-context'
 import { isComingSoon } from '@/config/release'
 import { formatAgo, formatAmount, formatUsd } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
-import { canExecute, executesViaNearKit, signsInBrowser } from '@/lib/wallets'
+import { canExecute, executableWallets, executesViaNearKit, signsInBrowser } from '@/lib/wallets'
 import { useServices } from '@/services/context'
 import { useAccountMutations, useCapabilities, usePresetMutations, usePresets, useSession, useWalletSnapshots } from '@/services/queries'
 import { describeError } from '@/services/errors'
@@ -67,8 +67,10 @@ export function Wallets() {
   const wallets = snapshots.data ?? []
   const list = presets.data ?? []
   const byId = new Map(wallets.map((w) => [w.id, w]))
-  const totalNear = wallets.reduce((s, w) => s + w.nearBalance, 0)
-  const valued = wallets.filter((w) => w.valueUsd !== null)
+  // The totals are the portfolio's: executable wallets only. A watched wallet's balance stays in its own row.
+  const portfolio = executableWallets(wallets)
+  const totalNear = portfolio.reduce((s, w) => s + w.nearBalance, 0)
+  const valued = portfolio.filter((w) => w.valueUsd !== null)
   const totalValue = valued.length ? valued.reduce((s, w) => s + (w.valueUsd ?? 0), 0) : null
 
   const presetNear = (p: WalletPreset) => p.walletIds.reduce((s, id) => s + (byId.get(id)?.nearBalance ?? 0), 0)
@@ -278,7 +280,13 @@ export function Wallets() {
               : `1 main · ${Math.max(0, wallets.length - 1)} NearKit-managed`
           }
         />
-        <ReadoutSlot legend="NEAR across wallets" loading={snapshots.isPending} value={formatAmount(totalNear, 2)} unit="NEAR" sub={`across ${wallets.length} wallets`} />
+        <ReadoutSlot
+          legend="NEAR across wallets"
+          loading={snapshots.isPending}
+          value={formatAmount(totalNear, 2)}
+          unit="NEAR"
+          sub={watched.length ? `across ${portfolio.length} executable · ${watched.length} watch-only not counted` : `across ${wallets.length} wallets`}
+        />
         <ReadoutSlot
           legend="Value"
           loading={snapshots.isPending}

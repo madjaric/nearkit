@@ -459,6 +459,12 @@ await step('add a watch-only account, validated on chain', async () => {
   await page.getByText('Watch only', { exact: true }).visible().first().waitFor()
 })
 
+await step('the dashboard counts executable wallets only: the watched account is listed, never summed', async () => {
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  await visible(/2 executable · 1 watch-only/)
+  await visible(/2 executable wallets · /)
+})
+
 await step('a watch-only account never joins a Multi Buy or a preset: not offered, and said so', async () => {
   await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
   await visible('1 watch-only wallet is not listed: watch-only wallets can’t trade.')

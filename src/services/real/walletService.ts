@@ -8,7 +8,7 @@ import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { explorerAccountUrl } from '@/services/near/explorer'
 import type { WalletSession } from '@/services/near/wallet'
 import type { Holding, PresetInput, Session, Wallet, WalletPreset, WalletSnapshot } from '@/types/domain'
-import { canExecute } from '@/lib/wallets'
+import { canExecute, executableWallets } from '@/lib/wallets'
 import type { NearKitWeb } from '../nearkitWeb'
 import type { WalletService } from '../types'
 import type { NearContext } from './context'
@@ -115,8 +115,8 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
     return [...own, ...others]
   }
 
-  async function snapshots(): Promise<WalletSnapshot[]> {
-    const list = await wallets()
+  /** Balances of exactly these wallets, read from chain. */
+  async function snapshotsOf(list: Wallet[]): Promise<WalletSnapshot[]> {
     const [balances, tokens] = await Promise.all([mapLimit(list, 3, (w) => ctx.balances.get(w.accountId)), market.listTokens()])
     const byId = new Map(tokens.map((t) => [t.id, t]))
     // Tokens held but not yet listed (discovered): fetch their metadata once.
@@ -141,6 +141,9 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       return { ...w, nearBalance: display(nearRaw, NEAR_DECIMALS), holdings, valueUsd }
     })
   }
+  const snapshots = async () => snapshotsOf(await wallets())
+  /** The portfolio's wallets, filtered before any balance is read: watch-only wallets are left out here, not subtracted later. */
+  const portfolioSnapshots = async () => snapshotsOf(executableWallets(await wallets()))
 
   const validatePreset = (input: PresetInput, known: Wallet[], ignoreId?: string): PresetInput => {
     const name = input.name.trim().toUpperCase()
@@ -201,6 +204,7 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
 
     listWallets: wallets,
     listSnapshots: snapshots,
+    listPortfolioSnapshots: portfolioSnapshots,
 
     async listHoldings() {
       return (await snapshots()).flatMap((s) => s.holdings)

@@ -2,6 +2,7 @@ import { generateValuePath } from '@/mocks/pnl'
 import { SEED_COST_BASIS, TOKEN_IDS } from '@/mocks/tokens'
 import { DAY, HOUR, startOfDay } from '@/mocks/time'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
+import { executableWallets } from '@/lib/wallets'
 import type { PnlPoint, PnlRange, PnlReport, Position, TokenPnl } from '@/types/domain'
 import type { PortfolioService } from '../types'
 import { balanceOf, nearPrice, tickMarket, tokenOf, wait, type MockState } from './state'
@@ -12,9 +13,11 @@ const RANGE_DAYS: Record<PnlRange, number> = { '7d': 7, '30d': 30, '90d': 90, al
 type DemoPosition = Position & { avgEntryUsd: number; priceUsd: number; change24hPct: number; valueUsd: number; costUsd: number; pnlUsd: number; pnlPct: number }
 
 export function buildPositions(state: MockState): DemoPosition[] {
+  // The portfolio's wallets: a watch-only account's holdings are shown with it, never counted here.
+  const executable = new Set(executableWallets(state.wallets).map((w) => w.id))
   const byToken = new Map<string, { walletId: string; amount: number }[]>()
   for (const h of state.holdings) {
-    if (h.amount <= 0) continue
+    if (h.amount <= 0 || !executable.has(h.walletId)) continue
     const list = byToken.get(h.tokenId) ?? []
     list.push({ walletId: h.walletId, amount: h.amount })
     byToken.set(h.tokenId, list)
@@ -52,7 +55,8 @@ export function createPortfolioService(state: MockState): PortfolioService {
       const positions = state.session ? buildPositions(state) : []
       const valueUsd = positions.reduce((s, p) => s + p.valueUsd, 0)
       const pnl24hUsd = positions.reduce((s, p) => s + p.valueUsd * (p.change24hPct / (100 + p.change24hPct)), 0)
-      const availableNear = state.session ? state.wallets.reduce((s, w) => s + balanceOf(state, w.id, TOKEN_IDS.near), 0) : 0
+      const executable = executableWallets(state.wallets)
+      const availableNear = state.session ? executable.reduce((s, w) => s + balanceOf(state, w.id, TOKEN_IDS.near), 0) : 0
       return {
         valueUsd,
         pnl24hUsd,
@@ -64,6 +68,7 @@ export function createPortfolioService(state: MockState): PortfolioService {
         activePositions: positions.length,
         openOrders: state.session ? state.orders.filter((o) => o.status === 'open').length : 0,
         walletCount: state.session ? state.wallets.length : 0,
+        executableWalletCount: state.session ? executable.length : 0,
         updatedAt: Date.now(),
       }
     },
