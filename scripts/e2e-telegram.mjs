@@ -423,6 +423,11 @@ await step('Create wallet on NearKit web: named, listed at once, announced in Te
   const degen = list.json?.wallets?.find((w) => w.name === 'Degen 1')
   if (!degen || !/^[0-9a-f]{64}$/.test(degen.accountId)) throw new Error(`not listed: ${JSON.stringify(list.json)}`)
   degenAddress = degen.accountId
+  // The notice shows the address shortened; its Copy address key carries the full id from the wallet record.
+  const notice = tg.sent.slice(from).find((x) => x.chatId === TG_USER.id && x.text.includes('NearKit wallet created on NearKit web'))
+  if (!notice || notice.text.includes(degenAddress)) throw new Error('the notice shows the full address, or is missing')
+  const copyKey = notice.buttons.find((b) => b.text === '📋 Copy address')
+  if (copyKey?.copy_text?.text !== degenAddress) throw new Error(`Copy address carries ${JSON.stringify(copyKey)}`)
   const html = await page.content()
   if (/ed25519:|privateKey|sealed/.test(html)) throw new Error('key material reached the page')
   await shot('tg-07-web-created')

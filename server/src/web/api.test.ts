@@ -7,6 +7,7 @@ import { telegramApprovalsOn } from '../bot/tradingWallet'
 import { linkedAccountOf } from '../bot/wallet'
 import { walletBot } from '../bot/walletTesting'
 import { MAX_ACTIVE_WALLETS_PER_USER } from '../custody/limits'
+import { shortAccount } from '../telegram/html'
 import { webRoutes } from './routes'
 
 /**
@@ -48,7 +49,13 @@ async function webApp(options: Parameters<typeof walletBot>[0] = {}) {
       .messages()
       .filter((m) => m.chatId === ALICE.id)
       .at(-1)?.text ?? ''
-  return { h, call, signIn, toAlice }
+  /** The last message the bot sent Alice, keys included. */
+  const noticeToAlice = () =>
+    h.fake
+      .messages()
+      .filter((m) => m.chatId === ALICE.id)
+      .at(-1)
+  return { h, call, signIn, toAlice, noticeToAlice }
 }
 
 describe('signing in to NearKit web', () => {
@@ -118,6 +125,54 @@ describe('NearKit wallets on the web', () => {
     const again = await call('/api/web/wallets/create', { session: token, name: 'Degen 1', createKey: 'web-key-000001' })
     expect((again.wallet as Record<string, unknown>).id).toBe(created.id)
     expect(((await call('/api/web/wallets', { session: token })).wallets as unknown[]).length).toBe(1)
+  })
+
+  it('the notice in Telegram shows the shortened address, and its Copy address key carries the full account id, never the shortened one', async () => {
+    const { call, signIn, noticeToAlice } = await webApp({ link: false })
+    const token = await signIn()
+    const r = await call('/api/web/wallets/create', { session: token, name: 'Test 03', createKey: 'web-key-000001' })
+    const accountId = String((r.wallet as { accountId: string }).accountId)
+    expect(accountId).toMatch(/^[0-9a-f]{64}$/)
+    const notice = noticeToAlice()
+    expect(notice?.text).toContain('NearKit wallet created on NearKit web')
+    // Compact on screen: name and the shortened address, not the 64-character id.
+    expect(notice?.text).toContain(`<b>Test 03</b> <code>${shortAccount(accountId)}</code>`)
+    expect(notice?.text).not.toContain(accountId)
+    // The key copies the full id from the wallet record: exactly, never shortened.
+    const copy = notice?.buttons.find((b) => b.text === '📋 Copy address')
+    expect(copy?.copy).toBe(accountId)
+    expect(copy?.copy).not.toBe(shortAccount(accountId))
+    expect(copy?.copy).not.toContain('…')
+    // The other keys are as before.
+    expect(notice?.buttons.map((b) => [b.text, b.data ?? b.copy])).toEqual([
+      ['📋 Copy address', accountId],
+      ['👛 My wallets', 'cw:list'],
+      ['🚪 Sign out of NearKit web everywhere', 'web:out'],
+    ])
+  })
+
+  it('each wallet’s notice copies its own full address', async () => {
+    const { call, signIn, noticeToAlice } = await webApp({ link: false })
+    const token = await signIn()
+    const a = String(((await call('/api/web/wallets/create', { session: token, name: 'Alpha', createKey: 'web-key-000001' })).wallet as { accountId: string }).accountId)
+    const first = noticeToAlice()
+    const b = String(((await call('/api/web/wallets/create', { session: token, name: 'Beta', createKey: 'web-key-000002' })).wallet as { accountId: string }).accountId)
+    const second = noticeToAlice()
+    expect(a).not.toBe(b)
+    expect(first?.buttons.find((k) => k.text === '📋 Copy address')?.copy).toBe(a)
+    expect(second?.buttons.find((k) => k.text === '📋 Copy address')?.copy).toBe(b)
+    expect(second?.text).toContain(`<b>Beta</b> <code>${shortAccount(b)}</code>`)
+  })
+
+  it('the notice’s other keys still work: My wallets lists the wallet, Sign out everywhere ends the web session', async () => {
+    const { h, call, signIn } = await webApp({ link: false })
+    const token = await signIn()
+    await call('/api/web/wallets/create', { session: token, name: 'Test 03', createKey: 'web-key-000001' })
+    await h.press('cw:list')
+    expect(h.last()?.text).toMatch(/Test 03/)
+    await h.press('web:out')
+    expect(h.last()?.text).toMatch(/Signed out of NearKit web/)
+    await expect(call('/api/web/wallets', { session: token })).rejects.toMatchObject({ status: 401 })
   })
 
   it('keeps the 10-wallet limit', async () => {

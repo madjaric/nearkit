@@ -6,7 +6,7 @@ import { accountIdError } from '@/lib/validation'
 import { toNearKitError } from '@/services/near/errors'
 import { HttpError, type Route } from '../api/http'
 import { field } from '../api/linkRoutes'
-import { btn, keyboard } from '../bot/context'
+import { btn, copyBtn, keyboard } from '../bot/context'
 import { parseSlippage } from '../bot/settings'
 import { friendlyError } from '../bot/ui'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
@@ -206,7 +206,8 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       }
       if (created.created && name) await custody.store.setLabel(created.wallet.id, name)
       const wallet = (await custody.store.ownedWallet(userId, created.wallet.id)) ?? created.wallet
-      // A security notice, not a step: nothing waits for it.
+      // A security notice, not a step: nothing waits for it. The address is shortened on screen;
+      // the Copy key hands Telegram the full account id from the wallet record.
       if (created.created)
         await deps
           .notify(
@@ -216,7 +217,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
               `${bold(walletName(wallet))} ${code(shortAccount(wallet.accountId))}`,
               'If this wasn’t you, sign out of NearKit web everywhere.',
             ].join('\n'),
-            keyboard([btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),
+            keyboard([copyBtn('📋 Copy address', wallet.accountId), btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),
           )
           .catch(() => undefined)
       return { wallet: webWalletView(wallet) }
