@@ -534,6 +534,48 @@ await step('Send from a NearKit wallet is reviewed and sent from the web; an una
   await page.keyboard.press('Escape')
 })
 
+await step(
+  'Recover: Connect <owner> signs the wallet out first; another NEAR account or an EVM address is an error, never "Wallet connected"; on the owner the approval goes through',
+  async () => {
+    const EVM = '0x52908400098527886E0F7030069857D2E4169EE7'
+    const rp = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk, publicKey: PUBLIC_KEY } })
+    const setAccounts = (accounts) => rp.evaluate((a) => (window.__NEARKIT_E2E_WALLET__.accounts = a), accounts)
+    // The browser wallet is on the NearKit wallet's own account (its exported key imported there), not on its owner.
+    await rp.goto(WEB + '/', { waitUntil: 'networkidle' })
+    await rp.evaluate((a) => sessionStorage.setItem('nearkit:e2e:session', JSON.stringify([a])), mainAddress)
+    await rp.goto(`${WEB}/recover#approve=${mainAddress}&to=friend.testnet`, { waitUntil: 'networkidle' })
+    await rp.getByRole('button', { name: 'Prepare the approval' }).click()
+    await rp.getByText(`Your wallet returned ${mainAddress}, not ${USER}.`).waitFor({ timeout: 15000 })
+    await rp.getByRole('button', { name: `Connect ${USER}` }).click()
+    const dialog = rp.getByRole('dialog', { name: `Connect ${USER}` })
+    const pick = () => dialog.getByRole('button', { name: /E2E Test Wallet/ }).click()
+    // Still the same account after the reconnect: an error naming it, and no "Wallet connected".
+    await setAccounts([mainAddress])
+    await pick()
+    await dialog.getByRole('alert').getByText(`Your wallet returned ${mainAddress}, not ${USER}. Switch to ${USER} in your wallet, then try again.`).waitFor()
+    if (SHOTS) await rp.screenshot({ path: join(SHOTS, 'tg-10a-recover-other-account.png') })
+    // Only an EVM address: named as one, never as the connected account.
+    await setAccounts([EVM])
+    await pick()
+    await dialog
+      .getByRole('alert')
+      .getByText(`Your wallet returned an EVM address (${EVM}), not a NEAR account. Switch to the NEAR account ${USER} in your wallet, then try again.`)
+      .waitFor()
+    if ((await rp.getByText('Wallet connected').count()) !== 0) throw new Error('"Wallet connected" was shown for an account that is not the owner')
+    if (SHOTS) await rp.screenshot({ path: join(SHOTS, 'tg-10b-recover-evm-only.png') })
+    // The wallet switched to the owner: connected, and its signature approves the destination.
+    await setAccounts([USER])
+    await pick()
+    await dialog.waitFor({ state: 'hidden' })
+    await rp.getByText('Wallet connected').first().waitFor()
+    await rp.getByRole('button', { name: 'Sign to approve friend.testnet' }).click()
+    await rp.getByText(/^Approved\./).waitFor({ timeout: 15000 })
+    const signers = await rp.evaluate(() => (window.__NEARKIT_E2E_MESSAGES__ ?? []).map((m) => m.signerId))
+    if (signers.join() !== USER) throw new Error(`the wallet was asked to sign as: ${signers.join() || 'nobody'}`)
+    await rp.context().close()
+  },
+)
+
 await step('a forged client gets nothing: a watch account, a made-up id or an address is refused before any quote', async () => {
   const sentBefore = tg.sent.length
   for (const walletId of [USER, 'bottest.testnet', 'made-up-id', mainAddress]) {

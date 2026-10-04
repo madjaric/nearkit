@@ -2,11 +2,12 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { truncateMiddle } from '@/lib/format'
+import { checkOwnerAccount, ownerAccountProblem, walletAccounts } from '@/lib/ownerAccount'
 import { accountIdError, accountKind, isForeignToNetwork } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
-import { NearKitError, toNearKitError } from '@/services/near/errors'
+import { NearKitError, NoNearAccountError, toNearKitError } from '@/services/near/errors'
 import { explorerAccountUrl } from '@/services/near/explorer'
-import type { WalletSession } from '@/services/near/wallet'
+import type { SignedMessageResult, WalletSession } from '@/services/near/wallet'
 import type { Holding, PresetInput, Session, Wallet, WalletPreset, WalletSnapshot } from '@/types/domain'
 import { canExecute, executableWallets } from '@/lib/wallets'
 import type { NearKitWeb } from '../nearkitWeb'
@@ -24,22 +25,25 @@ function defaultLabel(accountId: string, isMain: boolean): string {
 const display = (raw: bigint, decimals: number) => Number(formatUnits(raw, decimals))
 
 export function createWalletService(ctx: NearContext, market: Market, nearkit: NearKitWeb | null = null): WalletService {
-  const toSession = async (s: WalletSession): Promise<Session> => {
-    const accountId = s.accounts[0] ?? ''
+  /** The session for what the wallet shared: its NEAR accounts only (EVM addresses are never one); null when it shared none. */
+  const toSession = async (s: WalletSession): Promise<Session | null> => {
+    const accounts = walletAccounts(s.accounts).near
+    const accountId = accounts[0]
+    if (accountId === undefined) return null
     let issue: Session['issue'] = null
     if (isForeignToNetwork(accountId, ctx.network.id)) issue = 'network-mismatch'
     else {
       const state = await accountState(ctx.rpc, accountId).catch(() => null)
       if (state && !state.exists) issue = 'account-missing'
     }
-    for (const id of s.accounts) ctx.stores.book.upsert({ accountId: id, label: '', origin: 'known', addedAt: ctx.now() })
+    for (const id of accounts) ctx.stores.book.upsert({ accountId: id, label: '', origin: 'known', addedAt: ctx.now() })
     return {
       accountId,
       walletId: accountId,
       connectedAt: ctx.now(),
       mode: 'near',
       walletName: s.walletName,
-      accounts: s.accounts,
+      accounts,
       issue,
       explorerUrl: issue === 'network-mismatch' ? null : explorerAccountUrl(ctx.network, accountId),
     }
@@ -171,10 +175,16 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       const adapter = await ctx.wallet()
       try {
         const s = await adapter.connect(walletId)
+        const session = await toSession(s)
         ctx.session.restored = true
-        ctx.session.current = await toSession(s)
+        ctx.session.current = session
         ctx.balances.invalidate()
-        return ctx.session.current
+        if (!session) {
+          // Only EVM addresses: NearKit keeps no wallet session it can't use as a NEAR account.
+          await adapter.disconnect().catch(() => undefined)
+          throw new NoNearAccountError(walletAccounts(s.accounts).evm)
+        }
+        return session
       } catch (e) {
         throw toNearKitError(e)
       }
@@ -195,11 +205,25 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
         throw new NearKitError('NETWORK_MISMATCH', `${session.accountId} belongs to the other network. Connect a ${ctx.network.label.toLowerCase()} account.`)
       const signer = request.accountId ?? session.accountId
       const adapter = await ctx.wallet()
+      // A signature for a given account (an owner's): asked for only while that account is the
+      // wallet's active NEAR account right now, and kept only if the wallet signed as it.
+      const required = request.accountId
+      if (required !== undefined) {
+        const live = await adapter.session().catch(() => null)
+        const check = checkOwnerAccount(live?.accounts ?? [], required)
+        if (!check.ok) throw new NearKitError('WALLET_UNAVAILABLE', ownerAccountProblem(check, required))
+      }
+      let signed: SignedMessageResult
       try {
-        return await adapter.signMessage(signer, { message: request.message, recipient: request.recipient, nonce: request.nonce })
+        signed = await adapter.signMessage(signer, { message: request.message, recipient: request.recipient, nonce: request.nonce })
       } catch (e) {
         throw toNearKitError(e, 'WALLET_UNAVAILABLE')
       }
+      if (required !== undefined) {
+        const check = checkOwnerAccount([signed.accountId], required)
+        if (!check.ok) throw new NearKitError('WALLET_UNAVAILABLE', `${ownerAccountProblem(check, required)} NearKit didn’t use that signature.`)
+      }
+      return signed
     },
 
     listWallets: wallets,

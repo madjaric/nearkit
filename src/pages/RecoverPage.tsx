@@ -9,6 +9,7 @@ import { Line, Lines, Panel, PanelBody, PanelHeader } from '@/components/ui/Pane
 import { ENV } from '@/config/env'
 import { base64Decode } from '@/lib/encoding'
 import { createExportKeyPair, openExport } from '@/lib/exportCrypto'
+import { checkOwnerAccount, ownerAccountProblem } from '@/lib/ownerAccount'
 import { useServices } from '@/services/context'
 import { describeError } from '@/services/errors'
 import { useCapabilities, useSession } from '@/services/queries'
@@ -74,19 +75,19 @@ function Failure({ error }: { error: unknown }) {
   )
 }
 
-/** Connect the owner wallet, or sign with it once it is the connected one. */
+/**
+ * Connect the owner wallet, or sign with it once its NEAR account is the active one, exactly.
+ * Connect signs the current wallet session out first, so the wallet can show its account picker.
+ */
 function SignButton({ owner, label, pending, onSign }: { owner: string; label: string; pending: boolean; onSign: () => void }) {
   const { data: session } = useSession()
-  const { promptConnect } = useConnectPrompt()
-  if (!session || session.accountId !== owner)
+  const { connectOwner } = useConnectPrompt()
+  const check = checkOwnerAccount(session ? (session.accounts ?? [session.accountId]) : [], owner)
+  if (!check.ok)
     return (
       <>
-        {session && (
-          <p className="text-sm text-fg-2">
-            {session.accountId} is not the owner. Connect {owner}, the wallet this NearKit wallet was created with.
-          </p>
-        )}
-        <Button variant="primary" size="lg" block onClick={promptConnect}>
+        {check.reason !== 'none' && <p className="break-words text-sm text-fg-2">{ownerAccountProblem(check, owner)}</p>}
+        <Button variant="primary" size="lg" block onClick={() => connectOwner(owner)}>
           Connect {owner}
         </Button>
       </>

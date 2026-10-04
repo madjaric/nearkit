@@ -54,6 +54,8 @@ export function useTradeDrawer(): TradeDrawerApi {
 
 export interface ConnectApi {
   promptConnect: () => void
+  /** Connect exactly this NEAR account (Recover's owner): the current session is signed out first, and another account is an error. */
+  connectOwner: (owner: string) => void
 }
 
 export const ConnectContext = createContext<ConnectApi | null>(null)

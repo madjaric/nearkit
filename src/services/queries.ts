@@ -5,6 +5,7 @@ import type { Holding } from '@/types/domain'
 import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
 import { inFlight } from './inFlight'
+import { reconnectAs } from './ownerConnect'
 import type { NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
 import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChanges, snapshotOf, type RefreshStatus } from './postTradeRefresh'
 
@@ -73,6 +74,16 @@ export function useConnect() {
   return useMutation({
     mutationFn: (walletId?: string) => s.wallets.connect(walletId),
     onSuccess: () => qc.invalidateQueries(),
+  })
+}
+
+/** Recover's "Connect <owner>": sign out, connect, then check the account (ownerConnect.ts). The session changes either way. */
+export function useReconnectAs() {
+  const s = useServices()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ walletId, owner }: { walletId: string; owner: string }) => reconnectAs(s.wallets, walletId, owner),
+    onSettled: () => qc.invalidateQueries(),
   })
 }
 

@@ -145,6 +145,7 @@ export interface WalletService {
    * Sign a NEP-413 message with the connected wallet: free, no transaction. Used
    * to prove account ownership (e.g. linking Telegram). Refused in demo mode.
    */
+  /** With `accountId` (an owner's request): only while that is the wallet's active NEAR account, and only a signature made as it. */
   signMessage(request: SignMessageRequest & { accountId?: string }): Promise<SignedMessageResult>
   listWallets(): Promise<Wallet[]>
   /** Every wallet with its balances: the wallet views, watch-only ones included. */

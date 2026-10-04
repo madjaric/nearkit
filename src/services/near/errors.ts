@@ -23,6 +23,21 @@ export class NearKitError extends Error {
   }
 }
 
+/** A wallet connected but shared no NEAR account, only EVM addresses (never taken for NEAR accounts). */
+export class NoNearAccountError extends NearKitError {
+  readonly evm: readonly string[]
+  constructor(evm: readonly string[]) {
+    super(
+      'WALLET_UNAVAILABLE',
+      evm[0] !== undefined
+        ? `Your wallet returned an EVM address (${evm[0]}), not a NEAR account. Switch to a NEAR account in your wallet, then connect again.`
+        : 'The wallet connected but did not share a NEAR account.',
+    )
+    this.name = 'NoNearAccountError'
+    this.evm = evm
+  }
+}
+
 export function errorInfo(error: NearKitError): NearKitErrorInfo {
   return error.detail ? { code: error.code, message: error.message, detail: error.detail } : { code: error.code, message: error.message }
 }

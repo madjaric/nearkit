@@ -5,8 +5,9 @@ import { Figures } from '@/components/ui/Figures'
 import { Led, Skeleton, Tag } from '@/components/ui/Indicators'
 import { useToast } from '@/components/ui/toast-context'
 import { cn } from '@/lib/cn'
+import { ownerAccountProblem, type OwnerAccountMismatch } from '@/lib/ownerAccount'
 import { describeError, type ErrorView } from '@/services/errors'
-import { useCapabilities, useConnect, useWalletOptions } from '@/services/queries'
+import { useCapabilities, useConnect, useReconnectAs, useWalletOptions } from '@/services/queries'
 import type { WalletOption } from '@/services/types'
 import type { Session } from '@/types/domain'
 import { ConnectContext } from './contexts'
@@ -59,7 +60,20 @@ function WalletRow({ option, pending, disabled, onPick }: { option: WalletOption
   )
 }
 
-function NearBody({ open, pendingId, error, onPick }: { open: boolean; pendingId: string | null; error: ErrorView | null; onPick: (id: string) => void }) {
+function NearBody({
+  open,
+  pendingId,
+  error,
+  mismatch,
+  onPick,
+}: {
+  open: boolean
+  pendingId: string | null
+  error: ErrorView | null
+  /** "Connect <owner>": the wallet came back on another account, or on an EVM address only. */
+  mismatch: { check: OwnerAccountMismatch; owner: string } | null
+  onPick: (id: string) => void
+}) {
   const caps = useCapabilities()
   const options = useWalletOptions(open)
   const list = options.data ?? []
@@ -99,6 +113,12 @@ function NearBody({ open, pendingId, error, onPick }: { open: boolean; pendingId
         </ul>
       )}
 
+      {mismatch && (
+        <div role="alert" className="rounded-sm border border-neg/40 bg-neg/10 px-3 py-2">
+          <p className="break-words text-sm text-neg">{ownerAccountProblem(mismatch.check, mismatch.owner)}</p>
+        </div>
+      )}
+
       {error && (
         <div role="alert" className="rounded-sm border border-neg/40 bg-neg/10 px-3 py-2">
           <p className="text-sm text-neg">
@@ -120,21 +140,32 @@ function NearBody({ open, pendingId, error, onPick }: { open: boolean; pendingId
 
 /**
  * Wallet connection. Real mode lists the wallets NEAR Connect offers for this
- * network; the demo keeps its single simulated account.
+ * network; the demo keeps its single simulated account. "Connect <owner>" (Recover)
+ * must end on that exact NEAR account: it signs the wallet out first so the wallet can
+ * show its account picker, and says which account came back when it isn't the owner.
  */
 export function ConnectProvider({ children }: { children: ReactNode }) {
   const caps = useCapabilities()
   const [open, setOpen] = useState(false)
+  /** The NEAR account this connect must end on, or null for any account. */
+  const [owner, setOwner] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<ErrorView | null>(null)
+  const [mismatch, setMismatch] = useState<OwnerAccountMismatch | null>(null)
   const connect = useConnect()
+  const reconnect = useReconnectAs()
   const toast = useToast()
-  const promptConnect = useCallback(() => {
+  const show = useCallback((account: string | null) => {
+    setOwner(account)
     setError(null)
+    setMismatch(null)
     setOpen(true)
   }, [])
-  const api = useMemo(() => ({ promptConnect }), [promptConnect])
+  const promptConnect = useCallback(() => show(null), [show])
+  const connectOwner = useCallback((account: string) => show(account), [show])
+  const api = useMemo(() => ({ promptConnect, connectOwner }), [promptConnect, connectOwner])
   const demo = caps.mode === 'demo'
+  const pending = connect.isPending || reconnect.isPending
 
   const announce = (session: Session) => {
     if (session.issue === 'network-mismatch') {
@@ -154,7 +185,24 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
 
   const pick = (walletId?: string) => {
     setError(null)
+    setMismatch(null)
     setPendingId(walletId ?? 'demo')
+    if (owner && walletId && !demo) {
+      reconnect.mutate(
+        { walletId, owner },
+        {
+          onSuccess: (r) => {
+            // Not the owner: no "Wallet connected", the window stays open and says what came back.
+            if (!r.ok) return setMismatch(r.mismatch)
+            setOpen(false)
+            announce(r.session)
+          },
+          onError: (e) => setError(describeError(e)),
+          onSettled: () => setPendingId(null),
+        },
+      )
+      return
+    }
     connect.mutate(walletId, {
       onSuccess: (session) => {
         setOpen(false)
@@ -171,14 +219,20 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        dismissible={!connect.isPending}
+        dismissible={!pending}
         size="sm"
-        title="Connect a wallet"
-        description={demo ? 'The demo runs on sample data.' : `Choose a wallet for NEAR ${caps.networkLabel.toLowerCase()}.`}
+        title={owner && !demo ? `Connect ${owner}` : 'Connect a wallet'}
+        description={
+          demo
+            ? 'The demo runs on sample data.'
+            : owner
+              ? `NearKit signs your wallet out first, so it can show its account picker: choose ${owner} there.`
+              : `Choose a wallet for NEAR ${caps.networkLabel.toLowerCase()}.`
+        }
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={connect.isPending && demo}>
-              {connect.isPending && !demo ? 'Close' : 'Cancel'}
+              {pending && !demo ? 'Close' : 'Cancel'}
             </Button>
             {demo && (
               <Button variant="primary" loading={connect.isPending} onClick={() => pick()}>
@@ -188,7 +242,11 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
           </>
         }
       >
-        {demo ? <DemoBody /> : <NearBody open={open} pendingId={pendingId} error={error} onPick={(id) => pick(id)} />}
+        {demo ? (
+          <DemoBody />
+        ) : (
+          <NearBody open={open} pendingId={pendingId} error={error} mismatch={mismatch && owner ? { check: mismatch, owner } : null} onPick={(id) => pick(id)} />
+        )}
       </Modal>
     </ConnectContext.Provider>
   )
