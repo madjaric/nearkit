@@ -1,3 +1,4 @@
+import { ServiceError } from '../serviceError'
 import { SEED_ACTIVITY } from '@/mocks/activity'
 import { SEED_COPY, SEED_DCA, SEED_SNIPER } from '@/mocks/automation'
 import { SEED_ORDERS } from '@/mocks/orders'
@@ -48,14 +49,7 @@ export function createState(): MockState {
   }
 }
 
-export class ServiceError extends Error {
-  readonly code: string
-  constructor(code: string, message: string) {
-    super(message)
-    this.code = code
-    this.name = 'ServiceError'
-  }
-}
+export { ServiceError }
 
 export function nextId(state: MockState, prefix: string): string {
   state.seq += 1

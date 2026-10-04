@@ -5,7 +5,7 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
-  define: { __NEARKIT_E2E__: 'false', __NEARKIT_VERSION__: '"test"' },
+  define: { __NEARKIT_E2E__: 'false', __NEARKIT_VERSION__: '"test"', __NEARKIT_DEMO__: 'false' },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'server/src/**/*.test.ts'],

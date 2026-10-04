@@ -24,3 +24,8 @@ interface ImportMeta {
 declare const __NEARKIT_E2E__: boolean
 /** The app's version from package.json, set by the Vite config. */
 declare const __NEARKIT_VERSION__: string
+/**
+ * True only in a demo build (VITE_NEARKIT_SERVICES=demo, `vite --mode demo`). A compile-time
+ * constant: other builds drop the simulated services and their seed data.
+ */
+declare const __NEARKIT_DEMO__: boolean

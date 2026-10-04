@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig, normalizePath } from 'vite'
+import { defineConfig, loadEnv, normalizePath, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -18,12 +18,35 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 }
 
+/**
+ * Preloads the Latin subsets of the two fonts every screen uses (Archivo for text, JetBrains Mono
+ * for every figure). Without it the mono font is only asked for once the first figure renders,
+ * ~2.7 s into a cold load on production, so figures first show in a fallback font, then jump.
+ */
+function preloadFonts(): Plugin {
+  const FONT = /^assets\/(archivo-latin-wdth-normal|jetbrains-mono-latin-wght-normal)-[\w-]+\.woff2$/
+  return {
+    name: 'nearkit-preload-fonts',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler: (_html, ctx) =>
+        Object.keys(ctx.bundle ?? {})
+          .filter((file) => FONT.test(file))
+          .map((file) => ({ tag: 'link', attrs: { rel: 'preload', href: `/${file}`, as: 'font', type: 'font/woff2', crossorigin: '' }, injectTo: 'head' as const })),
+    },
+  }
+}
+
+/** Whether `mode` builds the demo (VITE_NEARKIT_SERVICES=demo, from .env.<mode> or the host's environment). */
+const isDemoBuild = (mode: string) => (loadEnv(mode, fileURLToPath(new URL('.', import.meta.url)), 'VITE_').VITE_NEARKIT_SERVICES ?? '').trim() === 'demo'
+
 /** The app's version, printed in the sidebar. */
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss()],
-  define: { __NEARKIT_E2E__: JSON.stringify(mode === 'e2e'), __NEARKIT_VERSION__: JSON.stringify(version) },
+  plugins: [react(), tailwindcss(), preloadFonts()],
+  define: { __NEARKIT_E2E__: JSON.stringify(mode === 'e2e'), __NEARKIT_VERSION__: JSON.stringify(version), __NEARKIT_DEMO__: JSON.stringify(isDemoBuild(mode)) },
   resolve: {
     // Forward slashes on Windows, so '@/x' and './x' resolve to one module id and
     // the dev server invalidates both on change.

@@ -1,5 +1,5 @@
 import { NearKitError } from './near/errors'
-import { ServiceError } from './mock/state'
+import { ServiceError } from './serviceError'
 
 /**
  * UI-safe view of any service error: a readable message, an optional code and

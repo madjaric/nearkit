@@ -10,7 +10,8 @@ import type { NearKitServices } from './types'
  * implementation directly.
  */
 export function createServices(): NearKitServices {
-  if (ENV.services === 'demo') return createMockServices()
+  // A build-time constant: every build but the demo's leaves the demo's code (and its seed data) out.
+  if (__NEARKIT_DEMO__ && ENV.services === 'demo') return createMockServices()
   return createNearServices({ env: ENV, network: NETWORK, issues: ENV_ISSUES })
 }
 
