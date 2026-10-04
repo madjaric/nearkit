@@ -198,6 +198,36 @@ await step('multi buy: an underfunded wallet is flagged and skipped', async () =
   await visible(page, /can't cover (its|their) allocation and will be skipped/)
 })
 
+await step('multi sell: each wallet has its own 25 / 50 / 75 / MAX, setting only that wallet’s share, and the estimate follows', async () => {
+  await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
+  await page.getByRole('tablist', { name: 'Order side' }).getByRole('tab', { name: 'Multi sell' }).click()
+  await page.getByRole('radiogroup', { name: 'Allocation mode' }).getByRole('radio', { name: 'Custom' }).click()
+  const groups = page.getByRole('group', { name: /^Sell presets for / })
+  await groups.first().waitFor()
+  const shares = page.getByRole('textbox', { name: 'Percent of balance to sell' })
+  await groups
+    .nth(0)
+    .getByRole('button', { name: /^Sell 75% of / })
+    .click()
+  await groups
+    .nth(1)
+    .getByRole('button', { name: /^Sell all of / })
+    .click()
+  const [a, b] = [await shares.nth(0).inputValue(), await shares.nth(1).inputValue()]
+  if (a !== '75' || b !== '100') throw new Error(`the presets set ${a} and ${b}, not 75 and 100`)
+  if (
+    (await groups
+      .nth(0)
+      .getByRole('button', { name: /^Sell 75% of / })
+      .getAttribute('aria-pressed')) !== 'true'
+  )
+    throw new Error('the chosen preset is not shown as chosen')
+  // Typing a share still works, and changes only that wallet.
+  await shares.nth(0).fill('10')
+  if ((await shares.nth(1).inputValue()) !== '100') throw new Error('typing in one wallet changed another')
+  await shot(page, 'multi-sell-presets')
+})
+
 await step('consolidate: brief total 427,560 KIT', async () => {
   await page.goto(BASE + '/consolidate', { waitUntil: 'networkidle' })
   await visible(page, '427,560')

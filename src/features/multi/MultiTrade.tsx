@@ -45,6 +45,9 @@ interface MultiTradeProps {
   initialTokenId?: string | null
 }
 
+/** Shares of a wallet's balance to sell: as the normal Sell offers them (MAX = 100%, the whole balance). */
+const SELL_PRESETS = [25, 50, 75, 100] as const
+
 export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null }: MultiTradeProps) {
   const { settings } = useSettings()
   const soon = useInComingSoon()
@@ -166,8 +169,10 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
 
   const allocationCell = (walletId: string, amountIn: number) => {
     if (mode === 'custom') {
+      const label = wallets.find((w) => w.id === walletId)?.label ?? 'this wallet'
+      const pct = parseAmount(custom[walletId] ?? '')
       return (
-        <div className="ml-auto flex w-32 flex-col items-end gap-0.5">
+        <div className="ml-auto flex w-36 flex-col items-end gap-1">
           <AmountInput
             aria-label={side === 'buy' ? 'NEAR for this wallet' : 'Percent of balance to sell'}
             value={custom[walletId] ?? ''}
@@ -177,6 +182,26 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
             size="sm"
             className="w-full"
           />
+          {side === 'sell' && (
+            // This wallet's own share, as the normal Sell offers it: 25, 50, 75 or all (MAX = 100%).
+            <div className="flex w-full justify-end gap-0.5" role="group" aria-label={`Sell presets for ${label}`}>
+              {SELL_PRESETS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={pct === v}
+                  aria-label={v === 100 ? `Sell all of ${label}’s ${symbol}` : `Sell ${v}% of ${label}’s ${symbol}`}
+                  onClick={() => setCustom((c) => ({ ...c, [walletId]: String(v) }))}
+                  className={cn(
+                    'h-6 min-w-0 flex-1 rounded-xs border text-[10px] font-medium transition-colors',
+                    pct === v ? 'border-neg/50 bg-neg/10 text-neg' : 'border-line bg-raised/50 text-fg-3 hover:border-line-strong hover:text-fg',
+                  )}
+                >
+                  {v === 100 ? 'MAX' : `${v}%`}
+                </button>
+              ))}
+            </div>
+          )}
           {side === 'sell' && amountIn > 0 && (
             <span className="num text-[11px] text-fg-3">
               {formatCompact(amountIn, 2)} {symbol}
@@ -468,7 +493,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
               {({ id }) => <AmountInput id={id} value={sellPctText} onValueChange={setSellPctText} unit="% of balance" placeholder="0" />}
             </Field>
             <div className="grid grid-cols-4 gap-1" role="group" aria-label="Sell presets">
-              {[25, 50, 75, 100].map((v) => (
+              {SELL_PRESETS.map((v) => (
                 <button
                   key={v}
                   type="button"
