@@ -1,3 +1,4 @@
+import { OwnWalletPicker } from '@/components/domain/OwnWalletPicker'
 import { LogOut, Pencil, Plus, Send } from 'lucide-react'
 import { useState } from 'react'
 import { AccountText } from '@/components/domain/Account'
@@ -409,6 +410,8 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
   const [to, setTo] = useState('')
   const [touched, setTouched] = useState(false)
   const [sending, setSending] = useState<string | null>(null)
+  // The user's own NearKit wallets: a shortcut for the destination, nothing more.
+  const { data: own } = useNearKitWallets()
   const status = useSendStatus(sending)
   const symbolOf = (id: string) => (id === NATIVE_TOKEN_ID ? 'NEAR' : (tokens.find((t) => t.id === id)?.symbol ?? formatAccount(id, 20)))
   const balance = held.find((h) => h.tokenId === asset)
@@ -569,7 +572,22 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
           />
         )}
       </Field>
-      <Field label="To" error={toError ?? undefined} hint={`A ${caps.networkLabel.toLowerCase()} account`}>
+      <Field
+        label="To"
+        error={toError ?? undefined}
+        hint={`A ${caps.networkLabel.toLowerCase()} account`}
+        aside={
+          <OwnWalletPicker
+            wallets={(own?.wallets ?? []).map((w) => ({ accountId: w.accountId, name: w.name }))}
+            value={to}
+            exclude={wallet.accountId}
+            onPick={(accountId) => {
+              setTo(accountId)
+              if (approval) reviewSend.reset()
+            }}
+          />
+        }
+      >
         {({ id, describedBy, invalid }) => (
           <Input
             id={id}

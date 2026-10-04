@@ -520,6 +520,13 @@ await step('Send from a NearKit wallet is reviewed and sent from the web; an una
   await modal.getByRole('button', { name: 'Review', exact: true }).click()
   await modal.getByText(/friend\.testnet isn’t approved for Main yet/).waitFor()
   await modal.getByRole('link', { name: /Approve it with/ }).waitFor()
+  // The shortcut to one of the user's own NearKit wallets fills in its full account id, and that
+  // address is reviewed like any other: here it isn't approved either, so nothing is sent.
+  const sniper = (await webApi('/api/web/wallets', {})).json?.wallets?.find((x) => x.name === 'Sniper A')
+  await modal.getByLabel('Pick one of my NearKit wallets as the destination').selectOption(sniper.accountId)
+  if ((await modal.getByLabel('To').inputValue()) !== sniper.accountId) throw new Error('the shortcut did not fill in the full account id')
+  await modal.getByRole('button', { name: 'Review', exact: true }).click()
+  await modal.getByText(new RegExp(`${sniper.accountId.slice(0, 6)}.*isn’t approved for Main yet`)).waitFor()
   // The owner wallet: the review, then Send, right here.
   await modal.getByLabel('To').fill(USER)
   await modal.getByRole('button', { name: 'Review', exact: true }).click()
