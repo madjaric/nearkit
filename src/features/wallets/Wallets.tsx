@@ -1,4 +1,4 @@
-import { CopyPlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { CopyPlus, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { AccountText } from '@/components/domain/Account'
@@ -75,6 +75,11 @@ export function Wallets() {
 
   const presetNear = (p: WalletPreset) => p.walletIds.reduce((s, id) => s + (byId.get(id)?.nearBalance ?? 0), 0)
   const presetNames = (walletId: string) => list.filter((p) => p.walletIds.includes(walletId)).map((p) => p.name)
+  /**
+   * Send from an account of the connected wallet: the send flow it already has (Batch Send, from
+   * this account), signed in that wallet. Never NearKit's custody send, and never a watched account.
+   */
+  const sendFrom = (w: WalletSnapshot) => navigate(`/batch-send?from=${encodeURIComponent(w.id)}`)
   const custody = wallets.filter(executesViaNearKit)
   const connected = wallets.filter(signsInBrowser)
   const watched = wallets.filter((w) => !canExecute(w))
@@ -140,11 +145,25 @@ export function Wallets() {
                       </Td>
                       {real && (
                         <Td align="right">
-                          {!canExecute(w) && (
-                            <IconButton label={`Remove ${w.label}`} size="sm" tone="danger" disabled={accounts.remove.isPending} onClick={() => removeAccount(w)}>
-                              <Trash2 size={14} />
-                            </IconButton>
-                          )}
+                          <span className="flex items-center justify-end gap-1">
+                            {signsInBrowser(w) && (
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                icon={<Send size={12} />}
+                                aria-label={`Send from ${w.label}: you sign in your wallet`}
+                                title="You sign in your wallet"
+                                onClick={() => sendFrom(w)}
+                              >
+                                Send
+                              </Button>
+                            )}
+                            {!canExecute(w) && (
+                              <IconButton label={`Remove ${w.label}`} size="sm" tone="danger" disabled={accounts.remove.isPending} onClick={() => removeAccount(w)}>
+                                <Trash2 size={14} />
+                              </IconButton>
+                            )}
+                          </span>
                         </Td>
                       )}
                     </Tr>
@@ -175,6 +194,11 @@ export function Wallets() {
                     <Usd value={w.valueUsd} className="text-sm text-fg" />
                     <p className="num text-xs text-fg-3">{formatAmount(w.nearBalance, 2)} NEAR</p>
                   </div>
+                  {real && signsInBrowser(w) && (
+                    <IconButton label={`Send from ${w.label}: you sign in your wallet`} size="sm" onClick={() => sendFrom(w)}>
+                      <Send size={14} />
+                    </IconButton>
+                  )}
                   {real && !canExecute(w) && (
                     <IconButton label={`Remove ${w.label}`} size="sm" tone="danger" disabled={accounts.remove.isPending} onClick={() => removeAccount(w)}>
                       <Trash2 size={14} />

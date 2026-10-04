@@ -474,6 +474,21 @@ await step('the Wallets page copies a wallet’s full account id, the watched on
   if (bob !== 'bob.testnet') throw new Error(`Copy Bob account copied ${bob}`)
 })
 
+await step('a connected account sends through its own wallet (Batch Send, from it, signed there); a watched account has no Send', async () => {
+  await page.goto(BASE + '/wallets', { waitUntil: 'networkidle' })
+  if (
+    (await page
+      .getByRole('button', { name: /^Send from Bob/ })
+      .locator('visible=true')
+      .count()) !== 0
+  )
+    throw new Error('the watched account offers Send')
+  await page.getByRole('button', { name: 'Send from Main: you sign in your wallet' }).locator('visible=true').first().click()
+  await page.waitForURL(/\/batch-send\?from=/)
+  const from = await page.getByLabel('Send from', { exact: true }).inputValue()
+  if (from !== USER) throw new Error(`Batch Send opened from ${from}, not ${USER}`)
+})
+
 await step('the dashboard counts executable wallets only: the watched account is listed, never summed', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await visible(/2 executable · 1 watch-only/)
