@@ -477,6 +477,13 @@ await step('Order and delete on NearKit web: the server keeps the order; an empt
   // Back to the order the steps after this one expect.
   await webApi('/api/web/wallets/order', { walletIds: [main.id, sniper.id] })
   await page.reload({ waitUntil: 'networkidle' })
+  // The same keys on a phone (captured with --shots).
+  if (SHOTS) {
+    await page.setViewportSize({ width: 360, height: 800 })
+    await page.getByRole('list', { name: 'NearKit wallets' }).waitFor()
+    await shot('tg-11-wallets-360')
+    await page.setViewportSize({ width: 1280, height: 900 })
+  }
 })
 
 await step('Multi Buy across NearKit wallets runs from the web: the server quotes each wallet, Execute runs each one, and Telegram takes no part', async () => {
