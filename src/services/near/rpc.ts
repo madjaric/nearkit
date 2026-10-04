@@ -4,6 +4,12 @@
  * - POST JSON-RPC 2.0, one request per call (FastNEAR rejects batches).
  * - Fails over, in configured order, on transport problems: network errors,
  *   non-2xx HTTP, timeouts, JSON-RPC rate limits (-429) and INTERNAL_ERROR.
+ *   An endpoint that just failed is asked last for `cooldownMs` (a public node
+ *   that rate-limits can take a second or two to say so, on every call), and
+ *   still asked when the others fail.
+ * - Identical requests in flight share one request: a read many callers make
+ *   at the same moment (the same pool for ten wallets) is made once. Nothing is
+ *   cached: the next identical request, once that one is answered, asks again.
  * - Never fails over on semantic answers (unknown account, parse errors):
  *   another node would give the same answer.
  * - `call_function` contract errors arrive inside `result.error` and are thrown.
@@ -92,7 +98,13 @@ export interface RpcClientOptions {
   fetch?: typeof fetch
   /** Per-attempt timeout. */
   timeoutMs?: number
+  /** How long an endpoint that just failed is asked last (RPC_COOLDOWN_MS). */
+  cooldownMs?: number
+  now?: () => number
 }
+
+/** How long an endpoint that just failed (rate limit, error, timeout) is asked after the others. */
+export const RPC_COOLDOWN_MS = 15_000
 
 // ─── encoding ───────────────────────────────────────────────────────────────
 
@@ -137,7 +149,24 @@ function isRetryable(error: JsonRpcErrorBody): boolean {
 
 let requestId = 0
 
-export function createRpcClient({ urls, fetch: fetchImpl = globalThis.fetch.bind(globalThis), timeoutMs = 8000 }: RpcClientOptions): RpcClient {
+export function createRpcClient({
+  urls,
+  fetch: fetchImpl = globalThis.fetch.bind(globalThis),
+  timeoutMs = 8000,
+  cooldownMs = RPC_COOLDOWN_MS,
+  now = Date.now,
+}: RpcClientOptions): RpcClient {
+  /** Until when each endpoint that just failed is asked last. */
+  const coolingUntil = new Map<string, number>()
+  /** The configured order, with endpoints still cooling down moved last (the soonest to recover first). */
+  const order = (): string[] => {
+    const t = now()
+    const cooling = (u: string) => (coolingUntil.get(u) ?? 0) > t
+    return [...urls.filter((u) => !cooling(u)), ...urls.filter(cooling).sort((a, b) => (coolingUntil.get(a) ?? 0) - (coolingUntil.get(b) ?? 0))]
+  }
+  /** Requests in flight, by method and params: identical ones share the answer. */
+  const inFlight = new Map<string, Promise<unknown>>()
+
   async function attempt(url: string, body: string): Promise<{ ok: true; result: unknown } | { ok: false; retry: RpcError } | { ok: false; fatal: RpcError }> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -160,17 +189,31 @@ export function createRpcClient({ urls, fetch: fetchImpl = globalThis.fetch.bind
     }
   }
 
-  async function call<T>(method: string, params: unknown): Promise<T> {
+  async function send(method: string, params: unknown): Promise<unknown> {
     requestId += 1
     const body = JSON.stringify({ jsonrpc: '2.0', id: `nk-${requestId}`, method, params })
     const failures: string[] = []
-    for (const url of urls) {
+    for (const url of order()) {
       const r = await attempt(url, body)
-      if (r.ok) return r.result as T
+      if (r.ok) {
+        coolingUntil.delete(url)
+        return r.result
+      }
       if ('fatal' in r) throw r.fatal
+      coolingUntil.set(url, now() + cooldownMs)
       failures.push(r.retry.message)
     }
     throw new RpcError('transport', urls.length ? `All RPC endpoints failed (${failures.join('; ')})` : 'No RPC endpoint configured')
+  }
+
+  async function call<T>(method: string, params: unknown): Promise<T> {
+    const key = JSON.stringify([method, params])
+    let pending = inFlight.get(key)
+    if (!pending) {
+      pending = send(method, params).finally(() => inFlight.delete(key))
+      inFlight.set(key, pending)
+    }
+    return (await pending) as T
   }
 
   return {

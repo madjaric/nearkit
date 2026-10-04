@@ -114,6 +114,22 @@ describe('one Confirm, at most one transaction', () => {
     expect(chain.sent).toHaveLength(0)
   })
 
+  it('tells the caller as each transaction leaves for the network (a web run frees its place then), never before signing', async () => {
+    const engine = engineFor()
+    const before: number[] = []
+    const i = await intent()
+    expect(await engine.execute(i.id, 101, { onSend: () => before.push(chain.sent.length) })).toMatchObject({ kind: 'finished', intent: { status: 'done' } })
+    // Once, as its one transaction went out: signed and recorded, not yet on the network.
+    expect(before).toEqual([0])
+    expect(chain.sent).toHaveLength(1)
+    // Refused before anything was signed: never called.
+    const late = await intent(ONE, 10_000)
+    clock += 10_001
+    const never: number[] = []
+    expect(await engine.execute(late.id, 101, { onSend: () => never.push(1) })).toMatchObject({ kind: 'refused', reason: 'expired' })
+    expect(never).toEqual([])
+  })
+
   it('a changed quote replaces the old one and sends nothing', async () => {
     const engine = engineFor()
     planOverride = () => ({ kind: 'requote', quote: { minOut: '5' }, ttlMs: 60_000 })

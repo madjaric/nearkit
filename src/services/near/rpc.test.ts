@@ -107,6 +107,60 @@ describe('RPC client', () => {
     await expect(rpc.call('status', [])).rejects.toMatchObject({ kind: 'transport' })
   })
 
+  it('asks an endpoint that just failed last until its cooldown passes, so later calls don’t wait on it again', async () => {
+    let t = 1_000
+    const seen: string[] = []
+    const { fetch } = fakeFetch((url) => {
+      seen.push(url)
+      return url.startsWith('https://a') ? { status: 429 } : { json: { result: 'ok' } }
+    })
+    const rpc = createRpcClient({ urls: ['https://a.example', 'https://b.example'], fetch, cooldownMs: 10_000, now: () => t })
+    expect(await rpc.call('status', [1])).toBe('ok')
+    expect(seen).toEqual(['https://a.example', 'https://b.example'])
+    seen.length = 0
+    expect(await rpc.call('status', [2])).toBe('ok')
+    expect(seen).toEqual(['https://b.example'])
+    // Its cooldown over, it is first again, as configured.
+    t += 10_000
+    seen.length = 0
+    expect(await rpc.call('status', [3])).toBe('ok')
+    expect(seen).toEqual(['https://a.example', 'https://b.example'])
+  })
+
+  it('still asks a cooling endpoint when every other one fails', async () => {
+    let calls = 0
+    const seen: string[] = []
+    const { fetch } = fakeFetch((url) => {
+      seen.push(url)
+      calls++
+      if (url.startsWith('https://a')) return calls === 1 ? { json: { error: { code: -429, message: 'Rate limits exceeded' } } } : { json: { result: 'from a' } }
+      return calls === 2 ? { json: { result: 'from b' } } : { status: 503 }
+    })
+    const rpc = createRpcClient({ urls: ['https://a.example', 'https://b.example'], fetch, cooldownMs: 10_000, now: () => 0 })
+    expect(await rpc.call('status', [1])).toBe('from b')
+    seen.length = 0
+    expect(await rpc.call('status', [2])).toBe('from a')
+    expect(seen).toEqual(['https://b.example', 'https://a.example'])
+  })
+
+  it('identical requests in flight share one request (ten wallets reading the same pool at once ask once); nothing is cached after', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((r) => (release = r))
+    const fetch = vi.fn(async () => {
+      await gate
+      return new Response(JSON.stringify({ result: { result: bytes({ id: 'pool' }), logs: [] } }), { status: 200 })
+    })
+    const rpc = createRpcClient({ urls: ['https://a.example'], fetch: fetch as unknown as typeof globalThis.fetch })
+    const same = Array.from({ length: 10 }, () => rpc.viewFunction('dcl.near', 'get_pool', { pool_id: 'x|y|100' }, 'final'))
+    const other = rpc.viewFunction('dcl.near', 'get_pool', { pool_id: 'x|y|400' }, 'final')
+    release()
+    expect(await Promise.all(same)).toEqual(Array.from({ length: 10 }, () => ({ id: 'pool' })))
+    await other
+    expect(fetch).toHaveBeenCalledTimes(2)
+    await rpc.viewFunction('dcl.near', 'get_pool', { pool_id: 'x|y|100' }, 'final')
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
   it('asks for transaction status with EXPERIMENTAL_tx_status and the requested wait level', async () => {
     const { fetch, calls } = fakeFetch(() => ({
       json: { result: { final_execution_status: 'FINAL', status: { SuccessValue: '' }, transaction: { hash: 'H' }, receipts_outcome: [] } },

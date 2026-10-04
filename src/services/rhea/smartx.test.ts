@@ -248,23 +248,44 @@ describe('smartx client', () => {
     expect(url.searchParams.has('appFeeRecipient')).toBe(false)
   })
 
-  it('serializes requests and spaces them apart, because burst quotes come back stale', async () => {
+  it('asks in parallel, a few at a time and a moment apart: one slow answer holds only its own place', async () => {
     let clock = 0
     const starts: number[] = []
+    let open = 0
+    let most = 0
+    const answer: (() => void)[] = []
+    const flush = () => new Promise((r) => setTimeout(r, 0))
     const client = createSmartxClient({
       baseUrl: agg.quoteUrl,
-      spacingMs: 3000,
+      spacingMs: 100,
+      maxInFlight: 2,
       now: () => clock,
       sleep: async (ms) => {
         clock += ms
       },
       fetch: async () => {
         starts.push(clock)
+        most = Math.max(most, ++open)
+        await new Promise<void>((r) => answer.push(r))
+        open--
         return new Response(JSON.stringify(withFee), { status: 200 })
       },
     })
-    await Promise.all([client.quote(params), client.quote(params), client.quote(params)])
-    expect(starts).toEqual([0, 3000, 6000])
+    const all = Promise.all([client.quote(params), client.quote(params), client.quote(params), client.quote(params)])
+    await flush()
+    // Two at once, their starts 100 ms apart; the third waits for a place.
+    expect(starts).toEqual([0, 100])
+    answer.shift()?.()
+    await flush()
+    expect(starts).toEqual([0, 100, 200])
+    answer.shift()?.()
+    await flush()
+    answer.shift()?.()
+    await flush()
+    answer.shift()?.()
+    expect(await all).toHaveLength(4)
+    expect(starts).toEqual([0, 100, 200, 300])
+    expect(most).toBe(2)
   })
 
   it('treats a rate-limit page as “quote unavailable”, not as a route', async () => {

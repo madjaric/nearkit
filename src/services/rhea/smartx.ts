@@ -1,3 +1,4 @@
+import { createLimiter } from '@/lib/async'
 import { base58Decode } from '@/lib/encoding'
 import { NearKitError } from '@/services/near/errors'
 
@@ -406,27 +407,46 @@ export interface SmartxClientOptions {
   fetch?: typeof fetch
   now?: () => number
   sleep?: (ms: number) => Promise<void>
-  /**
-   * Minimum gap between requests. Quotes fired in bursts (< ~1 s apart) came back
-   * with stale no-fee amounts under a signed fee; ≥ 3 s apart they were always right.
-   */
+  /** Minimum gap between request starts (SMARTX_SPACING_MS). */
   spacingMs?: number
+  /** Requests at once (SMARTX_MAX_IN_FLIGHT). */
+  maxInFlight?: number
   timeoutMs?: number
 }
+
+/**
+ * Rhea's quote server, asked a few at a time and a moment apart. Bursts once came back with
+ * stale no-fee amounts under a signed fee (2026-09), so quotes went one at a time, 3 s apart:
+ * ten NearKit wallets took 30 s to quote and again to run. Re-checked on mainnet 2026-10-04:
+ * 64 of 64 burst answers (8 at once, buy and sell) carried the fee exactly, the no-fee amount
+ * 0.503% apart. Were it to come back, nothing unsafe follows: the on-chain minimum NearKit shows
+ * is the signed minimum less the fee, and the signer refuses a route too far below its own quote.
+ */
+export const SMARTX_SPACING_MS = 100
+export const SMARTX_MAX_IN_FLIGHT = 4
 
 export function createSmartxClient(options: SmartxClientOptions) {
   const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis)
   const now = options.now ?? Date.now
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-  const spacing = options.spacingMs ?? 3000
+  const spacing = options.spacingMs ?? SMARTX_SPACING_MS
+  const maxInFlight = Math.max(1, options.maxInFlight ?? SMARTX_MAX_IN_FLIGHT)
   const timeoutMs = options.timeoutMs ?? 10_000
-  let tail: Promise<unknown> = Promise.resolve()
   let lastStart = Number.NEGATIVE_INFINITY
+  let starts: Promise<void> = Promise.resolve()
+  const places = createLimiter(maxInFlight)
+  /** Request starts, in order, at least `spacing` apart. */
+  const spaced = (): Promise<void> => {
+    const turn = starts.then(async () => {
+      const wait = lastStart + spacing - now()
+      if (wait > 0) await sleep(wait)
+      lastStart = now()
+    })
+    starts = turn.catch(() => undefined)
+    return turn
+  }
 
   async function request(params: SmartxParams): Promise<SmartxQuote> {
-    const wait = lastStart + spacing - now()
-    if (wait > 0) await sleep(wait)
-    lastStart = now()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     let res: Response
@@ -450,14 +470,15 @@ export function createSmartxClient(options: SmartxClientOptions) {
   }
 
   return {
-    /** One request at a time, spaced apart. */
-    quote(params: SmartxParams): Promise<SmartxQuote> {
-      const run = tail.then(
-        () => request(params),
-        () => request(params),
-      )
-      tail = run.catch(() => undefined)
-      return run
+    /** At most `maxInFlight` at once, their starts `spacing` apart. */
+    async quote(params: SmartxParams): Promise<SmartxQuote> {
+      const release = await places.acquire()
+      try {
+        await spaced()
+        return await request(params)
+      } finally {
+        release()
+      }
     },
   }
 }

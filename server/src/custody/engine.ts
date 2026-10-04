@@ -111,6 +111,12 @@ export interface EngineDeps {
   refundWaitMs?: number
 }
 
+/** What a caller of `execute` hears while it runs. */
+export interface ExecuteHooks {
+  /** A transaction is signed and recorded and goes out to the network now (once per step). */
+  onSend?: () => void
+}
+
 /**
  * A later step waits at most this long for the step before to refund its gas. Refunds land a
  * block or two after the receipts that make them, so this only runs out when something is wrong.
@@ -259,7 +265,7 @@ export function createEngine(deps: EngineDeps) {
     return { intent: after, moved }
   }
 
-  async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[], owner: string): Promise<ExecuteResult> {
+  async function run(intent: Intent, wallet: TradingWallet, op: WalletOperation, plan: WalletTxPlan[], owner: string, hooks: ExecuteHooks): Promise<ExecuteResult> {
     const confirmed: ConfirmedTx[] = []
     let lastNonce: bigint | null = null
     const keep = () => store.renewLease(intent.id, owner, leaseMs)
@@ -332,6 +338,7 @@ export function createEngine(deps: EngineDeps) {
       })
       lastNonce = nonce
 
+      hooks.onSend?.()
       const sent = await chain.send(signed.base64)
       await store.markTx(intent.id, step, 'submitted')
       await store.audit({ userId: intent.userId, walletId: wallet.id, action: 'tx-sent', detail: { intent: intent.id, step, hash: signed.hash, answer: sent.kind } })
@@ -394,7 +401,7 @@ export function createEngine(deps: EngineDeps) {
 
   const api = {
     /** The Confirm button. Safe to call any number of times for the same intent. */
-    async execute(intentId: string, userId: number): Promise<ExecuteResult> {
+    async execute(intentId: string, userId: number, hooks: ExecuteHooks = {}): Promise<ExecuteResult> {
       // This execution's name in the lease: the resolver (even in this process) can't take it while it lives.
       const owner = `${instance}/x/${randomToken(6)}`
       const c = await store.confirmIntent(intentId, userId, { owner, ms: leaseMs })
@@ -432,7 +439,7 @@ export function createEngine(deps: EngineDeps) {
           })
           return { kind: 'requoted', intent: (await store.intent(intent.id)) as Intent, next }
         }
-        return await run(intent, wallet, outcome.op, outcome.plan, owner)
+        return await run(intent, wallet, outcome.op, outcome.plan, owner, hooks)
       } catch (e) {
         if (!(e instanceof LeaseLostError)) throw e
         // Another instance took the intent over (this one stalled past its lease): it reports the outcome.

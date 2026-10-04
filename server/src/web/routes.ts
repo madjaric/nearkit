@@ -20,7 +20,7 @@ import type { Logger } from '../log'
 import type { ServerNear } from '../near'
 import { bold, esc, plainText, shortAccount } from '../telegram/html'
 import type { InlineKeyboard } from '../telegram/types'
-import { startRun, WEB_CHAT, WEB_CONCURRENCY } from './execute'
+import { startRun, WEB_CHAT, WEB_QUOTE_CONCURRENCY } from './execute'
 import { latestOf, legStatus, legView, tradeFacts } from './multi'
 import type { WebSessions } from './sessions'
 
@@ -264,7 +264,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       })
       let quotes: SwapQuote[]
       try {
-        quotes = await mapLimit(wallets, WEB_CONCURRENCY, (w, i) => custody.swaps.quote(params[i] as SwapParams, w))
+        quotes = await mapLimit(wallets, WEB_QUOTE_CONCURRENCY, (w, i) => custody.swaps.quote(params[i] as SwapParams, w))
       } catch (e) {
         throw new HttpError(502, 'quote', `${friendlyError(e, { network: deps.network.id, side, log: deps.log, context: 'web quote failed' })} Nothing was prepared.`)
       }
