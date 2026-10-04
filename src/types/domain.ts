@@ -163,6 +163,18 @@ export interface WalletSnapshot extends Wallet {
   valueUsd: number | null
 }
 
+/**
+ * One account object as the wallet returned it, cut down to plain fields (src/lib/walletDetails.ts),
+ * so the user can see what the wallet sent. Shown, never used to decide anything.
+ */
+export interface WalletAccountDetail {
+  /** Its `accountId`: the field NearKit reads (NEAR Connect's). Null when it had none. */
+  accountId: string | null
+  publicKey: string | null
+  /** Its other plain fields as `name=value`, values cut short; never one whose name looks secret. */
+  extra: string[]
+}
+
 export interface Session {
   accountId: string
   walletId: WalletId
@@ -172,6 +184,8 @@ export interface Session {
   walletName?: string
   /** Every account the wallet session exposes (real mode). */
   accounts?: string[]
+  /** What the wallet returned for its accounts (real mode), for the user to see. Never used to decide anything. */
+  walletDetails?: WalletAccountDetail[]
   /** A problem that blocks execution: account from the other network, or not found on this one. */
   issue?: 'network-mismatch' | 'account-missing' | null
   /** The account on the network's explorer (real mode). */

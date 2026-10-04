@@ -24,6 +24,7 @@ const request = { message: 'NearKit owner request', recipient: 'nearkit.example'
 
 /** NearKit web's wallet service on a fake chain, with a wallet that signs messages as `signsAs` (default: the account asked for). */
 function setup(start: WalletSession, signsAs?: string) {
+  const kv = memoryStorage()
   const chain = createFakeChain({ accounts: { [OWNER]: { amount: ONE }, [IMPLICIT]: { amount: ONE } } })
   const { env } = parseEnv({ VITE_NEAR_NETWORK: 'testnet' })
   const wallet = fakeWallet(start, undefined, async () => ({ publicKey: 'ed25519:11111111111111111111111111111111', signature: 'c2lnbmF0dXJl' }))
@@ -36,8 +37,9 @@ function setup(start: WalletSession, signsAs?: string) {
       return signsAs === undefined ? signed : { ...signed, accountId: signsAs }
     },
   }
-  const services = createNearServices({ env, network: NETWORKS.testnet, fetch: chain.fetch, kv: memoryStorage(), wallet: async () => adapter })
-  return { services, wallet, asked }
+  const open = () => createNearServices({ env, network: NETWORKS.testnet, fetch: chain.fetch, kv, wallet: async () => adapter })
+  /** `reload`: the same browser after a reload (what NearKit stored, and the wallet's session, are still there). */
+  return { services: open(), reload: open, wallet, asked }
 }
 
 describe('the connected NEAR account', () => {
@@ -56,15 +58,32 @@ describe('the connected NEAR account', () => {
     const { services } = setup(session([EVM, IMPLICIT]))
     expect(await services.wallets.connect('fake')).toMatchObject({ accountId: IMPLICIT, accounts: [IMPLICIT] })
   })
+
+  it('Connect bottest.near on a wallet that lists eb2f… first and bottest.near after it: the session is bottest.near’s, also after a reload', async () => {
+    const { services, reload } = setup(session([IMPLICIT, OWNER]))
+    expect(await services.wallets.connect('fake', { account: OWNER })).toMatchObject({ accountId: OWNER, accounts: [IMPLICIT, OWNER] })
+    expect(await reload().wallets.getSession()).toMatchObject({ accountId: OWNER })
+  })
+
+  it('a plain connect is the wallet’s own first account, and an account the wallet doesn’t share is never the session’s', async () => {
+    const { services, wallet } = setup(session([IMPLICIT, OWNER]))
+    await services.wallets.connect('fake', { account: OWNER })
+    expect(await services.wallets.connect('fake')).toMatchObject({ accountId: IMPLICIT })
+    // Only eb2f… now: asking for bottest.near by name doesn't make eb2f… bottest.near.
+    wallet.setSession(session([IMPLICIT]))
+    expect(await services.wallets.connect('fake', { account: OWNER })).toMatchObject({ accountId: IMPLICIT, accounts: [IMPLICIT] })
+  })
 })
 
 describe('signing for the owner', () => {
-  it('checks the wallet’s active account right before signing: on another account nothing is asked of the wallet', async () => {
+  it('checks the wallet’s accounts right before signing: without the owner among them, nothing is asked of the wallet', async () => {
     const { services, wallet, asked } = setup(session([OWNER]))
     await services.wallets.connect('fake')
     // The wallet moved to the NearKit wallet's account after it connected.
     wallet.setSession(session([IMPLICIT]))
-    await expect(services.wallets.signMessage(request)).rejects.toThrow(`Your wallet returned ${IMPLICIT}, not ${OWNER}. Switch to ${OWNER} in your wallet, then try again.`)
+    await expect(services.wallets.signMessage(request)).rejects.toThrow(
+      `Your wallet returned ${IMPLICIT}, not ${OWNER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both).`,
+    )
     // And on an EVM address only.
     wallet.setSession(session([EVM]))
     await expect(services.wallets.signMessage(request)).rejects.toThrow(`Your wallet returned an EVM address (${EVM}), not a NEAR account.`)
@@ -76,6 +95,25 @@ describe('signing for the owner', () => {
     await services.wallets.connect('fake')
     await expect(services.wallets.signMessage(request)).rejects.toThrow(`Your wallet returned ${IMPLICIT}, not ${OWNER}.`)
     expect(asked).toEqual([OWNER])
+  })
+
+  it('a wallet that shares bottest.near after eb2f…: the signature is asked of bottest.near, by name, and kept only as bottest.near’s', async () => {
+    const { services, asked } = setup(session([IMPLICIT, OWNER]))
+    await services.wallets.connect('fake')
+    expect(await services.wallets.signMessage(request)).toMatchObject({ accountId: OWNER })
+    expect(asked).toEqual([OWNER])
+  })
+
+  it('the session keeps what the wallet returned, for the user to see: every account it shared, with its key', async () => {
+    const shared: WalletSession = {
+      ...session([IMPLICIT]),
+      provider: [{ accountId: IMPLICIT, publicKey: 'ed25519:G27MijJFPXLkWZC8fDnX2AvL1gq8jidmemvK8u9gid6b', extra: ['label=bottest.near'] }],
+    }
+    const { services } = setup(shared)
+    const s = await services.wallets.connect('fake')
+    expect(s.walletDetails).toEqual([{ accountId: IMPLICIT, publicKey: 'ed25519:G27MijJFPXLkWZC8fDnX2AvL1gq8jidmemvK8u9gid6b', extra: ['label=bottest.near'] }])
+    // A display name the wallet sends is shown, never used: the account is still eb2f….
+    expect(s.accountId).toBe(IMPLICIT)
   })
 
   it('signs as the owner while the owner is the active NEAR account', async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { WalletReturned } from '@/components/domain/WalletReturned'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Dialog'
 import { Figures } from '@/components/ui/Figures'
@@ -9,7 +10,7 @@ import { ownerAccountProblem, type OwnerAccountMismatch } from '@/lib/ownerAccou
 import { describeError, type ErrorView } from '@/services/errors'
 import { useCapabilities, useConnect, useReconnectAs, useWalletOptions } from '@/services/queries'
 import type { WalletOption } from '@/services/types'
-import type { Session } from '@/types/domain'
+import type { Session, WalletAccountDetail } from '@/types/domain'
 import { ConnectContext } from './contexts'
 
 function DemoBody() {
@@ -103,8 +104,8 @@ function NearBody({
   open: boolean
   pendingId: string | null
   error: ErrorView | null
-  /** "Connect <owner>": the wallet came back on another account, or on an EVM address only. */
-  mismatch: { check: OwnerAccountMismatch; owner: string } | null
+  /** "Connect <owner>": the wallet came back on another account, or on an EVM address only; with what it returned. */
+  mismatch: { check: OwnerAccountMismatch; owner: string; details: WalletAccountDetail[] | undefined } | null
   onPick: (id: string) => void
 }) {
   const caps = useCapabilities()
@@ -149,6 +150,7 @@ function NearBody({
       {mismatch && (
         <div role="alert" className="rounded-sm border border-neg/40 bg-neg/10 px-3 py-2">
           <p className="break-words text-sm text-neg">{ownerAccountProblem(mismatch.check, mismatch.owner)}</p>
+          <WalletReturned details={mismatch.details} />
         </div>
       )}
 
@@ -184,7 +186,7 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
   const [owner, setOwner] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<ErrorView | null>(null)
-  const [mismatch, setMismatch] = useState<OwnerAccountMismatch | null>(null)
+  const [mismatch, setMismatch] = useState<{ check: OwnerAccountMismatch; details: WalletAccountDetail[] | undefined } | null>(null)
   const connect = useConnect()
   const reconnect = useReconnectAs()
   const toast = useToast()
@@ -226,7 +228,7 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
         {
           onSuccess: (r) => {
             // Not the owner: no "Wallet connected", the window stays open and says what came back.
-            if (!r.ok) return setMismatch(r.mismatch)
+            if (!r.ok) return setMismatch({ check: r.mismatch, details: r.session?.walletDetails })
             setOpen(false)
             announce(r.session)
           },
@@ -275,11 +277,7 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
           </>
         }
       >
-        {demo ? (
-          <DemoBody />
-        ) : (
-          <NearBody open={open} pendingId={pendingId} error={error} mismatch={mismatch && owner ? { check: mismatch, owner } : null} onPick={(id) => pick(id)} />
-        )}
+        {demo ? <DemoBody /> : <NearBody open={open} pendingId={pendingId} error={error} mismatch={mismatch && owner ? { ...mismatch, owner } : null} onPick={(id) => pick(id)} />}
       </Modal>
     </ConnectContext.Provider>
   )

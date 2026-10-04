@@ -18,12 +18,15 @@ describe('the NEAR account a wallet is on', () => {
     expect(walletAccounts([EVM, IMPLICIT, EVM_LOWER, OWNER, 'Not An Account', IMPLICIT])).toEqual({ near: [IMPLICIT, OWNER], evm: [EVM, EVM_LOWER] })
   })
 
-  it('is the owner only when the active NEAR account (the first one the wallet lists) is exactly the owner', () => {
+  it('is the owner when the wallet shares exactly that NEAR account, as its selected one or among others; never through a key both share', () => {
     expect(checkOwnerAccount([OWNER], OWNER)).toEqual({ ok: true, account: OWNER })
+    // The wallet shows bottest.near (selected) with eb2f… under it: NearKit takes bottest.near, not eb2f….
+    expect(checkOwnerAccount([OWNER, IMPLICIT], OWNER)).toEqual({ ok: true, account: OWNER })
+    // Shared after another account: still the owner itself, picked by its exact name.
+    expect(checkOwnerAccount([IMPLICIT, OWNER], OWNER)).toEqual({ ok: true, account: OWNER })
     // EVM values are skipped: never matched, never taken for the account.
     expect(checkOwnerAccount([EVM, OWNER], OWNER)).toEqual({ ok: true, account: OWNER })
-    // Another NEAR account is active: the owner further down the list doesn't count.
-    expect(checkOwnerAccount([IMPLICIT, OWNER], OWNER)).toEqual({ ok: false, reason: 'other-account', account: IMPLICIT })
+    // Only eb2f…: not the owner, although bottest.near's key controls it too. No mapping from one to the other.
     expect(checkOwnerAccount([IMPLICIT], OWNER)).toEqual({ ok: false, reason: 'other-account', account: IMPLICIT })
     // Exact: no case folding, no trimming (neither is a NEAR account id).
     expect(checkOwnerAccount(['BotTest.near'], OWNER)).toEqual({ ok: false, reason: 'none' })
@@ -34,7 +37,7 @@ describe('the NEAR account a wallet is on', () => {
 
   it('says which account the wallet returned and to switch to the owner in the wallet; an EVM address is named as one', () => {
     expect(ownerAccountProblem({ ok: false, reason: 'other-account', account: IMPLICIT }, OWNER)).toBe(
-      `Your wallet returned ${IMPLICIT}, not ${OWNER}. Switch to ${OWNER} in your wallet, then try again.`,
+      `Your wallet returned ${IMPLICIT}, not ${OWNER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${OWNER} itself in your wallet; if it keeps returning ${IMPLICIT}, remove NearKit from the wallet’s connected sites, then connect again.`,
     )
     expect(ownerAccountProblem({ ok: false, reason: 'evm-only', evm: EVM }, OWNER)).toBe(
       `Your wallet returned an EVM address (${EVM}), not a NEAR account. Switch to the NEAR account ${OWNER} in your wallet, then try again.`,

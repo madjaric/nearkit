@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { Eye, EyeOff, KeyRound, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { WalletReturned } from '@/components/domain/WalletReturned'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
@@ -76,7 +77,7 @@ function Failure({ error }: { error: unknown }) {
 }
 
 /**
- * Connect the owner wallet, or sign with it once its NEAR account is the active one, exactly.
+ * Connect the owner wallet, or sign with it once the wallet shares its NEAR account, exactly.
  * Connect signs the current wallet session out first, so the wallet can show its account picker.
  */
 function SignButton({ owner, label, pending, onSign }: { owner: string; label: string; pending: boolean; onSign: () => void }) {
@@ -86,7 +87,12 @@ function SignButton({ owner, label, pending, onSign }: { owner: string; label: s
   if (!check.ok)
     return (
       <>
-        {check.reason !== 'none' && <p className="break-words text-sm text-fg-2">{ownerAccountProblem(check, owner)}</p>}
+        {check.reason !== 'none' && (
+          <div>
+            <p className="break-words text-sm text-fg-2">{ownerAccountProblem(check, owner)}</p>
+            <WalletReturned details={session?.walletDetails} />
+          </div>
+        )}
         <Button variant="primary" size="lg" block onClick={() => connectOwner(owner)}>
           Connect {owner}
         </Button>

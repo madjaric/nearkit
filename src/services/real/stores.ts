@@ -159,6 +159,18 @@ export function createStores(kv: KeyValue, network: NetworkId) {
       },
     },
     drafts: { dca, copy, sniper, orders },
+    /**
+     * The NEAR account the user connected for by name (Recover's "Connect <owner>"): the session's
+     * account while the wallet shares exactly it, also after a reload. An account id, nothing else.
+     */
+    walletAccount: {
+      get(): string | null {
+        const id = kv.get(key('wallet-account'))
+        return isContract(id) ? id : null
+      },
+      set: (accountId: string): void => kv.set(key('wallet-account'), accountId),
+      clear: (): void => kv.remove(key('wallet-account')),
+    },
     /** Per-account PnL ledger cache (public chain data, JSON). */
     ledger: {
       read: (accountId: string): string | null => kv.get(key(`ledger:${accountId}`)),

@@ -25,10 +25,15 @@ function defaultLabel(accountId: string, isMain: boolean): string {
 const display = (raw: bigint, decimals: number) => Number(formatUnits(raw, decimals))
 
 export function createWalletService(ctx: NearContext, market: Market, nearkit: NearKitWeb | null = null): WalletService {
-  /** The session for what the wallet shared: its NEAR accounts only (EVM addresses are never one); null when it shared none. */
+  /**
+   * The session for what the wallet shared: its NEAR accounts only (EVM addresses are never one);
+   * null when it shared none. Its account is the one the user connected for by name while the
+   * wallet shares exactly it (Connect <owner>), else the wallet's first NEAR account.
+   */
   const toSession = async (s: WalletSession): Promise<Session | null> => {
     const accounts = walletAccounts(s.accounts).near
-    const accountId = accounts[0]
+    const chosen = ctx.stores.walletAccount.get()
+    const accountId = chosen !== null && accounts.includes(chosen) ? chosen : accounts[0]
     if (accountId === undefined) return null
     let issue: Session['issue'] = null
     if (isForeignToNetwork(accountId, ctx.network.id)) issue = 'network-mismatch'
@@ -44,6 +49,7 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       mode: 'near',
       walletName: s.walletName,
       accounts,
+      ...(s.provider ? { walletDetails: s.provider } : {}),
       issue,
       explorerUrl: issue === 'network-mismatch' ? null : explorerAccountUrl(ctx.network, accountId),
     }
@@ -170,11 +176,16 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       return adapter.listWallets()
     },
 
-    async connect(walletId) {
+    async connect(walletId, options = {}) {
       if (!walletId) throw new NearKitError('WALLET_UNAVAILABLE', 'Choose a wallet to connect')
       const adapter = await ctx.wallet()
       try {
         const s = await adapter.connect(walletId)
+        // Connected for an account by name (Connect <owner>): the session's account only if the
+        // wallet shares exactly it. A plain connect is the wallet's own first account.
+        const wanted = options.account
+        if (wanted !== undefined && walletAccounts(s.accounts).near.includes(wanted)) ctx.stores.walletAccount.set(wanted)
+        else ctx.stores.walletAccount.clear()
         const session = await toSession(s)
         ctx.session.restored = true
         ctx.session.current = session
@@ -193,6 +204,7 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
     async disconnect() {
       const adapter = await ctx.wallet()
       await adapter.disconnect().catch(() => undefined)
+      ctx.stores.walletAccount.clear()
       ctx.session.current = null
       ctx.session.restored = true
       ctx.balances.invalidate()
@@ -205,8 +217,9 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
         throw new NearKitError('NETWORK_MISMATCH', `${session.accountId} belongs to the other network. Connect a ${ctx.network.label.toLowerCase()} account.`)
       const signer = request.accountId ?? session.accountId
       const adapter = await ctx.wallet()
-      // A signature for a given account (an owner's): asked for only while that account is the
-      // wallet's active NEAR account right now, and kept only if the wallet signed as it.
+      // A signature for a given account (an owner's): asked for, by name, only while the wallet
+      // shares exactly that NEAR account right now, and kept only if the wallet signed as it.
+      // Another account the same key controls never stands in for it.
       const required = request.accountId
       if (required !== undefined) {
         const live = await adapter.session().catch(() => null)

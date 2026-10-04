@@ -139,13 +139,17 @@ export interface WalletService {
   getSession(): Promise<Session | null>
   /** Wallets that can connect on this network (empty in demo mode). */
   listWalletOptions(): Promise<WalletOption[]>
-  connect(walletId?: string): Promise<Session>
+  /**
+   * With `account` (Recover's "Connect <owner>"): that NEAR account is the session's account when the
+   * wallet shares exactly it, also after a reload; otherwise, and on a plain connect, the wallet's first.
+   */
+  connect(walletId?: string, options?: { account?: string }): Promise<Session>
   disconnect(): Promise<void>
   /**
    * Sign a NEP-413 message with the connected wallet: free, no transaction. Used
    * to prove account ownership (e.g. linking Telegram). Refused in demo mode.
    */
-  /** With `accountId` (an owner's request): only while that is the wallet's active NEAR account, and only a signature made as it. */
+  /** With `accountId` (an owner's request): only while the wallet shares exactly that NEAR account, and only a signature made as it. */
   signMessage(request: SignMessageRequest & { accountId?: string }): Promise<SignedMessageResult>
   listWallets(): Promise<Wallet[]>
   /** Every wallet with its balances: the wallet views, watch-only ones included. */

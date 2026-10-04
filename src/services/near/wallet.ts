@@ -1,6 +1,8 @@
 import { NearConnector, type DataStorage, type NearConnectorOptions, type NearWalletBase, type WalletManifest } from '@hot-labs/near-connect'
 import type { NetworkConfig, NetworkId } from '@/config/networks'
 import { WALLET_MANIFEST } from '@/config/walletManifest'
+import { providerAccounts } from '@/lib/walletDetails'
+import type { WalletAccountDetail } from '@/types/domain'
 import { NearKitError } from './errors'
 
 /**
@@ -27,6 +29,8 @@ export interface WalletSession {
   accounts: string[]
   /** The wallet signs several transactions in one approval. */
   batch: boolean
+  /** What the wallet returned for its accounts, for the user to see (src/lib/walletDetails.ts). Never used to decide anything. */
+  provider?: WalletAccountDetail[]
 }
 
 export type ConnectorAction =
@@ -175,9 +179,16 @@ export function createNearConnectAdapter(network: NetworkConfig): WalletAdapter 
   }
 
   const sessionOf = async (wallet: NearWalletBase): Promise<WalletSession | null> => {
-    const accounts = accountsOf(await wallet.getAccounts({ network: networkId }))
+    const list = await wallet.getAccounts({ network: networkId })
+    const accounts = accountsOf(list)
     if (accounts.length === 0) return null
-    return { walletId: wallet.manifest.id, walletName: wallet.manifest.name, accounts, batch: Boolean(wallet.manifest.features?.signAndSendTransactions) }
+    return {
+      walletId: wallet.manifest.id,
+      walletName: wallet.manifest.name,
+      accounts,
+      batch: Boolean(wallet.manifest.features?.signAndSendTransactions),
+      provider: providerAccounts(list ?? []),
+    }
   }
 
   const current = async (): Promise<WalletSession | null> => {

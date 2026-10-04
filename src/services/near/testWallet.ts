@@ -1,5 +1,6 @@
 import type { NetworkConfig } from '@/config/networks'
 import { base64Encode } from '@/lib/encoding'
+import { providerAccounts } from '@/lib/walletDetails'
 import { nep413Digest } from './nep413'
 import type { ConnectorTransaction, WalletAdapter, WalletSession } from './wallet'
 
@@ -56,7 +57,15 @@ export function createTestWalletAdapter(network: NetworkConfig): WalletAdapter {
   }
   const session = (): WalletSession | null => {
     const accounts = read()
-    return accounts && accounts.length ? { walletId: 'e2e-wallet', walletName: script().walletName ?? 'E2E Test Wallet', accounts, batch: true } : null
+    if (!accounts?.length) return null
+    // What a NEAR Connect wallet returns for each account: its id.
+    return {
+      walletId: 'e2e-wallet',
+      walletName: script().walletName ?? 'E2E Test Wallet',
+      accounts,
+      batch: true,
+      provider: providerAccounts(accounts.map((accountId) => ({ accountId }))),
+    }
   }
   return {
     kind: 'e2e-test',
