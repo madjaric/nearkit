@@ -30,6 +30,41 @@ function DemoBody() {
   )
 }
 
+/** Icons a wallet's manifest may name: https and inline images only (an <img> never runs an SVG's scripts). */
+const ICON_SOURCE = /^(https:\/\/|data:image\/)/
+
+/**
+ * The provider's own icon from the pinned wallet manifest (or its extension), on a tile that keeps
+ * every icon the same size on the dark UI; its first letter when there is none or it fails to load.
+ */
+function WalletIcon({ option }: { option: WalletOption }) {
+  const [failed, setFailed] = useState(false)
+  const src = option.icon && !failed && ICON_SOURCE.test(option.icon) ? option.icon : null
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-[3px] border border-line bg-raised font-mono text-xs font-semibold text-fg-2"
+    >
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          width={28}
+          height={28}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          draggable={false}
+          onError={() => setFailed(true)}
+          className="size-full object-contain"
+        />
+      ) : (
+        option.name.slice(0, 1)
+      )}
+    </span>
+  )
+}
+
 function WalletRow({ option, pending, disabled, onPick }: { option: WalletOption; pending: boolean; disabled: boolean; onPick: () => void }) {
   return (
     <li>
@@ -44,9 +79,7 @@ function WalletRow({ option, pending, disabled, onPick }: { option: WalletOption
           disabled && !pending && 'opacity-45',
         )}
       >
-        <span aria-hidden="true" className="grid size-7 shrink-0 place-items-center rounded-[3px] border border-line bg-raised font-mono text-xs font-semibold text-fg-2">
-          {option.name.slice(0, 1)}
-        </span>
+        <WalletIcon option={option} />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="truncate text-sm text-fg">{option.name}</span>
