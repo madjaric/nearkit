@@ -51,7 +51,7 @@ export function Toaster({ children }: { children: ReactNode }) {
                 <Figures>{toast.title}</Figures>
               </p>
               {toast.detail && (
-                <p className="mt-0.5 text-xs leading-[1.45] text-fg-3">
+                <p className="mt-0.5 break-words text-xs leading-[1.45] text-fg-3">
                   <Figures>{toast.detail}</Figures>
                 </p>
               )}
