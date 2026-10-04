@@ -1,18 +1,21 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, fractionOf, tryParseUnits } from '@/lib/amounts'
 import { GAS_RESERVE_YOCTO, NEARKIT_FEE_LABEL } from '@/lib/fees'
-import { formatPct, formatUsdPrice } from '@/lib/format'
+import { formatNumber, formatPct, formatUsdCompact, formatUsdPrice } from '@/lib/format'
+import { readTransferTax } from '@/services/dcl/tax'
 import { explorerTokenUrl } from '@/services/near/explorer'
-import type { Quote, TokenListing } from '@/types/domain'
+import type { MarketFigure, Quote, TokenListing, TokenMarket } from '@/types/domain'
+import { walletName } from '../custody/limits'
+import type { TradingWallet } from '../custody/store'
 import { buyReserve, sellReserve, type SwapParams } from '../custody/swap'
-import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
+import { bold, code, esc, plainText } from '../telegram/html'
 import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { looksLikeContract, resolveToken } from '../trade/tokens'
-import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
+import { btn, copyBtn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
 import { Buckets } from './ratelimit'
 import { sendNativeQuote } from './nativeTrade'
 import { amountText, friendlyError, nearText, UNKNOWN } from './ui'
-import { flowWallet, showWalletHome, tradingWallet } from './tradingWallet'
+import { flowWallet, showWalletHome, tradingWallet, walletLine } from './tradingWallet'
 import { linkedAccount, needAccount } from './wallet'
 
 /**
@@ -86,6 +89,49 @@ async function balanceOf(ctx: BotCtx, account: string, tokenId: string): Promise
   return b.fts.find((f) => f.contract === tokenId)?.raw ?? 0n
 }
 
+/** How long the BUY screen waits for the market before saying it didn't load (the market service keeps reading). */
+const MARKET_WAIT_MS = 3_000
+
+/** `p`, or null when it fails or takes longer than `ms`. */
+async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([p.catch(() => null), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ms)))])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** A figure's value as the screen shows it; null when no source has it. */
+const figure = (f: MarketFigure, format: (v: number) => string): string | null => (f.state === 'known' || f.state === 'stale' ? format(f.value) : null)
+
+/**
+ * The token's market, from the shared market service (DEX Screener, GeckoTerminal, CoinGecko, as
+ * Token Detail reads it). A market cap no source knows is "unavailable", never worked out here.
+ */
+function marketLines(m: TokenMarket | null): string[] {
+  if (!m) return ['📊 Market data didn’t load. Refresh to try again.']
+  if (m.priceUsd.state === 'not-applicable' && m.marketCapUsd.state === 'not-applicable') return [`📊 ${esc(m.priceUsd.reason)}`]
+  const mcap = figure(m.marketCapUsd, (v) => formatUsdCompact(v, 2))
+  const liquidity = figure(m.liquidityUsd, (v) => formatUsdCompact(v, 1))
+  const price = figure(m.priceUsd, formatUsdPrice)
+  const change = figure(m.change24hPct, (v) => formatPct(v, { signed: true, decimals: 2 }))
+  return [
+    `📊 Market cap ${mcap ? bold(mcap) : 'unavailable'}`,
+    ...(liquidity ? [`💧 Liquidity ${bold(liquidity)}`] : []),
+    `💵 Price ${price ? bold(price) : 'unavailable'}${change ? ` · 24h ${bold(change)}` : ''}`,
+  ]
+}
+
+/** The token's own transfer tax to its DCL pair (what the route quotes after), or null when it has none. */
+async function taxLine(ctx: BotCtx, token: TokenListing): Promise<string | null> {
+  if (!token.contract) return null
+  const tax = await readTransferTax(ctx.deps.near.ctx.rpc, token.contract, ctx.deps.config.network.dex.dcl.contract).catch(() => null)
+  if (!tax || (tax.buyBps === 0 && tax.sellBps === 0)) return null
+  const pct = (bps: number) => `${formatNumber(bps / 100, 0, 2)}%`
+  return `🧾 Tax buy ${bold(pct(tax.buyBps))} · sell ${bold(pct(tax.sellBps))}`
+}
+
 function tokenHeader(side: Side, t: TokenListing): string {
   return `${side === 'buy' ? '🟢' : '🔴'} ${bold(`${side === 'buy' ? 'Buy' : 'Sell'} ${t.symbol}`)}${t.contract ? `\n${code(t.contract)}` : ''}`
 }
@@ -124,18 +170,40 @@ async function chooseToken(ctx: BotCtx, state: TradeState, query: string, pasted
   await askAmount(ctx, { ...state, native: state.native ?? false, walletId: state.walletId ?? '', token: token.id }, token)
 }
 
-async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenListing) {
-  const settings = await ctx.deps.store.getSettings(ctx.user.id)
+/**
+ * The BUY (or SELL) screen: the token and its live market first, then the wallet the trade runs
+ * from, its balance and the slippage, then the amounts and the quick actions. NearKit's fee is
+ * not repeated here: the quote states it before anything is confirmed. `edit`: replace the
+ * message (Refresh, a wallet switch) instead of sending a new one.
+ */
+async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenListing, edit = false) {
   const buy = state.side === 'buy'
-  const balance = await balanceOf(ctx, state.account, buy ? NATIVE_TOKEN_ID : state.token).catch(() => null)
+  const [settings, near, held, market, tax, wallet, wallets] = await Promise.all([
+    ctx.deps.store.getSettings(ctx.user.id),
+    balanceOf(ctx, state.account, NATIVE_TOKEN_ID).catch(() => null),
+    token.contract ? balanceOf(ctx, state.account, state.token).catch(() => null) : Promise.resolve(null),
+    within(ctx.deps.near.tokens.getMarketData(token.id), MARKET_WAIT_MS),
+    taxLine(ctx, token),
+    state.native ? flowWallet(ctx, state.walletId) : Promise.resolve(null),
+    state.native && ctx.deps.custody ? ctx.deps.custody.store.activeWallets(ctx.user.id, ctx.deps.config.network.id) : Promise.resolve([] as TradingWallet[]),
+  ])
+  const balance = buy ? near : held
   const decimals = buy ? NEAR_DECIMALS : token.decimals
-  const unit = buy ? 'NEAR' : token.symbol
   const put = (amount: string) => ctx.deps.store.putCallback({ ...state, amount }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  const send = (html: string, markup: Parameters<BotCtx['show']>[1]) => (edit ? ctx.show(html, markup) : ctx.reply(html, markup).then(() => undefined))
+  const nearShown = near === null ? UNKNOWN : bold(`${fmt(near, NEAR_DECIMALS, 4)} NEAR`)
+  const pair = market?.pair
   const head = [
-    tokenHeader(state.side, token),
+    `${buy ? '🟢' : '🔴'} ${bold(`${buy ? 'Buy' : 'Sell'} ${token.symbol}`)}${token.name && token.name !== token.symbol ? ` · ${esc(token.name)}` : ''}`,
+    ...(token.contract ? [code(token.contract)] : []),
+    ...(pair ? [`${esc(pair.baseSymbol)}/${esc(pair.quoteSymbol)} on ${esc(pair.dex)}`] : []),
     '',
-    state.native ? `From your NearKit wallet ${esc(shortAccount(state.account))}` : `Wallet ${code(state.account)}`,
-    `Balance ${balance === null ? UNKNOWN : bold(`${fmt(balance, decimals, 4)} ${esc(unit)}`)}`,
+    ...marketLines(market),
+    ...(tax ? [tax] : []),
+    '',
+    wallet ? `👛 ${walletLine(wallet)} · ${nearShown}` : `👛 Wallet ${code(state.account)} · ${nearShown}`,
+    ...(token.contract && held !== null && (!buy || held > 0n) ? [`🪙 You hold ${bold(`${fmt(held, token.decimals, 4)} ${esc(token.symbol)}`)}`] : []),
+    `⚙️ Slippage ${bold(`${formatNumber(settings.slippagePct, 0, 2)}%`)}`,
   ]
   const network = ctx.deps.config.network
   if (!buy && state.native) {
@@ -152,7 +220,7 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
 
   if (!buy && balance === 0n) {
     await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
-    await ctx.reply([...head, '', `You don’t hold any ${esc(token.symbol)} in this wallet.`].join('\n'), keyboard([btn('« Menu', 'menu:home')]))
+    await send([...head, '', `You don’t hold any ${esc(token.symbol)} in this wallet.`].join('\n'), keyboard([btn('« Menu', 'menu:home')]))
     return
   }
   await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'trade.amount', state, FLOW_TTL_MS)
@@ -172,7 +240,30 @@ async function askAmount(ctx: BotCtx, state: Required<TradeState>, token: TokenL
     const shares = pcts.map((pct, i) => btn(`${pct}%`, `tr:amt:${ids[i]}`))
     rows = [shares, [btn('✏️ Custom', 'tr:custom')]]
   }
-  await ctx.reply([...head, '', buy ? 'How much NEAR?' : `How much ${esc(token.symbol)}?`].join('\n'), keyboard(...rows, [btn('✖ Cancel', 'tr:cancel')]))
+  const here = await ctx.deps.store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  await send(
+    [...head, '', buy ? 'How much NEAR?' : `How much ${esc(token.symbol)}?`].join('\n'),
+    keyboard(
+      ...rows,
+      [...(wallets.length > 1 ? [btn('👛 Switch wallet', `tr:wal:${here}`)] : []), btn('🔄 Refresh', `tr:ref:${here}`)],
+      [urlBtn('📈 Chart', `${ctx.deps.config.webUrl}/token/${encodeURIComponent(token.id)}`), ...(token.contract ? [copyBtn('📋 Copy CA', token.contract)] : [])],
+      [btn('📊 Positions', 'pf:positions'), btn('✖ Close', 'tr:cancel')],
+    ),
+  )
+}
+
+/** Which of the user's own active NearKit wallets this trade runs from (the pick becomes the selected wallet). */
+async function chooseWallet(ctx: BotCtx, state: Required<TradeState>, token: TokenListing) {
+  const custody = ctx.deps.custody
+  const wallets = custody ? await custody.store.activeWallets(ctx.user.id, ctx.deps.config.network.id) : []
+  const ids = await Promise.all(
+    wallets.map((w) => ctx.deps.store.putCallback({ ...state, native: true, walletId: w.id, account: w.accountId }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)),
+  )
+  const back = await ctx.deps.store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  await ctx.show(
+    `👛 ${bold(`${state.side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}`)} from which NearKit wallet?`,
+    keyboard(...wallets.map((w, i) => [btn(`${w.id === state.walletId ? '✅ ' : ''}${w.slot}. ${walletName(w)}`, `tr:use:${ids[i]}`)]), [btn('« Back', `tr:ref:${back}`)]),
+  )
 }
 
 function quoteText(ctx: BotCtx, side: Side, token: TokenListing, amountIn: string, q: Quote): string {
@@ -342,21 +433,31 @@ async function showToken(ctx: BotCtx, args: string) {
     await ctx.reply(`${bold('NEAR')}\nPrice ${t.market ? esc(formatUsdPrice(t.market.priceUsd)) : UNKNOWN}`)
     return
   }
-  const [supply, held] = await Promise.all([ctx.deps.near.ctx.reader.totalSupply(t.contract).catch(() => null), account ? balanceOf(ctx, account, t.id).catch(() => null) : null])
+  const [supply, held, market, tax] = await Promise.all([
+    ctx.deps.near.ctx.reader.totalSupply(t.contract).catch(() => null),
+    account ? balanceOf(ctx, account, t.id).catch(() => null) : null,
+    within(ctx.deps.near.tokens.getMarketData(t.id), MARKET_WAIT_MS),
+    taxLine(ctx, t),
+  ])
+  const pair = market?.pair
   const state = (side: Side) => ctx.deps.store.putCallback({ side, account: account ?? '', token: t.id, native: nearkit !== null }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
   const [buyId, sellId] = account ? await Promise.all([state('buy'), state('sell')]) : ['', '']
   await ctx.reply(
     [
       `${bold(t.symbol)} · ${esc(t.name)}`,
       code(t.contract),
+      ...(pair ? [`${esc(pair.baseSymbol)}/${esc(pair.quoteSymbol)} on ${esc(pair.dex)}`] : []),
       '',
-      `Price ${t.market ? esc(formatUsdPrice(t.market.priceUsd)) : `${UNKNOWN} (not listed by Rhea)`}`,
+      ...marketLines(market),
+      ...(tax ? [tax] : []),
       `Supply ${supply !== null ? esc(fmt(supply, t.decimals, 0)) : UNKNOWN} · ${t.decimals} decimals`,
       ...(account ? [`You hold ${held !== null ? bold(`${esc(amountText(held, t.decimals))} ${esc(t.symbol)}`) : UNKNOWN}`] : []),
     ].join('\n'),
-    keyboard(...(account ? [[btn(`🟢 Buy ${t.symbol}`, `tr:start:${buyId}`), btn(`🔴 Sell ${t.symbol}`, `tr:start:${sellId}`)]] : []), [
-      urlBtn('🔗 Explorer', explorerTokenUrl(ctx.deps.config.network, t.contract)),
-    ]),
+    keyboard(
+      ...(account ? [[btn(`🟢 Buy ${t.symbol}`, `tr:start:${buyId}`), btn(`🔴 Sell ${t.symbol}`, `tr:start:${sellId}`)]] : []),
+      [urlBtn('📈 Chart', `${ctx.deps.config.webUrl}/token/${encodeURIComponent(t.id)}`), copyBtn('📋 Copy CA', t.contract)],
+      [urlBtn('🔗 Explorer', explorerTokenUrl(ctx.deps.config.network, t.contract))],
+    ),
   )
 }
 
@@ -409,11 +510,14 @@ export function tradeModule(): BotModule {
           return void (await needAccount(ctx))
         }
         const state = { ...payload, native: payload.native ?? false, account }
-        if (action === 'pick' || action === 'start') {
+        if (action === 'pick' || action === 'start' || action === 'ref' || action === 'use' || action === 'wal') {
           await ctx.answer()
           const token = (await ctx.deps.near.market.listTokens([state.token])).find((t) => t.id === state.token)
           if (!token) return void (await ctx.reply('⚠️ That token can’t be read from chain right now.'))
-          return askAmount(ctx, state, token)
+          if (action === 'wal') return chooseWallet(ctx, state, token)
+          // The wallet picked (checked above: this user's, active) is the selected one from now on.
+          if (action === 'use') await store.updateSettings(ctx.user.id, { activeWallet: state.walletId })
+          return askAmount(ctx, state, token, action !== 'pick' && action !== 'start')
         }
         if ((action === 'amt' || action === 'again') && payload.amount) {
           // A double tap would prepare the same trade twice.

@@ -28,7 +28,8 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     const w = await h.funded(3n * ONE)
     await h.say('/buy')
     await h.say('USDT')
-    expect(h.last()?.text).toContain('From your NearKit wallet')
+    // The BUY screen names the NearKit wallet the trade runs from.
+    expect(h.last()?.text).toContain('👛 <b>Main</b>')
     await h.press(h.button('0.1 NEAR'))
     const quote = h.last()?.text ?? ''
     for (const part of [
