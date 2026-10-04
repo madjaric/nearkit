@@ -54,8 +54,12 @@ export function useTradeDrawer(): TradeDrawerApi {
 
 export interface ConnectApi {
   promptConnect: () => void
-  /** Connect exactly this NEAR account (Recover's owner): the current session is signed out first, and another account is an error. */
-  connectOwner: (owner: string) => void
+  /**
+   * Connect a wallet that can sign for this owner (Recover): the current session is signed out first,
+   * and a wallet that can't (by the owner account itself, or a full-access key of it) is an error.
+   * `nearkitWallet`: the NearKit wallet the request is about, named when the wallet is that wallet itself.
+   */
+  connectOwner: (owner: string, nearkitWallet?: string) => void
 }
 
 export const ConnectContext = createContext<ConnectApi | null>(null)

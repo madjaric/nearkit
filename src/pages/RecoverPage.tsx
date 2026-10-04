@@ -10,10 +10,10 @@ import { Line, Lines, Panel, PanelBody, PanelHeader } from '@/components/ui/Pane
 import { ENV } from '@/config/env'
 import { base64Decode } from '@/lib/encoding'
 import { createExportKeyPair, openExport } from '@/lib/exportCrypto'
-import { checkOwnerAccount, ownerAccountProblem } from '@/lib/ownerAccount'
+import { ownerControlProblem, ownerKeyNote } from '@/lib/ownerAccount'
 import { useServices } from '@/services/context'
 import { describeError } from '@/services/errors'
-import { useCapabilities, useSession } from '@/services/queries'
+import { useCapabilities, useOwnerControl, useSession } from '@/services/queries'
 import {
   approveDestination,
   challengeProblem,
@@ -77,31 +77,52 @@ function Failure({ error }: { error: unknown }) {
 }
 
 /**
- * Connect the owner wallet, or sign with it once the wallet shares its NEAR account, exactly.
- * Connect signs the current wallet session out first, so the wallet can show its account picker.
+ * Connect the owner wallet, or sign with it once it can sign for the owner: the owner account
+ * itself, or an account whose key is a full-access key of the owner on chain (said plainly; the key
+ * that signs is checked again after). Connect signs the current wallet session out first, so the
+ * wallet can show its account picker. `wallet`: the NearKit wallet this request is about.
  */
-function SignButton({ owner, label, pending, onSign }: { owner: string; label: string; pending: boolean; onSign: () => void }) {
+function SignButton({ owner, wallet, label, pending, onSign }: { owner: string; wallet?: string; label: string; pending: boolean; onSign: () => void }) {
   const { data: session } = useSession()
   const { connectOwner } = useConnectPrompt()
-  const check = checkOwnerAccount(session ? (session.accounts ?? [session.accountId]) : [], owner)
-  if (!check.ok)
+  const control = useOwnerControl(owner, session ?? null)
+  const connect = (
+    <Button variant="primary" size="lg" block onClick={() => connectOwner(owner, wallet)}>
+      Connect {owner}
+    </Button>
+  )
+  if (!session) return connect
+  if (control.isPending)
+    return (
+      <Button variant="primary" size="lg" block loading disabled>
+        Checking your wallet
+      </Button>
+    )
+  const c = control.data
+  if (!c?.ok)
     return (
       <>
-        {check.reason !== 'none' && (
+        {c && c.reason !== 'none' && (
           <div>
-            <p className="break-words text-sm text-fg-2">{ownerAccountProblem(check, owner)}</p>
-            <WalletReturned details={session?.walletDetails} />
+            <p className="break-words text-sm text-fg-2">{ownerControlProblem(c, owner, wallet)}</p>
+            <WalletReturned details={session.walletDetails} />
           </div>
         )}
-        <Button variant="primary" size="lg" block onClick={() => connectOwner(owner)}>
-          Connect {owner}
-        </Button>
+        {c?.reason === 'unchecked' && (
+          <Button variant="secondary" size="lg" block onClick={() => void control.refetch()}>
+            Check again
+          </Button>
+        )}
+        {connect}
       </>
     )
   return (
-    <Button variant="primary" size="lg" block loading={pending} disabled={pending} onClick={onSign}>
-      {label}
-    </Button>
+    <>
+      {c.via === 'key' && <p className="break-words text-sm text-fg-2">{ownerKeyNote(c, owner)}</p>}
+      <Button variant="primary" size="lg" block loading={pending} disabled={pending} onClick={onSign}>
+        {label}
+      </Button>
+    </>
   )
 }
 
@@ -269,7 +290,7 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
         ) : (
           <>
             <Message text={c.message} />
-            <SignButton owner={c.ownerAccount} label="Sign and show the key" pending={exported.isPending} onSign={() => exported.mutate(c)} />
+            <SignButton owner={c.ownerAccount} wallet={wallet} label="Sign and show the key" pending={exported.isPending} onSign={() => exported.mutate(c)} />
           </>
         )}
         {prepare.isError && <Failure error={prepare.error} />}
@@ -327,7 +348,7 @@ function ApprovePanel({ apiUrl, wallet, destination }: { apiUrl: string; wallet:
             ) : (
               <>
                 <Message text={c.message} />
-                <SignButton owner={c.ownerAccount} label={`Sign to approve ${destination}`} pending={approved.isPending} onSign={() => approved.mutate(c)} />
+                <SignButton owner={c.ownerAccount} wallet={wallet} label={`Sign to approve ${destination}`} pending={approved.isPending} onSign={() => approved.mutate(c)} />
               </>
             )}
           </>

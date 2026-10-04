@@ -1,4 +1,5 @@
 import type { EnvIssue } from '@/config/env'
+import type { OwnerControl } from '@/lib/ownerAccount'
 import type {
   PriceHistory,
   TokenMarket,
@@ -146,10 +147,17 @@ export interface WalletService {
   connect(walletId?: string, options?: { account?: string }): Promise<Session>
   disconnect(): Promise<void>
   /**
+   * Can the connected wallet sign for `owner` (Recover's owner requests)? The owner account itself,
+   * or an account whose reported key is a full-access key of the owner on chain right now. No
+   * account is ever taken for another.
+   */
+  ownerControl(owner: string): Promise<OwnerControl>
+  /**
    * Sign a NEP-413 message with the connected wallet: free, no transaction. Used
    * to prove account ownership (e.g. linking Telegram). Refused in demo mode.
+   * With `accountId` (an owner's request): asked of the wallet only while it can sign for that owner
+   * (`ownerControl`), and kept only if the key that signed is a full-access key of the owner on chain.
    */
-  /** With `accountId` (an owner's request): only while the wallet shares exactly that NEAR account, and only a signature made as it. */
   signMessage(request: SignMessageRequest & { accountId?: string }): Promise<SignedMessageResult>
   listWallets(): Promise<Wallet[]>
   /** Every wallet with its balances: the wallet views, watch-only ones included. */

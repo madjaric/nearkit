@@ -2,11 +2,12 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { truncateMiddle } from '@/lib/format'
-import { checkOwnerAccount, ownerAccountProblem, walletAccounts } from '@/lib/ownerAccount'
+import { checkOwnerControl, ownerControlProblem, signedKeyProblem, walletAccounts } from '@/lib/ownerAccount'
 import { accountIdError, accountKind, isForeignToNetwork } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { NearKitError, NoNearAccountError, toNearKitError } from '@/services/near/errors'
 import { explorerAccountUrl } from '@/services/near/explorer'
+import { accessKeyPermission } from '@/services/near/nep413'
 import type { SignedMessageResult, WalletSession } from '@/services/near/wallet'
 import type { Holding, PresetInput, Session, Wallet, WalletPreset, WalletSnapshot } from '@/types/domain'
 import { canExecute, executableWallets } from '@/lib/wallets'
@@ -53,6 +54,16 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       issue,
       explorerUrl: issue === 'network-mismatch' ? null : explorerAccountUrl(ctx.network, accountId),
     }
+  }
+
+  /** A key's permission on an account, read on chain now. */
+  const keyPermission = (account: string, publicKey: string) => accessKeyPermission(ctx.rpc, account, publicKey)
+
+  /** The owner check on what the wallet shares right now: its accounts, and the key it says each signs with. */
+  const ownerControl = async (owner: string) => {
+    const adapter = await ctx.wallet()
+    const live = await adapter.session().catch(() => null)
+    return checkOwnerControl({ accounts: live?.accounts ?? [], keys: live?.keys }, owner, keyPermission)
   }
 
   /** One restore for every caller: reads that start together on page load all wait for it. */
@@ -215,16 +226,19 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       if (!session) throw new NearKitError('WALLET_UNAVAILABLE', 'Connect a wallet first')
       if (session.issue === 'network-mismatch')
         throw new NearKitError('NETWORK_MISMATCH', `${session.accountId} belongs to the other network. Connect a ${ctx.network.label.toLowerCase()} account.`)
-      const signer = request.accountId ?? session.accountId
       const adapter = await ctx.wallet()
-      // A signature for a given account (an owner's): asked for, by name, only while the wallet
-      // shares exactly that NEAR account right now, and kept only if the wallet signed as it.
-      // Another account the same key controls never stands in for it.
-      const required = request.accountId
-      if (required !== undefined) {
-        const live = await adapter.session().catch(() => null)
-        const check = checkOwnerAccount(live?.accounts ?? [], required)
-        if (!check.ok) throw new NearKitError('WALLET_UNAVAILABLE', ownerAccountProblem(check, required))
+      // An owner's request: asked of the wallet only while it can sign for the owner (the owner
+      // account itself, or an account whose reported key is a full-access key of the owner on
+      // chain right now), and kept only if the key that actually signed is one. A wallet signs with
+      // whichever account is active in it, whatever it was asked, so the account it names proves
+      // nothing: the key does. No account is taken for another. NearKit's signer checks all of it
+      // again, and decides.
+      const owner = request.accountId
+      let signer = session.accountId
+      if (owner !== undefined) {
+        const control = await ownerControl(owner)
+        if (!control.ok) throw new NearKitError('WALLET_UNAVAILABLE', ownerControlProblem(control, owner))
+        signer = control.account
       }
       let signed: SignedMessageResult
       try {
@@ -232,12 +246,14 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       } catch (e) {
         throw toNearKitError(e, 'WALLET_UNAVAILABLE')
       }
-      if (required !== undefined) {
-        const check = checkOwnerAccount([signed.accountId], required)
-        if (!check.ok) throw new NearKitError('WALLET_UNAVAILABLE', `${ownerAccountProblem(check, required)} NearKit didn’t use that signature.`)
+      if (owner !== undefined) {
+        const problem = await signedKeyProblem(signed.publicKey, owner, keyPermission)
+        if (problem) throw new NearKitError('WALLET_UNAVAILABLE', problem)
       }
       return signed
     },
+
+    ownerControl,
 
     listWallets: wallets,
     listSnapshots: snapshots,

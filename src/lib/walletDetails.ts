@@ -1,4 +1,5 @@
 import type { WalletAccountDetail } from '@/types/domain'
+import { implicitAccountOf, type ReportedKey } from './ownerAccount'
 
 /**
  * What a wallet returned for its accounts, kept so the user can see it when it isn't the account
@@ -34,6 +35,26 @@ function detail(entry: unknown): WalletAccountDetail {
     publicKey: typeof record.publicKey === 'string' ? cut(record.publicKey) : null,
     extra,
   }
+}
+
+/**
+ * The key each account says it signs with (NEAR Connect's `Account.publicKey`): an ed25519 key,
+ * the first one per account, only for an entry that names its account. The owner check reads it on
+ * chain; it is never trusted by itself.
+ */
+export function reportedKeys(list: readonly unknown[]): ReportedKey[] {
+  const keys: ReportedKey[] = []
+  for (const entry of list.slice(0, MAX_ACCOUNTS)) {
+    try {
+      if (typeof entry !== 'object' || entry === null) continue
+      const { accountId, publicKey } = entry as Record<string, unknown>
+      if (typeof accountId !== 'string' || typeof publicKey !== 'string' || implicitAccountOf(publicKey) === null) continue
+      if (!keys.some((k) => k.accountId === accountId)) keys.push({ accountId, publicKey })
+    } catch {
+      // An object that can't even be read: no key from it.
+    }
+  }
+  return keys
 }
 
 /** The wallet's account objects, as plain fields to show (at most 20). */

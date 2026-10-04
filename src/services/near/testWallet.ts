@@ -1,6 +1,6 @@
 import type { NetworkConfig } from '@/config/networks'
 import { base64Encode } from '@/lib/encoding'
-import { providerAccounts } from '@/lib/walletDetails'
+import { providerAccounts, reportedKeys } from '@/lib/walletDetails'
 import { nep413Digest } from './nep413'
 import type { ConnectorTransaction, WalletAdapter, WalletSession } from './wallet'
 
@@ -24,6 +24,11 @@ interface E2EScript {
   signingKey?: { jwk: JsonWebKey; publicKey: string }
   /** Make the next signMessage fail as a user rejection. */
   rejectMessage?: boolean
+  /**
+   * The key the wallet reports for each account (NEAR Connect's `Account.publicKey`); none for an
+   * account left out. It may differ from `signingKey`, as a wallet's report may differ from the key it signs with.
+   */
+  keys?: Record<string, string>
 }
 
 declare global {
@@ -58,14 +63,12 @@ export function createTestWalletAdapter(network: NetworkConfig): WalletAdapter {
   const session = (): WalletSession | null => {
     const accounts = read()
     if (!accounts?.length) return null
-    // What a NEAR Connect wallet returns for each account: its id.
-    return {
-      walletId: 'e2e-wallet',
-      walletName: script().walletName ?? 'E2E Test Wallet',
-      accounts,
-      batch: true,
-      provider: providerAccounts(accounts.map((accountId) => ({ accountId }))),
-    }
+    // What a NEAR Connect wallet returns for each account: its id, and the key it says it signs with.
+    const list = accounts.map((accountId) => {
+      const publicKey = script().keys?.[accountId]
+      return typeof publicKey === 'string' ? { accountId, publicKey } : { accountId }
+    })
+    return { walletId: 'e2e-wallet', walletName: script().walletName ?? 'E2E Test Wallet', accounts, batch: true, provider: providerAccounts(list), keys: reportedKeys(list) }
   }
   return {
     kind: 'e2e-test',

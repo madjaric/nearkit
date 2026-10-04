@@ -59,6 +59,11 @@ export function createWalletService(state: MockState): WalletService {
       throw new ServiceError('demo', 'Signing a message needs a real wallet. The demo signs nothing.')
     },
 
+    async ownerControl() {
+      // The demo signs nothing, so no wallet here can sign for an owner.
+      return { ok: false, reason: 'none' } as const
+    },
+
     async listWallets() {
       await wait('read')
       if (!state.session) return []

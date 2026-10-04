@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { providerAccounts } from './walletDetails'
+import { providerAccounts, reportedKeys } from './walletDetails'
 
 describe('what a wallet returned, kept for the user to see', () => {
   it('keeps each account’s id, key and plain fields; never a field that looks secret, nor anything that isn’t plain', () => {
@@ -35,5 +35,23 @@ describe('what a wallet returned, kept for the user to see', () => {
     const many = Array.from({ length: 30 }, (_, i) => ({ accountId: `a${i}.near` }))
     expect(providerAccounts(many)).toHaveLength(20)
     expect(providerAccounts([{ note: 'x'.repeat(200) }])[0]?.extra[0]).toHaveLength('note='.length + 80)
+  })
+
+  it('keeps the key each account says it signs with: an ed25519 key, one per account, only for an account it names', () => {
+    const IMPLICIT = 'eb2f3770f5da2d8de058988bcd3fef1a24a4262b0b3823fdb1045e0a8ca95672'
+    const WALLET_KEY = 'ed25519:Gq4ZvDvpSENU2KvUM2aojmy7oopjQsim95dEzdhRpzPT'
+    const OWNER_KEY = 'ed25519:G27MijJFPXLkWZC8fDnX2AvL1gq8jidmemvK8u9gid6b'
+    expect(
+      reportedKeys([
+        { accountId: IMPLICIT, publicKey: WALLET_KEY },
+        // A second key for the same account: the first one stands.
+        { accountId: IMPLICIT, publicKey: OWNER_KEY },
+        { accountId: 'bottest.near', publicKey: 'secp256k1:G27MijJFPXLkWZC8fDnX2AvL1gq8jidmemvK8u9gid6b' },
+        { accountId: 'x.near', publicKey: 'ed25519:short' },
+        { accountId: 'y.near' },
+        { publicKey: OWNER_KEY },
+        'not an object',
+      ]),
+    ).toEqual([{ accountId: IMPLICIT, publicKey: WALLET_KEY }])
   })
 })

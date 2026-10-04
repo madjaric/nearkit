@@ -1,7 +1,8 @@
 import { NearConnector, type DataStorage, type NearConnectorOptions, type NearWalletBase, type WalletManifest } from '@hot-labs/near-connect'
 import type { NetworkConfig, NetworkId } from '@/config/networks'
 import { WALLET_MANIFEST } from '@/config/walletManifest'
-import { providerAccounts } from '@/lib/walletDetails'
+import type { ReportedKey } from '@/lib/ownerAccount'
+import { providerAccounts, reportedKeys } from '@/lib/walletDetails'
 import type { WalletAccountDetail } from '@/types/domain'
 import { NearKitError } from './errors'
 
@@ -31,6 +32,11 @@ export interface WalletSession {
   batch: boolean
   /** What the wallet returned for its accounts, for the user to see (src/lib/walletDetails.ts). Never used to decide anything. */
   provider?: WalletAccountDetail[]
+  /**
+   * The key each account says it signs with, when the wallet says (ed25519 only). Never trusted by
+   * itself: owner requests read it on chain, and check the key that actually signed again after.
+   */
+  keys?: ReportedKey[]
 }
 
 export type ConnectorAction =
@@ -188,6 +194,7 @@ export function createNearConnectAdapter(network: NetworkConfig): WalletAdapter 
       accounts,
       batch: Boolean(wallet.manifest.features?.signAndSendTransactions),
       provider: providerAccounts(list ?? []),
+      keys: reportedKeys(list ?? []),
     }
   }
 

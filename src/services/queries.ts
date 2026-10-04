@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChartRange, CopyRuleInput, DcaInput, MultiTradeRequest, OrderInput, PnlRange, PresetInput, QuoteRequest, SniperInput, TokenId, TransferRequest } from '@/types/domain'
 import { useSyncExternalStore } from 'react'
-import type { Holding } from '@/types/domain'
+import type { Holding, Session } from '@/types/domain'
 import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
 import { inFlight } from './inFlight'
@@ -16,6 +16,7 @@ import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChan
 export const qk = {
   session: ['session'] as const,
   walletOptions: ['wallet-options'] as const,
+  ownerControl: ['owner-control'] as const,
   tokens: ['tokens'] as const,
   tokenLookup: (contract: string | null) => ['token-lookup', contract] as const,
   nearPrice: ['market', 'near'] as const,
@@ -77,7 +78,19 @@ export function useConnect() {
   })
 }
 
-/** Recover's "Connect <owner>": sign out, connect, then check the account (ownerConnect.ts). The session changes either way. */
+/** Can the connected wallet sign for `owner` right now (Recover)? Read again for every new wallet session; never while none. */
+export function useOwnerControl(owner: string, session: Session | null) {
+  const s = useServices()
+  return useQuery({
+    queryKey: [...qk.ownerControl, owner, session?.connectedAt ?? null, session?.accountId ?? null],
+    queryFn: () => s.wallets.ownerControl(owner),
+    enabled: session !== null,
+    staleTime: 15_000,
+    retry: false,
+  })
+}
+
+/** Recover's "Connect <owner>": sign out, connect, then check the wallet against the owner (ownerConnect.ts). The session changes either way. */
 export function useReconnectAs() {
   const s = useServices()
   const qc = useQueryClient()

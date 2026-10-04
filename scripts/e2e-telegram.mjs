@@ -44,6 +44,11 @@ const b58 = (bytes) => {
   for (const b of bytes) n = (n << 8n) | BigInt(b)
   let s = ''
   while (n > 0n) ((s = B58[Number(n % 58n)] + s), (n /= 58n))
+  // Each leading zero byte is a leading '1'.
+  for (const b of bytes) {
+    if (b !== 0) break
+    s = '1' + s
+  }
   return s
 }
 const PUBLIC_KEY = `ed25519:${b58(raw)}`
@@ -576,53 +581,85 @@ await step('Send from a NearKit wallet is reviewed and sent from the web; an una
 })
 
 await step(
-  'Recover: Connect <owner> signs the wallet out first; another NEAR account or an EVM address is an error, never "Wallet connected"; a wallet that shares the owner after another account connects as the owner and the approval goes through',
+  'Recover: the owner is whoever signs with a full-access key of the owner: no key reported or the NearKit wallet’s own exported key is refused before anything reaches the signer (never "Wallet connected"); the same account signing with the owner’s key, or the owner listed second, gets the approval through',
   async () => {
     const EVM = '0x52908400098527886E0F7030069857D2E4169EE7'
+    // The NearKit wallet's own key, as a wallet app holds it after Recover exported it: a key of that wallet, not of its owner.
+    const MAIN_KEY = `ed25519:${b58(Buffer.from(mainAddress, 'hex'))}`
     const rp = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk, publicKey: PUBLIC_KEY } })
-    const setAccounts = (accounts) => rp.evaluate((a) => (window.__NEARKIT_E2E_WALLET__.accounts = a), accounts)
-    // The browser wallet is on the NearKit wallet's own account (its exported key imported there), not on its owner.
+    const setWallet = (accounts, keys = {}) => rp.evaluate(([a, k]) => Object.assign(window.__NEARKIT_E2E_WALLET__, { accounts: a, keys: k }), [accounts, keys])
+    const asked = () => rp.evaluate(() => (window.__NEARKIT_E2E_MESSAGES__ ?? []).map((m) => m.signerId))
+    // What reached NearKit's signer through the app: every approval sent, with the key it was signed with.
+    const sent = []
+    rp.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/recovery/destination') && sent.push(JSON.parse(r.postData() ?? '{}').publicKey))
+    // The browser wallet is on the NearKit wallet's own account, and says no key.
     await rp.goto(WEB + '/', { waitUntil: 'networkidle' })
     await rp.evaluate((a) => sessionStorage.setItem('nearkit:e2e:session', JSON.stringify([a])), mainAddress)
     await rp.goto(`${WEB}/recover#approve=${mainAddress}&to=friend.testnet`, { waitUntil: 'networkidle' })
     await rp.getByRole('button', { name: 'Prepare the approval' }).click()
-    await rp.getByText(`Your wallet returned ${mainAddress}, not ${USER}.`).waitFor({ timeout: 15000 })
+    await rp.getByText(`Your wallet returned ${mainAddress}, not ${USER}, and didn’t say which key it signs with`).waitFor({ timeout: 15000 })
     await rp.getByRole('button', { name: `Connect ${USER}` }).click()
     const dialog = rp.getByRole('dialog', { name: `Connect ${USER}` })
-    const pick = () => dialog.getByRole('button', { name: /E2E Test Wallet/ }).click()
-    // Still the same account after the reconnect: an error naming it, with what the wallet returned, and no "Wallet connected".
-    await setAccounts([mainAddress])
-    await pick()
     const alert = dialog.getByRole('alert')
+    const pick = () => dialog.getByRole('button', { name: /E2E Test Wallet/ }).click()
+    // Still the same account after the reconnect, and still no key: an error naming it, with what the wallet returned.
+    await setWallet([mainAddress])
+    await pick()
     await alert
       .getByText(
-        `Your wallet returned ${mainAddress}, not ${USER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${USER} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`,
+        `Your wallet returned ${mainAddress}, not ${USER}, and didn’t say which key it signs with, so NearKit can’t tell whether it holds a key of ${USER}. Switch to ${USER} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`,
       )
       .waitFor()
     await alert.getByText('What your wallet returned').click()
     await alert.getByText(`accountId: ${mainAddress}`).waitFor()
-    if (SHOTS) await rp.screenshot({ path: join(SHOTS, 'tg-10a-recover-other-account.png') })
     // Only an EVM address: named as one, never as the connected account.
-    await setAccounts([EVM])
+    await setWallet([EVM])
     await pick()
-    await dialog
-      .getByRole('alert')
-      .getByText(`Your wallet returned an EVM address (${EVM}), not a NEAR account. Switch to the NEAR account ${USER} in your wallet, then try again.`)
-      .waitFor()
-    if ((await rp.getByText('Wallet connected').count()) !== 0) throw new Error('"Wallet connected" was shown for an account that is not the owner')
+    await alert.getByText(`Your wallet returned an EVM address (${EVM}), not a NEAR account. Switch to the NEAR account ${USER} in your wallet, then try again.`).waitFor()
     if (SHOTS) await rp.screenshot({ path: join(SHOTS, 'tg-10b-recover-evm-only.png') })
-    // The wallet shares the owner after the NearKit wallet's account (as a wallet app can list both
-    // under one key): NearKit takes the owner by name, connects as it, and its signature approves the destination.
-    await setAccounts([mainAddress, USER])
+    // The NearKit wallet's own exported key: refused, said as it is; the wallet is never asked to sign.
+    await setWallet([mainAddress], { [mainAddress]: MAIN_KEY })
+    await pick()
+    await alert
+      .getByText(
+        `Your wallet is connected as ${mainAddress}, your NearKit wallet itself: it signs with that wallet’s exported key (${MAIN_KEY}), which isn’t a key of ${USER}. Connect the wallet that holds ${USER}’s own key, then try again.`,
+      )
+      .waitFor()
+    await alert.getByText('What your wallet returned').click()
+    await alert.getByText(`publicKey: ${MAIN_KEY}`).waitFor()
+    if (SHOTS) await rp.screenshot({ path: join(SHOTS, 'tg-10a-recover-own-key.png') })
+    if ((await rp.getByText('Wallet connected').count()) !== 0) throw new Error('"Wallet connected" was shown for a wallet that can’t sign for the owner')
+    if ((await asked()).length !== 0 || sent.length !== 0) throw new Error(`a refused wallet was asked to sign (${(await asked()).join()}) or a proof was sent (${sent.join()})`)
+    // The same account, signing with a full-access key of the owner: connected as itself, and its signature approves.
+    await setWallet([mainAddress], { [mainAddress]: PUBLIC_KEY })
     await pick()
     await dialog.waitFor({ state: 'hidden' })
-    await rp.getByText('Wallet connected').first().waitFor()
-    await rp.getByText(`${USER} via E2E Test Wallet`).first().waitFor()
+    await rp.getByText(`It signs with a full-access key of ${USER}, so it can sign ${USER}’s requests.`).first().waitFor()
+    await rp.getByText(`Your wallet is connected as ${mainAddress}. It signs with ${PUBLIC_KEY}, a full-access key of ${USER}, so its signature counts as ${USER}’s.`).waitFor()
+    if (SHOTS) await rp.screenshot({ path: join(SHOTS, 'tg-10c-recover-owner-key.png') })
     await rp.getByRole('button', { name: 'Sign to approve friend.testnet' }).click()
     await rp.getByText(/^Approved\./).waitFor({ timeout: 15000 })
-    const signers = await rp.evaluate(() => (window.__NEARKIT_E2E_MESSAGES__ ?? []).map((m) => m.signerId))
-    if (signers.join() !== USER) throw new Error(`the wallet was asked to sign as: ${signers.join() || 'nobody'}`)
+    if ((await asked()).join() !== mainAddress) throw new Error(`the wallet was asked to sign as: ${(await asked()).join() || 'nobody'}`)
+    if (sent.join() !== PUBLIC_KEY) throw new Error(`the approval reached the signer with: ${sent.join() || 'nothing'}`)
     await rp.context().close()
+
+    // A wallet that lists the owner after the NearKit wallet's account: the owner is taken by name, and signs as itself.
+    const rp2 = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk, publicKey: PUBLIC_KEY } })
+    await rp2.goto(WEB + '/', { waitUntil: 'networkidle' })
+    await rp2.evaluate((a) => sessionStorage.setItem('nearkit:e2e:session', JSON.stringify([a])), mainAddress)
+    await rp2.goto(`${WEB}/recover#approve=${mainAddress}&to=friend2.testnet`, { waitUntil: 'networkidle' })
+    await rp2.getByRole('button', { name: 'Prepare the approval' }).click()
+    await rp2.getByRole('button', { name: `Connect ${USER}` }).click()
+    await rp2.evaluate((a) => (window.__NEARKIT_E2E_WALLET__.accounts = a), [mainAddress, USER])
+    const dialog2 = rp2.getByRole('dialog', { name: `Connect ${USER}` })
+    await dialog2.getByRole('button', { name: /E2E Test Wallet/ }).click()
+    await dialog2.waitFor({ state: 'hidden' })
+    await rp2.getByText(`${USER} via E2E Test Wallet`).first().waitFor()
+    await rp2.getByRole('button', { name: 'Sign to approve friend2.testnet' }).click()
+    await rp2.getByText(/^Approved\./).waitFor({ timeout: 15000 })
+    const signers = await rp2.evaluate(() => (window.__NEARKIT_E2E_MESSAGES__ ?? []).map((m) => m.signerId))
+    if (signers.join() !== USER) throw new Error(`the wallet was asked to sign as: ${signers.join() || 'nobody'}`)
+    await rp2.context().close()
   },
 )
 

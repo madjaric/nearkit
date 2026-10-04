@@ -245,6 +245,46 @@ describe('owner-signed requests', () => {
     expect((await vault.events('testnet', wallet.accountId)).filter((e) => e.kind === 'key-exported')).toHaveLength(2)
   })
 
+  it('a NearKit wallet’s own key, exported, never proves its owner, not even while the owner’s key is also on that wallet', async () => {
+    // The wallet's key as Recover hands it to the owner, imported into a wallet app that now signs with it.
+    const secret = await exportAsOwner({ challenge: (r) => signer.challenge(r), exportKey: (p) => signer.exportKey(p) }, wallet.accountId, owner)
+    const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
+    const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url')
+    const privateKey = await crypto.subtle.importKey(
+      'jwk',
+      { kty: 'OKP', crv: 'Ed25519', d: b64url(raw.subarray(0, 32)), x: b64url(raw.subarray(32)) },
+      { name: 'Ed25519' },
+      false,
+      ['sign'],
+    )
+    const exported = { pair: { privateKey } as CryptoKeyPair, publicKey: `ed25519:${base58Encode(raw.subarray(32))}` }
+    expect(exported.publicKey).toBe(wallet.publicKey)
+    // On chain: the wallet holds its own key and the owner's (its backup key); the owner holds only its own.
+    chain.grant(wallet.accountId, wallet.publicKey)
+    chain.grant(wallet.accountId, owner.publicKey)
+    const problem = (p: Promise<unknown>) => p.then(() => 'ok').catch((e: unknown) => (e instanceof ChallengeError ? e.problem : String(e)))
+    const browser = await createExportKeyPair()
+    const requests = [
+      { ask: () => signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey }), answer: (p: OwnerProof) => signer.exportKey(p) },
+      {
+        ask: () => signer.challenge({ kind: 'approve-destination', accountId: wallet.accountId, destination: 'bob.testnet' }),
+        answer: (p: OwnerProof) => signer.approveDestination(p),
+      },
+      { ask: () => signer.challenge({ kind: 'owner-session', owner: OWNER }), answer: (p: OwnerProof) => signer.ownerWallets(p) },
+    ]
+    for (const r of requests) {
+      const c = await r.ask()
+      expect(await problem(r.answer(await proofFor(c, exported)))).toBe('not-owner')
+      // The same request, signed with the owner's own key: it goes through.
+      expect(await problem(r.answer(await proofFor(c)))).toBe('ok')
+    }
+    const refused = (await vault.events('testnet', wallet.accountId)).filter((e) => e.kind === 'owner-proof-refused')
+    expect(refused.map((e) => [e.detail.kind, e.detail.key, e.detail.reason])).toEqual([
+      ['export', wallet.publicKey, 'not a full-access key of the owner'],
+      ['approve-destination', wallet.publicKey, 'not a full-access key of the owner'],
+    ])
+  })
+
   it('refuses: another account’s key, a function-call key, a bad signature, replay, expiry, the wrong kind, a guessing streak', async () => {
     const browser = await createExportKeyPair()
     const fresh = () => signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey })

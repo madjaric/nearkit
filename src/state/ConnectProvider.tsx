@@ -6,7 +6,7 @@ import { Figures } from '@/components/ui/Figures'
 import { Led, Skeleton, Tag } from '@/components/ui/Indicators'
 import { useToast } from '@/components/ui/toast-context'
 import { cn } from '@/lib/cn'
-import { ownerAccountProblem, type OwnerAccountMismatch } from '@/lib/ownerAccount'
+import { ownerControlProblem, type OwnerControl, type OwnerRefusal } from '@/lib/ownerAccount'
 import { describeError, type ErrorView } from '@/services/errors'
 import { useCapabilities, useConnect, useReconnectAs, useWalletOptions } from '@/services/queries'
 import type { WalletOption } from '@/services/types'
@@ -104,8 +104,8 @@ function NearBody({
   open: boolean
   pendingId: string | null
   error: ErrorView | null
-  /** "Connect <owner>": the wallet came back on another account, or on an EVM address only; with what it returned. */
-  mismatch: { check: OwnerAccountMismatch; owner: string; details: WalletAccountDetail[] | undefined } | null
+  /** "Connect <owner>": the wallet can't sign for the owner (and why), with what it returned. */
+  mismatch: { check: OwnerRefusal; owner: string; nearkitWallet: string | undefined; details: WalletAccountDetail[] | undefined } | null
   onPick: (id: string) => void
 }) {
   const caps = useCapabilities()
@@ -149,7 +149,7 @@ function NearBody({
 
       {mismatch && (
         <div role="alert" className="rounded-sm border border-neg/40 bg-neg/10 px-3 py-2">
-          <p className="break-words text-sm text-neg">{ownerAccountProblem(mismatch.check, mismatch.owner)}</p>
+          <p className="break-words text-sm text-neg">{ownerControlProblem(mismatch.check, mismatch.owner, mismatch.nearkitWallet)}</p>
           <WalletReturned details={mismatch.details} />
         </div>
       )}
@@ -186,7 +186,9 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
   const [owner, setOwner] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<ErrorView | null>(null)
-  const [mismatch, setMismatch] = useState<{ check: OwnerAccountMismatch; details: WalletAccountDetail[] | undefined } | null>(null)
+  /** The NearKit wallet a "Connect <owner>" is about, if any (Recover's export or approval). */
+  const [nearkitWallet, setNearkitWallet] = useState<string | undefined>(undefined)
+  const [mismatch, setMismatch] = useState<{ check: OwnerRefusal; details: WalletAccountDetail[] | undefined } | null>(null)
   const connect = useConnect()
   const reconnect = useReconnectAs()
   const toast = useToast()
@@ -197,12 +199,19 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
     setOpen(true)
   }, [])
   const promptConnect = useCallback(() => show(null), [show])
-  const connectOwner = useCallback((account: string) => show(account), [show])
+  const connectOwner = useCallback(
+    (account: string, wallet?: string) => {
+      setNearkitWallet(wallet)
+      show(account)
+    },
+    [show],
+  )
   const api = useMemo(() => ({ promptConnect, connectOwner }), [promptConnect, connectOwner])
   const demo = caps.mode === 'demo'
   const pending = connect.isPending || reconnect.isPending
 
-  const announce = (session: Session) => {
+  /** `byKey`: a "Connect <owner>" that ended on an account signing with a full-access key of the owner (it stays that account). */
+  const announce = (session: Session, byKey?: { owner: string; control: Extract<OwnerControl, { via: 'key' }> }) => {
     if (session.issue === 'network-mismatch') {
       toast.push({
         tone: 'neg',
@@ -213,6 +222,12 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
       toast.push({ tone: 'neg', title: 'Account not found', detail: `${session.accountId} does not exist on ${caps.networkLabel.toLowerCase()} yet. Fund it before trading.` })
     } else if (session.mode === 'demo') {
       toast.push({ tone: 'accent', title: 'Demo account connected', detail: `${session.accountId} with sample balances across 12 wallets.` })
+    } else if (byKey) {
+      toast.push({
+        tone: 'accent',
+        title: 'Wallet connected',
+        detail: `${session.accountId} via ${session.walletName ?? 'your wallet'} on ${caps.networkLabel.toLowerCase()}. It signs with a full-access key of ${byKey.owner}, so it can sign ${byKey.owner}’s requests.`,
+      })
     } else {
       toast.push({ tone: 'accent', title: 'Wallet connected', detail: `${session.accountId} via ${session.walletName ?? 'your wallet'} on ${caps.networkLabel.toLowerCase()}.` })
     }
@@ -230,7 +245,7 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
             // Not the owner: no "Wallet connected", the window stays open and says what came back.
             if (!r.ok) return setMismatch({ check: r.mismatch, details: r.session?.walletDetails })
             setOpen(false)
-            announce(r.session)
+            announce(r.session, r.control.via === 'key' ? { owner, control: r.control } : undefined)
           },
           onError: (e) => setError(describeError(e)),
           onSettled: () => setPendingId(null),
@@ -277,7 +292,11 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
           </>
         }
       >
-        {demo ? <DemoBody /> : <NearBody open={open} pendingId={pendingId} error={error} mismatch={mismatch && owner ? { ...mismatch, owner } : null} onPick={(id) => pick(id)} />}
+        {demo ? (
+          <DemoBody />
+        ) : (
+          <NearBody open={open} pendingId={pendingId} error={error} mismatch={mismatch && owner ? { ...mismatch, owner, nearkitWallet } : null} onPick={(id) => pick(id)} />
+        )}
       </Modal>
     </ConnectContext.Provider>
   )
