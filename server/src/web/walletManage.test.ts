@@ -55,7 +55,8 @@ async function webApp() {
     }
     return ids
   }
-  const listed = async (token: string) => ((await call('/api/web/wallets', { session: token })).wallets as { id: string; name: string; accountId: string; slot: number }[]).map((w) => w)
+  const listed = async (token: string) =>
+    ((await call('/api/web/wallets', { session: token })).wallets as { id: string; name: string; accountId: string; slot: number }[]).map((w) => w)
   return { h, custody, call, refused, signIn, wallets, listed }
 }
 
@@ -70,7 +71,10 @@ describe('deleting a NearKit wallet on NearKit web', () => {
     expect(await call('/api/web/wallets/delete', { session: token, walletId: empty })).toEqual({ deleted: true })
     expect((await listed(token)).map((w) => w.id)).toEqual(before.filter((w) => w.id !== empty).map((w) => w.id))
     expect((await custody.store.wallet(empty as string))?.status).toBe('deleted')
-    const notice = h.fake.messages().slice(from).find((m) => m.chatId === ALICE.id && m.text.includes('NearKit wallet deleted on NearKit web'))
+    const notice = h.fake
+      .messages()
+      .slice(from)
+      .find((m) => m.chatId === ALICE.id && m.text.includes('NearKit wallet deleted on NearKit web'))
     expect(notice?.text).toContain(gone?.name)
     // Its slot is free again.
     const again = (await call('/api/web/wallets/create', { session: token, name: 'Again', createKey: 'web-manage-again' })).wallet as { slot: number }

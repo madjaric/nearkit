@@ -343,10 +343,10 @@ export class CustodyStore {
   /** The user's active wallets, in the order they put them in (wallets never ordered follow, by slot). */
   async activeWallets(userId: number, network: string): Promise<TradingWallet[]> {
     return (
-      await this.db.all<WalletRow>(
-        "SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active' ORDER BY (display_order IS NULL), display_order, slot",
-        [userId, network],
-      )
+      await this.db.all<WalletRow>("SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active' ORDER BY (display_order IS NULL), display_order, slot", [
+        userId,
+        network,
+      ])
     ).map(toWallet)
   }
 
@@ -361,7 +361,8 @@ export class CustodyStore {
       const exact = walletIds.length === active.length && new Set(walletIds).size === walletIds.length && walletIds.every((id) => active.includes(id))
       if (!exact) return false
       const t = this.now()
-      for (const [i, id] of walletIds.entries()) await this.db.run('UPDATE trading_wallets SET display_order = ?, updated_at = ? WHERE id = ? AND user_id = ?', [i + 1, t, id, userId])
+      for (const [i, id] of walletIds.entries())
+        await this.db.run('UPDATE trading_wallets SET display_order = ?, updated_at = ? WHERE id = ? AND user_id = ?', [i + 1, t, id, userId])
       return true
     })
   }
