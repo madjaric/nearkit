@@ -596,7 +596,7 @@ await step(
     const alert = dialog.getByRole('alert')
     await alert
       .getByText(
-        `Your wallet returned ${mainAddress}, not ${USER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${USER} itself in your wallet; if it keeps returning ${mainAddress}, remove NearKit from the wallet’s connected sites, then connect again.`,
+        `Your wallet returned ${mainAddress}, not ${USER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${USER} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`,
       )
       .waitFor()
     await alert.getByText('What your wallet returned').click()

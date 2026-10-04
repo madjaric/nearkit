@@ -37,7 +37,7 @@ describe('the NEAR account a wallet is on', () => {
 
   it('says which account the wallet returned and to switch to the owner in the wallet; an EVM address is named as one', () => {
     expect(ownerAccountProblem({ ok: false, reason: 'other-account', account: IMPLICIT }, OWNER)).toBe(
-      `Your wallet returned ${IMPLICIT}, not ${OWNER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${OWNER} itself in your wallet; if it keeps returning ${IMPLICIT}, remove NearKit from the wallet’s connected sites, then connect again.`,
+      `Your wallet returned ${IMPLICIT}, not ${OWNER}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${OWNER} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`,
     )
     expect(ownerAccountProblem({ ok: false, reason: 'evm-only', evm: EVM }, OWNER)).toBe(
       `Your wallet returned an EVM address (${EVM}), not a NEAR account. Switch to the NEAR account ${OWNER} in your wallet, then try again.`,

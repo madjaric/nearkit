@@ -61,6 +61,6 @@ export function ownerAccountProblem(check: OwnerAccountMismatch, owner: string):
     case 'evm-only':
       return `Your wallet returned an EVM address (${check.evm}), not a NEAR account. Switch to the NEAR account ${owner} in your wallet, then try again.`
     case 'other-account':
-      return `Your wallet returned ${check.account}, not ${owner}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${owner} itself in your wallet; if it keeps returning ${check.account}, remove NearKit from the wallet’s connected sites, then connect again.`
+      return `Your wallet returned ${check.account}, not ${owner}. They are different NEAR accounts, even when a wallet app shows them together (one key can control both). Switch to ${owner} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`
   }
 }
