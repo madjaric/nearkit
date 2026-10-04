@@ -464,6 +464,14 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE INDEX wallet_intents_group ON wallet_intents(group_id);
     `,
   },
+  {
+    version: 12,
+    name: 'NearKit web: the order a user lists their NearKit wallets in',
+    sql: `
+      -- Where the user put the wallet in their list (1 first); NULL: never ordered, listed by slot after the ordered ones.
+      ALTER TABLE trading_wallets ADD COLUMN display_order INTEGER;
+    `,
+  },
 ]
 
 /**

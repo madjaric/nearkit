@@ -352,4 +352,11 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       CREATE INDEX wallet_intents_group ON wallet_intents(group_id);
     `,
   },
+  {
+    version: 3,
+    name: 'NearKit web: the order a user lists their NearKit wallets in',
+    sql: `
+      ALTER TABLE trading_wallets ADD COLUMN display_order INTEGER;
+    `,
+  },
 ]

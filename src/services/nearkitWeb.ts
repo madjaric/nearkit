@@ -128,6 +128,10 @@ export interface NearKitWeb {
   wallets(): Promise<NearKitWalletList | null>
   createWallet(name: string, createKey: string): Promise<NearKitWebWallet>
   renameWallet(walletId: string, name: string): Promise<NearKitWebWallet>
+  /** Deletes one of the user's NearKit wallets that was never funded (the server refuses a funded one). */
+  deleteWallet(walletId: string): Promise<void>
+  /** Lists the user's NearKit wallets in this order (exactly their wallets, each once); returns them so. */
+  orderWallets(walletIds: readonly string[]): Promise<NearKitWebWallet[]>
   /** The server's quote for each wallet: what the review shows. Nothing is signed. */
   prepareTrade(input: WebTradeInput): Promise<WebTradeGroup>
   /** Runs the quotes the user confirmed (by id); the server executes each wallet's own trade. */
@@ -300,6 +304,17 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
       const r = await call<{ wallet: NearKitWebWallet }>('/api/web/wallets/rename', { walletId, name })
       listed = null
       return r.wallet
+    },
+
+    async deleteWallet(walletId) {
+      await call<{ deleted: boolean }>('/api/web/wallets/delete', { walletId })
+      listed = null
+    },
+
+    async orderWallets(walletIds) {
+      const r = await call<{ wallets: NearKitWebWallet[] }>('/api/web/wallets/order', { walletIds: [...walletIds] })
+      listed = null
+      return r.wallets
     },
 
     prepareTrade: (input) => call<WebTradeGroup>('/api/web/trade/quote', { ...input }),

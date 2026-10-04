@@ -6,7 +6,7 @@ import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
 import { inFlight } from './inFlight'
 import { reconnectAs } from './ownerConnect'
-import type { NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
+import type { NearKitWalletList, NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
 import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChanges, snapshotOf, type RefreshStatus } from './postTradeRefresh'
 
 /**
@@ -138,6 +138,16 @@ export function useNearKitMutations() {
     logout: useMutation({ mutationFn: () => s.nearkit.logout(), onSuccess: everything }),
     create: useMutation({ mutationFn: ({ name, createKey }: { name: string; createKey: string }) => s.nearkit.createWallet(name, createKey), onSuccess: walletsChanged }),
     rename: useMutation({ mutationFn: ({ walletId, name }: { walletId: string; name: string }) => s.nearkit.renameWallet(walletId, name), onSuccess: walletsChanged }),
+    /** Deletes a NearKit wallet that was never funded; every list of wallets and the portfolio read again. */
+    remove: useMutation({ mutationFn: (walletId: string) => s.nearkit.deleteWallet(walletId), onSuccess: walletsChanged }),
+    /** The order the user lists their NearKit wallets in, kept by NearKit's server (shown at once, then read again everywhere). */
+    reorder: useMutation({
+      mutationFn: (walletIds: readonly string[]) => s.nearkit.orderWallets(walletIds),
+      onSuccess: (wallets) => {
+        qc.setQueryData<NearKitWalletList>(qk.nearkitWallets(s.nearkit.session()?.token ?? null), (old) => (old ? { ...old, wallets } : old))
+        return walletsChanged()
+      },
+    }),
     /** The server's quote for each wallet, for the review. Nothing is signed. */
     prepareTrade: useMutation({ mutationFn: (input: WebTradeInput) => s.nearkit.prepareTrade(input) }),
     /** Runs the confirmed quotes: NearKit's server executes each wallet's own trade. */

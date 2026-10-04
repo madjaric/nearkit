@@ -12,7 +12,7 @@ import { friendlyError } from '../bot/ui'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import type { Intent, IntentKind, TradingWallet } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
-import { createTradingWallet, ownerForNewWallet, readWallet, WalletLimitError, type CustodyDeps } from '../custody/wallets'
+import { createTradingWallet, deleteEmptyWallet, ownerForNewWallet, readWallet, WalletLimitError, type CustodyDeps } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import type { Store } from '../db/store'
 import { randomToken } from '../ids'
@@ -224,6 +224,42 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       return { wallet: webWalletView(wallet) }
     },
 
+    /** Deletes one of the user's NearKit wallets that was never funded: the bot's own path (deleteEmptyWallet). */
+    '/api/web/wallets/delete': async (body) => {
+      const userId = await userOf(body)
+      const wallet = await ownWallet(userId, field(body, 'walletId', 64))
+      if ((await deleteEmptyWallet(custody, deps.near, wallet)) === 'funded')
+        throw new HttpError(
+          409,
+          'funded',
+          `${walletName(wallet)} has been funded, so it can’t just be deleted: withdraw everything from it first, or add the backup key and remove NearKit’s access (Recover). Nothing was deleted.`,
+        )
+      // A security notice, like a creation's: nothing waits for it.
+      await deps
+        .notify(
+          userId,
+          [
+            `🗑 ${bold('NearKit wallet deleted on NearKit web')}`,
+            `${bold(walletName(wallet))} ${esc(shortAccount(wallet.accountId))}`,
+            'It was never funded, so nothing was lost. If this wasn’t you, sign out of NearKit web everywhere.',
+          ].join('\n'),
+          keyboard([btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),
+        )
+        .catch(() => undefined)
+      return { deleted: true }
+    },
+
+    /** The order the user lists their NearKit wallets in: exactly their active wallets, each once. */
+    '/api/web/wallets/order': async (body) => {
+      const userId = await userOf(body)
+      const raw = (body as Record<string, unknown>).walletIds
+      if (!Array.isArray(raw) || raw.length > MAX_ACTIVE_WALLETS_PER_USER || raw.some((x) => typeof x !== 'string' || x.length > 64))
+        throw new HttpError(400, 'bad-request', 'Missing or invalid "walletIds"')
+      if (!(await custody.store.setDisplayOrder(userId, deps.network.id, raw as string[])))
+        throw new HttpError(400, 'bad-request', 'That isn’t exactly your NearKit wallets, each once. Nothing was changed.')
+      return { wallets: (await custody.store.activeWallets(userId, deps.network.id)).map(webWalletView) }
+    },
+
     '/api/web/wallets/rename': async (body) => {
       const userId = await userOf(body)
       const wallet = await ownWallet(userId, field(body, 'walletId', 64))
@@ -246,8 +282,9 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       // Every leg is one of this user's own NearKit wallets, checked before anything is read or quoted.
       const picked: { leg: LegInput; wallet: TradingWallet }[] = []
       for (const leg of legsIn) picked.push({ leg, wallet: await ownWallet(userId, leg.walletId) })
-      // In the wallets' own order, as the Wallets page lists them.
-      picked.sort((x, y) => x.wallet.slot - y.wallet.slot)
+      // In the wallets' own order, as the Wallets page lists them (the user's order).
+      const order = (await custody.store.activeWallets(userId, deps.network.id)).map((w) => w.id)
+      picked.sort((x, y) => order.indexOf(x.wallet.id) - order.indexOf(y.wallet.id))
       const wallets = picked.map((p) => p.wallet)
       const frozen = wallets.find((w) => w.frozenAt !== null)
       if (frozen) throw frozenError(frozen)

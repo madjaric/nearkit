@@ -66,6 +66,8 @@ function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
     wallets: async () => ({ wallets: [...list], limit: 10, canCreate: list.length < 10 }),
     createWallet: unused,
     renameWallet: unused,
+    deleteWallet: unused,
+    orderWallets: unused,
     prepareTrade: unused,
     tradeStatus: unused,
     executeTrade: unused,

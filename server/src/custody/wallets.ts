@@ -1,4 +1,5 @@
 import { RpcError } from '@/services/near/rpc'
+import { PolicyViolation } from './policy'
 import type { ServerNear } from '../near'
 import type { ChainAccess } from './chain'
 import type { Engine } from './engine'
@@ -156,4 +157,23 @@ export async function readWallet(near: ServerNear, wallet: TradingWallet): Promi
     tokens: b?.fts ?? [],
     keys,
   }
+}
+
+/**
+ * Deletes a NearKit wallet that was never funded: the one way, for the bot's 🗑 and NearKit web
+ * alike. The chain is read again now (a deposit may have just arrived), the signer reads it
+ * itself and erases the key only if the account never existed, and the wallet is closed, which
+ * frees its slot. A wallet that was funded is never deleted here: its funds and key stay, and the
+ * way out is to withdraw, or to add the backup key and remove NearKit's access.
+ */
+export async function deleteEmptyWallet(c: Pick<CustodyDeps, 'signer' | 'store'>, near: ServerNear, wallet: TradingWallet): Promise<'deleted' | 'funded'> {
+  if ((await readWallet(near, wallet)).exists !== false) return 'funded'
+  try {
+    await c.signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })
+  } catch (e) {
+    if (e instanceof PolicyViolation) return 'funded'
+    throw e
+  }
+  await c.store.closeWallet(wallet.id, 'deleted', { reason: 'never funded' })
+  return 'deleted'
 }

@@ -340,8 +340,30 @@ export class CustodyStore {
   }
 
   /** The user's active wallets on this network, in slot order (Main first). */
+  /** The user's active wallets, in the order they put them in (wallets never ordered follow, by slot). */
   async activeWallets(userId: number, network: string): Promise<TradingWallet[]> {
-    return (await this.db.all<WalletRow>("SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active' ORDER BY slot", [userId, network])).map(toWallet)
+    return (
+      await this.db.all<WalletRow>(
+        "SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND status = 'active' ORDER BY (display_order IS NULL), display_order, slot",
+        [userId, network],
+      )
+    ).map(toWallet)
+  }
+
+  /**
+   * Lists the user's active wallets in this order. `walletIds` must be exactly those wallets,
+   * each once; false (and nothing changes) otherwise. Only the listing order changes: no
+   * wallet's account, key, owner, slot or name.
+   */
+  async setDisplayOrder(userId: number, network: string, walletIds: readonly string[]): Promise<boolean> {
+    return this.db.tx(async () => {
+      const active = (await this.activeWallets(userId, network)).map((w) => w.id)
+      const exact = walletIds.length === active.length && new Set(walletIds).size === walletIds.length && walletIds.every((id) => active.includes(id))
+      if (!exact) return false
+      const t = this.now()
+      for (const [i, id] of walletIds.entries()) await this.db.run('UPDATE trading_wallets SET display_order = ?, updated_at = ? WHERE id = ? AND user_id = ?', [i + 1, t, id, userId])
+      return true
+    })
   }
 
   /** The wallet `walletId` if it is `userId`'s and active; null otherwise (another user's, closed or unknown). */

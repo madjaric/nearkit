@@ -1,7 +1,7 @@
-import { OwnWalletPicker } from '@/components/domain/OwnWalletPicker'
-import { LogOut, Pencil, Plus, Send } from 'lucide-react'
+import { ChevronDown, ChevronUp, LogOut, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { AccountText } from '@/components/domain/Account'
+import { OwnWalletPicker } from '@/components/domain/OwnWalletPicker'
 import { Button, IconButton } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
 import { Modal } from '@/components/ui/Dialog'
@@ -68,13 +68,43 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
   const toast = useToast()
   const session = useNearKitSession()
   const list = useNearKitWallets()
-  const { logout } = useNearKitMutations()
+  const { logout, reorder } = useNearKitMutations()
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState<NearKitWebWallet | null>(null)
+  const [deleting, setDeleting] = useState<NearKitWebWallet | null>(null)
   const [sending, setSending] = useState<Wallet | null>(null)
-  const wallets = list.data?.wallets ?? []
+  // An order being saved: shown at once, until the server's list replaces it.
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null)
+  const listed = list.data?.wallets ?? []
+  const wallets = pendingOrder ? pendingOrder.flatMap((id) => listed.filter((w) => w.id === id)) : listed
   const limit = list.data?.limit ?? 10
   const snapshotOf = (w: NearKitWebWallet) => snapshots.find((s) => s.accountId === w.accountId)
+  /** Moves a wallet up or down the list; only the order changes (NearKit's server keeps it). */
+  const move = (index: number, delta: -1 | 1) => {
+    const ids = wallets.map((w) => w.id)
+    const to = index + delta
+    if (to < 0 || to >= ids.length) return
+    ;[ids[index], ids[to]] = [ids[to] as string, ids[index] as string]
+    setPendingOrder(ids)
+    reorder.mutate(ids, {
+      onError: (e) => toast.push({ tone: 'neg', title: 'The order wasn’t saved', detail: describeError(e).message }),
+      onSettled: () => setPendingOrder(null),
+    })
+  }
+  /** Up, down and delete: NearKit wallets only (connected and watch-only accounts never get these). */
+  const manage = (w: NearKitWebWallet, i: number) => (
+    <>
+      <IconButton label={`Move ${w.name} up`} size="sm" disabled={i === 0 || reorder.isPending} onClick={() => move(i, -1)}>
+        <ChevronUp size={14} />
+      </IconButton>
+      <IconButton label={`Move ${w.name} down`} size="sm" disabled={i === wallets.length - 1 || reorder.isPending} onClick={() => move(i, 1)}>
+        <ChevronDown size={14} />
+      </IconButton>
+      <IconButton label={`Delete ${w.name}`} size="sm" tone="danger" onClick={() => setDeleting(w)}>
+        <Trash2 size={14} />
+      </IconButton>
+    </>
+  )
 
   return (
     <Panel>
@@ -152,7 +182,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                 </tr>
               </thead>
               <tbody>
-                {wallets.map((w) => {
+                {wallets.map((w, i) => {
                   const s = snapshotOf(w)
                   const tokens = s ? s.holdings.filter((h) => h.amount > 0 && h.tokenId !== NATIVE_TOKEN_ID).length : null
                   return (
@@ -191,6 +221,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                           <IconButton label={`Rename ${w.name}`} size="sm" onClick={() => setRenaming(w)}>
                             <Pencil size={14} />
                           </IconButton>
+                          {manage(w, i)}
                         </span>
                       </Td>
                     </Tr>
@@ -200,7 +231,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
             </Table>
           </div>
           <ul className="divide-y divide-line-soft @[48rem]:hidden" aria-label="NearKit wallets">
-            {wallets.map((w) => {
+            {wallets.map((w, i) => {
               const s = snapshotOf(w)
               return (
                 <li key={w.id} className="flex items-start justify-between gap-3 px-4 py-3">
@@ -213,6 +244,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                       <CopyButton value={w.accountId} label={`Copy ${w.name} address`} className="size-5" />
                     </p>
                     <p className="mt-0.5 text-[11px] text-fg-4">{ownerText(w.owner)}</p>
+                    <div className="mt-1 flex items-center gap-1">{manage(w, i)}</div>
                   </div>
                   <div className="flex items-start gap-1">
                     <div className="text-right">
@@ -234,8 +266,73 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
       )}
       <CreateWalletModal open={creating} onClose={() => setCreating(false)} />
       <RenameWalletModal wallet={renaming} onClose={() => setRenaming(null)} />
+      <DeleteWalletModal wallet={deleting} snapshot={deleting ? snapshotOf(deleting) : undefined} onClose={() => setDeleting(null)} />
       <NearKitSendModal wallet={sending} onClose={() => setSending(null)} />
     </Panel>
+  )
+}
+
+// ─── delete ─────────────────────────────────────────────────────────────────
+
+/**
+ * Deleting a NearKit wallet: only one that was never funded, the bot's own way (NearKit's server
+ * reads the chain, the signer erases the key, the slot is free again). One that holds funds, or
+ * held them once, stays: the way out is to send everything away, or Recover.
+ */
+function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWallet | null; snapshot: WalletSnapshot | undefined; onClose: () => void }) {
+  const toast = useToast()
+  const { remove } = useNearKitMutations()
+  const holds = Boolean(snapshot && (snapshot.nearBalance > 0 || snapshot.holdings.some((h) => h.amount > 0)))
+  const close = () => {
+    remove.reset()
+    onClose()
+  }
+  return (
+    <Modal open={wallet !== null} onClose={close} size="sm" title={`Delete ${wallet?.name ?? 'NearKit wallet'}?`}>
+      {wallet && (
+        <div className="flex flex-col gap-4">
+          <p className="flex items-center gap-1 text-sm text-fg-2">
+            <AccountText id={wallet.accountId} className="text-fg" />
+          </p>
+          {holds ? (
+            <p role="alert" className="text-sm text-fg-2">
+              {`${wallet.name} holds funds, so it can’t be deleted. Send everything out of it first, or use Recover to add the backup key and remove NearKit’s access.`}
+            </p>
+          ) : (
+            <p className="text-sm text-fg-2">
+              Only a NearKit wallet that was never funded can be deleted: NearKit checks the chain, erases its key and frees its slot for a new wallet. Nothing can be lost.
+            </p>
+          )}
+          {remove.isError && (
+            <p role="alert" className="text-sm text-neg">
+              {describeError(remove.error).message}
+            </p>
+          )}
+          <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={close}>
+              {holds ? 'Close' : 'Keep it'}
+            </Button>
+            {!holds && (
+              <Button
+                variant="danger"
+                icon={<Trash2 size={14} />}
+                loading={remove.isPending}
+                onClick={() =>
+                  remove.mutate(wallet.id, {
+                    onSuccess: () => {
+                      toast.push({ title: `${wallet.name} deleted`, detail: 'It was never funded, so nothing was lost. Its slot is free for a new wallet.' })
+                      close()
+                    },
+                  })
+                }
+              >
+                Delete wallet
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }
 

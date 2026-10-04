@@ -1,8 +1,7 @@
 import type { BackupKeyParams } from '../custody/recovery'
-import { PolicyViolation } from '../custody/policy'
 import { ownerKeyNow, RECOVERY_INTENT_TTL_MS, RecoveryApiError } from '../custody/recovery'
 import type { Intent, TradingWallet } from '../custody/store'
-import { readWallet } from '../custody/wallets'
+import { deleteEmptyWallet, readWallet } from '../custody/wallets'
 import { bold, code, esc, shortAccount } from '../telegram/html'
 import { btn, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
@@ -247,17 +246,14 @@ async function deleteEmpty(ctx: BotCtx, walletId: string) {
   // Only the wallet this confirmation was shown for: never "whichever is selected now".
   const w = await flowWallet(ctx, walletId)
   if (!custody || !w) return showWalletHome(ctx)
-  // Re-read now: a deposit may have arrived since the question.
-  const view = await readWallet(ctx.deps.near, w)
-  if (view.exists !== false) return offerDelete(ctx, w.id)
-  // The signer checks the chain itself and erases its key only if the wallet was never funded.
+  // Re-read now (a deposit may have arrived since the question); the signer checks the chain itself.
+  let outcome: 'deleted' | 'funded'
   try {
-    await custody.signer.eraseKey({ accountId: w.accountId, reason: 'deleted' })
+    outcome = await deleteEmptyWallet(custody, ctx.deps.near, w)
   } catch (e) {
-    if (e instanceof PolicyViolation) return offerDelete(ctx, w.id)
     return ctx.show(`⚠️ ${esc(walletErrorText(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'delete wallet' }))} Nothing was deleted.`, keyboard(back))
   }
-  await custody.store.closeWallet(w.id, 'deleted', { reason: 'never funded' })
+  if (outcome === 'funded') return offerDelete(ctx, w.id)
   await ctx.show('🗑 Deleted. It was never funded, so nothing was lost.', keyboard([newWalletButton(), btn('« Menu', 'menu:home')]))
 }
 

@@ -452,6 +452,33 @@ await step('Rename on NearKit web changes the name only', async () => {
   if (!w || w.accountId !== degenAddress) throw new Error('the rename changed more than the name')
 })
 
+await step('Order and delete on NearKit web: the server keeps the order; an empty wallet is deleted the bot’s way and Telegram is told', async () => {
+  const listed = async () => (await webApi('/api/web/wallets', {})).json?.wallets ?? []
+  const names = async () => (await listed()).map((x) => x.name).join()
+  const until = async (want) => {
+    for (let i = 0; i < 40 && (await names()) !== want; i++) await new Promise((r) => setTimeout(r, 250))
+    if ((await names()) !== want) throw new Error(`wallets listed as ${await names()}, not ${want}`)
+  }
+  const [main, sniper] = await listed()
+  if ((await names()) !== 'Main,Sniper A') throw new Error(`unexpected wallets: ${await names()}`)
+  await page.getByRole('button', { name: 'Move Sniper A up' }).first().click()
+  await until('Sniper A,Main')
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('table', { name: 'NearKit wallets' }).locator('tbody tr').first().getByText('Sniper A').waitFor()
+  // An empty wallet, deleted through its confirmation.
+  await webApi('/api/web/wallets/create', { name: 'Temp', createKey: 'e2e-manage-temp-0001' })
+  await page.reload({ waitUntil: 'networkidle' })
+  const from = tg.sent.length
+  await page.getByRole('button', { name: 'Delete Temp' }).first().click()
+  await page.getByRole('dialog', { name: 'Delete Temp?' }).getByRole('button', { name: 'Delete wallet' }).click()
+  await page.getByText('Temp deleted').waitFor()
+  await until('Sniper A,Main')
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('NearKit wallet deleted on NearKit web') && x.text.includes('Temp'), { from })
+  // Back to the order the steps after this one expect.
+  await webApi('/api/web/wallets/order', { walletIds: [main.id, sniper.id] })
+  await page.reload({ waitUntil: 'networkidle' })
+})
+
 await step('Multi Buy across NearKit wallets runs from the web: the server quotes each wallet, Execute runs each one, and Telegram takes no part', async () => {
   near.state.accounts.set(degenAddress, { amount: String(3n * ONE) })
   await page.goto(WEB + '/multi-trade', { waitUntil: 'networkidle' })
