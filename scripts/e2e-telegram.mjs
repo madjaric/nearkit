@@ -547,38 +547,69 @@ await step('a single Buy from a NearKit wallet in the normal trade ticket: no br
   await page.keyboard.press('Escape')
 })
 
-await step('Send from a NearKit wallet is reviewed and sent from the web; an unapproved address says how it gets approved; Telegram takes no part', async () => {
-  near.state.accounts.set('friend.testnet', { amount: String(ONE) })
-  await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
-  await page.getByRole('table', { name: 'NearKit wallets' }).getByRole('button', { name: 'Send' }).first().click()
-  const modal = page.getByRole('dialog', { name: 'Send from Main' })
-  const from = tg.sent.length
-  // An address the owner wallet never approved: refused, with how it gets approved.
-  await modal.getByLabel('Amount').fill('0.5')
-  await modal.getByLabel('To').fill('friend.testnet')
-  await modal.getByRole('button', { name: 'Review', exact: true }).click()
-  await modal.getByText(/friend\.testnet isn’t approved for Main yet/).waitFor()
-  await modal.getByRole('link', { name: /Approve it with/ }).waitFor()
-  // The shortcut to one of the user's own NearKit wallets fills in its full account id, and that
-  // address is reviewed like any other: here it isn't approved either, so nothing is sent.
-  const sniper = (await webApi('/api/web/wallets', {})).json?.wallets?.find((x) => x.name === 'Sniper A')
-  await modal.getByLabel('Pick one of my NearKit wallets as the destination').selectOption(sniper.accountId)
-  if ((await modal.getByLabel('To').inputValue()) !== sniper.accountId) throw new Error('the shortcut did not fill in the full account id')
-  await modal.getByRole('button', { name: 'Review', exact: true }).click()
-  await modal.getByText(new RegExp(`${sniper.accountId.slice(0, 6)}.*isn’t approved for Main yet`)).waitFor()
-  // The owner wallet: the review, then Send, right here.
-  await modal.getByLabel('To').fill(USER)
-  await modal.getByRole('button', { name: 'Review', exact: true }).click()
-  await modal.getByText('Check the address: transfers can’t be undone.').waitFor()
-  await modal.getByText(USER).first().waitFor()
-  await shot('tg-09-web-send-review')
-  await modal.getByRole('button', { name: 'Send', exact: true }).click()
-  // NearKit runs it itself (this fake network can't execute it, so it ends as failed: nothing real).
-  await modal.getByText(/^(Sent|Failed)$/).waitFor({ timeout: 30000 })
-  await new Promise((r) => setTimeout(r, 300))
-  if (tg.sent.slice(from).some((m) => m.chatId === TG_USER.id)) throw new Error('Telegram took part in a web send')
-  await page.keyboard.press('Escape')
-})
+await step(
+  'Send from a NearKit wallet is reviewed and sent from the web; an unapproved address offers Approve & continue (the owner approves it right there, then the review); Telegram takes no part',
+  async () => {
+    near.state.accounts.set('friend.testnet', { amount: String(ONE) })
+    near.state.accounts.set('friend3.testnet', { amount: String(ONE) })
+    await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
+    await page.getByRole('table', { name: 'NearKit wallets' }).getByRole('button', { name: 'Send' }).first().click()
+    const modal = page.getByRole('dialog', { name: 'Send from Main' })
+    const from = tg.sent.length
+    // An address the owner wallet never approved: one way forward, Approve & continue (no competing Review).
+    await modal.getByLabel('Amount').fill('0.5')
+    await modal.getByLabel('To').fill('friend3.testnet')
+    await modal.getByRole('button', { name: 'Review', exact: true }).click()
+    await modal.getByText(/friend3\.testnet isn’t approved for Main yet/).waitFor()
+    await modal.getByRole('button', { name: 'Approve & continue' }).waitFor()
+    if ((await modal.getByRole('button', { name: 'Review', exact: true }).count()) !== 0) throw new Error('Review competes with Approve & continue')
+    await shot('tg-09a-web-send-approve-continue')
+    // This page's scripted wallet signs with USER's key, as the owner wallet would.
+    await page.evaluate(([key, publicKey]) => Object.assign(window.__NEARKIT_E2E_WALLET__, { signingKey: { jwk: key, publicKey } }), [jwk, PUBLIC_KEY])
+    await modal.getByRole('button', { name: 'Approve & continue' }).click()
+    // The owner approval, right here: the signer's message, the owner wallet signs it.
+    await modal.getByText('Your wallet will sign').waitFor({ timeout: 15000 })
+    const connectOwner = modal.getByRole('button', { name: `Connect ${USER}` })
+    if (await connectOwner.isVisible().catch(() => false)) {
+      await connectOwner.click()
+      const connect = page.getByRole('dialog', { name: `Connect ${USER}` })
+      await connect.getByRole('button', { name: /E2E Test Wallet/ }).click()
+      await connect.waitFor({ state: 'hidden' })
+    }
+    await modal.getByRole('button', { name: 'Sign to approve friend3.testnet' }).click()
+    // Approved: the same send is reviewed again, and goes through to its review.
+    await modal.getByText('Check the address: transfers can’t be undone.').waitFor({ timeout: 20000 })
+    await modal.getByText('friend3.testnet').first().waitFor()
+    await modal.getByRole('button', { name: 'Back' }).click()
+    // Another address that isn't approved: the same choice.
+    await modal.getByLabel('To').fill('friend.testnet')
+    await modal.getByRole('button', { name: 'Review', exact: true }).click()
+    await modal.getByText(/friend\.testnet isn’t approved for Main yet/).waitFor()
+    await modal.getByRole('button', { name: 'Approve & continue' }).waitFor()
+    // The shortcut to one of the user's own NearKit wallets fills in its full account id, and that
+    // address is reviewed like any other: here it isn't approved either, so nothing is sent.
+    const sniper = (await webApi('/api/web/wallets', {})).json?.wallets?.find((x) => x.name === 'Sniper A')
+    await modal.getByLabel('Pick one of my NearKit wallets as the destination').selectOption(sniper.accountId)
+    if ((await modal.getByLabel('To').inputValue()) !== sniper.accountId) throw new Error('the shortcut did not fill in the full account id')
+    await modal.getByRole('button', { name: 'Review', exact: true }).click()
+    await modal.getByText(new RegExp(`${sniper.accountId.slice(0, 6)}.*isn’t approved for Main yet`)).waitFor()
+    // The owner wallet: the review, then Send, right here.
+    await modal.getByLabel('To').fill(USER)
+    await modal.getByRole('button', { name: 'Review', exact: true }).click()
+    await modal.getByText('Check the address: transfers can’t be undone.').waitFor()
+    await modal.getByText(USER).first().waitFor()
+    await shot('tg-09-web-send-review')
+    await modal.getByRole('button', { name: 'Send', exact: true }).click()
+    // NearKit runs it itself (this fake network can't execute it, so it ends as failed: nothing real).
+    await modal.getByText(/^(Sent|Failed)$/).waitFor({ timeout: 30000 })
+    await new Promise((r) => setTimeout(r, 300))
+    // Telegram hears of the approval (a security notice), never of the send itself.
+    const told = tg.sent.slice(from).filter((m) => m.chatId === TG_USER.id)
+    if (!told.some((m) => m.text.includes('friend3.testnet') && m.text.includes('can now receive withdrawals'))) throw new Error('the approval was not announced in Telegram')
+    if (told.some((m) => !m.text.includes('can now receive withdrawals'))) throw new Error('Telegram took part in a web send')
+    await page.keyboard.press('Escape')
+  },
+)
 
 await step(
   'Recover: the owner is whoever signs with a full-access key of the owner: no key reported or the NearKit wallet’s own exported key is refused before anything reaches the signer (never "Wallet connected"); the same account signing with the owner’s key, or the owner listed second, gets the approval through',
@@ -641,6 +672,12 @@ await step(
     await rp.getByText(/^Approved\./).waitFor({ timeout: 15000 })
     if ((await asked()).join() !== mainAddress) throw new Error(`the wallet was asked to sign as: ${(await asked()).join() || 'nobody'}`)
     if (sent.join() !== PUBLIC_KEY) throw new Error(`the approval reached the signer with: ${sent.join() || 'nothing'}`)
+    // The owner's NearKit wallets, listed by naming the owner: the wallet still calls itself mainAddress but signs with the owner's key.
+    await rp.goto(`${WEB}/recover`, { waitUntil: 'networkidle' })
+    await setWallet([mainAddress], { [mainAddress]: PUBLIC_KEY })
+    await rp.getByLabel('Owner account').fill(USER)
+    await rp.getByRole('button', { name: `Sign to show the NearKit wallets of ${USER}` }).click()
+    await rp.getByText(mainAddress).first().waitFor({ timeout: 15000 })
     await rp.context().close()
 
     // A wallet that lists the owner after the NearKit wallet's account: the owner is taken by name, and signs as itself.
@@ -660,6 +697,35 @@ await step(
     const signers = await rp2.evaluate(() => (window.__NEARKIT_E2E_MESSAGES__ ?? []).map((m) => m.signerId))
     if (signers.join() !== USER) throw new Error(`the wallet was asked to sign as: ${signers.join() || 'nobody'}`)
     await rp2.context().close()
+  },
+)
+
+await step(
+  'Batch Send from a NearKit wallet: it is a source; each line is a web send under the custody rule (an unapproved line blocks the batch, with its approval link); a ready batch is sent by NearKit, nothing signed in the browser',
+  async () => {
+    near.state.accounts.set('friend4.testnet', { amount: String(ONE) })
+    await page.goto(WEB + '/batch-send', { waitUntil: 'networkidle' })
+    await page.getByLabel('Send from', { exact: true }).selectOption(mainAddress)
+    const list = page.getByRole('textbox', { name: 'Batch list' })
+    await list.fill(`${USER},0.1\nfriend4.testnet,0.1`)
+    await page.getByRole('button', { name: 'Send batch' }).click()
+    const review = page.getByRole('dialog', { name: 'Review batch send' })
+    await review.getByText('Needs approval').waitFor({ timeout: 15000 })
+    await review.getByRole('link', { name: `Approve with ${USER}` }).waitFor()
+    if (await review.getByRole('button', { name: 'Send batch' }).isEnabled()) throw new Error('a batch with a line that needs approval could be sent')
+    await shot('tg-09b-web-batch-needs-approval')
+    await review.getByRole('button', { name: 'Cancel' }).click()
+    // The owner only: ready, and sent by NearKit's server (this fake network can't execute it, so it ends as failed: nothing real).
+    await list.fill(`${USER},0.1`)
+    await page.getByRole('button', { name: 'Send batch' }).click()
+    await review.getByText('Ready').waitFor({ timeout: 15000 })
+    const signed = () => page.evaluate(() => (window.__NEARKIT_E2E_SIGNED__ ?? []).length)
+    const before = await signed()
+    await review.getByRole('button', { name: 'Send batch' }).click()
+    await review.getByText(/^Sent [01] of 1\.$/).waitFor({ timeout: 60000 })
+    if ((await signed()) !== before) throw new Error('the browser wallet signed a NearKit wallet’s batch')
+    // The footer's Close (the dialog's own × is named Close too).
+    await review.getByRole('button', { name: 'Close' }).last().click()
   },
 )
 

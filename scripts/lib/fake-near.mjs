@@ -57,7 +57,7 @@ export function createFakeNear({ accounts = {}, tokens = {}, dcl = null } = {}) 
     if (!t) return { error: 'wasm execution failed with error: MethodResolveError(MethodNotFound)' }
     switch (method) {
       case 'ft_metadata':
-        return { result: { spec: 'ft-1.0.0', name: t.name ?? t.symbol, symbol: t.symbol, decimals: t.decimals, icon: null } }
+        return { result: { spec: 'ft-1.0.0', name: t.name ?? t.symbol, symbol: t.symbol, decimals: t.decimals, icon: t.icon ?? null } }
       case 'ft_balance_of':
         return { result: String(t.balances.get(args.account_id) ?? '0') }
       case 'ft_total_supply':

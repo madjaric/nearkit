@@ -55,6 +55,8 @@ const near = createFakeNear({
       symbol: 'USDT',
       name: 'Tether USD',
       decimals: 24,
+      // Its NEP-148 metadata icon, as a token's contract returns one.
+      icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc4JyBoZWlnaHQ9JzgnPjxjaXJjbGUgY3g9JzQnIGN5PSc0JyByPSc0JyBmaWxsPScjMjZhMTdiJy8+PC9zdmc+',
       balances: { [USER]: String(100n * ONE) },
       registered: [USER, 'bob.testnet', 'ref-finance-101.testnet'],
       boundsMin: MIN,
@@ -242,6 +244,14 @@ await step('a token in no list is found by its exact contract, shown with its me
   await row.getByRole('button').click()
   await page.getByRole('button', { name: 'To token: FRESH' }).waitFor()
   await shot('real-07-imported-token')
+})
+
+await step('token icons: a token’s own metadata icon is drawn (lazily, without a referrer); a token without one keeps its letter', async () => {
+  await page.goto(BASE + '/swap', { waitUntil: 'networkidle' })
+  const icon = page.locator('img[src^="data:image/svg+xml"]').first()
+  await icon.waitFor({ timeout: 10000 })
+  const attrs = await icon.evaluate((e) => ({ loading: e.getAttribute('loading'), referrer: e.getAttribute('referrerpolicy'), alt: e.getAttribute('alt') }))
+  if (attrs.loading !== 'lazy' || attrs.referrer !== 'no-referrer' || attrs.alt !== '') throw new Error(`icon attributes: ${JSON.stringify(attrs)}`)
 })
 
 await step('swap on testnet: Rhea classic route, fee not charged, plan wraps and swaps in one transaction', async () => {
@@ -485,7 +495,10 @@ await step('a connected account sends through its own wallet (Batch Send, from i
     throw new Error('the watched account offers Send')
   await page.getByRole('button', { name: 'Send from Main: you sign in your wallet' }).locator('visible=true').first().click()
   await page.waitForURL(/\/batch-send\?from=/)
-  const from = await page.getByLabel('Send from', { exact: true }).inputValue()
+  // The source list fills in once the wallets are read: wait for it, then check which one is picked.
+  const source = page.getByLabel('Send from', { exact: true })
+  await source.locator('option').first().waitFor({ state: 'attached', timeout: 10000 })
+  const from = await source.inputValue()
   if (from !== USER) throw new Error(`Batch Send opened from ${from}, not ${USER}`)
 })
 

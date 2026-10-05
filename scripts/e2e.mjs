@@ -120,6 +120,56 @@ await step('positions BUY opens the trade drawer prefilled', async () => {
   await drawer.waitFor({ state: 'hidden' })
 })
 
+await step('the trade drawer’s token list opens inside the drawer (never behind it): search, pick, and the ticket follows', async () => {
+  await page.getByRole('button', { name: 'Buy BLACKDRAGON' }).first().click()
+  const drawer = page.getByRole('dialog', { name: 'Trade ticket' })
+  await drawer.getByText('Trade BLACKDRAGON').waitFor()
+  await drawer.getByRole('button', { name: /^Token: BLACKDRAGON/ }).click()
+  // Inside the drawer's own dialog: a list mounted behind a modal dialog can't be reached at all.
+  const search = drawer.getByRole('textbox', { name: 'Search tokens' })
+  await search.fill('shi')
+  await drawer
+    .getByRole('option', { name: /SHITZU/ })
+    .first()
+    .click()
+  await drawer.getByRole('button', { name: /^Token: SHITZU/ }).waitFor()
+  await drawer.getByRole('button', { name: /^Buy SHITZU$/ }).waitFor()
+  // Escape closes the list, not the drawer it sits in.
+  await drawer.getByRole('button', { name: /^Token: SHITZU/ }).click()
+  await search.waitFor()
+  await page.keyboard.press('Escape')
+  await search.waitFor({ state: 'hidden' })
+  if (!(await drawer.isVisible())) throw new Error('Escape on the token list closed the trade drawer')
+  await page.keyboard.press('Escape')
+  await drawer.waitFor({ state: 'hidden' })
+})
+
+await step('the header’s NEAR price shows no ticking seconds counter', async () => {
+  const text = ((await page.getByLabel('NEAR price').first().textContent()) ?? '').trim()
+  if (!/^NEAR\/USD\$[\d.,]+/.test(text)) throw new Error(`unexpected ticker: ${text}`)
+  if (/\d+s$/.test(text)) throw new Error(`the ticker still shows a seconds counter: ${text}`)
+})
+
+await step('portfolio value: 1D, 7D and 30D; 1D is the last 24 hours', async () => {
+  await page.getByRole('radio', { name: '1D' }).click()
+  await page.getByRole('img', { name: /Portfolio value, last 24 hours/ }).waitFor()
+  await page.getByRole('radio', { name: '7D' }).click()
+  await page.getByRole('img', { name: /Portfolio value, last 7 days/ }).waitFor()
+})
+
+await step('global search ranks the closest match first ("k": KIT before BLACKDRAGON) and opens Token Detail', async () => {
+  // (The "/" shortcut skips form controls, and a range radio has focus here: click the box instead.)
+  await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().click()
+  await page.keyboard.type('k')
+  const first = page.getByRole('listbox', { name: 'Search results' }).getByRole('option').first()
+  await first.waitFor()
+  const label = ((await first.textContent()) ?? '').trim()
+  if (!label.startsWith('KIT')) throw new Error(`the first result for "k" is ${label}`)
+  await page.keyboard.press('Enter')
+  await page.waitForURL(/\/token\/kit$/)
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+})
+
 await step('global search: "/" focuses, command routes to Split', async () => {
   await page.keyboard.press('/')
   await page.keyboard.type('/split')
