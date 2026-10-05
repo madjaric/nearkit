@@ -4,6 +4,7 @@ import { Popover } from '@/components/ui/Floating'
 import { Tag } from '@/components/ui/Indicators'
 import { Amount, Pct, Price } from '@/components/ui/Num'
 import { cn } from '@/lib/cn'
+import { heldBalances, rankByHoldings } from '@/lib/tokenRanking'
 import { rankTokens } from '@/lib/tokenSearch'
 import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
@@ -19,6 +20,12 @@ interface TokenSelectProps {
   exclude?: TokenId[]
   /** Show balances held by this wallet in the list. */
   walletId?: string
+  /**
+   * The wallets whose tokens the list is about (Split, Batch Send: the source; Consolidate: every
+   * source): what they hold, summed, is shown and comes first, the most valuable first; every other
+   * token follows and search still finds it.
+   */
+  holdingsOf?: readonly string[]
   size?: 'md' | 'lg'
   /** Symbol only, as a chip that sits inside an amount field. */
   compact?: boolean
@@ -27,7 +34,7 @@ interface TokenSelectProps {
   describedBy?: string
 }
 
-export function TokenSelect({ value, onChange, label, exclude = [], walletId, size = 'lg', compact = false, className, id, describedBy }: TokenSelectProps) {
+export function TokenSelect({ value, onChange, label, exclude = [], walletId, holdingsOf, size = 'lg', compact = false, className, id, describedBy }: TokenSelectProps) {
   const { data: tokens = [] } = useTokens()
   const { data: holdings = [] } = useHoldings()
   const [open, setOpen] = useState(false)
@@ -36,17 +43,16 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   const selected = tokens.find((t) => t.id === value)
-  const balanceOf = (tokenId: string) => (walletId ? (holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0) : null)
+  const holdersKey = holdingsOf?.join(',') ?? null
+  const held = useMemo(() => (holdersKey === null ? null : heldBalances(holdings, holdersKey ? holdersKey.split(',') : [])), [holdings, holdersKey])
+  const balanceOf = (tokenId: string) => (held ? (held.get(tokenId) ?? 0) : walletId ? (holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0) : null)
 
-  // Closest match first (src/lib/tokenSearch.ts), the same ranking as the global search.
-  const list = useMemo(
-    () =>
-      rankTokens(
-        tokens.filter((t) => !exclude.includes(t.id)),
-        query,
-      ),
-    [tokens, exclude, query],
-  )
+  // Closest match first (src/lib/tokenSearch.ts), the same ranking as the global search; a list
+  // about some wallets' tokens puts what they hold first (src/lib/tokenRanking.ts).
+  const list = useMemo(() => {
+    const pool = tokens.filter((t) => !exclude.includes(t.id))
+    return held ? rankByHoldings(pool, { query, selectedId: value, held }) : rankTokens(pool, query)
+  }, [tokens, exclude, query, held, value])
 
   // A pasted contract that no list has yet (a token launched minutes ago): read it from
   // chain and offer to import it. Reading it proves it is a token, not that it trades.

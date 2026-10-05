@@ -126,7 +126,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                 </span>
               }
             >
-              {({ id }) => <TokenSelect id={id} label="Token" size="md" value={tokenId} onChange={setTokenId} walletId={sourceId} />}
+              {({ id }) => <TokenSelect id={id} label="Token" size="md" value={tokenId} onChange={setTokenId} holdingsOf={[sourceId]} />}
             </Field>
           </div>
         </Panel>

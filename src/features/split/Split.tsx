@@ -224,7 +224,7 @@ export function Split() {
           <PanelHeader title="Source" />
           <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
             <Field label="Source wallet">{({ id }) => <WalletSelect id={id} value={sourceId} onChange={setSourceId} wallets={signers} />}</Field>
-            <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} walletId={sourceId} size="md" />}</Field>
+            <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} holdingsOf={[sourceId]} size="md" />}</Field>
             <div className="flex flex-col gap-2 md:col-span-2">
               <Field
                 label="Amount to distribute"
