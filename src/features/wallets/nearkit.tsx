@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, LogOut, Pencil, Plus, Send, Trash2 } from 'luci
 import { useState } from 'react'
 import { AccountText } from '@/components/domain/Account'
 import { OwnWalletPicker } from '@/components/domain/OwnWalletPicker'
+import { ApproveDestinationStep } from '@/features/recover/ApproveDestination'
 import { Button, IconButton } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
 import { Modal } from '@/components/ui/Dialog'
@@ -507,6 +508,10 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
   const [to, setTo] = useState('')
   const [touched, setTouched] = useState(false)
   const [sending, setSending] = useState<string | null>(null)
+  /** "Approve & continue": the owner approval of this destination, inside Send. */
+  const [approving, setApproving] = useState<{ wallet: string; destination: string } | null>(null)
+  /** A Telegram approval opened in a new tab: Continue reviews the send again once it's approved. */
+  const [telegramOpened, setTelegramOpened] = useState(false)
   // The user's own NearKit wallets: a shortcut for the destination, nothing more.
   const { data: own } = useNearKitWallets()
   const status = useSendStatus(sending)
@@ -565,6 +570,26 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
   }
 
   // Reviewed: what NearKit will send, and Send.
+  // The same send, reviewed again (after an approval, the review goes through).
+  const review = () => {
+    if (!wallet.nearkitId) return
+    reviewSend.mutate({ walletId: wallet.nearkitId, token: asset, amount: max ? 'max' : amount.trim(), to: to.trim() })
+  }
+
+  if (approving) {
+    return (
+      <ApproveDestinationStep
+        wallet={approving.wallet}
+        destination={approving.destination}
+        onApproved={() => {
+          setApproving(null)
+          review()
+        }}
+        onBack={() => setApproving(null)}
+      />
+    )
+  }
+
   if (r) {
     const fee = formatUnits(BigInt(r.review.feeNear), NEAR_DECIMALS, { maxFraction: 6 })
     return (
@@ -613,7 +638,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
         e.preventDefault()
         setTouched(true)
         if (accountIdError(to) || (!max && !(Number(amount) > 0)) || !wallet.nearkitId) return
-        reviewSend.mutate({ walletId: wallet.nearkitId, token: asset, amount: max ? 'max' : amount.trim(), to: to.trim() })
+        review()
       }}
     >
       {paused && (
@@ -680,6 +705,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
             exclude={wallet.accountId}
             onPick={(accountId) => {
               setTo(accountId)
+              setTelegramOpened(false)
               if (approval) reviewSend.reset()
             }}
           />
@@ -692,6 +718,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
             value={to}
             onChange={(e) => {
               setTo(e.target.value)
+              setTelegramOpened(false)
               if (approval) reviewSend.reset()
             }}
             placeholder={caps.network === 'mainnet' ? 'name.near' : 'name.testnet'}
@@ -706,17 +733,12 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
       {approval ? (
         <div className="flex flex-col gap-2 rounded-sm border border-line px-3 py-2.5">
           <p className="text-sm text-fg">{reviewError?.message}</p>
-          {approval.kind === 'owner' ? (
-            <a href={`/recover#approve=${encodeURIComponent(approval.accountId)}&to=${encodeURIComponent(to.trim())}`} className="text-sm text-accent underline">
-              {`Approve it with ${formatAccount(approval.owner)} on NearKit web`}
-            </a>
-          ) : (
-            <a href={approval.url} target="_blank" rel="noreferrer noopener" className="text-sm text-accent underline">
-              Approve it in NearKit’s Telegram mini app
-            </a>
-          )}
           <p className="text-xs text-fg-3">
-            Once approved, review the send again. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.
+            {approval.kind === 'owner'
+              ? `Approve & continue: ${formatAccount(approval.owner)}, the owner wallet, signs the approval here, once; then the send is reviewed again. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.`
+              : telegramOpened
+                ? 'Approve it in NearKit’s Telegram mini app (opened in a new tab), then Continue: the send is reviewed again.'
+                : 'This wallet has no owner wallet, so its Telegram account approves a new address once, in NearKit’s mini app. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.'}
           </p>
         </div>
       ) : (
@@ -731,9 +753,27 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" loading={reviewSend.isPending}>
-          Review
-        </Button>
+        {approval?.kind === 'owner' ? (
+          // Not approved yet: one way forward, approving it (no competing Review).
+          <Button type="button" variant="primary" onClick={() => setApproving({ wallet: approval.accountId, destination: to.trim() })}>
+            Approve & continue
+          </Button>
+        ) : approval?.kind === 'telegram' && !telegramOpened ? (
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => {
+              window.open(approval.url, '_blank', 'noopener,noreferrer')
+              setTelegramOpened(true)
+            }}
+          >
+            Approve in Telegram
+          </Button>
+        ) : (
+          <Button type="submit" variant="primary" loading={reviewSend.isPending}>
+            {approval?.kind === 'telegram' ? 'Continue' : 'Review'}
+          </Button>
+        )}
       </div>
     </form>
   )

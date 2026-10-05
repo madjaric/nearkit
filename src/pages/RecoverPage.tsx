@@ -1,30 +1,21 @@
 import { useMutation } from '@tanstack/react-query'
 import { Eye, EyeOff, KeyRound, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { WalletReturned } from '@/components/domain/WalletReturned'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
+import { Field, Input } from '@/components/ui/Form'
 import { Tag } from '@/components/ui/Indicators'
 import { Line, Lines, Panel, PanelBody, PanelHeader } from '@/components/ui/Panel'
 import { ENV } from '@/config/env'
-import { base64Decode } from '@/lib/encoding'
 import { createExportKeyPair, openExport } from '@/lib/exportCrypto'
-import { ownerControlProblem, ownerKeyNote } from '@/lib/ownerAccount'
-import { useServices } from '@/services/context'
+import { accountIdError } from '@/lib/validation'
 import { describeError } from '@/services/errors'
-import { useCapabilities, useOwnerControl, useSession } from '@/services/queries'
-import {
-  approveDestination,
-  challengeProblem,
-  exportSealedKey,
-  listOwnerWallets,
-  readRecoverHash,
-  requestChallenge,
-  type OwnerChallenge,
-  type RecoverTarget,
-} from '@/services/recovery'
+import { useCapabilities, useSession } from '@/services/queries'
+import { approveDestination, exportSealedKey, listOwnerWallets, readRecoverHash, requestChallenge, type OwnerChallenge, type RecoverTarget } from '@/services/recovery'
 import { useConnectPrompt } from '@/state/contexts'
+import { OwnerMessage, OwnerSignButton } from '@/features/recover/ownerSign'
+import { useOwnerSign } from '@/features/recover/useOwnerSign'
 
 /**
  * Keeping NearKit wallets yours, without Telegram. Everything here is authorized by the
@@ -33,30 +24,6 @@ import { useConnectPrompt } from '@/state/contexts'
  * An exported key arrives sealed to a key that exists only in this page; it lives in this
  * component's memory while shown and is never stored, logged or put in the address bar.
  */
-
-type Signed = { accountId: string; publicKey: string; signature: string }
-
-function useOwnerSign() {
-  const services = useServices()
-  const caps = useCapabilities()
-  return async (c: OwnerChallenge, want: Omit<Parameters<typeof challengeProblem>[1], 'network' | 'recipient' | 'kind'>): Promise<Signed> => {
-    if (!caps.network) throw new Error('This NearKit build is not on a NEAR network.')
-    const problem = await challengeProblem(c, { ...want, kind: c.kind, network: caps.network, recipient: window.location.hostname })
-    if (problem) throw new Error(problem)
-    const nonce = base64Decode(c.nonce)
-    if (!nonce || nonce.length !== 32) throw new Error('This request is malformed. Start again.')
-    return services.wallets.signMessage({ message: c.message, recipient: c.recipient, nonce, accountId: c.ownerAccount })
-  }
-}
-
-function Message({ text }: { text: string }) {
-  return (
-    <div>
-      <p className="mb-1.5 text-2xs uppercase tracking-legend text-fg-3">Your wallet will sign</p>
-      <pre className="num whitespace-pre-wrap break-words rounded-sm border border-line-soft bg-well px-3 py-2 text-xs leading-5 text-fg-2">{text}</pre>
-    </div>
-  )
-}
 
 function Notice({ tone, children }: { tone: 'warn' | 'neg'; children: React.ReactNode }) {
   const Icon = tone === 'neg' ? ShieldAlert : ShieldCheck
@@ -76,61 +43,17 @@ function Failure({ error }: { error: unknown }) {
   )
 }
 
-/**
- * Connect the owner wallet, or sign with it once it can sign for the owner: the owner account
- * itself, or an account whose key is a full-access key of the owner on chain (said plainly; the key
- * that signs is checked again after). Connect signs the current wallet session out first, so the
- * wallet can show its account picker. `wallet`: the NearKit wallet this request is about.
- */
-function SignButton({ owner, wallet, label, pending, onSign }: { owner: string; wallet?: string; label: string; pending: boolean; onSign: () => void }) {
-  const { data: session } = useSession()
-  const { connectOwner } = useConnectPrompt()
-  const control = useOwnerControl(owner, session ?? null)
-  const connect = (
-    <Button variant="primary" size="lg" block onClick={() => connectOwner(owner, wallet)}>
-      Connect {owner}
-    </Button>
-  )
-  if (!session) return connect
-  if (control.isPending)
-    return (
-      <Button variant="primary" size="lg" block loading disabled>
-        Checking your wallet
-      </Button>
-    )
-  const c = control.data
-  if (!c?.ok)
-    return (
-      <>
-        {c && c.reason !== 'none' && (
-          <div>
-            <p className="break-words text-sm text-fg-2">{ownerControlProblem(c, owner, wallet)}</p>
-            <WalletReturned details={session.walletDetails} />
-          </div>
-        )}
-        {c?.reason === 'unchecked' && (
-          <Button variant="secondary" size="lg" block onClick={() => void control.refetch()}>
-            Check again
-          </Button>
-        )}
-        {connect}
-      </>
-    )
-  return (
-    <>
-      {c.via === 'key' && <p className="break-words text-sm text-fg-2">{ownerKeyNote(c, owner)}</p>}
-      <Button variant="primary" size="lg" block loading={pending} disabled={pending} onClick={onSign}>
-        {label}
-      </Button>
-    </>
-  )
-}
-
 function ListPanel({ apiUrl, onExport }: { apiUrl: string; onExport: (wallet: string) => void }) {
   const caps = useCapabilities()
   const { data: session } = useSession()
   const { promptConnect } = useConnectPrompt()
   const sign = useOwnerSign()
+  // The owner to list: the connected account, unless named here. Whoever is named, the wallet must
+  // sign with a full-access key of that account (checked before it signs, and by NearKit's signer).
+  const [ownerInput, setOwnerInput] = useState('')
+  const named = ownerInput.trim()
+  const owner = named || session?.accountId || ''
+  const ownerError = named ? accountIdError(named) : null
   const list = useMutation({
     mutationFn: async (owner: string) => {
       const c = await requestChallenge(apiUrl, { kind: 'owner-session', owner })
@@ -151,14 +74,41 @@ function ListPanel({ apiUrl, onExport }: { apiUrl: string; onExport: (wallet: st
             Connect your wallet
           </Button>
         ) : (
-          <Button variant="primary" size="lg" block loading={list.isPending} disabled={list.isPending} onClick={() => list.mutate(session.accountId)}>
-            Sign to show the NearKit wallets of {session.accountId}
-          </Button>
+          <>
+            <Field
+              label="Owner account"
+              error={ownerError ?? undefined}
+              hint="Usually the account connected here. If your wallet app shows another account but holds the owner’s own key, name the owner."
+            >
+              {({ id, describedBy, invalid }) => (
+                <Input
+                  id={id}
+                  mono
+                  value={ownerInput}
+                  placeholder={session.accountId}
+                  onChange={(e) => {
+                    setOwnerInput(e.target.value)
+                    list.reset()
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  aria-describedby={describedBy}
+                  aria-invalid={invalid}
+                />
+              )}
+            </Field>
+            <Button variant="primary" size="lg" block loading={list.isPending} disabled={list.isPending || ownerError !== null || !owner} onClick={() => list.mutate(owner)}>
+              <span className="break-all">Sign to show the NearKit wallets of {owner}</span>
+            </Button>
+          </>
         )}
         {list.isError && <Failure error={list.error} />}
         {list.isSuccess &&
           (list.data.wallets.length === 0 ? (
-            <p className="text-sm text-fg-2">No NearKit wallet answers to {list.data.ownerAccount} on this network.</p>
+            <p className="break-words text-sm text-fg-2">
+              {`No NearKit wallet answers to ${list.data.ownerAccount} on this network. A NearKit wallet answers to the wallet it was created with (its owner): if ${list.data.ownerAccount} is itself a NearKit wallet (its exported key imported into a wallet app, say), connect its owner instead.`}
+            </p>
           ) : (
             <ul className="divide-y divide-line-soft rounded-sm border border-line-soft">
               {list.data.wallets.map((w) => (
@@ -289,8 +239,8 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
           </Button>
         ) : (
           <>
-            <Message text={c.message} />
-            <SignButton owner={c.ownerAccount} wallet={wallet} label="Sign and show the key" pending={exported.isPending} onSign={() => exported.mutate(c)} />
+            <OwnerMessage text={c.message} />
+            <OwnerSignButton owner={c.ownerAccount} wallet={wallet} label="Sign and show the key" pending={exported.isPending} onSign={() => exported.mutate(c)} />
           </>
         )}
         {prepare.isError && <Failure error={prepare.error} />}
@@ -347,8 +297,8 @@ function ApprovePanel({ apiUrl, wallet, destination }: { apiUrl: string; wallet:
               </Button>
             ) : (
               <>
-                <Message text={c.message} />
-                <SignButton owner={c.ownerAccount} wallet={wallet} label={`Sign to approve ${destination}`} pending={approved.isPending} onSign={() => approved.mutate(c)} />
+                <OwnerMessage text={c.message} />
+                <OwnerSignButton owner={c.ownerAccount} wallet={wallet} label={`Sign to approve ${destination}`} pending={approved.isPending} onSign={() => approved.mutate(c)} />
               </>
             )}
           </>
