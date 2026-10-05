@@ -1,6 +1,7 @@
 import { ScanSearch, SquareSlash, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { isComingSoon } from '@/config/release'
+import { rankTokens } from '@/lib/tokenSearch'
 import { looksLikeContract } from '@/lib/validation'
 import type { TokenListing } from '@/types/domain'
 import { ALL_NAV, COMMANDS } from './nav'
@@ -55,12 +56,8 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
       soon: isComingSoon(c.to.split('?')[0] ?? c.to),
     }))
   }
-  const results: Result[] = []
-  for (const t of tokens) {
-    if (t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || (t.contract ?? '').toLowerCase().includes(q)) {
-      results.push({ id: `t-${t.id}`, group: 'Tokens', label: t.symbol, detail: tokenDetail(t), to: tokenPage(t.id), token: t })
-    }
-  }
+  // Closest match first: an exact symbol or name before a token whose contract merely contains the query.
+  const results: Result[] = rankTokens(tokens, q).map((t) => ({ id: `t-${t.id}`, group: 'Tokens', label: t.symbol, detail: tokenDetail(t), to: tokenPage(t.id), token: t }))
   if (looksLikeContract(q)) {
     // A token read from chain that is in no list of this browser's: its page shows its market like any other's.
     const token = found?.token

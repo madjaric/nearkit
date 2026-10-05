@@ -4,6 +4,7 @@ import { Popover } from '@/components/ui/Floating'
 import { Tag } from '@/components/ui/Indicators'
 import { Amount, Pct, Price } from '@/components/ui/Num'
 import { cn } from '@/lib/cn'
+import { rankTokens } from '@/lib/tokenSearch'
 import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import { useCapabilities, useHoldings, useImportToken, useTokenLookup, useTokens } from '@/services/queries'
@@ -37,12 +38,15 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, si
   const selected = tokens.find((t) => t.id === value)
   const balanceOf = (tokenId: string) => (walletId ? (holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0) : null)
 
-  const list = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return tokens.filter(
-      (t) => !exclude.includes(t.id) && (!q || t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || (t.contract ?? '').toLowerCase().includes(q)),
-    )
-  }, [tokens, exclude, query])
+  // Closest match first (src/lib/tokenSearch.ts), the same ranking as the global search.
+  const list = useMemo(
+    () =>
+      rankTokens(
+        tokens.filter((t) => !exclude.includes(t.id)),
+        query,
+      ),
+    [tokens, exclude, query],
+  )
 
   // A pasted contract that no list has yet (a token launched minutes ago): read it from
   // chain and offer to import it. Reading it proves it is a token, not that it trades.

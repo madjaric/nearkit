@@ -30,6 +30,32 @@ describe('global search opens a token’s own page (Token Detail), never the swa
     expect(String(token?.detail)).toBe('Tether USD · usdt.tether-token.near')
   })
 
+  it('"nearly" ranks the NEARLY token first, above launches whose contract merely contains it; the result opens Token Detail', () => {
+    const launch = (contract: string, symbol: string, name: string): TokenListing => ({
+      id: contract,
+      symbol,
+      name,
+      decimals: 18,
+      contract,
+      status: 'listed',
+      source: 'discovered',
+      market: null,
+    })
+    const tokens = [...listed, sing, launch('nstai.nearlytrade.near', 'NSTAI', 'NST AI'), launch('nearly.nearlytrade.near', 'NEARLY', 'Nearly')]
+    for (const q of ['nearly', 'NEARLY']) {
+      const found = buildResults(q, tokens).filter((r) => r.group === 'Tokens')
+      expect(found.map((r) => r.label)).toEqual(['NEARLY', 'SINGULARTY', 'NSTAI'])
+      expect(found[0]?.to).toBe('/token/nearly.nearlytrade.near')
+    }
+    // "near": NEAR itself first, then the symbol that starts with it.
+    expect(
+      buildResults('near', tokens)
+        .filter((r) => r.group === 'Tokens')
+        .map((r) => r.label)
+        .slice(0, 2),
+    ).toEqual(['NEAR', 'NEARLY'])
+  })
+
   it('a token name opens its Token Detail', () => {
     expect(buildResults('tether', listed).find((r) => r.group === 'Tokens')).toMatchObject({ label: 'USDt', to: '/token/usdt.tether-token.near' })
   })
