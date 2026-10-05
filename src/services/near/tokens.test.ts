@@ -52,9 +52,14 @@ describe('validateMetadata', () => {
 })
 
 describe('sanitizeIcon', () => {
-  it('allows image data URLs only', () => {
+  it('allows image data URLs and plain https image URLs; nothing else', () => {
     expect(sanitizeIcon('data:image/png;base64,iVBORw0KGgo=')).toBe('data:image/png;base64,iVBORw0KGgo=')
-    expect(sanitizeIcon('https://evil.example/icon.svg')).toBeNull()
+    // A token's https icon (shown in an <img> only, without a referrer).
+    expect(sanitizeIcon('https://assets.example/token/icon.png')).toBe('https://assets.example/token/icon.png')
+    expect(sanitizeIcon('http://assets.example/icon.png')).toBeNull()
+    expect(sanitizeIcon('https://x.example/a b.png')).toBeNull()
+    expect(sanitizeIcon('https://x.example/"onerror=x.png')).toBeNull()
+    expect(sanitizeIcon(`https://x.example/${'a'.repeat(2_100)}.png`)).toBeNull()
     expect(sanitizeIcon('javascript:alert(1)')).toBeNull()
     expect(sanitizeIcon('data:text/html;base64,PHNjcmlwdD4=')).toBeNull()
     expect(sanitizeIcon(`data:image/svg+xml,${'a'.repeat(70_000)}`)).toBeNull()

@@ -53,7 +53,7 @@ export function ChainScanView({ report, onRescan, rescanning }: { report: ChainS
         <PanelHeader
           title={
             <span className="flex items-center gap-2 normal-case tracking-normal">
-              <TokenGlyph symbol={report.symbol} tokenId={report.contract} size={20} />
+              <TokenGlyph symbol={report.symbol} tokenId={report.contract} icon={report.icon} size={20} />
               <span className="text-sm text-fg">{report.name}</span>
               <span className="num text-xs text-fg-3">{report.symbol}</span>
             </span>

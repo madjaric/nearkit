@@ -6,6 +6,7 @@ import { Figures } from '@/components/ui/Figures'
 import { Led, Skeleton, Tag } from '@/components/ui/Indicators'
 import { useToast } from '@/components/ui/toast-context'
 import { cn } from '@/lib/cn'
+import { isImageSource } from '@/lib/imageSource'
 import { ownerControlProblem, type OwnerControl, type OwnerRefusal } from '@/lib/ownerAccount'
 import { describeError, type ErrorView } from '@/services/errors'
 import { useCapabilities, useConnect, useReconnectAs, useWalletOptions } from '@/services/queries'
@@ -31,16 +32,13 @@ function DemoBody() {
   )
 }
 
-/** Icons a wallet's manifest may name: https and inline images only (an <img> never runs an SVG's scripts). */
-const ICON_SOURCE = /^(https:\/\/|data:image\/)/
-
 /**
  * The provider's own icon from the pinned wallet manifest (or its extension), on a tile that keeps
  * every icon the same size on the dark UI; its first letter when there is none or it fails to load.
  */
 function WalletIcon({ option }: { option: WalletOption }) {
   const [failed, setFailed] = useState(false)
-  const src = option.icon && !failed && ICON_SOURCE.test(option.icon) ? option.icon : null
+  const src = !failed && isImageSource(option.icon) ? option.icon : null
   return (
     <span
       aria-hidden="true"

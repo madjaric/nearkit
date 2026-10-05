@@ -21,6 +21,9 @@ export interface FtMetadata {
 
 export const MAX_ICON_LENGTH = 65_536
 const ICON = /^data:image\/(svg\+xml|png|jpeg|webp|gif)(;[a-z0-9=;+-]*)?,/i
+/** An https image URL as a token's metadata may name one: no spaces, quotes or angle brackets. */
+const HTTPS_ICON = /^https:\/\/[^\s"'<>`]+$/i
+const MAX_ICON_URL_LENGTH = 2_048
 // C0/C1 controls, zero-width and bidi overrides: never trust display text from a contract.
 const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
   [0x00, 0x1f],
@@ -40,9 +43,11 @@ function stripUnsafe(text: string): string {
   return out
 }
 
+/** A token's icon: an inline image (data URL), or a plain https image URL. Shown in an <img> only, never as markup. */
 export function sanitizeIcon(icon: unknown): string | null {
   if (typeof icon !== 'string' || icon.length > MAX_ICON_LENGTH) return null
-  return ICON.test(icon) ? icon : null
+  if (ICON.test(icon)) return icon
+  return icon.length <= MAX_ICON_URL_LENGTH && HTTPS_ICON.test(icon) ? icon : null
 }
 
 function cleanText(value: unknown, max: number): string | null {
