@@ -33,7 +33,8 @@ export function NearTicker({ className, showAge = false }: { className?: string;
             ${formatPrice(data.priceUsd)}
           </span>
           <Pct value={data.change24hPct} className="text-xs" />
-          {showAge && <Freshness at={data.updatedAt} />}
+          {/* No ticking seconds counter: the price is just there, and marked only when it goes stale. */}
+          {showAge && <Freshness at={data.updatedAt} staleOnly />}
         </>
       ) : isPending ? (
         <Skeleton className="h-4 w-20 self-center" />

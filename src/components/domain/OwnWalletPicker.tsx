@@ -24,7 +24,9 @@ export function OwnWalletPicker({ wallets, value, onPick, exclude }: { wallets: 
         onChange={(e) => {
           if (e.target.value) onPick(e.target.value)
         }}
-        className="keycap max-w-40 cursor-pointer appearance-none truncate py-0 pl-2 pr-5 text-2xs text-fg-3 hover:text-fg focus:text-fg"
+        // A native select (keyboard and screen readers as usual), drawn dark: its own surface and
+        // readable text, and options that don't inherit a dim color onto the dropdown's surface.
+        className="h-7 max-w-48 cursor-pointer appearance-none truncate rounded-sm border border-line-strong bg-well py-0 pl-2 pr-6 text-xs text-fg-2 transition-colors hover:border-fg-4 hover:text-fg focus:border-accent focus:text-fg focus:outline-none focus:ring-2 focus:ring-accent/20 [&>option]:bg-raised [&>option]:text-fg"
       >
         <option value="">My wallets</option>
         {choices.map((w) => (
@@ -33,7 +35,7 @@ export function OwnWalletPicker({ wallets, value, onPick, exclude }: { wallets: 
           </option>
         ))}
       </select>
-      <ChevronDown size={11} aria-hidden="true" className="pointer-events-none absolute right-1.5 text-fg-3" />
+      <ChevronDown size={12} aria-hidden="true" className="pointer-events-none absolute right-2 text-fg-2" />
     </span>
   )
 }
