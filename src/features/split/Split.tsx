@@ -13,6 +13,7 @@ import { InfoTip, Term } from '@/components/ui/Help'
 import { Amount } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { executesViaNearKit } from '@/lib/wallets'
 import { amountsFromPercents, equalPercents, percentState, sumOf } from '@/lib/allocation'
 import { formatUnits, fractionOf, parsePercent, PERCENT_SCALE, splitByWeights, splitEqual, tryParseUnits } from '@/lib/amounts'
 import { cn } from '@/lib/cn'
@@ -21,6 +22,7 @@ import { floorTo, formatAmount, formatNumber, parseAmount, toInputString } from 
 import { accountIdError } from '@/lib/validation'
 import { useBalance, useCapabilities, usePlanners, useRawBalance, useTokens } from '@/services/queries'
 import type { Wallet } from '@/types/domain'
+import { NearKitSendsModal } from '../tools/NearKitSendsModal'
 import { OperationModal } from '../tools/OperationModal'
 import { useSourceWallet } from '../tools/useSource'
 import { ImportRecipients, type ImportedRow } from './ImportRecipients'
@@ -458,7 +460,13 @@ export function Split() {
               <Button size="lg" block variant="primary" disabled={issues.length > 0} onClick={() => setConfirming(true)}>
                 Split tokens
               </Button>
-              <SimulationNote />
+              <SimulationNote
+                real={
+                  source && executesViaNearKit(source)
+                    ? `NearKit’s server sends each line from ${source.label} (no wallet prompt), to its owner wallet or addresses approved for it.`
+                    : undefined
+                }
+              />
             </div>
           </div>
         </Panel>
@@ -466,7 +474,19 @@ export function Split() {
 
       <ImportRecipients open={importOpen} onClose={() => setImportOpen(false)} onImport={applyImport} wallets={wallets} sourceId={sourceId} />
 
-      {confirming && exactAmounts && (
+      {confirming && exactAmounts && source && executesViaNearKit(source) && token && (
+        <NearKitSendsModal
+          title="Review split"
+          confirmLabel="Split tokens"
+          wallet={source}
+          asset={tokenId}
+          symbol={symbol}
+          decimals={token.decimals}
+          lines={rows.map((r, i) => ({ to: accountOf(r), amount: exactAmounts[i] ?? '', label: labelFor(r, wallets) }))}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+      {confirming && exactAmounts && !(source && executesViaNearKit(source)) && (
         <OperationModal
           title="Review split"
           confirmLabel="Split tokens"

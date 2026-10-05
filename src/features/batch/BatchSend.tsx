@@ -15,8 +15,10 @@ import { batchExample, parseBatchList, type BatchRow } from '@/lib/batch'
 import { cn } from '@/lib/cn'
 import { NETWORK_FEE_NEAR_PER_TX, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
 import { formatAmount, formatNumber } from '@/lib/format'
+import { executesViaNearKit } from '@/lib/wallets'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useBalance, useCapabilities, usePlanners, useRawBalance, useTokens } from '@/services/queries'
+import { NearKitSendsModal } from '../tools/NearKitSendsModal'
 import { OperationModal } from '../tools/OperationModal'
 import { useSourceWallet } from '../tools/useSource'
 
@@ -309,13 +311,31 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
               <Button size="lg" block variant="primary" disabled={issue !== null} onClick={() => setConfirming(true)}>
                 Send batch
               </Button>
-              <SimulationNote />
+              <SimulationNote
+                real={
+                  source && executesViaNearKit(source)
+                    ? `NearKit’s server sends each line from ${source.label} (no wallet prompt), to its owner wallet or addresses approved for it.`
+                    : undefined
+                }
+              />
             </div>
           </div>
         </Panel>
       </div>
 
-      {confirming && (
+      {confirming && source && executesViaNearKit(source) && token && (
+        <NearKitSendsModal
+          title="Review batch send"
+          confirmLabel="Send batch"
+          wallet={source}
+          asset={tokenId}
+          symbol={symbol}
+          decimals={token.decimals}
+          lines={parsed.valid.map((r) => ({ to: r.account, amount: r.amountText ?? '' }))}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+      {confirming && !(source && executesViaNearKit(source)) && (
         <OperationModal
           title="Review batch send"
           confirmLabel="Send batch"
