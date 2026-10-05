@@ -408,6 +408,31 @@ await step('NearKit web: /web sends a one-time sign-in link, and the site lists 
   await shot('tg-06-web-wallets')
 })
 
+await step('with only a NearKit web session (no browser wallet), Consolidate, Split and Batch Send open: NearKit wallets are their sources', async () => {
+  const opens = async (path, ready) => {
+    await page.goto(WEB + path, { waitUntil: 'networkidle' })
+    await ready()
+      .waitFor({ timeout: 15000 })
+      .catch(() => undefined)
+    if ((await page.getByText(/to use (Consolidate|Split|Batch Send)$/).count()) > 0) throw new Error(`${path} still asks for a browser wallet`)
+    await ready().waitFor({ timeout: 5000 })
+  }
+  await opens('/consolidate', () => page.getByRole('button', { name: /^Token: / }))
+  await opens('/split', () => page.getByLabel('Source wallet', { exact: true }))
+  if (
+    !(
+      await page
+        .getByLabel('Source wallet', { exact: true })
+        .locator('option')
+        .evaluateAll((os) => os.map((o) => o.value))
+    ).includes(mainAddress)
+  )
+    throw new Error('Split doesn’t offer the NearKit wallet as its source')
+  await opens('/batch-send', () => page.getByLabel('Send from', { exact: true }))
+  if ((await page.getByRole('button', { name: 'Connect wallet' }).count()) === 0) throw new Error('a browser wallet got connected on the way')
+  await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
+})
+
 await step('a used sign-in link signs nobody in', async () => {
   const other = await newPage({ accounts: [USER] })
   await other.goto(webLogin, { waitUntil: 'networkidle' })
