@@ -23,7 +23,7 @@ import { QuickTrade } from '@/features/trade/QuickTrade'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
 import { formatAmount, formatUsd } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
-import { useActivity, useCapabilities, useOrders, usePositions, useSession, useSummary, useTokens, useValueHistory } from '@/services/queries'
+import { useActivity, useCapabilities, useNearKitSession, useOrders, usePositions, useSession, useSummary, useTokens, useValueHistory } from '@/services/queries'
 import { useConnectPrompt, useTradeDrawer } from '@/state/contexts'
 
 const linkKey = 'keycap inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-2xs text-fg-2 transition-colors hover:bg-raised hover:text-fg'
@@ -76,13 +76,15 @@ function QuickActions() {
 
 function Readouts() {
   const { data: session } = useSession()
+  // NearKit wallets count too: signed in on NearKit web, with or without a browser wallet.
+  const nearkitSession = useNearKitSession()
   const caps = useCapabilities()
   const summary = useSummary()
   const history = useValueHistory(7)
   const zeroUsd = caps.prices ? '$0.00' : '—'
   const s = summary.data
   const loading = summary.isPending
-  const off = !session
+  const off = !session && !nearkitSession
   const trace = !off && history.data && history.data.length > 1 ? <Sparkline values={history.data.map((p) => p.valueUsd)} width={84} /> : undefined
   return (
     <ReadoutStrip cols="grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr]">

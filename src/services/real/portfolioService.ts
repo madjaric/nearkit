@@ -1,5 +1,7 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
-import type { Position, TokenListing } from '@/types/domain'
+import { recordValue, valueWindow } from '@/lib/valueHistory'
+import type { Position, Session, TokenListing } from '@/types/domain'
+import type { NearKitWeb, NearKitWebSession } from '../nearkitWeb'
 import type { PortfolioService, WalletService } from '../types'
 import { reconcile } from './activity'
 import type { NearContext } from './context'
@@ -26,7 +28,11 @@ export function createPortfolioService(
   wallets: Pick<WalletService, 'getSession' | 'listWallets' | 'listPortfolioSnapshots'>,
   active: ReadonlySet<string>,
   tracker: PnlTracker,
+  nearkit: Pick<NearKitWeb, 'session'> | null = null,
 ): PortfolioService {
+  /** Who the portfolio is: the NearKit web sign-in and the browser wallet (its history is theirs alone). */
+  const identity = (session: Session | null, web: NearKitWebSession | null) => `${web?.userName ?? ''}|${session?.accountId ?? ''}`
+
   async function positions(): Promise<Position[]> {
     const snapshots = await wallets.listPortfolioSnapshots()
     const held = [...new Set(snapshots.flatMap((s) => s.holdings.map((h) => h.tokenId)))].filter((id) => id !== NATIVE_TOKEN_ID)
@@ -65,7 +71,9 @@ export function createPortfolioService(
   return {
     async getSummary() {
       const session = await wallets.getSession()
-      if (!session) {
+      // Executable wallets: a browser wallet's accounts, NearKit wallets (signed in on NearKit web), or both.
+      const web = nearkit?.session() ?? null
+      if (!session && !web) {
         return {
           valueUsd: ctx.capabilities.prices ? 0 : null,
           pnl24hUsd: null,
@@ -84,14 +92,20 @@ export function createPortfolioService(
       const [snapshots, list, near, all] = await Promise.all([wallets.listPortfolioSnapshots(), positions(), market.nearQuote(), wallets.listWallets()])
       const priced = list.filter((p) => p.valueUsd !== null)
       const availableNear = snapshots.reduce((s, w) => s + w.nearBalance, 0)
+      const valueUsd = ctx.capabilities.prices ? priced.reduce((s, p) => s + (p.valueUsd ?? 0), 0) : null
+      // The dashboard's history: the value as this browser reads it (src/lib/valueHistory.ts).
+      if (valueUsd !== null && snapshots.length > 0) {
+        const id = identity(session, web)
+        ctx.stores.valueHistory.write(id, recordValue(ctx.stores.valueHistory.read(id), ctx.now(), valueUsd))
+      }
       return {
-        valueUsd: ctx.capabilities.prices ? priced.reduce((s, p) => s + (p.valueUsd ?? 0), 0) : null,
+        valueUsd,
         pnl24hUsd: null,
         pnl24hPct: null,
         unrealizedPnlUsd: null,
         availableNear,
         availableNearUsd: near ? availableNear * near.priceUsd : null,
-        mainNear: snapshots.find((w) => w.accountId === session.accountId)?.nearBalance ?? 0,
+        mainNear: session ? (snapshots.find((w) => w.accountId === session.accountId)?.nearBalance ?? 0) : 0,
         activePositions: list.length,
         openOrders: 0,
         walletCount: all.length,
@@ -102,8 +116,12 @@ export function createPortfolioService(
 
     listPositions: positions,
 
-    async getValueHistory() {
-      return []
+    /** What this browser recorded of the portfolio's value over the last `days` days: only what it saw. */
+    async getValueHistory(days) {
+      const session = await wallets.getSession()
+      const web = nearkit?.session() ?? null
+      if (!session && !web) return []
+      return valueWindow(ctx.stores.valueHistory.read(identity(session, web)), ctx.now(), days).map((p) => ({ t: p.t, valueUsd: p.v }))
     },
 
     async getPnl(range) {

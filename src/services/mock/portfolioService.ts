@@ -85,11 +85,13 @@ export function createPortfolioService(state: MockState): PortfolioService {
       if (!state.session) return []
       const current = buildPositions(state).reduce((s, p) => s + p.valueUsd, 0)
       const path = generateValuePath(180)
-      const steps = days * 4 // one point every 6 hours
-      const slice = path.slice(-steps)
+      // One point every 6 hours; the last day at 15-minute steps.
+      const stepMs = days === 1 ? HOUR / 4 : 6 * HOUR
+      const steps = Math.round((days * 24 * HOUR) / stepMs)
+      const slice = path.slice(-Math.min(steps, path.length))
       const last = slice[slice.length - 1] ?? 1
       const now = Date.now()
-      return slice.map((m, i) => ({ t: now - (steps - 1 - i) * 6 * HOUR, valueUsd: (current * m) / last }))
+      return slice.map((m, i) => ({ t: now - (slice.length - 1 - i) * stepMs, valueUsd: (current * m) / last }))
     },
 
     async getPnl(range): Promise<PnlReport> {

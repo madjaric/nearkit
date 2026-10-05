@@ -39,7 +39,7 @@ export function createNearServices(options: NearContextOptions): NearKitServices
     trading: createTradingService(ctx, market, wallets),
     execution: createExecutionService(ctx, active),
     automation: createAutomationService(ctx, wallets),
-    portfolio: createPortfolioService(ctx, market, wallets, active, createPnlTracker(ctx)),
+    portfolio: createPortfolioService(ctx, market, wallets, active, createPnlTracker(ctx), nearkit),
     nearkit,
   }
 }

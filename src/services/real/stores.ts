@@ -1,4 +1,5 @@
 import type { NetworkId } from '@/config/networks'
+import type { ValueSample } from '@/lib/valueHistory'
 import type { ActivityItem, CopyRule, DcaPlan, LimitOrder, SniperConfig, WalletPreset } from '@/types/domain'
 import type { PlannedAction, TxPhase } from '@/types/operations'
 
@@ -114,6 +115,7 @@ const MAX_ACTIVITY = 200
 const isPreset = (v: unknown): v is WalletPreset => obj(v) && typeof v.id === 'string' && typeof v.name === 'string' && Array.isArray(v.walletIds)
 const isContract = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64
 const isDraft = (v: unknown): v is { id: string } => obj(v) && typeof v.id === 'string'
+const isSample = (v: unknown): v is ValueSample => obj(v) && typeof v.t === 'number' && typeof v.v === 'number' && Number.isFinite(v.v)
 
 export function createStores(kv: KeyValue, network: NetworkId) {
   const key = (name: string) => `nearkit:${network}:${name}`
@@ -170,6 +172,23 @@ export function createStores(kv: KeyValue, network: NetworkId) {
       },
       set: (accountId: string): void => kv.set(key('wallet-account'), accountId),
       clear: (): void => kv.remove(key('wallet-account')),
+    },
+    /**
+     * The portfolio value history this browser recorded (src/lib/valueHistory.ts), for one set of
+     * wallets (`identity`: another sign-in starts its own). Public figures only.
+     */
+    valueHistory: {
+      read(identity: string): ValueSample[] {
+        const text = kv.get(key('value-history'))
+        if (!text) return []
+        try {
+          const stored = JSON.parse(text) as { identity?: unknown; points?: unknown }
+          return stored.identity === identity && Array.isArray(stored.points) ? stored.points.filter(isSample) : []
+        } catch {
+          return []
+        }
+      },
+      write: (identity: string, points: readonly ValueSample[]): void => kv.set(key('value-history'), JSON.stringify({ identity, points })),
     },
     /** Per-account PnL ledger cache (public chain data, JSON). */
     ledger: {

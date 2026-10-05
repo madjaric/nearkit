@@ -2,7 +2,7 @@ import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from '
 import { cn } from '@/lib/cn'
 import { formatPct } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
-import { VIEW_W, formatDivision, linePath, xFrac, yScale } from './geometry'
+import { VIEW_W, formatDivision, linePathAt, nearestAt, xFracs, yScale } from './geometry'
 import { niceTicks } from './scale'
 import { CursorHandle, Dot, Graticule, HoverReadout, VLine, XLabels, YLabels } from './ScopeParts'
 import { useCursors } from './useCursors'
@@ -25,6 +25,10 @@ interface ValueTraceProps {
   measure?: boolean
   /** Hold the previous render at reduced opacity while refetching. */
   dim?: boolean
+  /** Place points by their time (a gap in time stays one), not evenly by index. */
+  timeScale?: boolean
+  /** With a time scale: no line is drawn between points further apart than this. */
+  gapMs?: number
 }
 
 const PAD = { top: 24, right: 60, bottom: 22, left: 4 }
@@ -33,11 +37,29 @@ const PAD = { top: 24, right: 60, bottom: 22, left: 4 }
  * Single-series trace on an oscilloscope graticule. Geometry is CSS-driven (see
  * geometry.ts); the crosshair snaps to samples and arrow keys walk it.
  */
-export function ValueTrace({ points, label, height = 200, formatValue, formatTick, formatTime, formatAxis = formatTime, measure = false, dim = false }: ValueTraceProps) {
+export function ValueTrace({
+  points,
+  label,
+  height = 200,
+  formatValue,
+  formatTick,
+  formatTime,
+  formatAxis = formatTime,
+  measure = false,
+  dim = false,
+  timeScale = false,
+  gapMs,
+}: ValueTraceProps) {
   const plotRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<number | null>(null)
   const n = points.length
-  const cursors = useCursors(n, [0, n - 1], plotRef)
+  const fracs = xFracs(
+    points.map((p) => p.t),
+    timeScale,
+  )
+  const breaks = timeScale && gapMs ? points.map((p, i) => i > 0 && p.t - (points[i - 1]?.t ?? p.t) > gapMs) : undefined
+  const broken = breaks?.some(Boolean) ?? false
+  const cursors = useCursors(n, [0, n - 1], plotRef, timeScale ? fracs : undefined)
   const padTop = measure ? PAD.top : 10
   const plotH = height - padTop - PAD.bottom
 
@@ -46,11 +68,19 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
   const lo = ticks[0] ?? 0
   const hi = ticks[ticks.length - 1] ?? 1
   const y = yScale([lo, hi], plotH)
-  const path = linePath(values, y)
+  const path = linePathAt(fracs, values, y, breaks)
   const fillId = useId()
   const first = points[0]
   const last = points[n - 1]
-  const axis = n > 1 ? [0, Math.round((n - 1) / 3), Math.round(((n - 1) * 2) / 3), n - 1] : []
+  const t0 = points[0]?.t ?? 0
+  const span = (points[n - 1]?.t ?? 0) - t0
+  // On a time scale the axis reads evenly spaced times; otherwise the samples at a third of the way each.
+  const axis =
+    n < 2
+      ? []
+      : timeScale && span > 0
+        ? [0, 1 / 3, 2 / 3, 1].map((frac) => ({ frac, text: formatAxis(t0 + frac * span) }))
+        : [0, Math.round((n - 1) / 3), Math.round(((n - 1) * 2) / 3), n - 1].map((i) => ({ frac: fracs[i] ?? 0, text: formatAxis(points[i]?.t ?? 0) }))
   const summary =
     first && last
       ? `${label}: from ${formatValue(first.v)} on ${formatTime(first.t)} to ${formatValue(last.v)} on ${formatTime(last.t)}. Low ${formatValue(Math.min(...values))}, high ${formatValue(Math.max(...values))}.`
@@ -66,7 +96,7 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
     if (measure && cursors.dragTo(e)) return
     const rect = e.currentTarget.getBoundingClientRect()
     const frac = rect.width ? (e.clientX - rect.left) / rect.width : 0
-    setHover(Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))))
+    setHover(timeScale ? nearestAt(fracs, Math.max(0, Math.min(1, frac))) : Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))))
   }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
@@ -126,9 +156,9 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
               <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${VIEW_W} ${plotH}`} preserveAspectRatio="none" aria-hidden="true">
                 {measure && (
                   <rect
-                    x={xFrac(Math.min(cursors.a, cursors.b), n) * VIEW_W}
+                    x={Math.min(fracs[cursors.a] ?? 0, fracs[cursors.b] ?? 0) * VIEW_W}
                     y={0}
-                    width={Math.abs(xFrac(cursors.b, n) - xFrac(cursors.a, n)) * VIEW_W}
+                    width={Math.abs((fracs[cursors.b] ?? 0) - (fracs[cursors.a] ?? 0)) * VIEW_W}
                     height={plotH}
                     className="fill-fg/[0.035]"
                   />
@@ -140,15 +170,15 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
                   </linearGradient>
                 </defs>
                 {/* A faint fill under the trace, fading to the panel: the line stays the measurement. */}
-                <path d={`${path} L ${VIEW_W} ${plotH} L 0 ${plotH} Z`} fill={`url(#${fillId})`} stroke="none" />
+                {!broken && <path d={`${path} L ${VIEW_W} ${plotH} L 0 ${plotH} Z`} fill={`url(#${fillId})`} stroke="none" />}
                 <path d={path} fill="none" className="stroke-accent" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
               </svg>
               {last && <Dot frac={1} y={y(last.v)} />}
               {hp && hover !== null && (
                 <>
-                  <VLine frac={xFrac(hover, n)} className="bg-fg-4" />
-                  <Dot frac={xFrac(hover, n)} y={y(hp.v)} />
-                  <HoverReadout frac={xFrac(hover, n)}>
+                  <VLine frac={fracs[hover] ?? 0} className="bg-fg-4" />
+                  <Dot frac={fracs[hover] ?? 0} y={y(hp.v)} />
+                  <HoverReadout frac={fracs[hover] ?? 0}>
                     <div className="num text-sm text-fg">{formatValue(hp.v)}</div>
                     <div className="text-[11px] text-fg-3">{formatTime(hp.t)}</div>
                   </HoverReadout>
@@ -164,7 +194,7 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
             <>
               <div aria-hidden="true">
                 <YLabels ticks={ticks} y={y} format={formatTick} />
-                <XLabels items={axis.map((i) => ({ frac: xFrac(i, n), text: formatAxis(points[i]?.t ?? 0) }))} />
+                <XLabels items={axis} />
               </div>
               {measure &&
                 (['a', 'b'] as const).map((id) => {
@@ -173,12 +203,12 @@ export function ValueTrace({ points, label, height = 200, formatValue, formatTic
                   if (!p) return null
                   return (
                     <div key={id}>
-                      <VLine frac={xFrac(index, n)} className="bg-fg-2" />
-                      <Dot frac={xFrac(index, n)} y={y(p.v)} tone="fg" />
+                      <VLine frac={fracs[index] ?? 0} className="bg-fg-2" />
+                      <Dot frac={fracs[index] ?? 0} y={y(p.v)} tone="fg" />
                       <div className="pointer-events-auto">
                         <CursorHandle
                           id={id}
-                          frac={xFrac(index, n)}
+                          frac={fracs[index] ?? 0}
                           index={index}
                           max={n - 1}
                           valueText={`${formatTime(p.t)}: ${formatValue(p.v)}`}
