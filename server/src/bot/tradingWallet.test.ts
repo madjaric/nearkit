@@ -117,7 +117,7 @@ describe('NearKit wallet: withdraw', () => {
     }
     await h.say('bob.testnet')
     expect(h.last()?.text).toContain('Approve a new destination')
-    expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkit.vercel.app/recover#approve=${w.accountId}&to=bob.testnet`)
+    expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkits.com/recover#approve=${w.accountId}&to=bob.testnet`)
     // Continue before approving: still not approved, nothing is prepared.
     await h.press('cw:wcont')
     expect(h.last()?.text).toContain('is not approved yet')

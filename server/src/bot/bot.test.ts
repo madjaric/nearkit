@@ -76,7 +76,7 @@ describe('linking', () => {
     await h.say('/link')
     const m = h.last()
     const url = m?.buttons[0]?.url ?? ''
-    expect(url).toMatch(/^https:\/\/nearkit\.vercel\.app\/telegram#link=[A-Za-z0-9_-]{22}$/)
+    expect(url).toMatch(/^https:\/\/nearkits\.com\/telegram#link=[A-Za-z0-9_-]{22}$/)
     const code = url.split('#link=')[1] as string
     expect(m?.text).not.toContain(code)
     expect(m?.text).toContain('expires in 10 minutes')

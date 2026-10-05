@@ -36,7 +36,7 @@ async function addBackup(h: Harness) {
 async function exportLink(h: Harness) {
   await h.press('cr:export')
   const url = h.buttons().find((b) => b.url)?.url ?? ''
-  expect(url).toMatch(/^https:\/\/nearkit\.vercel\.app\/recover#wallet=[0-9a-f]{64}$/)
+  expect(url).toMatch(/^https:\/\/nearkits\.com\/recover#wallet=[0-9a-f]{64}$/)
   return url.split('#wallet=')[1] as string
 }
 
@@ -109,6 +109,20 @@ describe('backup key: yours even without NearKit', () => {
 })
 
 describe('export: in the web app, after the owner wallet signs', () => {
+  it('names the recovery page on the web address NearKit is configured with, never a fixed one', async () => {
+    const { h } = await setup()
+    await h.funded(ONE)
+    await h.press('cr:export')
+    expect(h.last()?.text).toContain('the same page works without Telegram: nearkits.com/recover')
+    const linked = await keypair()
+    const moved = await walletBot({ linkedKey: linked.publicKey, env: { NEARKIT_WEB_URL: 'https://web.example' } })
+    await moved.funded(ONE)
+    await moved.press('cr:export')
+    expect(moved.last()?.text).toContain('the same page works without Telegram: web.example/recover')
+    expect(moved.last()?.text).not.toContain('vercel.app')
+    expect(moved.buttons().find((b) => b.url)?.url).toMatch(/^https:\/\/web\.example\/recover#wallet=[0-9a-f]{64}$/)
+  })
+
   it('seals the key to the owner’s browser, shows it once, and tells Telegram', async () => {
     const { h, linked } = await setup()
     const w = await h.funded(ONE)
@@ -117,7 +131,7 @@ describe('export: in the web app, after the owner wallet signs', () => {
     const api = webApi(h, notices)
     const browser = await createExportKeyPair()
     const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
-    expect(c).toMatchObject({ kind: 'export', ownerAccount: LINKED, accountId: w.accountId, recipient: 'nearkit.vercel.app' })
+    expect(c).toMatchObject({ kind: 'export', ownerAccount: LINKED, accountId: w.accountId, recipient: 'nearkits.com' })
     expect(c.message).toContain(`NearKit wallet: ${w.accountId}`)
     expect(c.message).toContain(`Owner wallet: ${LINKED}`)
     expect(c.message).toMatch(/Browser key: [0-9a-f]{4} [0-9a-f]{4} [0-9a-f]{4} [0-9a-f]{4}/)
@@ -189,7 +203,7 @@ describe('the web page checks what it is asked to sign', () => {
     const api = webApi(h)
     const browser = await createExportKeyPair()
     const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
-    const want = { kind: 'export' as const, network: 'testnet', recipient: 'nearkit.vercel.app', wallet: w.accountId, recipientKey: browser.publicKey }
+    const want = { kind: 'export' as const, network: 'testnet', recipient: 'nearkits.com', wallet: w.accountId, recipientKey: browser.publicKey }
     expect(await challengeProblem(c, want)).toBeNull()
     const theirs = await createExportKeyPair()
     // A server that swapped in its own browser key (to read the export) gets no signature.
@@ -197,13 +211,13 @@ describe('the web page checks what it is asked to sign', () => {
     expect(await challengeProblem(swapped, want)).toMatch(/another browser/)
     const approve = await api.challenge({ kind: 'approve-destination', accountId: w.accountId, destination: 'bob.testnet' })
     expect(
-      await challengeProblem(approve, { kind: 'approve-destination', network: 'testnet', recipient: 'nearkit.vercel.app', wallet: w.accountId, destination: 'bob.testnet' }),
+      await challengeProblem(approve, { kind: 'approve-destination', network: 'testnet', recipient: 'nearkits.com', wallet: w.accountId, destination: 'bob.testnet' }),
     ).toBeNull()
     expect(
-      await challengeProblem(approve, { kind: 'approve-destination', network: 'testnet', recipient: 'nearkit.vercel.app', wallet: w.accountId, destination: 'evil.testnet' }),
+      await challengeProblem(approve, { kind: 'approve-destination', network: 'testnet', recipient: 'nearkits.com', wallet: w.accountId, destination: 'evil.testnet' }),
     ).toMatch(/another destination/)
     const session = await api.challenge({ kind: 'owner-session', owner: LINKED })
-    expect(await challengeProblem(session, { kind: 'owner-session', network: 'testnet', recipient: 'nearkit.vercel.app', owner: LINKED })).toBeNull()
+    expect(await challengeProblem(session, { kind: 'owner-session', network: 'testnet', recipient: 'nearkits.com', owner: LINKED })).toBeNull()
   })
 })
 

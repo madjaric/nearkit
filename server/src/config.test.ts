@@ -9,19 +9,33 @@ import { ensureSignerTls, parseTlsPin } from './signer/tls'
 const TOKEN = '1234567890:AAH-abcdefghijklmnopqrstuvwxyz_0123456'
 
 describe('server config', () => {
-  it('defaults to testnet, the public beta web app and a local API', () => {
+  it('defaults to testnet, NearKit’s public web app (nearkits.com) and a local API', () => {
     const { config, issues } = loadConfig({ TELEGRAM_BOT_TOKEN: TOKEN })
     expect(issues).toEqual([])
     expect(config.network.id).toBe('testnet')
-    expect(config.webUrl).toBe('https://nearkit.vercel.app')
-    expect(config.linkRecipient).toBe('nearkit.vercel.app')
-    expect(config.api).toMatchObject({ host: '127.0.0.1', port: 8787, publicUrl: 'http://localhost:8787', allowedOrigins: ['https://nearkit.vercel.app'] })
+    expect(config.webUrl).toBe('https://nearkits.com')
+    expect(config.linkRecipient).toBe('nearkits.com')
+    expect(config.api).toMatchObject({ host: '127.0.0.1', port: 8787, publicUrl: 'http://localhost:8787', allowedOrigins: ['https://nearkits.com'] })
     expect(config.dbPath).toMatch(/nearkit-testnet\.sqlite$/)
     // Buy alerts follow mainnet by default (read-only), even while trading is the testnet beta.
     expect(config.buybot).toMatchObject({ enabled: true, dataUrl: 'https://tx.main.fastnear.com' })
     expect(config.buybot.network.id).toBe('mainnet')
     expect(config.env.feeRecipient).toBeNull()
     expect(config.telegramApiUrl).toBe('https://api.telegram.org')
+  })
+
+  it('allows every listed web origin: during a domain move, the new domain and the old one', () => {
+    const { config, issues } = loadConfig({
+      NEAR_NETWORK: 'testnet',
+      NEARKIT_WEB_URL: 'https://nearkits.com',
+      NEARKIT_API_ALLOWED_ORIGINS: 'https://nearkits.com, https://www.nearkits.com, https://nearkit.vercel.app',
+    })
+    expect(issues).toEqual([])
+    expect(config.webUrl).toBe('https://nearkits.com')
+    expect(config.linkRecipient).toBe('nearkits.com')
+    expect(config.api.allowedOrigins).toEqual(['https://nearkits.com', 'https://www.nearkits.com', 'https://nearkit.vercel.app'])
+    // Never a wildcard: an origin is an https:// origin or the whole setting is refused.
+    expect(loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_API_ALLOWED_ORIGINS: '*' }).issues.map((i) => i.key)).toEqual(['NEARKIT_API_ALLOWED_ORIGINS'])
   })
 
   it('lets buy alerts follow mainnet while trading stays on the testnet beta', () => {

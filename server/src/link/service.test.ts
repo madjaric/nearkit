@@ -38,7 +38,7 @@ beforeEach(async () => {
       'alice.testnet': { amount: 10n ** 24n, keys: { [aliceKey.publicKey]: 'full', [appKey.publicKey]: 'function-call' } },
     },
   })
-  const { config } = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WEB_URL: 'https://nearkit.vercel.app' })
+  const { config } = loadConfig({ NEAR_NETWORK: 'testnet', NEARKIT_WEB_URL: 'https://nearkits.com' })
   const near = createServerNear(config, chain.fetch, () => now)
   service = createLinkService({ store, config, rpc: near.ctx.rpc, now: () => now })
 })
@@ -52,13 +52,13 @@ async function walletSign(described: { message: string; nonce: string; recipient
 describe('account linking', () => {
   it('issues a one-time code whose page names the Telegram account, and links on a valid full-access signature', async () => {
     const { code, url, expiresAt } = await service.createRequest(alice.userId)
-    expect(url).toBe(`https://nearkit.vercel.app/telegram#link=${code}`)
+    expect(url).toBe(`https://nearkits.com/telegram#link=${code}`)
     expect(expiresAt).toBe(now + LINK_TTL_MS)
     // Only a hash of the code is stored.
     expect(JSON.stringify(store.db.all('SELECT * FROM link_requests'))).not.toContain(code)
 
     const described = await service.describe(code)
-    expect(described).toMatchObject({ telegram: { name: 'Alice', username: 'alice' }, network: 'testnet', recipient: 'nearkit.vercel.app' })
+    expect(described).toMatchObject({ telegram: { name: 'Alice', username: 'alice' }, network: 'testnet', recipient: 'nearkits.com' })
     expect(described.message).toContain('@alice')
     expect(described.message).toContain('testnet')
 

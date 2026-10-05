@@ -13,7 +13,7 @@ import { createServerNear } from '../near'
 import { createApiServer, listen } from './http'
 import { linkRoutes } from './linkRoutes'
 
-const ORIGIN = 'https://nearkit.vercel.app'
+const ORIGIN = 'https://nearkits.com'
 let server: Server
 let base: string
 let store: Store

@@ -216,7 +216,7 @@ async function exportLink(ctx: BotCtx, walletId: string) {
     [
       `🌐 ${bold('Export a NearKit wallet’s key')} · ${walletLine(w)}`,
       '',
-      '1. Open NearKit web with the button below (the same page works without Telegram: nearkit.vercel.app/recover).',
+      `1. Open NearKit web with the button below (the same page works without Telegram: ${ctx.deps.config.webUrl.replace(/^https?:\/\//, '')}/recover).`,
       `2. Connect ${w.ownerAccount ? code(w.ownerAccount) : 'your owner wallet'}, the wallet this one was created with, and sign the message it shows. Signing is free.`,
       '3. The private key is sealed to that browser and shown once, on your screen. Nothing in between can read it.',
       '',

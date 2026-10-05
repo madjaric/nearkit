@@ -168,7 +168,7 @@ describe('several NearKit wallets per Telegram user', () => {
     await h.press(`cw:sel:${wallets[0]?.id}`) // Main is selected; wallet 3's own Export button is used
     await h.press(`cr:export:${third.id}`)
     expect(h.last()?.text).toContain('Wallet 3')
-    expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkit.vercel.app/recover#wallet=${third.accountId}`)
+    expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkits.com/recover#wallet=${third.accountId}`)
     const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
     const secret = await exportAsOwner(
       {

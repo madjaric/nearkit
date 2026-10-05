@@ -64,7 +64,7 @@ describe('/positions and /pnl in Telegram', () => {
     const details = h.last()?.text ?? ''
     expect(details).toMatch(/Cost \$4\.8\d · avg entry/)
     expect(details).toContain('Average cost from your on-chain history')
-    expect(h.buttons().find((b) => b.url)?.url).toBe('https://nearkit.vercel.app/positions')
+    expect(h.buttons().find((b) => b.url)?.url).toBe('https://nearkits.com/positions')
   })
 
   it('reports PnL from the same engine, with gas and no invented sales', async () => {

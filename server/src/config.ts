@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { parseEnv, type AppEnv, type EnvIssue } from '@/config/env'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
+import { DEFAULT_PUBLIC_URL } from '@/config/site'
 import { feeRecipientProblem } from '@/lib/fees'
 import { SWITCHES, type SwitchName } from './ops/switches'
 import { parseTlsPin, type TlsPin } from './signer/tls'
@@ -79,6 +80,9 @@ const SERVER_NAMES: Record<string, string> = {
 
 const blank = (v: string | undefined): v is undefined => v === undefined || v.trim() === ''
 
+/** The web app when NEARKIT_WEB_URL is unset: NearKit's public address, the same one the web app names as canonical. */
+const DEFAULT_WEB_URL = DEFAULT_PUBLIC_URL
+
 function httpUrl(raw: string): URL | null {
   try {
     const u = new URL(raw.trim())
@@ -124,9 +128,9 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   const tgApi = blank(raw.TELEGRAM_API_URL) ? new URL('https://api.telegram.org') : httpUrl(raw.TELEGRAM_API_URL)
   if (!tgApi) issue('TELEGRAM_API_URL', 'Must be an https:// URL (http:// only for localhost)')
 
-  const web = httpUrl(blank(raw.NEARKIT_WEB_URL) ? 'https://nearkit.vercel.app' : raw.NEARKIT_WEB_URL)
+  const web = httpUrl(blank(raw.NEARKIT_WEB_URL) ? DEFAULT_WEB_URL : raw.NEARKIT_WEB_URL)
   if (!web) issue('NEARKIT_WEB_URL', 'Must be an https:// URL (http:// only for localhost)')
-  const webUrl = (web?.origin ?? 'https://nearkit.vercel.app') + (web && web.pathname !== '/' ? web.pathname.replace(/\/$/, '') : '')
+  const webUrl = (web?.origin ?? DEFAULT_WEB_URL) + (web && web.pathname !== '/' ? web.pathname.replace(/\/$/, '') : '')
 
   // NEARKIT_API_PORT wins; hosts such as Railway assign one in PORT.
   const portKey = blank(raw.NEARKIT_API_PORT) ? 'PORT' : 'NEARKIT_API_PORT'
@@ -137,7 +141,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   if (!blank(raw.NEARKIT_API_PUBLIC_URL) && !publicApi) issue('NEARKIT_API_PUBLIC_URL', 'Must be an https:// URL (http:// only for localhost)')
 
   const origins = blank(raw.NEARKIT_API_ALLOWED_ORIGINS)
-    ? [web?.origin ?? 'https://nearkit.vercel.app']
+    ? [web?.origin ?? DEFAULT_WEB_URL]
     : raw.NEARKIT_API_ALLOWED_ORIGINS.split(',')
         .map((s) => s.trim())
         .filter(Boolean)
@@ -256,7 +260,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
       env,
       network,
       webUrl,
-      linkRecipient: web?.hostname ?? 'nearkit.vercel.app',
+      linkRecipient: web?.hostname ?? new URL(DEFAULT_WEB_URL).hostname,
       api: {
         host: blank(raw.NEARKIT_API_HOST) ? '127.0.0.1' : raw.NEARKIT_API_HOST.trim(),
         port: Number.isInteger(port) ? port : 8787,

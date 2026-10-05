@@ -95,7 +95,7 @@ describe('trading from Telegram', () => {
     expect(quote?.text).toContain('NearKit fee none on testnet')
     expect(quote?.text).toMatch(/⏱ Quote for \d+s/)
     const sign = h.buttons().find((b) => b.text.startsWith('✍️'))
-    expect(sign?.url).toMatch(new RegExp(`^https://nearkit\\.vercel\\.app/swap\\?from=near&to=${USDT.replace(/\./g, '\\.')}&amount=1&slippage=1&tg=[A-Za-z0-9_-]{22}$`))
+    expect(sign?.url).toMatch(new RegExp(`^https://nearkits\\.com/swap\\?from=near&to=${USDT.replace(/\./g, '\\.')}&amount=1&slippage=1&tg=[A-Za-z0-9_-]{22}$`))
     const id = new URL(sign?.url ?? 'x:').searchParams.get('tg') as string
     expect(await h.deps.handoffs.get(id)).toMatchObject({ accountId: 'alice.testnet', side: 'buy', tokenIn: 'near', tokenOut: USDT, amountIn: '1', status: 'open' })
   })
