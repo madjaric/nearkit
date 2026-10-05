@@ -1,5 +1,6 @@
 import { accountIdError, isForeignToNetwork } from '@/lib/validation'
 import { NETWORKS, type NetworkConfig, type NetworkId } from './networks'
+import { DEFAULT_PUBLIC_URL, parsePublicUrl } from './site'
 
 /**
  * Build-time configuration. This module is the only reader of `import.meta.env`.
@@ -24,6 +25,8 @@ export interface AppEnv {
   apiUrl: string | null
   /** The NearKit Telegram bot's username, without "@". Null: no bot for this build. */
   telegramBot: string | null
+  /** NearKit's public web address (an origin), named as each page's canonical address. */
+  publicUrl: string
 }
 
 export interface EnvIssue {
@@ -102,7 +105,10 @@ export function parseEnv(raw: RawEnv): { env: AppEnv; issues: EnvIssue[] } {
     else issue('VITE_TELEGRAM_BOT', `${name} is not a Telegram bot username (letters, digits and _, ending in "bot")`)
   }
 
-  return { env: { services, network, rpcUrls, mainnetExecution, feeRecipient, kitContract, apiUrl, telegramBot }, issues }
+  const publicUrl = parsePublicUrl(raw.VITE_PUBLIC_URL)
+  if (publicUrl === null) issue('VITE_PUBLIC_URL', 'Must be an https:// origin without a path (http:// only for localhost)')
+
+  return { env: { services, network, rpcUrls, mainnetExecution, feeRecipient, kitContract, apiUrl, telegramBot, publicUrl: publicUrl ?? DEFAULT_PUBLIC_URL }, issues }
 }
 
 // Each key is read by name. Passing `import.meta.env` whole would compile every
@@ -116,6 +122,7 @@ const parsed = parseEnv({
   VITE_KIT_TOKEN_CONTRACT: import.meta.env.VITE_KIT_TOKEN_CONTRACT,
   VITE_NEARKIT_API_URL: import.meta.env.VITE_NEARKIT_API_URL,
   VITE_TELEGRAM_BOT: import.meta.env.VITE_TELEGRAM_BOT,
+  VITE_PUBLIC_URL: import.meta.env.VITE_PUBLIC_URL,
 })
 
 /** The validated build configuration. */

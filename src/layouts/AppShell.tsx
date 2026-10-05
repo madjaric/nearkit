@@ -1,12 +1,15 @@
 import { ArrowLeftRight, Coins, Layers, LayoutGrid, Menu as MenuIcon, X } from 'lucide-react'
 import { useState } from 'react'
-import { NavLink, Outlet, ScrollRestoration } from 'react-router'
+import { NavLink, Outlet, ScrollRestoration, useLocation } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { IconButton } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Dialog'
 import { Led } from '@/components/ui/Indicators'
+import { ENV } from '@/config/env'
 import { isComingSoon } from '@/config/release'
+import { canonicalUrl } from '@/config/site'
 import { cn } from '@/lib/cn'
+import { useCanonicalLink } from '@/lib/hooks'
 import { NavBody, Sidebar } from './SideNav'
 import { StatusStrip, TopBar } from './TopBar'
 
@@ -62,6 +65,9 @@ function TabBar({ onOpenNav }: { onOpenNav: () => void }) {
 
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false)
+  const { pathname } = useLocation()
+  // Every page names its address on NearKit's public domain, whichever host served it.
+  useCanonicalLink(canonicalUrl(ENV.publicUrl, pathname))
   return (
     <div className="flex min-h-dvh">
       <a href="#main" className="sr-only z-[100] rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink focus:not-sr-only focus:fixed focus:left-3 focus:top-3">

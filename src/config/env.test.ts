@@ -6,7 +6,24 @@ describe('parseEnv', () => {
   it('defaults to the real services on testnet with mainnet execution off', () => {
     const { env, issues } = parseEnv({})
     expect(issues).toEqual([])
-    expect(env).toEqual({ services: 'near', network: 'testnet', rpcUrls: null, mainnetExecution: false, feeRecipient: null, kitContract: null, apiUrl: null, telegramBot: null })
+    expect(env).toEqual({
+      services: 'near',
+      network: 'testnet',
+      rpcUrls: null,
+      mainnetExecution: false,
+      feeRecipient: null,
+      kitContract: null,
+      apiUrl: null,
+      telegramBot: null,
+      publicUrl: 'https://nearkits.com',
+    })
+  })
+
+  it('names nearkits.com as the public address unless VITE_PUBLIC_URL names another https origin', () => {
+    expect(parseEnv({ VITE_PUBLIC_URL: 'https://staging.example/' }).env.publicUrl).toBe('https://staging.example')
+    const bad = parseEnv({ VITE_PUBLIC_URL: 'https://nearkits.com/app' })
+    expect(bad.env.publicUrl).toBe('https://nearkits.com')
+    expect(bad.issues.map((i) => i.key)).toEqual(['VITE_PUBLIC_URL'])
   })
 
   it('enables mainnet execution only for the exact string "true"', () => {

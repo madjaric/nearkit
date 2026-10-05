@@ -6,9 +6,9 @@ The trading toolkit for NEAR. Phase 2 runs on the real NEAR network: wallet conn
 
 Mainnet execution is **off by default**. Prove the testnet checklist below before turning it on.
 
-## Public testnet beta
+## Public site
 
-**https://nearkit.vercel.app** is the public testnet beta. Vercel deploys it from `main`, and pull requests get preview deployments.
+**https://nearkits.com** is NearKit's public site (www.nearkits.com redirects to it). Vercel deploys it from `main`; https://nearkit.vercel.app serves the same deployment as a fallback address, and pull requests get preview deployments. The table below is the original testnet beta configuration; production runs on mainnet.
 
 | Vercel variable (Production and Preview) | Value |
 |---|---|

@@ -321,6 +321,47 @@ await step('PnL is live on the beta and honest: NEAR figures from on-chain histo
   await shot('beta-pnl')
 })
 
+await step(
+  'the public address is nearkits.com: every page names it (canonical, og:url), robots.txt, sitemap.xml and the JSON-LD point there, and vercel.app appears nowhere',
+  async () => {
+    const html = await (await fetch(BASE + '/token/kit')).text()
+    // The served HTML names no canonical of its own (each page sets one as it renders): never two that disagree.
+    if (/rel="canonical"/.test(html)) throw new Error('the served HTML names a canonical')
+    if (html.includes('vercel.app')) throw new Error('the served HTML names vercel.app')
+    const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)?.[1] ?? '{}')
+    if (ld.url !== 'https://nearkits.com/' || ld.name !== 'NearKit') throw new Error(`JSON-LD: ${JSON.stringify(ld)}`)
+    const robots = await fetch(BASE + '/robots.txt')
+    const robotsText = await robots.text()
+    if (!robots.ok || !robotsText.includes('Sitemap: https://nearkits.com/sitemap.xml')) throw new Error(`robots.txt: ${robots.status} ${robotsText.slice(0, 200)}`)
+    const sitemap = await fetch(BASE + '/sitemap.xml')
+    const xml = await sitemap.text()
+    if (!sitemap.ok || !xml.includes('<loc>https://nearkits.com/</loc>') || !xml.includes('<loc>https://nearkits.com/docs</loc>') || xml.includes('vercel.app'))
+      throw new Error(`sitemap.xml: ${sitemap.status} ${xml.slice(0, 300)}`)
+    const named = () =>
+      page.evaluate(() => `${document.querySelector('link[rel="canonical"]')?.getAttribute('href')} ${document.querySelector('meta[property="og:url"]')?.getAttribute('content')}`)
+    // The page names its address once it has rendered (an effect after the URL changes): wait for it, briefly.
+    const expectNamed = async (url) => {
+      const want = `${url} ${url}`
+      await page
+        .waitForFunction(
+          (w) => `${document.querySelector('link[rel="canonical"]')?.getAttribute('href')} ${document.querySelector('meta[property="og:url"]')?.getAttribute('content')}` === w,
+          want,
+          { timeout: 5000 },
+        )
+        .catch(async () => {
+          throw new Error(`${new URL(page.url()).pathname} names ${await named()}, not ${url}`)
+        })
+    }
+    // Served from localhost here, as from nearkit.vercel.app: the page still names nearkits.com, without the query.
+    await page.goto(BASE + '/swap?from=near&to=kit', { waitUntil: 'networkidle' })
+    await expectNamed('https://nearkits.com/swap')
+    // And follows in-app navigation.
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Split', exact: true }).click()
+    await page.waitForURL(/\/split$/)
+    await expectNamed('https://nearkits.com/split')
+  },
+)
+
 if (near.state.external.length) {
   results.push(`  note external requests aborted: ${[...new Set(near.state.external.map((u) => new URL(u).host))].join(', ')}`)
 }

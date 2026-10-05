@@ -26,6 +26,26 @@ export function usePageTitle(title: string): void {
   }, [title])
 }
 
+/** Names `url` as the page's own address for search engines and link previews (<link rel="canonical"> and og:url). */
+export function useCanonicalLink(url: string): void {
+  useEffect(() => {
+    let link = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+    if (!link) {
+      link = document.createElement('link')
+      link.rel = 'canonical'
+      document.head.append(link)
+    }
+    link.href = url
+    let og = document.head.querySelector<HTMLMetaElement>('meta[property="og:url"]')
+    if (!og) {
+      og = document.createElement('meta')
+      og.setAttribute('property', 'og:url')
+      document.head.append(og)
+    }
+    og.content = url
+  }, [url])
+}
+
 export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (notify) => {
