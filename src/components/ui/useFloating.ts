@@ -82,6 +82,8 @@ export function useDismiss(open: boolean, onClose: () => void, refs: RefObject<H
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Only this overlay closes: not the dialog it sits in (Escape's default is the dialog's close request).
+        event.preventDefault()
         event.stopPropagation()
         onClose()
       }

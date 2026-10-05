@@ -1,12 +1,25 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
 import { useDismiss, useFloatingPosition, type Placement } from './useFloating'
 
 export type { Placement } from './useFloating'
 
-export function Portal({ children }: { children: ReactNode }) {
-  return createPortal(children, document.body)
+export function Portal({ children, container }: { children: ReactNode; container?: HTMLElement | null }) {
+  return createPortal(children, container ?? document.body)
+}
+
+/**
+ * Where an open overlay mounts: inside the open <dialog> its anchor sits in, else the body. A modal
+ * dialog is in the browser's top layer and makes everything outside it inert, so an overlay on the
+ * body would sit behind the dialog, out of reach (the token list in the trade drawer). Null while closed.
+ */
+function useOverlayContainer(anchorRef: RefObject<HTMLElement | null>, open: boolean): HTMLElement | null {
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    setContainer(open ? (anchorRef.current?.closest('dialog') ?? document.body) : null)
+  }, [anchorRef, open])
+  return container
 }
 
 // ─── tooltip ────────────────────────────────────────────────────────────────
@@ -27,7 +40,8 @@ export function Tip({ content, children, placement = 'top', className, focusable
   const tipRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const timer = useRef<number | undefined>(undefined)
-  const pos = useFloatingPosition(anchorRef, tipRef, open, placement)
+  const container = useOverlayContainer(anchorRef, open)
+  const pos = useFloatingPosition(anchorRef, tipRef, open && container !== null, placement)
 
   const show = () => {
     window.clearTimeout(timer.current)
@@ -59,8 +73,8 @@ export function Tip({ content, children, placement = 'top', className, focusable
       >
         {children}
       </span>
-      {open && (
-        <Portal>
+      {open && container && (
+        <Portal container={container}>
           <div
             ref={tipRef}
             id={id}
@@ -93,11 +107,12 @@ interface PopoverProps {
 
 export function Popover({ anchorRef, open, onClose, children, placement = 'bottom-start', className, matchWidth = false, role = 'dialog', label }: PopoverProps) {
   const floatingRef = useRef<HTMLDivElement>(null)
-  const pos = useFloatingPosition(anchorRef, floatingRef, open, placement)
+  const container = useOverlayContainer(anchorRef, open)
+  const pos = useFloatingPosition(anchorRef, floatingRef, open && container !== null, placement)
   useDismiss(open, onClose, [anchorRef, floatingRef])
-  if (!open) return null
+  if (!open || !container) return null
   return (
-    <Portal>
+    <Portal container={container}>
       <div
         ref={floatingRef}
         role={role}
