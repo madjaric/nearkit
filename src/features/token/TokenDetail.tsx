@@ -1,6 +1,7 @@
 import { ExternalLink } from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link } from 'react-router'
+import { CandleChart } from '@/components/chart/CandleChart'
 import { ValueTrace } from '@/components/chart/ValueTrace'
 import { AccountText } from '@/components/domain/Account'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
@@ -180,6 +181,11 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
 
   const native = token.id === NATIVE_TOKEN_ID
   const view = history.isError ? chartView(range, now, null, live) : history.data === undefined ? null : chartView(range, now, history.data, live)
+  // The history source's own candles in this window (none made up): drawn as candles; without them, the line of observed prices.
+  const windowStart = now - CHART_RANGES[range].windowMs
+  const h = view?.source === 'history' ? history.data : undefined
+  const candles = h ? h.candles.filter((c) => c.t + h.candleSec * 1000 > windowStart && c.t <= now) : []
+  const volumeText = (v: number) => (h?.volumeUnit === 'USD' ? formatUsdCompact(v, 1) : h?.volumeUnit === 'NEAR' ? `${formatCompact(v)} NEAR` : formatCompact(v))
   const byId = new Map(wallets.map((w) => [w.id, w]))
   const held = holdings.filter((h) => h.tokenId === token.id && h.amount > 0)
   const rows = held.flatMap((h) => {
@@ -208,7 +214,9 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           : view.partial && first
             ? ` This window has data from ${formatDateTime(first.t)}.`
             : ''
-      return `${h.source.market}: ${candleLabel(h.candleSec)} candle closes from ${h.source.name}, then the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
+      return candles.length > 0
+        ? `${h.source.market}: ${candleLabel(h.candleSec)} candles (open, high, low, close${h.volumeUnit ? `, volume in ${h.volumeUnit}` : ''}) from ${h.source.name}; the dashed line is the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
+        : `${h.source.market}: ${candleLabel(h.candleSec)} candle closes from ${h.source.name}, then the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
     }
     return `No market-history source covers ${token.symbol}${native ? '' : ' (no indexed pair)'}: the line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}. Nothing before that is drawn.`
   }
@@ -375,7 +383,22 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         <PanelHeader title="Price" actions={<Segmented label="Chart window" size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: r }))} />} />
         <div className="flex flex-col gap-2 p-4">
           {!view ? (
-            <Skeleton className="h-[220px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
+          ) : candles.length > 0 && h ? (
+            <CandleChart
+              key={range}
+              candles={candles}
+              start={windowStart}
+              end={now}
+              candleSec={h.candleSec}
+              live={priceValue}
+              label={`${token.symbol} price, last ${range}`}
+              formatPrice={formatUsdPrice}
+              formatTime={formatDateTime}
+              formatAxis={axisTime(range)}
+              formatVolume={volumeText}
+              height={300}
+            />
           ) : view.points.length >= 2 ? (
             <ValueTrace
               key={range}

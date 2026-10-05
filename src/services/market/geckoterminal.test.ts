@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import ohlcv from './fixtures/geckoterminal-ohlcv-singularty-hour.json'
 import nearly from './fixtures/geckoterminal-token-nearly.json'
 import singularty from './fixtures/geckoterminal-token-singularty.json'
-import { fetchGtOhlcv, fetchGtToken, MarketSourceError, parseGtOhlcv, parseGtToken } from './geckoterminal'
+import { fetchGtOhlcv, fetchGtToken, MarketSourceError, parseGtCandles, parseGtOhlcv, parseGtToken } from './geckoterminal'
 
 /**
  * GeckoTerminal (CoinGecko's DEX data) on NEAR, as its API answered on 2026-10-01: a token's
@@ -46,6 +46,32 @@ describe('GeckoTerminal candles', () => {
     expect(points[0]).toEqual({ t: 1790823600000, usd: 0.000150144690049075 })
     expect(points[5]).toEqual({ t: 1790841600000, usd: 0.000216899365383411 })
     expect(points.map((p) => p.t)).toEqual([...points.map((p) => p.t)].sort((a, b) => a - b))
+  })
+
+  it('the full candles: open, high, low, close and volume (USD), oldest first; a candle that doesn’t add up is dropped, never repaired', () => {
+    const candles = parseGtCandles(ohlcv)
+    expect(candles).toHaveLength(6)
+    expect(candles[5]).toEqual({ t: 1790841600000, o: 0.000194589081779094, h: 0.000216899365383411, l: 0.000191840629796267, c: 0.000216899365383411, v: 3292.388374021218 })
+    const broken = {
+      data: {
+        attributes: {
+          ohlcv_list: [
+            [1790841600, 1, 2, 0.5, 1.5, 10],
+            // High below the open: doesn't add up.
+            [1790838000, 1, 0.9, 0.5, 0.8, 1],
+            [1790834400, 1, 2, 0.5, 0, 1],
+            // A volume that isn't one: unknown, the prices stand.
+            [1790830800, 1, 2, 0.5, 1.5, -1],
+            ['x', 1, 2, 0.5, 1.5, 1],
+            'nope',
+          ],
+        },
+      },
+    }
+    expect(parseGtCandles(broken)).toEqual([
+      { t: 1790830800000, o: 1, h: 2, l: 0.5, c: 1.5, v: null },
+      { t: 1790841600000, o: 1, h: 2, l: 0.5, c: 1.5, v: 10 },
+    ])
   })
 
   it('drops a malformed candle instead of repairing it', () => {

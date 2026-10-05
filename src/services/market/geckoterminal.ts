@@ -1,4 +1,5 @@
-import type { PricePoint } from '@/types/domain'
+import type { Candle, PricePoint } from '@/types/domain'
+import { candleOf } from './candle'
 import { getMarketJson, isRecord, MarketSourceError, numberOrNull as num } from './http'
 
 /**
@@ -60,6 +61,20 @@ export function parseGtOhlcv(json: unknown): PricePoint[] {
   return out.sort((a, b) => a.t - b.t)
 }
 
+/** The full candles, oldest first: [timestamp, open, high, low, close, volume (USD)] per row; one that doesn't add up is dropped. */
+export function parseGtCandles(json: unknown): Candle[] {
+  const data = isRecord(json) && isRecord(json.data) ? json.data : null
+  const a = data && isRecord(data.attributes) ? data.attributes : null
+  const list = a && Array.isArray(a.ohlcv_list) ? a.ohlcv_list : []
+  const out: Candle[] = []
+  for (const row of list) {
+    if (!Array.isArray(row)) continue
+    const candle = candleOf(row[0], row[1], row[2], row[3], row[4], row[5])
+    if (candle) out.push(candle)
+  }
+  return out.sort((x, y) => x.t - y.t)
+}
+
 /**
  * A request GeckoTerminal never answered. In a browser its rate-limit answers (429) carry no
  * CORS headers, so they arrive as a failed fetch with no status: the likeliest cause is named.
@@ -78,6 +93,18 @@ export async function fetchGtToken(fetchImpl: typeof fetch, baseUrl: string, tok
 
 /** A pool's candles: `GET {base}/pools/{pool}/ohlcv/{timeframe}?aggregate=&limit=&currency=usd`. */
 export async function fetchGtOhlcv(fetchImpl: typeof fetch, baseUrl: string, pool: string, candles: GtCandles, currency: 'usd' | 'token' = 'usd'): Promise<PricePoint[]> {
+  return (await fetchGtHistory(fetchImpl, baseUrl, pool, candles, currency)).points
+}
+
+/** The same request, read both ways: the closes and the full candles. */
+export async function fetchGtHistory(
+  fetchImpl: typeof fetch,
+  baseUrl: string,
+  pool: string,
+  candles: GtCandles,
+  currency: 'usd' | 'token' = 'usd',
+): Promise<{ points: PricePoint[]; candles: Candle[] }> {
   const url = `${baseUrl}/pools/${pool}/ohlcv/${candles.timeframe}?aggregate=${candles.aggregate}&limit=${candles.limit}&currency=${currency}`
-  return parseGtOhlcv(await getMarketJson(fetchImpl, url).catch(unanswered))
+  const json = await getMarketJson(fetchImpl, url).catch(unanswered)
+  return { points: parseGtOhlcv(json), candles: parseGtCandles(json) }
 }

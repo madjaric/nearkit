@@ -1,4 +1,5 @@
-import type { ChartRange } from '@/types/domain'
+import { candleOf } from '@/services/market/candle'
+import type { Candle, ChartRange } from '@/types/domain'
 
 /**
  * NEAR/USD at a past moment: hourly closes from Coinbase Exchange's public candles
@@ -37,6 +38,19 @@ export async function fetchNearUsdCloses(
   range: { windowMs: number; granularity: number },
   now: number,
 ): Promise<{ t: number; usd: number }[]> {
+  return (await fetchNearUsdHistory(fetchImpl, productUrl, range, now)).points
+}
+
+/**
+ * The same request read both ways: the closes, and the full candles (Coinbase's rows are [time, low,
+ * high, open, close, volume], volume in NEAR); a candle that doesn't add up is left out, never repaired.
+ */
+export async function fetchNearUsdHistory(
+  fetchImpl: typeof fetch,
+  productUrl: string,
+  range: { windowMs: number; granularity: number },
+  now: number,
+): Promise<{ points: { t: number; usd: number }[]; candles: Candle[] }> {
   const start = now - range.windowMs
   const url = `${productUrl}/candles?granularity=${range.granularity}&start=${new Date(start).toISOString()}&end=${new Date(now).toISOString()}`
   const res = await fetchImpl(url, { headers: { accept: 'application/json' } })
@@ -44,14 +58,17 @@ export async function fetchNearUsdCloses(
   const rows = (await res.json()) as unknown
   if (!Array.isArray(rows)) throw new Error('Coinbase returned something that isn’t a candle list')
   const out: { t: number; usd: number }[] = []
+  const candles: Candle[] = []
   for (const row of rows) {
     if (!Array.isArray(row) || typeof row[0] !== 'number' || typeof row[4] !== 'number' || !(row[4] > 0)) continue
     const t = row[0] * 1000
     // A candle opening before the window (Coinbase rounds the start down) or after now is not in it.
     if (t < start - range.granularity * 1000 || t > now) continue
     out.push({ t, usd: row[4] })
+    const candle = candleOf(row[0], row[3], row[2], row[1], row[4], row[5])
+    if (candle) candles.push(candle)
   }
-  return out.sort((a, b) => a.t - b.t)
+  return { points: out.sort((a, b) => a.t - b.t), candles: candles.sort((a, b) => a.t - b.t) }
 }
 
 export const hourOf = (ms: number) => Math.floor(ms / HOUR_MS) * HOUR_MS

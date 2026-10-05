@@ -8,6 +8,7 @@ import cgNear from '@/services/market/fixtures/coingecko-markets-near.json'
 import dexSingularty from '@/services/market/fixtures/dexscreener-token-pairs-singularty.json'
 import dexNearlyNstai from '@/services/market/fixtures/dexscreener-tokens-nearly-nstai.json'
 import gtOhlcv from '@/services/market/fixtures/geckoterminal-ohlcv-singularty-hour.json'
+import { parseGtCandles } from '@/services/market/geckoterminal'
 import gtNearly from '@/services/market/fixtures/geckoterminal-token-nearly.json'
 import gtSingularty from '@/services/market/fixtures/geckoterminal-token-singularty.json'
 import { createNearServices } from './index'
@@ -175,6 +176,13 @@ describe('price history for the chart', () => {
         { t: (start + 60) * 1000, usd: 4.95 },
         { t: (start + 120) * 1000, usd: 5.05 },
       ],
+      // The same rows as candles: Coinbase sends [time, low, high, open, close, volume], volume in NEAR.
+      candles: [
+        { t: start * 1000, o: 4.8, h: 4.9, l: 4.7, c: 4.85, v: 1 },
+        { t: (start + 60) * 1000, o: 4.9, h: 5.0, l: 4.8, c: 4.95, v: 1 },
+        { t: (start + 120) * 1000, o: 5.0, h: 5.1, l: 4.9, c: 5.05, v: 1 },
+      ],
+      volumeUnit: 'NEAR',
       source: { name: 'Coinbase', market: 'NEAR/USD' },
       candleSec: 60,
       since: null,
@@ -198,7 +206,10 @@ describe('price history for the chart', () => {
         [T0 / 1000 - 60, 1, 2, 1, 4.9, 1],
       ],
     })
-    expect((await services.tokens.getPriceHistory('near', '1H'))?.points).toEqual([{ t: T0 - 60_000, usd: 4.9 }])
+    const h = await services.tokens.getPriceHistory('near', '1H')
+    expect(h?.points).toEqual([{ t: T0 - 60_000, usd: 4.9 }])
+    // As a candle that one doesn't add up either (its close is above its high): no candle at all.
+    expect(h?.candles).toEqual([])
   })
 
   it('a DEX token: the candle closes of its main pair from GeckoTerminal, oldest first, named by its market, since the pair began', async () => {
@@ -213,10 +224,13 @@ describe('price history for the chart', () => {
         { t: 1790838000000, usd: 0.000194589081779094 },
         { t: 1790841600000, usd: 0.000216899365383411 },
       ],
+      candles: parseGtCandles(gtOhlcv),
+      volumeUnit: 'USD',
       source: { name: 'GeckoTerminal', market: 'SINGULARTY/wNEAR on Rhea' },
       candleSec: 900,
       since: 1790616798000,
     })
+    expect(h?.candles).toHaveLength(6)
     // The day in fifteen-minute candles, of the deepest pair DEX Screener lists.
     expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/minute?aggregate=15&limit=96&currency=usd`])
   })

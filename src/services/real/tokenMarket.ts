@@ -2,8 +2,8 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { fetchCoinMarkets } from '@/services/market/coingecko'
 import { fetchDexPairs, mainPair, type DexPair } from '@/services/market/dexscreener'
-import { fetchGtOhlcv, fetchGtToken, type GtToken } from '@/services/market/geckoterminal'
-import { CHART_RANGES, fetchNearUsdCloses } from '@/services/near/candles'
+import { fetchGtHistory, fetchGtToken, type GtToken } from '@/services/market/geckoterminal'
+import { CHART_RANGES, fetchNearUsdHistory } from '@/services/near/candles'
 import type { ChartRange, MarketFigure, PriceHistory, TokenMarket, TokenMarketPair } from '@/types/domain'
 import type { NearContext } from './context'
 import type { Market } from './market'
@@ -269,17 +269,19 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
       const r = CHART_RANGES[range]
       if (tokenId === NATIVE_TOKEN_ID) {
         if (!ctx.network.nearUsd) return null
-        const points = await fetchNearUsdCloses(ctx.fetch, ctx.network.nearUsd.coinbase, { windowMs: r.windowMs, granularity: r.coinbase }, ctx.now())
-        return { points, source: { name: COINBASE, market: 'NEAR/USD' }, candleSec: r.coinbase, since: null }
+        const { points, candles } = await fetchNearUsdHistory(ctx.fetch, ctx.network.nearUsd.coinbase, { windowMs: r.windowMs, granularity: r.coinbase }, ctx.now())
+        return { points, candles, volumeUnit: 'NEAR', source: { name: COINBASE, market: 'NEAR/USD' }, candleSec: r.coinbase, since: null }
       }
       const m = await api.get(tokenId)
       if (!m.pair) return null
       const unit = r.gecko.timeframe === 'minute' ? 60 : r.gecko.timeframe === 'hour' ? 3600 : 86400
       const now = ctx.now()
-      const all = await fetchGtOhlcv(ctx.fetch, config.geckoterminal, m.pair.id, r.gecko)
-      const points = all.filter((p) => p.t >= now - r.windowMs - unit * r.gecko.aggregate * 1000 && p.t <= now)
+      const all = await fetchGtHistory(ctx.fetch, config.geckoterminal, m.pair.id, r.gecko)
+      const inWindow = (t: number) => t >= now - r.windowMs - unit * r.gecko.aggregate * 1000 && t <= now
       return {
-        points,
+        points: all.points.filter((p) => inWindow(p.t)),
+        candles: all.candles.filter((c) => inWindow(c.t)),
+        volumeUnit: 'USD',
         source: { name: GECKO, market: `${m.pair.baseSymbol}/${m.pair.quoteSymbol} on ${m.pair.dex}` },
         candleSec: unit * r.gecko.aggregate,
         since: m.pair.createdAt,
