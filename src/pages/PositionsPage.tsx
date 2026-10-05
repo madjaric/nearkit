@@ -10,29 +10,11 @@ import { toneOf } from '@/lib/tone'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { PositionsTable } from '@/features/portfolio/PositionsTable'
+import { forWallet } from '@/features/portfolio/walletScope'
 import { formatUsd } from '@/lib/format'
 import { useCapabilities, usePositions, useWallets } from '@/services/queries'
 import { useSettings } from '@/state/contexts'
 import type { Position } from '@/types/domain'
-
-/**
- * Re-cut positions to one wallet's share, valued at the same prices. Real PnL is
- * computed per account from its own history, so a position held by several
- * accounts has no single entry to re-cut: its PnL figures become unknown here.
- */
-function forWallet(positions: Position[], walletId: string): Position[] {
-  return positions.flatMap((p) => {
-    const share = p.wallets.find((w) => w.walletId === walletId)
-    if (!share) return []
-    if (p.pnl !== undefined && p.wallets.length === 1) return [p]
-    const valueUsd = p.priceUsd === null ? null : share.amount * p.priceUsd
-    if (p.pnl !== undefined) return [{ ...p, balance: share.amount, valueUsd, avgEntryUsd: null, costUsd: null, pnlUsd: null, pnlPct: null, pnl: undefined, wallets: [share] }]
-    const costUsd = p.avgEntryUsd === null ? null : share.amount * p.avgEntryUsd
-    const pnlUsd = valueUsd !== null && costUsd !== null ? valueUsd - costUsd : null
-    const pnlPct = pnlUsd !== null && costUsd ? (pnlUsd / costUsd) * 100 : null
-    return [{ ...p, balance: share.amount, valueUsd, costUsd, pnlUsd, pnlPct, wallets: [share] }]
-  })
-}
 
 /** Sum of the known figures; null when none is known. */
 const knownSum = (values: (number | null)[]) => {

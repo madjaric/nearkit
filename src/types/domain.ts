@@ -50,9 +50,24 @@ export interface PricePoint {
   usd: number
 }
 
+/** One period of a market: open, high, low and close (USD), and its volume (in the history's `volumeUnit`; null when unknown). */
+export interface Candle {
+  /** The period's start. */
+  t: Timestamp
+  o: number
+  h: number
+  l: number
+  c: number
+  v: number | null
+}
+
 /** Real market prices over a window: a history source's candle closes, oldest first. */
 export interface PriceHistory {
   points: PricePoint[]
+  /** The same source's full candles, oldest first: only periods that had trades; a malformed one is left out. */
+  candles: Candle[]
+  /** What `Candle.v` counts: USD (GeckoTerminal) or NEAR (Coinbase's NEAR/USD); null when no volume is known. */
+  volumeUnit: 'USD' | 'NEAR' | null
   /** Where the candles come from, and which market they are of (e.g. "SINGULARTY/wNEAR on Rhea"). */
   source: { name: string; market: string }
   /** The candle size, in seconds. A window shows only the candles that had trades. */
@@ -231,6 +246,20 @@ export interface PortfolioSummary {
 export interface PositionWalletShare {
   walletId: WalletId
   amount: number
+  /**
+   * Real mode: this wallet's own figures, from its account's history alone, by the same engine as
+   * the position's (which sums every holding wallet). Undefined where PnL isn't tracked.
+   */
+  figures?: PositionFigures
+}
+
+/** A position's cost and PnL figures (see Position), with the PnL they come from. */
+export interface PositionFigures {
+  avgEntryUsd: number | null
+  costUsd: number | null
+  pnlUsd: number | null
+  pnlPct: number | null
+  pnl: PositionPnl
 }
 
 export interface Position {

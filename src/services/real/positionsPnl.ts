@@ -1,5 +1,5 @@
 import { computePnl, type LedgerEvent, type PnlResult } from '@/lib/pnl'
-import type { PnlFiguresView, Position, PositionEvent, PositionPnl, TokenListing, WalletSnapshot } from '@/types/domain'
+import type { PnlFiguresView, Position, PositionEvent, PositionFigures, PositionPnl, TokenListing, WalletSnapshot } from '@/types/domain'
 import type { TokenInput } from './pnlReport'
 import { combinePnl, type AccountLedger, type PnlTracker } from './pnlTracker'
 
@@ -84,6 +84,14 @@ export function tokenPnl(token: TokenListing, ledgers: AccountLedger[], balances
   }
 }
 
+/** A position's figures from a PnL result: the cost and unrealized PnL of the units whose cost is known. */
+function figuresOf({ combined, view }: ReturnType<typeof tokenPnl>): PositionFigures {
+  const knownUnits = combined.quantity - combined.unknownCostQuantity
+  const costUsd = knownUnits > 0n && combined.usd.invested > 0 ? combined.usd.costBasis : null
+  const pnlUsd = costUsd === null ? null : combined.usd.unrealized
+  return { avgEntryUsd: costUsd === null ? null : combined.usd.avgEntry, costUsd, pnlUsd, pnlPct: pnlUsd === null || !costUsd ? null : (pnlUsd / costUsd) * 100, pnl: view }
+}
+
 /** What the accounts' history covers: capped histories leave older trades and gas out. */
 export function historyOf(ledgers: readonly AccountLedger[]) {
   return { complete: ledgers.every((l) => l.complete), txs: ledgers.reduce((s, l) => s + l.txCount, 0) }
@@ -141,18 +149,19 @@ export async function withPnl(positions: Position[], snapshots: WalletSnapshot[]
       const raw = snap?.holdings.find((h) => h.tokenId === p.token.id)?.raw
       if (snap && raw) balances.set(snap.accountId, BigInt(raw))
     }
-    const { combined, view } = tokenPnl(p.token as TokenListing, ledgers as AccountLedger[], balances)
-    const knownUnits = combined.quantity - combined.unknownCostQuantity
-    const costUsd = knownUnits > 0n && combined.usd.invested > 0 ? combined.usd.costBasis : null
-    const pnlUsd = costUsd === null ? null : combined.usd.unrealized
-    return {
-      ...p,
-      avgEntryUsd: costUsd === null ? null : combined.usd.avgEntry,
-      costUsd,
-      pnlUsd,
-      pnlPct: pnlUsd === null || !costUsd ? null : (pnlUsd / costUsd) * 100,
-      pnl: view,
-      pnlStatus: 'ready',
-    }
+    const all = ledgers as AccountLedger[]
+    // Each holding wallet's own figures: the same engine on its account's history and balance alone.
+    const wallets = p.wallets.map((w) => {
+      const snap = byWallet.get(w.walletId)
+      if (!snap) return w
+      const raw = balances.get(snap.accountId)
+      const own = tokenPnl(
+        p.token as TokenListing,
+        all.filter((l) => l.accountId === snap.accountId),
+        new Map(raw === undefined ? [] : [[snap.accountId, raw]]),
+      )
+      return { ...w, figures: figuresOf(own) }
+    })
+    return { ...p, ...figuresOf(tokenPnl(p.token as TokenListing, all, balances)), wallets, pnlStatus: 'ready' }
   })
 }
