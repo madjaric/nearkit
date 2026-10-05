@@ -101,16 +101,18 @@ export async function buyView(
   market: BuyMarket,
   network: NetworkConfig,
 ): Promise<BuyView> {
-  const [paidUsd, value, supply, metas, holders] = await Promise.all([
+  const [paidUsd, value, supply, metas, holders, caps] = await Promise.all([
     market.usdOf(event.paid),
     market.valueInNear(event.paid),
     market.totalSupply(cfg.token),
     Promise.all(event.paid.map((p) => market.meta(p.asset))),
     market.holders(cfg.token),
+    market.caps(cfg.token),
   ])
   const tokens = Number(event.amount) / 10 ** cfg.decimals
   const priceUsd = paidUsd !== null && tokens > 0 ? paidUsd / tokens : null
-  const fdvUsd = priceUsd !== null && supply !== null ? (Number(supply) / 10 ** cfg.decimals) * priceUsd : null
+  // FDV from the shared market service; without one, total supply (from the contract) × this trade's price.
+  const fdvUsd = caps.fdvUsd ?? (priceUsd !== null && supply !== null ? (Number(supply) / 10 ** cfg.decimals) * priceUsd : null)
   return {
     side: event.side,
     symbol: cfg.symbol,
@@ -129,6 +131,7 @@ export async function buyView(
     buyerUrl: explorerAccountUrl(network, event.buyer),
     txUrl: explorerTxUrl(network, event.txHash),
     priceUsd,
+    marketCapUsd: caps.marketCapUsd,
     fdvUsd,
     holders,
     emoji: cfg.emoji,
@@ -139,18 +142,17 @@ export async function buyView(
 }
 
 /**
- * Buy $TOKEN (NearKit's swap, only when the web app trades on the buybot's network), a
- * price chart (DexScreener, by the token's contract) and a one-tap copy of the contract.
+ * Buy $TOKEN (NearKit's swap) and Chart (NearKit's own Token Detail, at the canonical web URL),
+ * both only when the web app is on the buybot's network, and a one-tap copy of the contract.
+ * Nothing trades from here: Buy opens the swap, Chart the token's page.
  */
 export function tradeKeyboard(cfg: BuybotConfig, webUrl: string, webNetwork: string): InlineKeyboard {
-  const buy = cfg.network === webNetwork ? [{ text: `🟢 Buy $${cfg.symbol}`, url: `${webUrl}/swap?to=${encodeURIComponent(cfg.token)}` }] : []
+  const web = cfg.network === webNetwork
+  const token = encodeURIComponent(cfg.token)
   return {
     inline_keyboard: [
-      ...(buy.length ? [buy] : []),
-      [
-        { text: '📈 Chart', url: `https://dexscreener.com/${cfg.network === 'mainnet' ? 'near' : 'near-testnet'}/${encodeURIComponent(cfg.token)}` },
-        { text: '📋 Copy CA', copy_text: { text: cfg.token } },
-      ],
+      ...(web ? [[{ text: `🟢 Buy $${cfg.symbol}`, url: `${webUrl}/swap?to=${token}` }]] : []),
+      [...(web ? [{ text: '📈 Chart', url: `${webUrl}/token/${token}` }] : []), { text: '📋 Copy CA', copy_text: { text: cfg.token } }],
     ],
   }
 }

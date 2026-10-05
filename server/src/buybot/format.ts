@@ -10,9 +10,10 @@ import { bold, code, esc, link, shortAccount } from '../telegram/html'
  * - USD value: the other side's amounts × NearKit's prices (Coinbase for NEAR, Rhea's list).
  * - NEAR value: exact when the buyer paid NEAR; otherwise converted at those prices and
  *   marked "≈".
- * - Market cap is shown as what it is on NEAR, FDV: total supply (from the token contract)
- *   × this trade's price. Circulating supply isn't known on chain, so nothing called
- *   "market cap" is invented.
+ * - Market Cap only from the shared market service, where a source knows the circulating
+ *   supply (CoinGecko); FDV from that service too, else total supply (from the token
+ *   contract) × this trade's price. An FDV is never called a market cap, and no market cap is
+ *   invented.
  * - Holders: NearBlocks' count, when it answers.
  * - The contract (CA), the buyer and the transaction link are the chain's own.
  */
@@ -38,6 +39,9 @@ export interface BuyView {
   txUrl: string
   /** USD per token at this trade (the other side's USD ÷ tokens). */
   priceUsd: number | null
+  /** Circulating supply × price, only from a source that knows the circulating supply. */
+  marketCapUsd: number | null
+  /** Total supply × price. */
   fdvUsd: number | null
   /** Holder count from NearBlocks, when it answered. */
   holders: number | null
@@ -80,7 +84,11 @@ export function renderBuy(v: BuyView): string {
   if (!v.paidInNear && v.valueNear !== null) lines.push(`Ⓝ ≈ ${esc(formatUnits(v.valueNear, NEAR_DECIMALS, { maxFraction: 4, group: true }))} NEAR`)
   lines.push(`👤 ${link(v.buyerUrl, shortAccount(v.buyer, 32))}`)
   if (v.priceUsd !== null) lines.push(`💵 Price ${esc(formatUsdPrice(v.priceUsd))} (this ${sell ? 'sale' : 'buy'})`)
-  if (v.fdvUsd !== null) lines.push(`🏦 Market cap (FDV) ${esc(formatUsdCompact(v.fdvUsd))}: total supply × this price`)
+  const caps = [
+    ...(v.marketCapUsd !== null ? [`Market Cap ${esc(formatUsdCompact(v.marketCapUsd))}`] : []),
+    ...(v.fdvUsd !== null ? [`FDV ${esc(formatUsdCompact(v.fdvUsd))}`] : []),
+  ]
+  if (caps.length) lines.push(`🏦 ${caps.join(' · ')}`)
   if (v.holders !== null) lines.push(`👥 Holders ${esc(v.holders.toLocaleString('en-US'))} (NearBlocks)`)
   lines.push(`📄 CA ${code(v.token)}`)
   lines.push(`🔗 ${link(v.txUrl, 'Transaction')} · ⚡ NearKit`)

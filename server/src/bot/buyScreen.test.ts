@@ -67,7 +67,7 @@ describe('the Telegram BUY screen', () => {
       '🟢 <b>Buy USDT</b> · Tether USD',
       `<code>${USDT}</code>`,
       'USDT/wNEAR on Rhea',
-      '📊 Market cap <b>$474K</b>',
+      '📊 Market Cap <b>$474K</b> · FDV <b>$500K</b>',
       '💧 Liquidity <b>$43.6K</b>',
       '💵 Price <b>$0.000474</b> · 24h <b>−3.20%</b>',
       `👛 <b>Main</b> ${shortAccount(w.accountId)} · <b>3 NEAR</b>`,
@@ -85,13 +85,17 @@ describe('the Telegram BUY screen', () => {
     expect(labels.some((l) => l.includes('Switch wallet'))).toBe(false)
   })
 
-  it('a market cap no source knows is “unavailable”, never a number; a market read that fails says so', async () => {
+  it('a market cap no source knows is never a number: FDV alone, named FDV; with neither, “unavailable”; a market read that fails says so', async () => {
     const h = await walletBot()
     await h.funded(3n * ONE)
     serve(h, marketOf(USDT, { marketCapUsd: missing('No source knows its circulating supply') }))
     const text = await buyScreen(h)
-    expect(text).toContain('📊 Market cap unavailable')
+    expect(text).toContain('📊 FDV <b>$500K</b>')
+    expect(text).not.toMatch(/market cap/i)
     expect(text).not.toContain('$474K')
+    serve(h, marketOf(USDT, { marketCapUsd: missing('No source knows its circulating supply'), fdvUsd: missing('No source knows its supply') }))
+    await h.press(h.button('Refresh'))
+    expect(h.last()?.text).toContain('📊 Market Cap unavailable')
     expect(text).toContain('💵 Price <b>$0.000474</b>')
     serve(h, new Error('DEX Screener answered HTTP 503'))
     await h.press(h.button('Refresh'))
@@ -140,7 +144,7 @@ describe('the Telegram BUY screen', () => {
     h.advance(30_000)
     await h.press(h.button('Refresh'))
     const text = h.last()?.text ?? ''
-    expect(text).toContain('📊 Market cap <b>$1.25M</b>')
+    expect(text).toContain('📊 Market Cap <b>$1.25M</b>')
     expect(text).toContain('· <b>5 NEAR</b>')
     // The screen the button sits on is edited: no new screen piles up in the chat.
     expect(h.fake.messages().at(-1)?.method).toBe('editMessageText')

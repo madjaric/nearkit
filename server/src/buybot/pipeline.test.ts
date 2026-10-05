@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { MarketFigure, TokenMarket } from '@/types/domain'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
 import directSell from '@/services/near/fixtures/flows/direct-sell-dcl.fastnear.json'
 import { createFakeChain } from '@/services/real/testing/fakeChain'
@@ -137,8 +138,9 @@ describe('buybot pipeline on the transaction index', () => {
     expect(text).toContain('69,099 SINGULARTY')
     expect(text).toContain('mort1705.tg')
     expect(text).toContain(`https://nearblocks.io/txns/${BUY.transaction.hash}`)
-    // Market cap is FDV on NEAR, and says so: supply (1e9 tokens) × this buy's price.
-    expect(text).toMatch(/Market cap \(FDV\) \$72\.\dK: total supply × this price/)
+    // No market source knows its circulating supply: FDV only (supply 1e9 × this buy's price), never called market cap.
+    expect(text).toMatch(/🏦 FDV \$72\.\dK/)
+    expect(text).not.toMatch(/market cap/i)
     expect(text).toContain('👥 Holders 286,262 (NearBlocks)')
     expect(text).toContain(`📄 CA <code>${SING}</code>`)
     expect(text).toContain('⚡ NearKit')
@@ -146,9 +148,37 @@ describe('buybot pipeline on the transaction index', () => {
     expect(text).not.toContain('≈')
     expect(posts[0]?.buttons).toEqual([
       { text: '🟢 Buy $SINGULARTY', url: `http://localhost:5199/swap?to=${SING}` },
-      { text: '📈 Chart', url: `https://dexscreener.com/near/${SING}` },
+      // NearKit's own Token Detail, at the canonical web URL: no DexScreener.
+      { text: '📈 Chart', url: `http://localhost:5199/token/${SING}` },
       { text: '📋 Copy CA', copy: SING },
     ])
+  })
+
+  it('shows Market Cap only from the shared market service (a source that knows the circulating supply), with FDV beside it', async () => {
+    const known = (value: number, source: string): MarketFigure => ({ state: 'known', value, source, at: 0 })
+    const none: MarketFigure = { state: 'unavailable', reason: 'No source' }
+    w.near.tokens.getMarketData = async (tokenId: string): Promise<TokenMarket> => ({
+      tokenId,
+      priceUsd: known(0.0047, 'DEX Screener'),
+      priceNear: none,
+      change24hPct: none,
+      marketCapUsd: known(3_100_000, 'CoinGecko'),
+      fdvUsd: known(4_700_000, 'DEX Screener'),
+      liquidityUsd: none,
+      volume24hUsd: none,
+      supply: { circulating: 6.6e8, total: 1e9, source: 'CoinGecko' },
+      pair: null,
+      updatedAt: 0,
+    })
+    await w.follower.step()
+    w.publish(BUY)
+    w.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+    await w.follower.step()
+    await w.process()
+    await w.deliver()
+    const text = w.tgFake.messages()[0]?.text ?? ''
+    expect(text).toContain('🏦 Market Cap $3.1M · FDV $4.7M')
+    expect(text).not.toContain('(FDV)')
   })
 
   it('waits for a transaction whose receipts are still executing', async () => {

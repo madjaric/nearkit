@@ -1,4 +1,5 @@
 import { NEAR_DECIMALS } from '@/config/networks'
+import type { MarketFigure } from '@/types/domain'
 import type { Leg } from '@/services/near/flows'
 import type { ServerNear } from '../near'
 
@@ -10,6 +11,8 @@ import type { ServerNear } from '../near'
  */
 
 const SUPPLY_TTL_MS = 10 * 60_000
+/** How long an alert waits for the shared market service before posting without its figures. */
+const MARKET_WAIT_MS = 3_000
 const HOLDERS_TTL_MS = 10 * 60_000
 const HOLDERS_TIMEOUT_MS = 5_000
 
@@ -57,10 +60,30 @@ export function createBuyMarket(near: ServerNear, now: () => number = Date.now) 
 
   const units = (raw: bigint, decimals: number) => Number(raw) / 10 ** decimals
 
+  /** `p`, or null when it fails or takes longer than `ms`. */
+  async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([p.catch(() => null), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ms)))])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const valueOf = (f: MarketFigure | undefined) => (f && (f.state === 'known' || f.state === 'stale') ? f.value : null)
+
   return {
     nearUsd,
     assetUsd,
     meta,
+    /**
+     * The token's market cap and FDV from the shared market service (DEX Screener, GeckoTerminal,
+     * CoinGecko, as Token Detail and the trading bot read it). A market cap only where a source knows
+     * the circulating supply; null for what no source has, or when it doesn't answer in time.
+     */
+    async caps(token: string): Promise<{ marketCapUsd: number | null; fdvUsd: number | null }> {
+      const m = await within(near.tokens.getMarketData(token), MARKET_WAIT_MS)
+      return { marketCapUsd: valueOf(m?.marketCapUsd), fdvUsd: valueOf(m?.fdvUsd) }
+    },
     /** How many accounts hold the token, per NearBlocks; null when it doesn't answer. */
     async holders(token: string): Promise<number | null> {
       const hit = holderCounts.get(token)

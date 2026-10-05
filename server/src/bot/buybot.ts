@@ -199,6 +199,7 @@ async function sendPreview(ctx: BotCtx, bb: BuybotDeps, c: BuybotConfig) {
     buyerUrl: explorerTokenUrl(network, c.token),
     txUrl: explorerTokenUrl(network, c.token),
     priceUsd: tokenUsd,
+    marketCapUsd: null,
     fdvUsd: null,
     holders: null,
     emoji: c.emoji,

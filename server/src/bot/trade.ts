@@ -107,20 +107,19 @@ const figure = (f: MarketFigure, format: (v: number) => string): string | null =
 
 /**
  * The token's market, from the shared market service (DEX Screener, GeckoTerminal, CoinGecko, as
- * Token Detail reads it). A market cap no source knows is "unavailable", never worked out here.
+ * Token Detail reads it). Market Cap only where a source knows the circulating supply, with FDV
+ * beside it; with FDV alone, FDV (never called a market cap); with neither, "unavailable".
  */
 function marketLines(m: TokenMarket | null): string[] {
   if (!m) return ['📊 Market data didn’t load. Refresh to try again.']
   if (m.priceUsd.state === 'not-applicable' && m.marketCapUsd.state === 'not-applicable') return [`📊 ${esc(m.priceUsd.reason)}`]
   const mcap = figure(m.marketCapUsd, (v) => formatUsdCompact(v, 2))
+  const fdv = figure(m.fdvUsd, (v) => formatUsdCompact(v, 2))
   const liquidity = figure(m.liquidityUsd, (v) => formatUsdCompact(v, 1))
   const price = figure(m.priceUsd, formatUsdPrice)
   const change = figure(m.change24hPct, (v) => formatPct(v, { signed: true, decimals: 2 }))
-  return [
-    `📊 Market cap ${mcap ? bold(mcap) : 'unavailable'}`,
-    ...(liquidity ? [`💧 Liquidity ${bold(liquidity)}`] : []),
-    `💵 Price ${price ? bold(price) : 'unavailable'}${change ? ` · 24h ${bold(change)}` : ''}`,
-  ]
+  const caps = mcap ? `📊 Market Cap ${bold(mcap)}${fdv ? ` · FDV ${bold(fdv)}` : ''}` : fdv ? `📊 FDV ${bold(fdv)}` : '📊 Market Cap unavailable'
+  return [caps, ...(liquidity ? [`💧 Liquidity ${bold(liquidity)}`] : []), `💵 Price ${price ? bold(price) : 'unavailable'}${change ? ` · 24h ${bold(change)}` : ''}`]
 }
 
 /** The token's own transfer tax to its DCL pair (what the route quotes after), or null when it has none. */
