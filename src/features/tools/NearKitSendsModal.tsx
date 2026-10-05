@@ -63,14 +63,16 @@ function LineStatus({ state, to }: { state: LineState; to: string }) {
 }
 
 /**
- * Split or Batch Send from a NearKit wallet: every line reviewed by NearKit's server first (the
- * custody rule decides who may receive), then sent one after another once every line is ready.
+ * Split or Batch Send from a NearKit wallet (`wallet`), or Consolidate from several into one
+ * destination (`into`, each line naming its wallet): every line reviewed by NearKit's server first
+ * (the custody rule decides who may receive), then sent one after another once every line is ready.
  * NearKit's server signs; nothing is signed in this browser. See nearkitSends.ts.
  */
 export function NearKitSendsModal({
   title,
   confirmLabel,
   wallet,
+  into,
   asset,
   symbol,
   decimals,
@@ -79,14 +81,13 @@ export function NearKitSendsModal({
 }: {
   title: string
   confirmLabel: string
-  wallet: Wallet
   /** 'near' or the token's contract. */
   asset: string
   symbol: string
   decimals: number
   lines: SendLine[]
   onClose: () => void
-}) {
+} & ({ wallet: Wallet; into?: undefined } | { into: { label: string; accountId: string }; wallet?: undefined })) {
   const s = useServices()
   const qc = useQueryClient()
   const [states, setStates] = useState<LineState[]>(() => lines.map(() => ({ kind: 'reviewing' })))
@@ -94,7 +95,7 @@ export function NearKitSendsModal({
   const [round, setRound] = useState(0)
   const [stopping, setStopping] = useState(false)
   const stop = useRef(false)
-  const walletId = wallet.nearkitId ?? ''
+  const walletId = wallet?.nearkitId ?? ''
 
   // Review (again, on `round`): the lines are fixed for this window's life.
   useEffect(() => {
@@ -139,7 +140,11 @@ export function NearKitSendsModal({
       dismissible={phase !== 'sending'}
       size="lg"
       title={title}
-      description={`From ${wallet.label} · NearKit’s server signs and sends each line; nothing is signed in this browser.`}
+      description={
+        wallet
+          ? `From ${wallet.label} · NearKit’s server signs and sends each line; nothing is signed in this browser.`
+          : `Into ${into.label} (${formatAccount(into.accountId)}) · NearKit’s server sends from each NearKit wallet, with that wallet’s own key; nothing is signed in this browser.`
+      }
       footer={
         phase === 'review' ? (
           <>
@@ -176,7 +181,9 @@ export function NearKitSendsModal({
       <div className="flex flex-col gap-3">
         {needs > 0 && phase === 'review' && (
           <p role="alert" className="text-sm text-fg-2">
-            {`${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`}
+            {wallet
+              ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+              : `${into.label} isn’t approved yet for ${needs} of these NearKit wallets. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve it once for each (the links open in a new tab), then review again.`}
           </p>
         )}
         {phase === 'done' && (
@@ -188,7 +195,7 @@ export function NearKitSendsModal({
           <Table label={title}>
             <thead className="sticky top-0 bg-panel">
               <tr>
-                <Th>To</Th>
+                <Th>{wallet ? 'To' : 'From'}</Th>
                 <Th align="right">Amount</Th>
                 <Th>Status</Th>
               </tr>
@@ -196,9 +203,18 @@ export function NearKitSendsModal({
             <tbody>
               {lines.map((line, i) => (
                 <Tr key={`${line.to}-${i}`}>
-                  <Td>
-                    {line.label && line.label !== line.to && <span className="block text-xs text-fg-2">{line.label}</span>}
-                    <span className="num block break-all text-xs text-fg">{line.to}</span>
+                  <Td className="whitespace-normal">
+                    {line.from ? (
+                      <>
+                        <span className="block text-xs text-fg-2">{line.from.label}</span>
+                        <span className="num block text-xs text-fg">{formatAccount(line.from.accountId)}</span>
+                      </>
+                    ) : (
+                      <>
+                        {line.label && line.label !== line.to && <span className="block text-xs text-fg-2">{line.label}</span>}
+                        <span className="num block break-all text-xs text-fg">{line.to}</span>
+                      </>
+                    )}
                   </Td>
                   <Td align="right" mono className="whitespace-nowrap text-fg">{`${line.amount} ${symbol}`}</Td>
                   <Td className={cn('text-xs')}>{states[i] && <LineStatus state={states[i]} to={line.to} />}</Td>
@@ -209,7 +225,7 @@ export function NearKitSendsModal({
         </div>
         {phase === 'review' && fees > 0n && (
           <p className="text-xs text-fg-3">
-            <Figures>{`Network fees about ${formatUnits(fees, NEAR_DECIMALS, { maxFraction: 6 })} NEAR, paid by ${wallet.label}. Amounts are in ${symbol} (${decimals} decimals).`}</Figures>
+            <Figures>{`Network fees about ${formatUnits(fees, NEAR_DECIMALS, { maxFraction: 6 })} NEAR, paid by ${wallet ? wallet.label : 'each wallet that sends'}. Amounts are in ${symbol} (${decimals} decimals).`}</Figures>
           </p>
         )}
       </div>

@@ -149,3 +149,32 @@ describe('sending the reviewed lines', () => {
     expect(a.calls.some((c) => c.startsWith('execute'))).toBe(false)
   })
 })
+
+describe('Consolidate: one line from each of several NearKit wallets, into one destination', () => {
+  const into = [
+    { from: { walletId: 'srv-1', label: 'Main', accountId: 'main.near' }, to: 'dest.near', amount: '5' },
+    { from: { walletId: 'srv-2', label: 'Degen', accountId: 'degen.near' }, to: 'dest.near', amount: '7' },
+  ]
+
+  it('reviews and sends each line from its own wallet, one after another, under the same custody rule', async () => {
+    const a = api()
+    const asked: string[] = []
+    const spy: SendsApi = { ...a.fake, reviewSend: (input) => (asked.push(`${input.walletId} ${input.token} ${input.amount}→${input.to}`), a.fake.reviewSend(input)) }
+    const states = await reviewLines(spy, '', 'sing.near', into, () => undefined)
+    expect(states.map((s) => s.kind)).toEqual(['ready', 'ready'])
+    a.calls.length = 0
+    const done = await sendLines(spy, '', 'sing.near', into, states, () => undefined, { now: a.now, sleep: async (ms) => void a.advance(ms), shouldStop: () => false })
+    expect(done.map((s) => s.kind)).toEqual(['sent', 'sent'])
+    expect(asked).toEqual(['srv-1 sing.near 5→dest.near', 'srv-2 sing.near 7→dest.near'])
+    expect(a.calls).toEqual(['execute i1', 'status i1', 'status i1', 'execute i2', 'status i2', 'status i2'])
+  })
+
+  it('a destination one of the wallets may not send to yet blocks the whole run until it is approved', async () => {
+    const a = api({ unapproved: ['dest.near'] })
+    const states = await reviewLines(a.fake, '', 'sing.near', into, () => undefined)
+    expect(states.map((s) => s.kind)).toEqual(['approval', 'approval'])
+    await expect(sendLines(a.fake, '', 'sing.near', into, states, () => undefined, { now: a.now, sleep: async () => undefined, shouldStop: () => false })).rejects.toThrow(
+      'Every line must be ready before the batch is sent',
+    )
+  })
+})

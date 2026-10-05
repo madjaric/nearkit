@@ -729,6 +729,94 @@ await step(
   },
 )
 
+await step(
+  'Consolidate gathers a token held across NearKit wallets (in no list, no price, known by its contract): offered first, both wallets are sources, NearKit’s server reviews each into the destination; Split puts what its source holds first, by that wallet’s own balance, and still finds the rest',
+  async () => {
+    const GATHER = 'gather.tkn.testnet'
+    near.state.accounts.set(GATHER, { amount: String(ONE), code: true })
+    near.state.tokens.set(GATHER, {
+      symbol: 'GATHER',
+      name: 'Gather Token',
+      decimals: 18,
+      boundsMin: MIN,
+      balances: new Map([
+        [mainAddress, String(5_000n * 10n ** 18n)],
+        [degenAddress, String(7_000n * 10n ** 18n)],
+      ]),
+      registered: new Set([mainAddress, degenAddress, USER]),
+    })
+    const options = async (listbox) => (await listbox.getByRole('option').allTextContents()).map((t) => t.replace(/\s+/g, ' ').trim())
+    // An option reads: the glyph's letter (no icon here), the symbol, its name, the balance.
+    const isToken = (text, symbol) => new RegExp(`^.?${symbol}`).test(text ?? '')
+    const fits = async (where) => {
+      const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+      if (wide > 1) throw new Error(`${where} scrolls sideways by ${wide}px`)
+    }
+
+    // ── Consolidate ──
+    await page.goto(WEB + '/consolidate', { waitUntil: 'networkidle' })
+    const dest = page.getByLabel('Destination', { exact: true })
+    const into = (await dest.locator('option').evaluateAll((os) => os.map((o) => o.value))).includes(USER) ? USER : mainAddress
+    await dest.selectOption(into)
+    // It opens on what the sources hold most of: the unlisted, unpriced token, by its contract.
+    await page.getByRole('button', { name: 'Token: GATHER' }).waitFor({ timeout: 20000 })
+    await page.getByText(into === USER ? '2 of 2 with GATHER' : '1 of 1 with GATHER').waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: 'Token: GATHER' }).click()
+    const picker = page.getByRole('listbox', { name: 'Token' })
+    const listed = await options(picker)
+    if (!isToken(listed[0], 'GATHER')) throw new Error(`Consolidate's picker starts with ${listed[0]}`)
+    // The two wallets' balances, summed (12,000), for the token they hold together.
+    if (!/12,000|12K/.test(listed[0])) throw new Error(`Consolidate's picker shows ${listed[0]}, not the sources’ 12,000 together`)
+    await page.getByRole('textbox', { name: 'Search tokens' }).fill('usdt')
+    if (!isToken((await options(picker))[0], 'USDT')) throw new Error('search no longer finds a token the sources don’t hold')
+    await page.keyboard.press('Escape')
+    await shot('tg-12-consolidate-nearkit')
+    const signed = () => page.evaluate(() => (window.__NEARKIT_E2E_SIGNED__ ?? []).length)
+    const before = await signed()
+    await page.getByRole('button', { name: 'Consolidate', exact: true }).click()
+    const review = page.getByRole('dialog', { name: 'Review consolidation' })
+    await review.getByText(/^Into .*NearKit’s server sends from each NearKit wallet/).waitFor({ timeout: 15000 })
+    await review.getByText(`${degenAddress.slice(0, 6)}…${degenAddress.slice(-4)}`).waitFor()
+    // Reviewed by NearKit's server, wallet by wallet: every line ends ready or says how it gets approved.
+    for (let i = 0; i < 60 && (await review.getByText('Checking…').count()) > 0; i++) await new Promise((r) => setTimeout(r, 250))
+    if ((await review.getByText('Checking…').count()) > 0) throw new Error('the consolidation was never reviewed')
+    if ((await review.getByText('Ready').count()) + (await review.getByText('Needs approval').count()) !== (into === USER ? 2 : 1))
+      throw new Error(`unexpected review: ${(await review.innerText()).replace(/\s+/g, ' ')}`)
+    if (into === USER && (await review.getByText('Ready').count()) < 1) throw new Error('Main can’t send to its own owner wallet')
+    await shot('tg-12b-consolidate-review')
+    await review.getByRole('button', { name: 'Cancel' }).click()
+    if ((await signed()) !== before) throw new Error('the browser wallet was asked to sign for NearKit wallets')
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.getByRole('button', { name: 'Token: GATHER' }).waitFor()
+    await fits('Consolidate at 375px')
+    await shot('tg-12c-consolidate-375')
+    await page.setViewportSize({ width: 1280, height: 900 })
+
+    // ── Split: the source wallet's own balance, not the wallets' together ──
+    await page.goto(WEB + '/split', { waitUntil: 'networkidle' })
+    await page.getByLabel('Source wallet', { exact: true }).selectOption(mainAddress)
+    await page.getByRole('button', { name: /^Token: / }).click()
+    const split = page.getByRole('listbox', { name: 'Token' })
+    await split.getByRole('option', { name: /GATHER/ }).waitFor({ timeout: 15000 })
+    const order = await options(split)
+    const at = (symbol) => order.findIndex((t) => isToken(t, symbol))
+    const gather = order[at('GATHER')] ?? ''
+    if (!/5,000|5K/.test(gather) || /12,000|12K/.test(gather)) throw new Error(`Split shows GATHER as ${gather}: Main alone holds 5,000`)
+    // The selected token stays first; then what Main holds, by its own balance (no prices on this
+    // network: 5,000 GATHER before 3 NEAR); then what it doesn't hold (USDT).
+    if (!isToken(order[0], 'wNEAR') || !/Selected/.test(order[0] ?? '') || !(at('GATHER') < at('NEAR') && at('NEAR') < at('USDT')))
+      throw new Error(`Split's picker: ${order.join(' | ')}`)
+    await page.getByRole('textbox', { name: 'Search tokens' }).fill('wnear')
+    if (!isToken((await options(split))[0], 'wNEAR')) throw new Error('search no longer finds a token Main doesn’t hold')
+    await page.keyboard.press('Escape')
+    await shot('tg-12d-split-held-first')
+    await page.setViewportSize({ width: 375, height: 812 })
+    await fits('Split at 375px')
+    await shot('tg-12e-split-375')
+    await page.setViewportSize({ width: 1280, height: 900 })
+  },
+)
+
 await step('a forged client gets nothing: a watch account, a made-up id or an address is refused before any quote', async () => {
   const sentBefore = tg.sent.length
   for (const walletId of [USER, 'bottest.testnet', 'made-up-id', mainAddress]) {

@@ -6,7 +6,7 @@ import { TokenSelect } from '@/components/domain/TokenSelect'
 import { WalletSelect } from '@/components/domain/WalletSelect'
 import { Button } from '@/components/ui/Button'
 import { Figures } from '@/components/ui/Figures'
-import { Checkbox, Field } from '@/components/ui/Form'
+import { Checkbox, Field, Segmented } from '@/components/ui/Form'
 import { InfoTip, Term } from '@/components/ui/Help'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
@@ -15,9 +15,11 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { GAS_RESERVE_NEAR, GAS_RESERVE_YOCTO, NETWORK_FEE_NEAR_PER_TX } from '@/lib/fees'
 import { floorTo, formatAmount, formatNumber, toInputString } from '@/lib/format'
-import { signsInBrowser } from '@/lib/wallets'
+import { heldBalances } from '@/lib/tokenRanking'
 import { useHoldings, usePlanners, useSession, useTokens, useWallets } from '@/services/queries'
+import { NearKitSendsModal } from '../tools/NearKitSendsModal'
 import { OperationModal } from '../tools/OperationModal'
+import { consolidatePool, defaultConsolidateToken, defaultFamily, type SourceFamily } from './sources'
 
 const NEAR = NATIVE_TOKEN_ID
 
@@ -29,8 +31,15 @@ export function Consolidate() {
   const planners = usePlanners()
   const [pickedToken, setTokenId] = useState<string | null>(null)
   const [pickedDest, setDestId] = useState<string | null>(null)
-  const tokenId = pickedToken ?? (tokens.some((t) => t.id === 'kit') ? 'kit' : (tokens.find((t) => !t.isNative)?.id ?? NEAR))
+  const [pickedFamily, setFamily] = useState<SourceFamily | null>(null)
   const destId = pickedDest ?? session?.walletId ?? wallets[0]?.id ?? ''
+  // Every wallet that can act, except the destination: NearKit wallets (not frozen) and the connected
+  // accounts; never a watch-only one. What they hold, summed, is what can be gathered: the picker
+  // puts it first, and (after the demo's own $KIT) the page opens on the most valuable of it.
+  const pool = consolidatePool(wallets, destId)
+  const sourceIds = pool.all.map((w) => w.id)
+  const held = heldBalances(holdings, sourceIds)
+  const tokenId = pickedToken ?? (tokens.some((t) => t.id === 'kit') ? 'kit' : defaultConsolidateToken(tokens, held, tokens.find((t) => !t.isNative)?.id ?? NEAR))
   const [picked, setPicked] = useState<string[] | null>(null)
   const [hideEmpty, setHideEmpty] = useState(true)
   const [confirming, setConfirming] = useState(false)
@@ -50,8 +59,10 @@ export function Consolidate() {
   }
 
   const destination = wallets.find((w) => w.id === destId)
-  // Sources sign here, in the connected wallet: a NearKit wallet sends through Telegram (its own Send), a watch-only one never.
-  const candidates = wallets.filter((w) => w.id !== destId && signsInBrowser(w))
+  // One family per run, as in Multi Trade: NearKit wallets (NearKit's server sends for each, under
+  // the custody rule) or the connected wallet's accounts (signed here).
+  const family = pickedFamily ?? defaultFamily(pool, (id) => movable(id) > 0)
+  const candidates = family === 'nearkit' ? pool.nearkit : pool.browser
   const funded = candidates.filter((w) => movable(w.id) > 0)
   const selectedIds = picked ?? funded.map((w) => w.id)
   const selected = funded.filter((w) => selectedIds.includes(w.id))
@@ -96,6 +107,7 @@ export function Consolidate() {
                   id={id}
                   label="Token"
                   size="md"
+                  holdingsOf={sourceIds}
                   value={tokenId}
                   onChange={(t) => {
                     setTokenId(t)
@@ -126,6 +138,21 @@ export function Consolidate() {
             meta={`${selected.length} of ${funded.length} with ${symbol}`}
             actions={
               <>
+                {pool.nearkit.length > 0 && pool.browser.length > 0 && (
+                  <Segmented
+                    label="Wallet source"
+                    size="sm"
+                    value={family}
+                    onChange={(v) => {
+                      setFamily(v)
+                      reset()
+                    }}
+                    options={[
+                      { value: 'nearkit', label: 'NearKit' },
+                      { value: 'browser', label: 'Connected' },
+                    ]}
+                  />
+                )}
                 <Button size="xs" variant="ghost" onClick={() => setPicked(funded.map((w) => w.id))} disabled={allChecked}>
                   Select all
                 </Button>
@@ -260,13 +287,31 @@ export function Consolidate() {
               <Button size="lg" block variant="primary" disabled={issue !== null} onClick={() => setConfirming(true)}>
                 Consolidate
               </Button>
-              <SimulationNote />
+              <SimulationNote
+                real={
+                  family === 'nearkit'
+                    ? `NearKit’s server sends from each NearKit wallet (no wallet prompt), into ${destination?.label ?? 'the destination'} only if it is that wallet’s owner wallet or an address approved for it.`
+                    : undefined
+                }
+              />
             </div>
           </div>
         </Panel>
       </div>
 
-      {confirming && destination && (
+      {confirming && destination && family === 'nearkit' && token && (
+        <NearKitSendsModal
+          title="Review consolidation"
+          confirmLabel="Consolidate"
+          into={{ label: destination.label, accountId: destination.accountId }}
+          asset={tokenId}
+          symbol={symbol}
+          decimals={token.decimals}
+          lines={selected.map((w) => ({ to: destination.accountId, amount: movableText(w.id), from: { walletId: w.nearkitId ?? '', label: w.label, accountId: w.accountId } }))}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+      {confirming && destination && family === 'browser' && (
         <OperationModal
           title="Review consolidation"
           confirmLabel="Consolidate"

@@ -4,10 +4,11 @@ import type { NearKitWeb, SendApproval, WebLegStatus, WebSendReview } from '@/se
 import { LinkRequestError } from '@/services/telegramLink'
 
 /**
- * Split and Batch Send from a NearKit wallet. NearKit's server signs for these wallets, so every
- * line is an ordinary web send: the server reviews it (the custody rule: the wallet's owner, or an
- * address approved for it; the signer enforces it again), then runs it. Nothing here decides who may
- * receive: a line the server refuses says why, and how its address gets approved.
+ * Split and Batch Send from a NearKit wallet, and Consolidate from several. NearKit's server signs
+ * for these wallets, so every line is an ordinary web send: the server reviews it (the custody rule:
+ * the wallet's owner, or an address approved for it; the signer enforces it again), then runs it.
+ * Nothing here decides who may receive: a line the server refuses says why, and how its address gets
+ * approved.
  *
  * Lines are reviewed a few at a time, and sent strictly one after another: the next starts only
  * once the one before it is done, so one wallet's sends never race for its key's nonce. A failed
@@ -21,6 +22,8 @@ export interface SendLine {
   /** An exact decimal amount in the token's units. */
   amount: string
   label?: string
+  /** The NearKit wallet this line is sent from, when the lines come from several (Consolidate); otherwise the batch's wallet. */
+  from?: { walletId: string; label: string; accountId: string }
 }
 
 export type SendsApi = Pick<NearKitWeb, 'reviewSend' | 'executeSend' | 'sendStatus'>
@@ -64,7 +67,7 @@ export async function reviewLines(api: SendsApi, walletId: string, asset: string
     lines.map(async (line, i) => {
       const release = await places.acquire()
       try {
-        states[i] = await reviewOne(api, walletId, asset, line)
+        states[i] = await reviewOne(api, line.from?.walletId ?? walletId, asset, line)
         onLine(i, states[i] as LineState)
       } finally {
         release()
@@ -121,7 +124,7 @@ export async function sendLines(
     let current = states[i] as Extract<LineState, { kind: 'ready' }>
     set(i, { kind: 'sending' })
     if (current.expiresAt - opts.now() < REVIEW_MARGIN_MS) {
-      const again = await reviewOne(api, walletId, asset, line)
+      const again = await reviewOne(api, line.from?.walletId ?? walletId, asset, line)
       if (again.kind !== 'ready') {
         set(i, { kind: 'failed', message: again.kind === 'approval' || again.kind === 'error' ? again.message : 'This send couldn’t be reviewed again.' })
         continue
