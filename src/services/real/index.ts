@@ -33,7 +33,7 @@ export function createNearServices(options: NearContextOptions): NearKitServices
   return {
     mode: 'near',
     capabilities: ctx.capabilities,
-    tokens: createTokenService(ctx, market),
+    tokens: createTokenService(ctx, market, wallets),
     wallets,
     transfers: createTransferService(ctx, wallets),
     trading: createTradingService(ctx, market, wallets),

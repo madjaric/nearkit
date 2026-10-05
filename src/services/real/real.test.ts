@@ -23,7 +23,16 @@ import { createFakeChain, fakeWallet, successOutcome, type FakeChain, type FakeC
 const NEAR = (n: number) => BigInt(Math.round(n * 1e6)) * 10n ** 18n
 const MIN_STORAGE = 1_250_000_000_000_000_000_000n
 
-function setup(opts: { network?: NetworkId; env?: Record<string, string>; chain: FakeChainOptions; session: WalletSession | null; now?: () => number; nearkit?: NearKitWeb }) {
+function setup(opts: {
+  network?: NetworkId
+  env?: Record<string, string>
+  chain: FakeChainOptions
+  session: WalletSession | null
+  now?: () => number
+  nearkit?: NearKitWeb
+  /** Stands between the services and the fake chain (to fail some requests). */
+  wrapFetch?: (f: typeof fetch) => typeof fetch
+}) {
   const network = opts.network ?? 'testnet'
   const chain = createFakeChain(opts.chain)
   const { env, issues } = parseEnv({ VITE_NEAR_NETWORK: network, ...opts.env })
@@ -42,7 +51,7 @@ function setup(opts: { network?: NetworkId; env?: Record<string, string>; chain:
   const services = createNearServices({
     env,
     network: NETWORKS[network],
-    fetch: chain.fetch,
+    fetch: opts.wrapFetch ? opts.wrapFetch(chain.fetch) : chain.fetch,
     kv: memoryStorage(),
     wallet: async () => wallet.adapter,
     now: opts.now,
@@ -355,6 +364,72 @@ describe('tokens found by exact contract', () => {
     await expect(services.tokens.lookupToken('plain.near')).rejects.toMatchObject({ code: 'INVALID_TOKEN', message: expect.stringMatching(/without a contract/) })
     await expect(services.tokens.lookupToken('app.near')).rejects.toMatchObject({ code: 'INVALID_TOKEN' })
     await expect(services.tokens.lookupToken('usdt.tether-token.testnet')).rejects.toMatchObject({ code: 'NETWORK_MISMATCH' })
+  })
+})
+
+// ─── tokens held across your wallets: every picker can offer them ───────────
+
+describe('tokens held across your wallets (listed by contract, priced or not)', () => {
+  const SING = 'singularty.nearlytrade.near'
+  const NEARLY = 'nearly-2.nearlytrade.near'
+  const CONNECTED = 'conn.tkn.near'
+  const WATCHED = 'watched.tkn.near'
+  const chain = (): FakeChainOptions => ({
+    accounts: {
+      'example.near': { amount: NEAR(10) },
+      'bob.near': { amount: NEAR(1) },
+      [NK1]: { amount: NEAR(2) },
+      [NK2]: { amount: NEAR(2) },
+      [SING]: { amount: NEAR(1), code: true },
+      [NEARLY]: { amount: NEAR(1), code: true },
+      [CONNECTED]: { amount: NEAR(1), code: true },
+      [WATCHED]: { amount: NEAR(1), code: true },
+    },
+    tokens: {
+      // In no configured list, with no price anywhere: only the wallets' balances say they exist.
+      [SING]: { symbol: 'SINGULARTY', name: 'Singularity is NEAR', decimals: 18, boundsMin: MIN_STORAGE, balances: { [NK1]: 10n ** 24n, [NK2]: 5n * 10n ** 23n } },
+      [NEARLY]: { symbol: 'NEARLY', name: 'Not early. Nearly.', decimals: 18, boundsMin: MIN_STORAGE, balances: { [NK2]: 4n * 10n ** 22n } },
+      [CONNECTED]: { symbol: 'CONN', decimals: 6, boundsMin: MIN_STORAGE, balances: { 'example.near': 5_000_000n } },
+      [WATCHED]: { symbol: 'WATCHED', decimals: 18, boundsMin: MIN_STORAGE, balances: { 'bob.near': 10n ** 20n } },
+    },
+  })
+
+  it('lists a token held only in NearKit wallets once, by its contract, without a price; the connected account’s tokens too; never one only a watch-only wallet holds', async () => {
+    const { services } = setup({ network: 'mainnet', chain: chain(), session: session(['example.near']), nearkit: fakeNearKit(nearkitWallets()) })
+    await services.wallets.addAccount({ accountId: 'bob.near', label: 'Bob' })
+    const list = await services.tokens.listTokens()
+    expect(list.filter((t) => t.id === SING)).toEqual([expect.objectContaining({ id: SING, contract: SING, symbol: 'SINGULARTY', source: 'discovered', market: null })])
+    expect(list.filter((t) => t.id === NEARLY)).toEqual([expect.objectContaining({ id: NEARLY, contract: NEARLY, symbol: 'NEARLY', source: 'discovered' })])
+    expect(list.some((t) => t.id === CONNECTED)).toBe(true)
+    expect(list.some((t) => t.id === WATCHED)).toBe(false)
+    // Each NearKit wallet's own balance is what the pickers rank and Consolidate moves.
+    const holdings = await services.wallets.listHoldings()
+    expect(holdings.filter((h) => h.tokenId === SING).map((h) => [h.walletId, h.amount])).toEqual([
+      [NK1, 1_000_000],
+      [NK2, 500_000],
+    ])
+  })
+
+  it('keeps a token listed when a later read of the wallets that hold it fails', async () => {
+    let t = 1_000_000
+    let failing = false
+    const { services } = setup({
+      network: 'mainnet',
+      chain: chain(),
+      session: session(['example.near']),
+      nearkit: fakeNearKit(nearkitWallets()),
+      now: () => t,
+      wrapFetch: (f) =>
+        (async (input: RequestInfo | URL, init?: RequestInit) => {
+          const text = `${input instanceof Request ? input.url : String(input)} ${typeof init?.body === 'string' ? init.body : ''}`
+          if (failing && (text.includes(NK1) || text.includes(NK2))) throw new TypeError('Failed to fetch')
+          return f(input, init)
+        }) as typeof fetch,
+    })
+    expect((await services.tokens.listTokens()).some((x) => x.id === SING)).toBe(true)
+    failing = true
+    t += 60_000
+    expect((await services.tokens.listTokens()).some((x) => x.id === SING)).toBe(true)
   })
 })
 
@@ -728,7 +803,8 @@ describe('real swaps on mainnet through DCL directly (fake chain)', () => {
   it('routes a token Rhea does not index through its DCL pool, with no import: 0.50% to NearKit’s fee account first, the rest to the pool, in one transaction', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near']) })
     rheaRefuses(chain)
-    expect((await services.tokens.listTokens()).some((t) => t.id === SING)).toBe(false)
+    // Listed only because the wallet holds it (discovered): never imported, in no configured list.
+    expect((await services.tokens.listTokens()).find((t) => t.id === SING)).toMatchObject({ source: 'discovered' })
     const plan = await services.trading.prepareSwap(buyRequest)
     expect(plan.swap).toMatchObject({ router: 'dcl', source: 'dcl', tokenOut: { contract: SING }, minOut: { raw: ((OUT * 99n) / 100n).toString() } })
     expect(plan.fee).toMatchObject({

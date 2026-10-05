@@ -1,9 +1,10 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { accountIdError, isForeignToNetwork } from '@/lib/validation'
+import { executableWallets } from '@/lib/wallets'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import type { TokenListing } from '@/types/domain'
-import type { TokenService } from '../types'
+import type { TokenService, WalletService } from '../types'
 import type { NearContext } from './context'
 import type { Market } from './market'
 import { createScanner } from './scanner'
@@ -12,14 +13,21 @@ import { createTokenMarket } from './tokenMarket'
 
 /**
  * Tokens in real mode: native NEAR, the network's configured tokens, $KIT when
- * configured, tokens the user imported, and tokens the connected accounts hold.
- * Every NEP-141 entry is backed by validated on-chain metadata.
+ * configured, tokens the user imported, and tokens the user's wallets hold. With
+ * `wallets` (the web app), those are every wallet that can act: NearKit wallets and
+ * the connected wallet's accounts, never a watch-only one; without it (the server,
+ * scripts), the connected accounts. Every entry is keyed by its contract and backed
+ * by validated on-chain metadata; a price is never needed to be listed.
  */
-export function createTokenService(ctx: NearContext, market: Market): TokenService {
+export function createTokenService(ctx: NearContext, market: Market, wallets?: Pick<WalletService, 'listWallets'>): TokenService {
+  const accounts = async (): Promise<string[]> =>
+    wallets ? executableWallets(await wallets.listWallets().catch(() => [])).map((w) => w.accountId) : (ctx.session.current?.accounts ?? [])
+  // Held tokens seen this session: a read that fails later (an RPC or indexer hiccup) doesn't drop one from the list.
+  const seen = new Set<string>()
   const held = async (): Promise<string[]> => {
-    const accounts = ctx.session.current?.accounts ?? []
-    const balances = await Promise.all(accounts.map((id) => ctx.balances.get(id).catch(() => null)))
-    return balances.flatMap((b) => b?.fts.map((f) => f.contract) ?? [])
+    const balances = await Promise.all((await accounts()).map((id) => ctx.balances.get(id).catch(() => null)))
+    for (const b of balances) for (const f of b?.fts ?? []) seen.add(f.contract)
+    return [...seen]
   }
 
   const list = async (): Promise<TokenListing[]> => market.listTokens(await held())
