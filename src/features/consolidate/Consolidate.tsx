@@ -13,7 +13,9 @@ import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { cn } from '@/lib/cn'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
-import { GAS_RESERVE_NEAR, GAS_RESERVE_YOCTO, NETWORK_FEE_NEAR_PER_TX } from '@/lib/fees'
+import { NETWORK_FEE_NEAR_PER_TX } from '@/lib/fees'
+import { WALLET_DUST_NEAR } from '@/lib/walletDust'
+import { nearSendUpfrontYocto } from '@/services/near/gas'
 import { floorTo, formatAmount, formatNumber, toInputString } from '@/lib/format'
 import { heldBalances } from '@/lib/tokenRanking'
 import { useHoldings, usePlanners, useSession, useTokens, useWallets } from '@/services/queries'
@@ -49,16 +51,18 @@ export function Consolidate() {
   const isNear = tokenId === NEAR
   const decimals = isNear ? 2 : 0
   const balance = (walletId: string) => holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0
-  // NEAR sources keep the gas/storage reserve; nothing is drained to zero.
-  const movable = (walletId: string) => (isNear ? Math.max(0, floorTo(balance(walletId) - GAS_RESERVE_NEAR, 4)) : balance(walletId))
+  const destination = wallets.find((w) => w.id === destId)
+  // NEAR sources keep back exactly the gas their transfer into the destination holds, nothing more:
+  // what stays after the refund is dust (src/lib/walletDust.ts), so an emptied wallet can be deleted.
+  const nearHold = isNear ? nearSendUpfrontYocto(destination?.accountId) : 0n
+  const movable = (walletId: string) => (isNear ? Math.max(0, floorTo(balance(walletId) - Number(formatUnits(nearHold, 24)), 4)) : balance(walletId))
   const movableText = (walletId: string): string => {
     const raw = holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.raw
     if (raw === undefined || !token) return toInputString(movable(walletId), isNear ? 4 : 6)
-    const left = BigInt(raw) - (isNear ? GAS_RESERVE_YOCTO : 0n)
+    const left = BigInt(raw) - nearHold
     return formatUnits(left > 0n ? left : 0n, token.decimals)
   }
 
-  const destination = wallets.find((w) => w.id === destId)
   // One family per run, as in Multi Trade: NearKit wallets (NearKit's server sends for each, under
   // the custody rule) or the connected wallet's accounts (signed here).
   const family = pickedFamily ?? defaultFamily(pool, (id) => movable(id) > 0)
@@ -166,7 +170,7 @@ export function Consolidate() {
             <Checkbox checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} label={`Hide wallets without ${symbol}`} labelClassName="text-xs" />
             {isNear && (
               <span className="flex items-center gap-1 text-xs text-fg-3">
-                <Figures>{`Keeps ${GAS_RESERVE_NEAR} NEAR per wallet`}</Figures> <InfoTip term="gasReserve" />
+                <Figures>{`Moves all but each transfer’s gas: under ${WALLET_DUST_NEAR} NEAR stays`}</Figures> <InfoTip term="networkFee" />
               </span>
             )}
           </div>
@@ -307,7 +311,11 @@ export function Consolidate() {
           asset={tokenId}
           symbol={symbol}
           decimals={token.decimals}
-          lines={selected.map((w) => ({ to: destination.accountId, amount: movableText(w.id), from: { walletId: w.nearkitId ?? '', label: w.label, accountId: w.accountId } }))}
+          lines={selected.map((w) => ({
+            to: destination.accountId,
+            amount: isNear ? 'max' : movableText(w.id),
+            from: { walletId: w.nearkitId ?? '', label: w.label, accountId: w.accountId },
+          }))}
           onClose={() => setConfirming(false)}
         />
       )}

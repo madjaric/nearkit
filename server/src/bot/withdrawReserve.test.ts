@@ -3,11 +3,11 @@ import { gasPurchaseYocto } from '@/services/near/gas'
 import type { NearTransaction, TxAction } from '@/services/near/transaction'
 import { gasHeld } from '@/services/real/testing/fakeRuntime'
 import type { TradingWallet } from '../custody/store'
-import { readWallet } from '../custody/wallets'
-import { maxNearWithdraw, nearWithdrawUpfront, tokenWithdrawActions, tokenWithdrawUpfront } from '../custody/withdraw'
+import { deleteWallet, deletionOf, readWallet } from '../custody/wallets'
+import { maxNearWithdraw, nearWithdrawFee, nearWithdrawUpfront, tokenWithdrawActions, tokenWithdrawUpfront } from '../custody/withdraw'
 import { ownerKeypair } from '../signer/testing'
 import { ALICE } from './testing'
-import { ONE, REG, USDT, walletBot } from './walletTesting'
+import { LINKED, ONE, REG, USDT, walletBot } from './walletTesting'
 
 /**
  * A withdrawal keeps back what the chain itself holds for its transaction when it accepts it
@@ -54,6 +54,14 @@ describe('the reserve a withdrawal keeps back is the chain’s own hold for its 
     expect(available - maxNearWithdraw(available, IMPLICIT)).toBeGreaterThanOrEqual(gasHeld(transfer(IMPLICIT)))
     expect(available - maxNearWithdraw(available, BOB)).toBeGreaterThanOrEqual(gasHeld(transfer(BOB)))
     expect(maxNearWithdraw(nearWithdrawUpfront() - 1n)).toBe(0n)
+  })
+
+  it('the network fee a review shows is that transfer’s own: higher to a 64-character address, and below what is held upfront', () => {
+    expect(nearWithdrawFee(IMPLICIT)).toBeGreaterThan(nearWithdrawFee(BOB))
+    expect(nearWithdrawFee(IMPLICIT)).toBeLessThan(nearWithdrawUpfront(IMPLICIT))
+    expect(nearWithdrawFee(BOB)).toBeLessThan(nearWithdrawUpfront(BOB))
+    // At the minimum gas price: a tenth of the hold bought at the purchase price.
+    expect(nearWithdrawFee(BOB)).toBe(nearWithdrawUpfront(BOB) / 10n)
   })
 
   it('a token withdrawal that registers the destination: both calls of its transaction, their bytes and the 1 yocto', () => {
@@ -130,6 +138,42 @@ describe('withdrawals on chain with the reserve', () => {
     before = bob()
     expect(await withdraw({ amount: max, to: BOB }, { registration: null, fresh: false })).toMatchObject({ kind: 'finished', intent: { status: 'done' } })
     expect(bob() - before).toBe(max)
+  })
+
+  it('after a MAX withdrawal, to a named account or a 64-character address, only dust stays: the wallet can then be deleted', async () => {
+    for (const to of [BOB, IMPLICIT]) {
+      const { h, w, owner, withdraw, available } = await owned()
+      await h.approve(w.accountId, to, owner)
+      const max = maxNearWithdraw(await available(), to)
+      expect(await withdraw({ amount: max, to }, { registration: null, fresh: to === IMPLICIT })).toMatchObject({ kind: 'finished', intent: { status: 'done' } })
+      const left = await available()
+      expect(left).toBeGreaterThanOrEqual(0n)
+      expect(left).toBeLessThan(50_000_000_000_000_000_000_000n)
+      expect(deletionOf(await readWallet(h.deps.near, w))).toMatchObject({ ok: true })
+      expect(await deleteWallet(h.custody, h.deps.near, w)).toMatchObject({ ok: true })
+      expect((await h.custody.store.wallet(w.id))?.status).toBe('deleted')
+    }
+  })
+
+  it('Telegram’s MAX of NEAR is worked out again for the destination: to a named account it sends more than the price of a 64-character one, and goes through', async () => {
+    const { h, available } = await owned()
+    await h.press('cw:wd')
+    await h.press(h.button('NEAR ·'))
+    const have = await available()
+    // Before the destination is known, MAX is priced as the dearer case…
+    expect(h.button('MAX')).not.toBe('')
+    await h.press(h.button('MAX'))
+    await h.press(h.button('(linked)'))
+    // …and at the review, for the linked (named) account: exactly the spendable NEAR less that transfer's hold.
+    const exact = maxNearWithdraw(have, LINKED)
+    expect(exact).toBeGreaterThan(maxNearWithdraw(have))
+    const review = h.last()?.text ?? ''
+    expect(review).toContain('Review withdrawal')
+    const before = h.chain.accounts.get(LINKED)?.amount ?? 0n
+    await h.press(h.button('Confirm withdraw'))
+    expect(h.last()?.text).toContain('Withdrawal confirmed')
+    expect((h.chain.accounts.get(LINKED)?.amount ?? 0n) - before).toBe(exact)
+    expect(await available()).toBeLessThan(50_000_000_000_000_000_000_000n)
   })
 
   it('a token withdrawal that registers the destination goes through with exactly the NEAR its transaction needs; 1 yocto less is refused before anything is signed', async () => {

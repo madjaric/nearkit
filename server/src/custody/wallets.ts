@@ -1,3 +1,4 @@
+import { deletionVerdict, type DeletionVerdict } from '@/lib/walletDust'
 import { RpcError } from '@/services/near/rpc'
 import { PolicyViolation } from './policy'
 import type { ServerNear } from '../near'
@@ -125,8 +126,14 @@ export interface WalletView {
   /** Spendable NEAR, or null when it couldn't be read. */
   near: bigint | null
   totalNear: bigint | null
+  /** Staked NEAR; null when it couldn't be read. */
+  lockedNear: bigint | null
   storageNear: bigint | null
   tokens: { contract: string; raw: bigint; verified: boolean }[]
+  /** True only when every token the wallet may hold was read on chain. */
+  tokensKnown: boolean
+  /** The token contracts read on chain (zero balances included): the signer reads them again before erasing a key. */
+  checkedTokens: string[]
   /** Full-access keys on the account; null when they couldn't be read. */
   keys: string[] | null
 }
@@ -153,27 +160,50 @@ export async function readWallet(near: ServerNear, wallet: TradingWallet): Promi
     exists: state ? state.exists : null,
     near: state ? state.availableYocto : null,
     totalNear: state ? state.totalYocto : null,
+    lockedNear: state ? state.lockedYocto : null,
     storageNear: state ? state.storageYocto : null,
     tokens: b?.fts ?? [],
+    tokensKnown: b?.ftComplete ?? false,
+    checkedTokens: b?.ftChecked ?? [],
     keys,
   }
 }
 
+/** Whether a wallet may be deleted (src/lib/walletDust.ts): never funded, or holding only NEAR dust, and no tokens. */
+export function deletionOf(view: WalletView): DeletionVerdict {
+  return deletionVerdict({ exists: view.exists, nearYocto: view.totalNear, lockedYocto: view.lockedNear ?? 0n, tokens: view.tokens, tokensKnown: view.tokensKnown })
+}
+
 /**
- * Deletes a NearKit wallet that was never funded: the one way, for the bot's 🗑 and NearKit web
- * alike. The chain is read again now (a deposit may have just arrived), the signer reads it
- * itself and erases the key only if the account never existed, and the wallet is closed, which
- * frees its slot. A wallet that was funded is never deleted here: its funds and key stay, and the
- * way out is to withdraw, or to add the backup key and remove NearKit's access.
+ * Deletes a NEARKITS wallet that holds nothing of value: never funded, or only NEAR dust (under
+ * 0.05 NEAR, what sending everything out leaves behind), and no tokens. The one way, for the bot's
+ * 🗑 and NEARKITS web alike. The chain is read again now (a deposit may have just arrived); the
+ * signer reads the balance and every token found itself before it erases the key; then the wallet
+ * is closed, which frees its slot. Dust stays on chain, out of anyone's reach. A wallet holding
+ * 0.05 NEAR or more, or any token, is never deleted here.
  */
-export async function deleteEmptyWallet(c: Pick<CustodyDeps, 'signer' | 'store'>, near: ServerNear, wallet: TradingWallet): Promise<'deleted' | 'funded'> {
-  if ((await readWallet(near, wallet)).exists !== false) return 'funded'
+export async function deleteWallet(c: Pick<CustodyDeps, 'signer' | 'store'>, near: ServerNear, wallet: TradingWallet): Promise<DeletionVerdict> {
+  const view = await readWallet(near, wallet)
+  const verdict = deletionOf(view)
+  if (!verdict.ok) return verdict
   try {
-    await c.signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })
+    await c.signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted', tokens: view.checkedTokens })
   } catch (e) {
-    if (e instanceof PolicyViolation) return 'funded'
+    if (e instanceof PolicyViolation) return { ok: false, reason: /tokens/.test(e.message) ? 'tokens' : 'near' }
     throw e
   }
-  await c.store.closeWallet(wallet.id, 'deleted', { reason: 'never funded' })
-  return 'deleted'
+  await c.store.closeWallet(wallet.id, 'deleted', verdict.dustYocto > 0n ? { reason: 'dust', dust: verdict.dustYocto.toString() } : { reason: 'never funded' })
+  return verdict
+}
+
+/** Why a wallet can't be deleted, in the words the web and the bot show. */
+export function undeletableText(name: string, reason: 'near' | 'tokens' | 'unknown'): string {
+  switch (reason) {
+    case 'near':
+      return `${name} holds 0.05 NEAR or more, so it isn’t deleted. Send its NEAR out first: what sending everything leaves behind is dust (under 0.05 NEAR), and a wallet holding only dust can be deleted.`
+    case 'tokens':
+      return `${name} holds tokens, so it isn’t deleted. Send or sell them first: tokens are never treated as dust.`
+    case 'unknown':
+      return `NEARKITS couldn’t read everything ${name} holds right now, so it isn’t deleted. Try again in a moment.`
+  }
 }

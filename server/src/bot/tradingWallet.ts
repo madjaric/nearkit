@@ -1,6 +1,7 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { fractionOf, tryParseUnits } from '@/lib/amounts'
 import type { TokenListing } from '@/types/domain'
+import { accountState } from '@/services/near/account'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import { ownerKeyNow } from '../custody/recovery'
 import type { Intent, TradingWallet } from '../custody/store'
@@ -305,8 +306,10 @@ async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
   const max = await available(ctx, w, a)
   if (max === null) return ctx.show(`⚠️ ${esc('The NEAR network isn’t answering right now. Try again in a moment.')}`, keyboard(walletRow))
   if (max === 0n) return ctx.show(`Nothing of ${esc(a.symbol)} to withdraw.`, keyboard(walletRow))
-  const put = (amount: bigint) => ctx.deps.store.putCallback({ ...a, amount: amount.toString() }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
-  const [q1, q2, qMax] = await Promise.all([put(fractionOf(max, 25, 100)), put(fractionOf(max, 50, 100)), put(max)])
+  const put = (amount: bigint, isMax = false) =>
+    ctx.deps.store.putCallback({ ...a, amount: amount.toString(), ...(isMax && a.asset === NATIVE_TOKEN_ID ? { max: true } : {}) }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  // NEAR's MAX is worked out again once the destination is known: a named account costs less gas to send to.
+  const [q1, q2, qMax] = await Promise.all([put(fractionOf(max, 25, 100)), put(fractionOf(max, 50, 100)), put(max, true)])
   await ctx.deps.store.setSession(ctx.chat.id, ctx.user.id, 'wd.amount', { ...a, max: max.toString() }, FLOW_TTL_MS)
   await ctx.show(
     [
@@ -319,7 +322,7 @@ async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
   )
 }
 
-async function askDestination(ctx: BotCtx, a: Asset & { amount: string }) {
+async function askDestination(ctx: BotCtx, a: Asset & { amount: string; max?: boolean }) {
   const w = await flowWallet(ctx, a.walletId)
   if (!w) return closedWallet(ctx)
   const linked = await linkedAccount(ctx)
@@ -412,11 +415,22 @@ async function askApproval(ctx: BotCtx, w: TradingWallet, flow: WithdrawInput & 
   )
 }
 
-async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: string }, again = false) {
+async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: string; max?: boolean }, again = false) {
   const custody = ctx.deps.custody
   const w = await flowWallet(ctx, flow.walletId)
   if (!custody || !w) return closedWallet(ctx)
-  const input: WithdrawInput = { asset: flow.asset, symbol: flow.symbol, decimals: flow.decimals, amount: flow.amount, to: flow.to, linked: flow.linked }
+  // MAX of NEAR, for this destination: everything spendable now (final) less exactly the gas its transfer holds.
+  let amount = flow.amount
+  if (flow.max === true && flow.asset === NATIVE_TOKEN_ID) {
+    const spendable = await accountState(ctx.deps.near.ctx.rpc, w.accountId, 'final')
+      .then((s) => s.availableYocto)
+      .catch(() => null)
+    if (spendable === null) return ctx.show(`⚠️ ${esc('The NEAR network isn’t answering right now. Try again in a moment.')}`, keyboard(walletRow))
+    const most = maxNearWithdraw(spendable, flow.to)
+    if (most <= 0n) return ctx.show('Nothing of NEAR to withdraw.', keyboard(walletRow))
+    amount = most.toString()
+  }
+  const input: WithdrawInput = { asset: flow.asset, symbol: flow.symbol, decimals: flow.decimals, amount, to: flow.to, linked: flow.linked }
   let review: WithdrawReview
   try {
     review = await reviewWithdraw(ctx.deps.near, ctx.deps.config.network, w, input)
@@ -425,7 +439,7 @@ async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: s
       ctx.chat.id,
       ctx.user.id,
       'wd.to',
-      { asset: input.asset, symbol: input.symbol, decimals: input.decimals, amount: input.amount, walletId: w.id },
+      { asset: input.asset, symbol: input.symbol, decimals: input.decimals, amount: flow.amount, walletId: w.id, ...(flow.max === true ? { max: true } : {}) },
       FLOW_TTL_MS,
     )
     await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`, keyboard([btn('✖ Cancel', 'cw:home')]))

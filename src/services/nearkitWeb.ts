@@ -129,7 +129,8 @@ export interface NearKitWeb {
   createWallet(name: string, createKey: string): Promise<NearKitWebWallet>
   renameWallet(walletId: string, name: string): Promise<NearKitWebWallet>
   /** Deletes one of the user's NearKit wallets that was never funded (the server refuses a funded one). */
-  deleteWallet(walletId: string): Promise<void>
+  /** Deletes a wallet holding nothing of value (never funded, or only NEAR dust); answers the dust left on chain, in yoctoNEAR. */
+  deleteWallet(walletId: string): Promise<{ dustYocto: string }>
   /** Lists the user's NearKit wallets in this order (exactly their wallets, each once); returns them so. */
   orderWallets(walletIds: readonly string[]): Promise<NearKitWebWallet[]>
   /** The server's quote for each wallet: what the review shows. Nothing is signed. */
@@ -307,8 +308,9 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     },
 
     async deleteWallet(walletId) {
-      await call<{ deleted: boolean }>('/api/web/wallets/delete', { walletId })
+      const r = await call<{ deleted: boolean; dustYocto?: string }>('/api/web/wallets/delete', { walletId })
       listed = null
+      return { dustYocto: r.dustYocto ?? '0' }
     },
 
     async orderWallets(walletIds) {

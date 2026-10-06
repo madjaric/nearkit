@@ -3,7 +3,7 @@ import { formatUnits } from '@/lib/amounts'
 import { accountIdError, accountKind, isForeignToNetwork } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
-import { GAS, gasPurchaseYocto } from '@/services/near/gas'
+import { GAS, GAS_BUY_PRICE, gasPurchaseYocto, MIN_GAS_PRICE, nearSendUpfrontYocto } from '@/services/near/gas'
 import { storageBoundsMin, storageStatus } from '@/services/near/storage'
 import type { ServerNear } from '../near'
 import type { IntentHandler, PlanOutcome } from './engine'
@@ -41,8 +41,16 @@ export interface WithdrawReview {
 }
 
 export const WITHDRAW_TTL_MS = 5 * 60_000
-const NEAR_FEE = 10n ** 20n // ~0.0001 NEAR burnt by a transfer
 const TOKEN_FEE = 5n * 10n ** 20n // ~0.0005 NEAR for ft_transfer (+ registration)
+
+/**
+ * The network fee a NEAR transfer to `to` burns, estimated: its gas at the protocol's minimum gas
+ * price (the upfront hold is the same gas at the buy price, and the rest of it is refunded). A
+ * 64-character address costs more: creating that account is part of the transfer.
+ */
+export function nearWithdrawFee(to: string): bigint {
+  return (nearWithdrawUpfront(to) * MIN_GAS_PRICE) / GAS_BUY_PRICE
+}
 
 const invalid = (message: string) => new NearKitError('INVALID_ACCOUNT', message)
 
@@ -54,7 +62,7 @@ const invalid = (message: string) => new NearKitError('INVALID_ACCOUNT', message
  * yet (Telegram asks for the amount first) it is priced as the dearer case.
  */
 export function nearWithdrawUpfront(to?: string): bigint {
-  return gasPurchaseYocto({ receiverId: to, actions: [{ kind: 'transfer', deposit: '1' }] })
+  return nearSendUpfrontYocto(to)
 }
 
 /** A token withdrawal's actions, exactly as its transaction sends them: the destination's registration when it needs one, then the transfer. */
@@ -117,7 +125,7 @@ export async function reviewWithdraw(near: ServerNear, network: NetworkConfig, w
           `Your NEARKITS wallet has ${formatUnits(mine.availableYocto, NEAR_DECIMALS, { maxFraction: 4 })} NEAR available; withdrawing ${formatUnits(amount, NEAR_DECIMALS, { maxFraction: 6 })} also needs a little NEAR for the network fee.`,
         )
       }
-      return { registration: null, fresh, feeNear: NEAR_FEE.toString() }
+      return { registration: null, fresh, feeNear: nearWithdrawFee(input.to).toString() }
     }
 
     const held = await near.ctx.reader.balanceOf(input.asset, wallet.accountId)

@@ -3,6 +3,7 @@ import { base58Decode, base58Encode, base64Decode, base64Encode } from '@/lib/en
 import { exportKeyFingerprint, sealExport } from '@/lib/exportCrypto'
 import { telegramApprovalDigest } from '@/lib/telegramApproval'
 import { accountKind, isForeignToNetwork } from '@/lib/validation'
+import { WALLET_DUST_YOCTO } from '@/lib/walletDust'
 import { parseEd25519PublicKey, verifyNep413 } from '@/services/near/nep413'
 import { deserializeSignedTransaction, serializeSignedTransaction, serializeTransaction, transactionDigest, type NearTransaction } from '@/services/near/transaction'
 import { generateKey, implicitAccountId, nearPublicKey, secretKeyText, signWithSeed } from '../custody/keys'
@@ -414,21 +415,32 @@ export function createSignerCore(deps: SignerDeps) {
     },
 
     async 'erase-key'(body) {
-      const b = obj(body, 'the request', ['accountId', 'reason'])
+      const b = obj(body, 'the request', ['accountId', 'reason'], ['tokens'])
       const accountId = str(b.accountId, 'accountId', 64)
       if (b.reason !== 'deleted' && b.reason !== 'revoked') throw new BadRequestError('malformed request: the reason is unknown')
+      // Deleted: the token contracts the app found the wallet may hold, each read again here.
+      const listed: unknown = b.tokens ?? []
+      if (!Array.isArray(listed) || listed.length > 100) throw new BadRequestError('malformed request: tokens is not a list of up to 100 contracts')
+      const tokens = listed.map((t: unknown, i) => str(t, `tokens[${i}]`, 64))
       await open()
       const key = await store.key(network.id, accountId)
       if (!key || key.status !== 'active') return { erased: false }
       // Checked on chain by a quorum of providers: a key is never erased while it still controls funds.
+      // A deleted wallet holds at most dust (under 0.05 NEAR, nothing staked) and none of its tokens;
+      // that dust stays on chain, out of anyone's reach.
+      let dust = 0n
       if (b.reason === 'deleted') {
-        if (await chain.accountExists(accountId)) throw new PolicyViolation('the wallet exists on chain (it was funded), so its key is not erased')
+        const held = await chain.accountBalance(accountId)
+        if (held.exists && (held.locked > 0n || held.amount >= WALLET_DUST_YOCTO)) throw new PolicyViolation('the wallet holds 0.05 NEAR or more, so its key is not erased')
+        for (const contract of tokens)
+          if ((await chain.tokenBalance(contract, accountId)) > 0n) throw new PolicyViolation(`the wallet holds ${contract} tokens, so its key is not erased`)
+        dust = held.amount
       } else {
         if (!(await chain.accountExists(accountId))) throw new PolicyViolation('the wallet does not exist on chain')
         if ((await chain.permission(accountId, key.publicKey)) !== 'missing') throw new PolicyViolation('NEARKITS’ key is still on the wallet, so its copy is not erased')
       }
       const erased = await store.eraseKey(network.id, accountId, b.reason)
-      if (erased) await store.event('key-erased', { network: network.id, accountId, detail: { reason: b.reason } })
+      if (erased) await store.event('key-erased', { network: network.id, accountId, detail: { reason: b.reason, ...(dust > 0n ? { dust: dust.toString() } : {}) } })
       return { erased }
     },
 

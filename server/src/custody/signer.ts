@@ -76,8 +76,12 @@ export interface TradingSigner {
   /** No owner: a wallet with no owner wallet, controlled by the Telegram account `userId`. */
   createKey(req: { userId: number; owner?: { accountId: string; publicKey: string } | null }): Promise<{ accountId: string; publicKey: string; keyRef: string }>
   sign(req: SignRequest): Promise<SignedTx>
-  /** Erases the signer's copy once the chain shows it controls nothing: a never-funded wallet, or NearKit's key removed. */
-  eraseKey(req: { accountId: string; reason: 'deleted' | 'revoked' }): Promise<boolean>
+  /**
+   * Erases the signer's copy once the chain shows it controls nothing of value: a wallet holding at
+   * most dust (under 0.05 NEAR) and none of the `tokens` listed (each read again by the signer), or
+   * NEARKITS' key removed.
+   */
+  eraseKey(req: { accountId: string; reason: 'deleted' | 'revoked'; tokens?: readonly string[] }): Promise<boolean>
   keyInfo(accountId: string): Promise<{ held: boolean; publicKey: string | null; ownerAccount: string | null; ownerKey: string | null; keyRef: string | null }>
   challenge(req: ChallengeRequest): Promise<ChallengeView>
   ownerWallets(proof: OwnerProof): Promise<{ ownerAccount: string; wallets: { accountId: string; publicKey: string; createdAt: number }[] }>
@@ -137,8 +141,9 @@ export function createSignerClient(transport: SignerTransport): TradingSigner {
       if (typeof r.hash !== 'string' || typeof r.signed !== 'string') throw new SignerUnavailableError('The signer answered something unexpected')
       return { hash: r.hash, base64: r.signed }
     },
-    async eraseKey(req) {
-      return Boolean(answer<{ erased: boolean }>(await call('erase-key', { ...req }), ['erased']).erased)
+    async eraseKey({ tokens, ...req }) {
+      // No tokens to check: the request an older signer also understands.
+      return Boolean(answer<{ erased: boolean }>(await call('erase-key', tokens && tokens.length > 0 ? { ...req, tokens: [...tokens] } : { ...req }), ['erased']).erased)
     },
     async keyInfo(accountId) {
       const r = answer<{ held: boolean; publicKey: string | null; ownerAccount: string | null; ownerKey?: string | null; keyRef: string | null }>(

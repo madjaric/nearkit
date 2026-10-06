@@ -3,6 +3,7 @@ import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { MAX_SLIPPAGE } from '@/lib/fees'
 import { accountIdError } from '@/lib/validation'
+import { accountState } from '@/services/near/account'
 import { toNearKitError } from '@/services/near/errors'
 import { HttpError, type Route } from '../api/http'
 import { field } from '../api/linkRoutes'
@@ -12,7 +13,7 @@ import { friendlyError } from '../bot/ui'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import type { Intent, IntentKind, TradingWallet } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
-import { createTradingWallet, deleteEmptyWallet, ownerForNewWallet, readWallet, WalletLimitError, type CustodyDeps } from '../custody/wallets'
+import { createTradingWallet, deleteWallet, ownerForNewWallet, undeletableText, WalletLimitError, type CustodyDeps } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import type { Store } from '../db/store'
 import { randomToken } from '../ids'
@@ -224,16 +225,16 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       return { wallet: webWalletView(wallet) }
     },
 
-    /** Deletes one of the user's NearKit wallets that was never funded: the bot's own path (deleteEmptyWallet). */
+    /** Deletes one of the user's NEARKITS wallets that holds nothing of value (never funded, or only NEAR dust): the bot's own path (deleteWallet). */
     '/api/web/wallets/delete': async (body) => {
       const userId = await userOf(body)
       const wallet = await ownWallet(userId, field(body, 'walletId', 64))
-      if ((await deleteEmptyWallet(custody, deps.near, wallet)) === 'funded')
-        throw new HttpError(
-          409,
-          'funded',
-          `${walletName(wallet)} has been funded, so it can’t just be deleted: withdraw everything from it first, or add the backup key and remove NEARKITS’ access (Recover). Nothing was deleted.`,
-        )
+      const verdict = await deleteWallet(custody, deps.near, wallet)
+      if (!verdict.ok) throw new HttpError(409, 'funded', `${undeletableText(walletName(wallet), verdict.reason)} Nothing was deleted.`, { reason: verdict.reason })
+      const dust =
+        verdict.dustYocto > 0n
+          ? `It held only dust (${formatUnits(verdict.dustYocto, NEAR_DECIMALS, { maxFraction: 6 })} NEAR), left on chain.`
+          : 'It was never funded, so nothing was lost.'
       // A security notice, like a creation's: nothing waits for it.
       await deps
         .notify(
@@ -241,12 +242,12 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
           [
             `🗑 ${bold('NEARKITS wallet deleted on NEARKITS web')}`,
             `${bold(walletName(wallet))} ${esc(shortAccount(wallet.accountId))}`,
-            'It was never funded, so nothing was lost. If this wasn’t you, sign out of NEARKITS web everywhere.',
+            `${esc(dust)} If this wasn’t you, sign out of NEARKITS web everywhere.`,
           ].join('\n'),
           keyboard([btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NEARKITS web everywhere', 'web:out')]),
         )
         .catch(() => undefined)
-      return { deleted: true }
+      return { deleted: true, dustYocto: verdict.dustYocto.toString() }
     },
 
     /** The order the user lists their NearKit wallets in: exactly their active wallets, each once. */
@@ -393,9 +394,12 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       } catch (e) {
         throw new HttpError(400, 'to', toNearKitError(e).message)
       }
+      // MAX reads the balance the review will check (final), so what it offers always passes it.
       const max =
         token.contract === NATIVE_TOKEN_ID
-          ? await readWallet(deps.near, wallet).then((v) => (v.near === null ? null : maxNearWithdraw(v.near, to)))
+          ? await accountState(deps.near.ctx.rpc, wallet.accountId, 'final')
+              .then((s) => maxNearWithdraw(s.availableYocto, to))
+              .catch(() => null)
           : await deps.near.ctx.reader.balanceOf(token.contract, wallet.accountId).catch(() => null)
       if (max === null) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
       const amount = parsed?.ok ? parsed.value : max
@@ -418,7 +422,9 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       try {
         review = await reviewWithdraw(deps.near, deps.network, wallet, input)
       } catch (e) {
-        throw new HttpError(400, 'to', toNearKitError(e).message)
+        const error = toNearKitError(e)
+        // Not enough NEAR is about the amount; anything else is about the address.
+        throw new HttpError(400, /^INSUFFICIENT/.test(error.code) ? 'amount' : 'to', error.message)
       }
       // The custody rule the signer enforces: the owner, or an address approved for this wallet.
       const approved = to === wallet.ownerAccount || (await custody.signer.destinations(wallet.accountId)).destinations.some((d) => d.destination === to)

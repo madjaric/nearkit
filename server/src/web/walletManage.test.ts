@@ -68,7 +68,7 @@ describe('deleting a NEARKITS wallet on NEARKITS web', () => {
     const before = await listed(token)
     const gone = before.find((w) => w.id === empty)
     const from = h.fake.messages().length
-    expect(await call('/api/web/wallets/delete', { session: token, walletId: empty })).toEqual({ deleted: true })
+    expect(await call('/api/web/wallets/delete', { session: token, walletId: empty })).toEqual({ deleted: true, dustYocto: '0' })
     expect((await listed(token)).map((w) => w.id)).toEqual(before.filter((w) => w.id !== empty).map((w) => w.id))
     expect((await custody.store.wallet(empty as string))?.status).toBe('deleted')
     const notice = h.fake
@@ -81,15 +81,52 @@ describe('deleting a NEARKITS wallet on NEARKITS web', () => {
     expect(again.slot).toBe(gone?.slot)
   })
 
-  it('a funded wallet is not deleted: it says how to empty it, and nothing changes', async () => {
+  it('a wallet holding 0.05 NEAR or more is not deleted: it says how to empty it, and nothing changes', async () => {
     const { custody, refused, signIn, wallets, listed } = await webApp()
     const token = await signIn()
     const [funded] = await wallets(token, 0)
     const r = await refused('/api/web/wallets/delete', { session: token, walletId: funded })
     expect(r).toMatchObject({ status: 409, code: 'funded' })
-    expect(r?.message).toMatch(/withdraw/i)
+    expect(r?.message).toMatch(/holds 0\.05 NEAR or more/)
+    expect(r?.message).toMatch(/dust \(under 0\.05 NEAR\)/)
     expect((await listed(token)).map((w) => w.id)).toContain(funded)
     expect((await custody.store.wallet(funded as string))?.status).toBe('active')
+  })
+
+  it('a wallet holding only dust (what sending everything leaves, under 0.05 NEAR) is deleted; the dust is named', async () => {
+    const { h, custody, call, signIn, wallets } = await webApp()
+    const token = await signIn()
+    const created = await wallets(token, 3)
+    const dusts = [7_500_000_000_000_000_000_000n, 40_000_000_000_000_000_000_000n, 49_999_000_000_000_000_000_000n]
+    for (const [i, dust] of dusts.entries()) {
+      const empty = created[i + 1]
+      const w = (await custody.store.wallet(empty as string)) as { accountId: string }
+      h.chain.fund(w.accountId, dust)
+      const from = h.fake.messages().length
+      expect(await call('/api/web/wallets/delete', { session: token, walletId: empty })).toEqual({ deleted: true, dustYocto: dust.toString() })
+      expect((await custody.store.wallet(empty as string))?.status).toBe('deleted')
+      expect(await h.signerVault?.key('testnet', w.accountId)).toMatchObject({ status: 'erased', eraseReason: 'deleted' })
+      expect(
+        h.fake
+          .messages()
+          .slice(from)
+          .find((m) => m.chatId === ALICE.id)?.text,
+      ).toMatch(/held only dust/)
+    }
+  })
+
+  it('exactly 0.05 NEAR is a balance, and a token balance of any size keeps the wallet', async () => {
+    const { h, custody, refused, signIn, wallets } = await webApp()
+    const token = await signIn()
+    const [, a, b] = await wallets(token, 2)
+    const wa = (await custody.store.wallet(a as string)) as { accountId: string }
+    const wb = (await custody.store.wallet(b as string)) as { accountId: string }
+    h.chain.fund(wa.accountId, 50_000_000_000_000_000_000_000n)
+    expect((await refused('/api/web/wallets/delete', { session: token, walletId: a }))?.message).toMatch(/holds 0\.05 NEAR or more/)
+    h.chain.tokens.get(USDT)?.balances.set(wb.accountId, 1n)
+    expect((await refused('/api/web/wallets/delete', { session: token, walletId: b }))?.message).toMatch(/holds tokens/)
+    expect((await custody.store.wallet(a as string))?.status).toBe('active')
+    expect((await custody.store.wallet(b as string))?.status).toBe('active')
   })
 
   it('another user’s wallet or a made-up id is refused before anything is read', async () => {

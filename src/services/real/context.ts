@@ -43,6 +43,10 @@ export interface AccountBalances {
   state: AccountState | null
   /** Positive balances only. `verified` means read from chain; otherwise indexer-reported. */
   fts: { contract: string; raw: bigint; verified: boolean }[]
+  /** True when the token indexer answered and every token it or NEARKITS knows of was read on chain. */
+  ftComplete: boolean
+  /** The token contracts read on chain for this account (zero balances included). */
+  ftChecked: string[]
   at: number
 }
 
@@ -171,7 +175,9 @@ export function createNearContext(options: NearContextOptions): NearContext {
       return reported !== undefined ? [{ contract, raw: reported, verified: false }] : []
     })
     const fts = [...checked, ...beyond].filter((f): f is NonNullable<typeof f> => f !== null && f.raw > 0n)
-    return { accountId, state, fts, at: now() }
+    const ftChecked = checked.flatMap((f) => (f?.verified ? [f.contract] : []))
+    const ftComplete = discovered !== null && candidates.length <= VERIFY_LIMIT && checked.every((f) => f?.verified === true)
+    return { accountId, state, fts, ftComplete, ftChecked, at: now() }
   }
 
   return {

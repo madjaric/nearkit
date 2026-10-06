@@ -19,6 +19,7 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { formatAccount, formatAmount } from '@/lib/format'
 import { rankTokenList } from '@/lib/tokenRanking'
+import { WALLET_DUST_NEAR } from '@/lib/walletDust'
 import { BOT_NAME, WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
 import { accountIdError } from '@/lib/validation'
 import { describeError } from '@/services/errors'
@@ -278,14 +279,19 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
 // ─── delete ─────────────────────────────────────────────────────────────────
 
 /**
- * Deleting a NearKit wallet: only one that was never funded, the bot's own way (NearKit's server
- * reads the chain, the signer erases the key, the slot is free again). One that holds funds, or
- * held them once, stays: the way out is to send everything away, or Recover.
+ * Deleting a NEARKITS wallet: one that holds nothing of value, the bot's own way (src/lib/walletDust.ts):
+ * never funded, or only NEAR dust (under 0.05 NEAR, what sending everything out leaves behind), and no
+ * tokens. NEARKITS' server reads the chain, the signer reads it again and erases the key, the slot is
+ * free again. A wallet holding 0.05 NEAR or more, or any token, stays.
  */
 function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWallet | null; snapshot: WalletSnapshot | undefined; onClose: () => void }) {
   const toast = useToast()
   const { remove } = useNearKitMutations()
-  const holds = Boolean(snapshot && (snapshot.nearBalance > 0 || snapshot.holdings.some((h) => h.amount > 0)))
+  // What this page knows; NEARKITS' server decides from the chain, now.
+  const tokens = Boolean(snapshot?.holdings.some((h) => h.tokenId !== NATIVE_TOKEN_ID && h.amount > 0))
+  const nearBalance = snapshot?.nearBalance ?? 0
+  const holds = tokens || nearBalance >= WALLET_DUST_NEAR
+  const dust = !holds && nearBalance > 0 ? nearBalance : 0
   const close = () => {
     remove.reset()
     onClose()
@@ -299,11 +305,17 @@ function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWa
           </p>
           {holds ? (
             <p role="alert" className="text-sm text-fg-2">
-              {`${wallet.name} holds funds, so it can’t be deleted. Send everything out of it first, or use Recover to add the backup key and remove NEARKITS’ access.`}
+              {tokens
+                ? `${wallet.name} holds tokens, so it can’t be deleted: tokens are never treated as dust. Send or sell them first.`
+                : `${wallet.name} holds ${WALLET_DUST_NEAR} NEAR or more, so it can’t be deleted. Send its NEAR out first: what sending everything leaves behind is dust (under ${WALLET_DUST_NEAR} NEAR), and a wallet holding only dust can be deleted.`}
             </p>
           ) : (
             <p className="text-sm text-fg-2">
-              Only a NEARKITS wallet that was never funded can be deleted: NEARKITS checks the chain, erases its key and frees its slot for a new wallet. Nothing can be lost.
+              {dust > 0 ? (
+                <Figures>{`${wallet.name} holds only dust: ${formatAmount(dust, 6)} NEAR, under ${WALLET_DUST_NEAR} NEAR. Deleting it leaves that dust on chain, where nobody can move it once NEARKITS erases the key. Its slot is free for a new wallet.`}</Figures>
+              ) : (
+                `A wallet holding nothing (under ${WALLET_DUST_NEAR} NEAR of dust, and no tokens) can be deleted: NEARKITS checks the chain, erases its key and frees its slot for a new wallet.`
+              )}
             </p>
           )}
           {remove.isError && (
@@ -322,8 +334,15 @@ function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWa
                 loading={remove.isPending}
                 onClick={() =>
                   remove.mutate(wallet.id, {
-                    onSuccess: () => {
-                      toast.push({ title: `${wallet.name} deleted`, detail: 'It was never funded, so nothing was lost. Its slot is free for a new wallet.' })
+                    onSuccess: ({ dustYocto }) => {
+                      const left = BigInt(dustYocto)
+                      toast.push({
+                        title: `${wallet.name} deleted`,
+                        detail:
+                          left > 0n
+                            ? `It held only dust (${formatUnits(left, NEAR_DECIMALS, { maxFraction: 6 })} NEAR), left on chain. Its slot is free for a new wallet.`
+                            : 'It held nothing, so nothing was lost. Its slot is free for a new wallet.',
+                      })
                       close()
                     },
                   })

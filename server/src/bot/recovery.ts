@@ -1,7 +1,9 @@
+import { NEAR_DECIMALS } from '@/config/networks'
+import { formatUnits } from '@/lib/amounts'
 import type { BackupKeyParams } from '../custody/recovery'
 import { ownerKeyNow, RECOVERY_INTENT_TTL_MS, RecoveryApiError } from '../custody/recovery'
 import type { Intent, TradingWallet } from '../custody/store'
-import { deleteEmptyWallet, readWallet } from '../custody/wallets'
+import { deleteWallet, deletionOf, readWallet, undeletableText } from '../custody/wallets'
 import { bold, code, esc, shortAccount } from '../telegram/html'
 import { btn, keyboard, urlBtn, type BotCtx, type BotDeps, type BotModule } from './context'
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
@@ -44,7 +46,7 @@ async function showUnowned(ctx: BotCtx, w: TradingWallet) {
     ].join('\n'),
     keyboard(
       linked ? [btn(`🔐 Make ${shortAccount(linked, 28)} the owner`, `cr:bind:${w.id}`)] : [btn('🔗 Link a NEAR wallet', 'acct:link')],
-      view.exists === false ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
+      deletionOf(view).ok ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
       back,
     ),
   )
@@ -114,7 +116,7 @@ async function showRecovery(ctx: BotCtx, walletId = '') {
       backup === false && view.exists && mine ? [btn('🔐 Add backup key', `cr:backup:${w.id}`)] : [],
       owner ? [btn('🌐 Export key in NEARKITS web', `cr:export:${w.id}`)] : [],
       backup ? [btn('🧹 Remove NEARKITS’ access', `cr:revoke:${w.id}`)] : [],
-      view.exists === false ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
+      deletionOf(view).ok ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
       back,
     ),
   )
@@ -229,14 +231,14 @@ async function exportLink(ctx: BotCtx, walletId: string) {
 async function offerDelete(ctx: BotCtx, walletId: string) {
   const w = await recoveryWallet(ctx, walletId)
   if (!w) return showWalletHome(ctx)
-  const view = await readWallet(ctx.deps.near, w)
-  if (view.exists !== false)
-    return ctx.show(
-      'This wallet has been funded, so it can’t just be deleted: withdraw everything, or add the backup key and remove NEARKITS’ access.',
-      keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], back),
-    )
+  const verdict = deletionOf(await readWallet(ctx.deps.near, w))
+  if (!verdict.ok) return ctx.show(esc(undeletableText('This wallet', verdict.reason)), keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], back))
+  const left =
+    verdict.dustYocto > 0n
+      ? `It holds only dust: ${code(formatUnits(verdict.dustYocto, NEAR_DECIMALS, { maxFraction: 6 }))} NEAR, under 0.05 NEAR. That dust stays on chain, where nobody can move it once the key is erased.`
+      : 'It was never funded, so nothing can be lost.'
   await ctx.show(
-    `🗑 Delete the empty NEARKITS wallet ${walletLine(w)}?\n\nIt was never funded, so nothing can be lost. NEARKITS erases its key, and its slot is free for a new wallet.`,
+    `🗑 Delete the empty NEARKITS wallet ${walletLine(w)}?\n\n${left} NEARKITS erases its key, and its slot is free for a new wallet.`,
     keyboard([btn('🗑 Yes, delete it', `cr:deleteyes:${w.id}`), btn('Keep it', 'cw:home')]),
   )
 }
@@ -247,14 +249,17 @@ async function deleteEmpty(ctx: BotCtx, walletId: string) {
   const w = await flowWallet(ctx, walletId)
   if (!custody || !w) return showWalletHome(ctx)
   // Re-read now (a deposit may have arrived since the question); the signer checks the chain itself.
-  let outcome: 'deleted' | 'funded'
+  let outcome: Awaited<ReturnType<typeof deleteWallet>>
   try {
-    outcome = await deleteEmptyWallet(custody, ctx.deps.near, w)
+    outcome = await deleteWallet(custody, ctx.deps.near, w)
   } catch (e) {
     return ctx.show(`⚠️ ${esc(walletErrorText(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'delete wallet' }))} Nothing was deleted.`, keyboard(back))
   }
-  if (outcome === 'funded') return offerDelete(ctx, w.id)
-  await ctx.show('🗑 Deleted. It was never funded, so nothing was lost.', keyboard([newWalletButton(), btn('« Menu', 'menu:home')]))
+  if (!outcome.ok) return offerDelete(ctx, w.id)
+  await ctx.show(
+    outcome.dustYocto > 0n ? '🗑 Deleted. It held only dust (under 0.05 NEAR), left on chain.' : '🗑 Deleted. It was never funded, so nothing was lost.',
+    keyboard([newWalletButton(), btn('« Menu', 'menu:home')]),
+  )
 }
 
 export function recoveryModule(): BotModule {

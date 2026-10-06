@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlannedAction } from '@/types/operations'
-import { FEES, GAS_BUY_PRICE, gasCostBoundYocto, gasPurchaseYocto, MIN_GAS_PRICE, TGAS, txGas } from './gas'
+import { FEES, GAS_BUY_PRICE, gasCostBoundYocto, gasPurchaseYocto, maxNearSendYocto, MIN_GAS_PRICE, nearSendUpfrontYocto, TGAS, txGas } from './gas'
 
 const call = (method: string, args: Record<string, unknown>, gas: bigint, deposit = 0n): PlannedAction => ({
   kind: 'call',
@@ -86,5 +86,28 @@ describe('what a transaction takes from the signer', () => {
     expect(gasCostBoundYocto(swap)).toBe((g.burnt + g.bought) * 2n * MIN_GAS_PRICE)
     // The real swap AChtju7f… cost 0.00803 NEAR; the bound is far above what swaps burn.
     expect(gasCostBoundYocto(swap)).toBeGreaterThan(8_031n * 10n ** 18n)
+  })
+})
+
+describe('the most NEAR a wallet can send (MAX)', () => {
+  const ONE_NEAR = 10n ** 24n
+  const IMPLICIT = 'ab'.repeat(32)
+  it('is the spendable NEAR less exactly each transfer’s own hold: less to a 64-character address, and nothing arbitrary', () => {
+    expect(maxNearSendYocto(ONE_NEAR, ['bob.near'])).toBe(ONE_NEAR - nearSendUpfrontYocto('bob.near'))
+    expect(maxNearSendYocto(ONE_NEAR, [IMPLICIT])).toBe(ONE_NEAR - nearSendUpfrontYocto(IMPLICIT))
+    expect(nearSendUpfrontYocto(IMPLICIT)).toBeGreaterThan(nearSendUpfrontYocto('bob.near'))
+    // Every hold is far under the old flat 0.05 NEAR keep-back.
+    expect(nearSendUpfrontYocto(IMPLICIT)).toBeLessThan(50_000_000_000_000_000_000_000n / 5n)
+  })
+
+  it('holds once per recipient, and prices an unknown recipient as the dearer case', () => {
+    expect(maxNearSendYocto(ONE_NEAR, ['a.near', IMPLICIT])).toBe(ONE_NEAR - nearSendUpfrontYocto('a.near') - nearSendUpfrontYocto(IMPLICIT))
+    expect(maxNearSendYocto(ONE_NEAR, [])).toBe(ONE_NEAR - nearSendUpfrontYocto(IMPLICIT))
+    expect(nearSendUpfrontYocto()).toBe(nearSendUpfrontYocto(IMPLICIT))
+  })
+
+  it('is zero, never negative, when the wallet can’t cover the holds', () => {
+    expect(maxNearSendYocto(nearSendUpfrontYocto('a.near') - 1n, ['a.near'])).toBe(0n)
+    expect(maxNearSendYocto(0n, ['a.near'])).toBe(0n)
   })
 })

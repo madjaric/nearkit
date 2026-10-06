@@ -17,7 +17,8 @@ import { executesViaNearKit } from '@/lib/wallets'
 import { amountsFromPercents, equalPercents, percentState, sumOf } from '@/lib/allocation'
 import { formatUnits, fractionOf, parsePercent, PERCENT_SCALE, splitByWeights, splitEqual, tryParseUnits } from '@/lib/amounts'
 import { cn } from '@/lib/cn'
-import { GAS_RESERVE_NEAR, GAS_RESERVE_YOCTO, NETWORK_FEE_NEAR_PER_TX, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
+import { NETWORK_FEE_NEAR_PER_TX, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
+import { maxNearSendYocto } from '@/services/near/gas'
 import { floorTo, formatAmount, formatNumber, parseAmount, toInputString } from '@/lib/format'
 import { accountIdError } from '@/lib/validation'
 import { useBalance, useCapabilities, usePlanners, useRawBalance, useTokens } from '@/services/queries'
@@ -117,12 +118,18 @@ export function Split() {
   const remainderUsed =
     totalRaw !== null && rawParts !== null && (mode === 'equal' ? totalRaw % BigInt(rows.length) !== 0n : weights.some((w) => w !== null && (totalRaw * w) % PERCENT_SCALE !== 0n))
   const shownAmount = (i: number) => exactAmounts?.[i] ?? formatAmount(amounts[i] ?? 0)
-  // 25/50/75/MAX on the exact balance when it is known; NEAR keeps the gas reserve.
-  const spendableRaw = rawBalance !== null && token ? BigInt(rawBalance) - (tokenId === NATIVE_TOKEN_ID ? GAS_RESERVE_YOCTO : 0n) : null
+  // 25/50/75/MAX on the exact balance when it is known. NEAR keeps back exactly the gas each
+  // recipient's transfer holds (src/services/near/gas.ts), nothing more: what stays is dust.
+  const recipientIds = rows.map((r) => {
+    const a = accountOf(r)
+    return a && accountIdError(a) === null ? a : undefined
+  })
+  const nearHoldRaw = tokenId === NATIVE_TOKEN_ID ? 10n ** 24n - maxNearSendYocto(10n ** 24n, recipientIds) : 0n
+  const spendableRaw = rawBalance !== null && token ? (tokenId === NATIVE_TOKEN_ID ? maxNearSendYocto(BigInt(rawBalance), recipientIds) : BigInt(rawBalance)) : null
   const presetText = (f: number) =>
     spendableRaw !== null && token
       ? formatUnits(fractionOf(spendableRaw > 0n ? spendableRaw : 0n, Math.round(f * 100), 100), token.decimals)
-      : toInputString(floorTo(Math.max(0, balance - (tokenId === NATIVE_TOKEN_ID ? GAS_RESERVE_NEAR : 0)) * f, decimals), decimals)
+      : toInputString(floorTo(Math.max(0, balance - Number(formatUnits(nearHoldRaw, 24))) * f, decimals), decimals)
 
   const rowError = (r: Recipient, index: number): string | null => {
     const account = accountOf(r)

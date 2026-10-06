@@ -109,6 +109,25 @@ export function gasPurchaseYocto(tx: GasTx): bigint {
 }
 
 /**
+ * NEAR a plain NEAR transfer to `to` holds upfront for its gas: gasPurchaseYocto of exactly that
+ * transfer. A 64-character address costs more (the transfer creates that account); with no address
+ * yet it is priced as that dearer case.
+ */
+export function nearSendUpfrontYocto(to?: string): bigint {
+  return gasPurchaseYocto({ receiverId: to, actions: [{ kind: 'transfer', deposit: '1' }] })
+}
+
+/**
+ * The most NEAR one wallet can send in all to these recipients, one transfer each: its spendable NEAR
+ * less each transfer's own hold, nothing more (what stays after the refunds is dust). Enough for each
+ * transfer even when they go one after another before any refund lands.
+ */
+export function maxNearSendYocto(available: bigint, recipients: readonly (string | undefined)[]): bigint {
+  const hold = (recipients.length > 0 ? recipients : [undefined]).reduce((s, to) => s + nearSendUpfrontYocto(to), 0n)
+  return available > hold ? available - hold : 0n
+}
+
+/**
  * The most a transaction's gas can cost once its refunds have landed: every unit it pays for, burnt,
  * at twice the minimum gas price. Real transactions burn a quarter of it or less at the minimum.
  */

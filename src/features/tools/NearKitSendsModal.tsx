@@ -16,6 +16,12 @@ import { reviewLines, sendLines, type LineState, type SendLine } from './nearkit
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/** A line's amount: as reviewed when it is (MAX is worked out by NEARKITS' server), else as asked. */
+function amountShown(line: SendLine, state: LineState | undefined, decimals: number): string {
+  if (state?.kind === 'ready') return formatUnits(BigInt(state.review.amount), decimals)
+  return line.amount === 'max' ? 'All' : line.amount
+}
+
 /** One line's status, in a word or a sentence; an address that needs approval links to where it is approved. */
 function LineStatus({ state, to }: { state: LineState; to: string }) {
   const caps = useCapabilities()
@@ -227,7 +233,9 @@ export function NearKitSendsModal({
                       <span className="num block break-all text-xs text-fg">{line.to}</span>
                     </Td>
                   )}
-                  <Td align="right" mono className="whitespace-nowrap text-fg">{`${line.amount} ${symbol}`}</Td>
+                  <Td align="right" mono className="whitespace-nowrap text-fg">
+                    {`${amountShown(line, states[i], decimals)} ${symbol}`}
+                  </Td>
                   <Td className={cn('text-xs')}>{states[i] && <LineStatus state={states[i]} to={line.to} />}</Td>
                 </Tr>
               ))}

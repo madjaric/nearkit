@@ -15,6 +15,10 @@ export interface SignerChain {
   accountExists(accountId: string): Promise<boolean>
   /** The account's full-access keys (sorted); empty when the account doesn't exist. */
   fullAccessKeys(accountId: string): Promise<string[]>
+  /** The account's NEAR (liquid) and stake at final; both zero, `exists` false, when it doesn't exist. */
+  accountBalance(accountId: string): Promise<{ exists: boolean; amount: bigint; locked: bigint }>
+  /** What `accountId` holds of a NEP-141 token (ft_balance_of at final). */
+  tokenBalance(contract: string, accountId: string): Promise<bigint>
 }
 
 /** The providers disagreed, or too few answered: nothing is decided, and nothing happens. */
@@ -57,5 +61,20 @@ export function createSignerChain(opts: { rpcUrls: readonly string[]; quorum: nu
           throw e
         }
       }),
+    accountBalance: async (accountId) => {
+      const r = await agree(`the balance of ${accountId}`, async (rpc) => {
+        const s = await accountState(rpc, accountId, 'final')
+        return { exists: s.exists, amount: s.totalYocto.toString(), locked: s.lockedYocto.toString() }
+      })
+      return { exists: r.exists, amount: BigInt(r.amount), locked: BigInt(r.locked) }
+    },
+    tokenBalance: async (contract, accountId) => {
+      const raw = await agree(`${accountId}'s ${contract} balance`, async (rpc) => {
+        const v = await rpc.viewFunction<unknown>(contract, 'ft_balance_of', { account_id: accountId }, 'final')
+        if (typeof v !== 'string' || !/^\d{1,40}$/.test(v)) throw new Error(`${contract} answered ft_balance_of with something that isn't a balance`)
+        return v
+      })
+      return BigInt(raw)
+    },
   }
 }

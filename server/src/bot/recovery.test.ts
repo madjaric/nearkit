@@ -364,7 +364,7 @@ describe('removing NEARKITS’ access, and deleting an empty wallet', () => {
     expect(h.chain.accounts.get(w.accountId)?.amount).toBeGreaterThan(ONE)
   })
 
-  it('deletes only a wallet that was never funded', async () => {
+  it('deletes only a wallet that holds nothing of value: never funded, or only NEAR dust', async () => {
     const h = await walletBot()
     await h.press('cw:create')
     const w = await h.wallet()
@@ -375,7 +375,19 @@ describe('removing NEARKITS’ access, and deleting an empty wallet', () => {
     expect(await h.signerVault?.key('testnet', w?.accountId as string)).toMatchObject({ status: 'erased', sealedKey: null, eraseReason: 'deleted' })
     await h.funded(ONE)
     await h.press('cr:delete')
-    expect(h.last()?.text).toContain('can’t just be deleted')
+    expect(h.last()?.text).toContain('holds 0.05 NEAR or more')
     expect((await h.wallet())?.status).toBe('active')
+  })
+
+  it('a wallet left with dust (0.0075 NEAR) is offered for deletion, says the dust stays on chain, and is deleted', async () => {
+    const h = await walletBot()
+    await h.funded(7_500_000_000_000_000_000_000n)
+    const w = await h.wallet()
+    await h.press('cr:delete')
+    expect(h.last()?.text).toContain('holds only dust')
+    expect(h.last()?.text).toContain('0.0075')
+    await h.press(h.button('Yes, delete it'))
+    expect(h.last()?.text).toContain('only dust')
+    expect(await h.custody.store.wallet(w?.id as string)).toMatchObject({ status: 'deleted' })
   })
 })
