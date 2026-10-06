@@ -62,10 +62,15 @@ const near = createFakeNear({
     [USER]: { amount: String(5n * ONE), keys: { [PUBLIC_KEY]: 'full', [APP_KEY]: 'function-call' } },
     'wrap.testnet': { amount: String(ONE), code: true },
     [USDT]: { amount: String(ONE), code: true },
+    // The network's other known tokens: the signer reads each one itself before it erases a never-funded wallet's key.
+    'usdc.itachicara.testnet': { amount: String(ONE), code: true },
+    'ref.fakes.testnet': { amount: String(ONE), code: true },
   },
   tokens: {
     'wrap.testnet': { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, balances: {}, registered: ['ref-finance-101.testnet'], boundsMin: MIN },
     [USDT]: { symbol: 'USDT', name: 'Tether USD', decimals: 24, balances: {}, registered: [USER, 'ref-finance-101.testnet'], boundsMin: MIN },
+    'usdc.itachicara.testnet': { symbol: 'USDC', name: 'USD Coin', decimals: 6, balances: {}, registered: [], boundsMin: MIN },
+    'ref.fakes.testnet': { symbol: 'REF', name: 'Ref Finance Token', decimals: 18, balances: {}, registered: [], boundsMin: MIN },
   },
 })
 
