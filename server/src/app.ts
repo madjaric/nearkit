@@ -49,7 +49,7 @@ import { unwrapHandler } from './custody/unwrap'
 import { backupKeyHandler, createRecoveryService, revokeHandler } from './custody/recovery'
 import { recoveryRoutes } from './api/recoveryRoutes'
 import { telegramRoutes } from './api/telegramRoutes'
-import { approvedText, exportedText, recoveryModule, telegramApprovedText } from './bot/recovery'
+import { approvedText, exportCancelledText, exportedText, exportRequestedNotice, recoveryModule, telegramApprovedText } from './bot/recovery'
 import { createTelegramApprovals } from './custody/telegramApprovals'
 import { TELEGRAM_LAUNCH_KEYS } from './signer/telegram'
 import { hexDecode } from '@/lib/encoding'
@@ -360,8 +360,17 @@ export async function startServer(options: { env: Record<string, string | undefi
       ...(custody
         ? recoveryRoutes({
             recovery: custody.recovery,
-            // The owner hears about every export in Telegram, whoever did it.
-            onExported: async (r) => void (await bot?.notify(r.userId, exportedText(r.wallet, r.owner), keyboard([btn('📤 Withdraw', 'cw:wd'), btn('👛 Wallet', 'cw:home')]))),
+            // The wallet's Telegram account hears about every export at once, with Release it now (the Mini App) and Cancel.
+            // Not told (no bot here, blocked, Telegram down): the route cancels the export.
+            onExportRequested: async (r) => {
+              if (!bot) return false
+              if (r.wallet.userId !== r.userId) log.warn('export notice: the signer and this app name different Telegram accounts', { wallet: r.accountId })
+              const n = exportRequestedNotice({ ...r, wallet: r.wallet }, custody.telegram.link(r))
+              return bot.notify(r.userId, n.text, n.markup)
+            },
+            // And when the key was collected, or the export cancelled on the web.
+            onExported: async (r) => void (await bot?.notify(r.userId, exportedText(r), keyboard([btn('📤 Withdraw', 'cw:wd'), btn('👛 Wallet', 'cw:home')]))),
+            onExportCancelled: async (r) => void (await bot?.notify(r.userId, exportCancelledText(r))),
             onDestinationApproved: async (r) =>
               void (await bot?.notify(r.userId, approvedText(r.wallet, r.destination), keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]))),
           })

@@ -3,7 +3,8 @@ import { apiPost } from './telegramLink'
 
 /**
  * NearKit's Telegram Mini App: approving, from inside Telegram, something for a NearKit
- * wallet with no owner wallet (a withdrawal address, or the wallet's first owner).
+ * wallet with no owner wallet (a withdrawal address, or the wallet's first owner), or
+ * releasing a held key export of any wallet sooner (Release it now).
  *
  * Telegram opens this page with its launch data in the address: who opened it, when, and
  * the link's start parameter, all signed by Telegram. The start parameter is the digest of
@@ -56,8 +57,20 @@ export async function telegramRequestProblem(r: TelegramRequestView, want: { dig
   return null
 }
 
+/** A held key export, as Release it now shows it: who signed for it, and when NEARKITS releases it on its own. */
+export interface ExportFacts {
+  ownerAccount: string
+  releaseAt: number
+  requestedAt: number
+}
+
 export const fetchTelegramRequest = (apiUrl: string, digest: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
-  apiPost<{ request: TelegramRequestView | null; status: 'open' | 'used' | 'expired' | null; walletName: string | null }>(apiUrl, '/api/telegram/request', { digest }, fetchImpl)
+  apiPost<{ request: TelegramRequestView | null; status: 'open' | 'used' | 'expired' | 'cancelled' | null; walletName: string | null; export?: ExportFacts }>(
+    apiUrl,
+    '/api/telegram/request',
+    { digest },
+    fetchImpl,
+  )
 
 export const sendTelegramApproval = (apiUrl: string, initData: string, fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)) =>
   apiPost<{ kind: TelegramRequestView['kind']; accountId: string; target: string }>(apiUrl, '/api/telegram/approve', { initData }, fetchImpl)

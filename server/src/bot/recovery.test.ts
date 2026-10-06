@@ -4,15 +4,16 @@ import { createRpcClient } from '@/services/near/rpc'
 import { serializeSignedTransaction, serializeTransaction, transactionDigest } from '@/services/near/transaction'
 import { createExportKeyPair, openExport, type SealedExport } from '@/lib/exportCrypto'
 import { challengeProblem } from '@/services/recovery'
-import { recoveryRoutes } from '../api/recoveryRoutes'
 import { RecoveryApiError } from '../custody/recovery'
 import type { ChallengeView } from '../signer/core'
 import { ownerSign } from '../signer/testing'
+import type { TgUser } from '../telegram/types'
 import { ALICE } from './testing'
 import { LINKED, ONE, walletBot } from './walletTesting'
 
 type Harness = Awaited<ReturnType<typeof walletBot>>
 const MALLORY = 'mallory.testnet'
+const MALLORY_TG: TgUser = { id: 666, is_bot: false, first_name: 'Mallory', username: 'mallory' }
 
 async function keypair() {
   const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
@@ -40,19 +41,30 @@ async function exportLink(h: Harness) {
   return url.split('#wallet=')[1] as string
 }
 
-type Routes = ReturnType<typeof recoveryRoutes>
+type Routes = ReturnType<Harness['recoveryApi']>
 const call = async <T>(routes: Routes, path: string, body: unknown): Promise<T> => (await (routes[path] as NonNullable<Routes[string]>)(body, {} as never)) as T
 
+/** A held export as the browser sees it. */
+interface WebExport {
+  exportId: string
+  accountId: string
+  ownerAccount: string
+  browserKey: string
+  status: string
+  releaseAt: number
+  expiresAt: number
+}
+
 function webApi(h: Harness, notices: unknown[] = []) {
-  const routes = recoveryRoutes({
-    recovery: h.custody.recovery,
-    onExported: async (r) => void notices.push(r),
-    onDestinationApproved: async (r) => void notices.push(r),
-  })
+  const routes = h.recoveryApi(notices)
   return {
     routes,
     challenge: (body: Record<string, unknown>) => call<ChallengeView>(routes, '/api/recovery/challenge', body),
-    exportKey: (body: Record<string, unknown>) => call<{ accountId: string; publicKey: string; sealed: SealedExport }>(routes, '/api/recovery/export', body),
+    requestExport: (body: Record<string, unknown>) => call<WebExport>(routes, '/api/recovery/export', body),
+    status: (exportId: string) => call<WebExport>(routes, '/api/recovery/export/status', { exportId }),
+    collect: (exportId: string) =>
+      call<{ exportId: string; accountId: string; publicKey: string; sealed: SealedExport; released: 'hold' | 'telegram' }>(routes, '/api/recovery/export/collect', { exportId }),
+    cancel: (exportId: string) => call<WebExport>(routes, '/api/recovery/export/cancel', { exportId }),
     wallets: (body: Record<string, unknown>) => call<{ ownerAccount: string; wallets: { accountId: string; name: string }[] }>(routes, '/api/recovery/wallets', body),
   }
 }
@@ -123,32 +135,11 @@ describe('export: in the web app, after the owner wallet signs', () => {
     expect(moved.buttons().find((b) => b.url)?.url).toMatch(/^https:\/\/web\.example\/recover#wallet=[0-9a-f]{64}$/)
   })
 
-  it('seals the key to the owner’s browser, shows it once, and tells Telegram', async () => {
-    const { h, linked } = await setup()
-    const w = await h.funded(ONE)
-    expect(await exportLink(h)).toBe(w.accountId)
-    const notices: unknown[] = []
-    const api = webApi(h, notices)
-    const browser = await createExportKeyPair()
-    const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
-    expect(c).toMatchObject({ kind: 'export', ownerAccount: LINKED, accountId: w.accountId, recipient: 'nearkits.com' })
-    expect(c.message).toContain(`NearKit wallet: ${w.accountId}`)
-    expect(c.message).toContain(`Owner wallet: ${LINKED}`)
-    expect(c.message).toMatch(/Browser key: [0-9a-f]{4} [0-9a-f]{4} [0-9a-f]{4} [0-9a-f]{4}/)
-    const proof = { challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }
-    const out = await api.exportKey(proof)
-    const secret = await openExport(browser.privateKey, out.sealed, { challengeId: c.id, network: 'testnet', accountId: w.accountId })
-    const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
-    expect(`ed25519:${base58Encode(raw.subarray(32))}`).toBe(w.publicKey)
-    // The API never carried it in the clear.
-    expect(JSON.stringify(out)).not.toContain(secret.slice(8))
-    expect(notices).toEqual([{ userId: ALICE.id, wallet: w.accountId, owner: LINKED }])
-    // Once only; and the security log never holds the key.
-    expect(await status(api.exportKey(proof))).toBe(409)
-    const audit = await h.custody.store.auditOf(w.id)
-    expect(audit.map((a) => a.action)).toEqual(expect.arrayContaining(['export-link-shown', 'key-exported']))
-    expect(JSON.stringify(audit)).not.toContain(secret.slice(8))
-    expect((await h.signerVault?.events('testnet', w.accountId))?.map((e) => e.kind)).toEqual(expect.arrayContaining(['challenge-created', 'key-exported']))
+  it('the Export screen says every export is held and announced here', async () => {
+    const { h } = await setup()
+    await h.funded(ONE)
+    await h.press('cr:export')
+    expect(h.last()?.text).toContain('NEARKITS holds the export for 24 hours and tells you here at once')
   })
 
   it('refuses another account’s key, a bad signature, a function-call key, an expired request and a guessing streak', async () => {
@@ -160,19 +151,19 @@ describe('export: in the web app, after the owner wallet signs', () => {
     const stranger = await keypair()
     h.chain.accounts.set('stranger.testnet', { amount: ONE, keys: { [stranger.publicKey]: 'full' } })
     let c = await fresh()
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: stranger.publicKey, signature: await ownerSign(c, stranger.pair) }))).toBe(403)
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign({ ...c, message: 'other' }, linked.pair) }))).toBe(403)
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: stranger.publicKey, signature: await ownerSign(c, stranger.pair) }))).toBe(403)
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign({ ...c, message: 'other' }, linked.pair) }))).toBe(403)
     // A function-call key of the owner can't export.
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: app.publicKey, signature: await ownerSign(c, app.pair) }))).toBe(403)
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: app.publicKey, signature: await ownerSign(c, app.pair) }))).toBe(403)
     c = await fresh()
     h.advance(5 * 60_000 + 1)
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }))).toBe(410)
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }))).toBe(410)
     c = await fresh()
-    for (let i = 0; i < 5; i++) await status(api.exportKey({ challengeId: c.id, publicKey: stranger.publicKey, signature: await ownerSign(c, stranger.pair) }))
+    for (let i = 0; i < 5; i++) await status(api.requestExport({ challengeId: c.id, publicKey: stranger.publicKey, signature: await ownerSign(c, stranger.pair) }))
     // Locked: even the owner's own signature is refused now; a new request works.
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }))).toBe(403)
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }))).toBe(403)
     c = await fresh()
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }))).toBeNull()
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }))).toBeNull()
   })
 
   it('a stolen link, a known Telegram ID or wallet address, or an intercepted signature exports nothing readable', async () => {
@@ -185,14 +176,159 @@ describe('export: in the web app, after the owner wallet signs', () => {
     const theirs = await createExportKeyPair()
     const c1 = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: theirs.publicKey })
     expect(c1.message).toContain(`Owner wallet: ${LINKED}`)
-    expect(await status(api.exportKey({ challengeId: c1.id, publicKey: mallory.publicKey, signature: await ownerSign(c1, mallory.pair) }))).toBe(403)
+    expect(await status(api.requestExport({ challengeId: c1.id, publicKey: mallory.publicKey, signature: await ownerSign(c1, mallory.pair) }))).toBe(403)
     // The owner's signed request, intercepted and sent first: the key is sealed to the OWNER's browser key, so it opens nowhere else.
     const owners = await createExportKeyPair()
     const c2 = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: owners.publicKey })
-    const stolen = await api.exportKey({ challengeId: c2.id, publicKey: linked.publicKey, signature: await ownerSign(c2, linked.pair) })
+    const held = await api.requestExport({ challengeId: c2.id, publicKey: linked.publicKey, signature: await ownerSign(c2, linked.pair) })
+    h.advance(held.releaseAt - h.deps.now())
+    const stolen = await api.collect(held.exportId)
     await expect(openExport(theirs.privateKey, stolen.sealed, { challengeId: c2.id, network: 'testnet', accountId: w.accountId })).rejects.toThrow()
     // Swapping the browser key after the owner signed is not possible: the request keeps the key it was made with.
-    expect(await status(api.exportKey({ challengeId: c2.id, publicKey: linked.publicKey, signature: await ownerSign(c2, linked.pair) }))).toBe(409)
+    expect(await status(api.requestExport({ challengeId: c2.id, publicKey: linked.publicKey, signature: await ownerSign(c2, linked.pair) }))).toBe(409)
+  })
+})
+
+describe('export: held, announced in Telegram, released there or after the hold (AUTH-05)', () => {
+  /** The owner's browser asks and the owner wallet signs, through NEARKITS web's API. */
+  async function requested(o: { notices?: unknown[] } = {}) {
+    const { h, linked } = await setup()
+    const w = await h.funded(ONE)
+    // From Telegram's Export button to the web page for this wallet.
+    expect(await exportLink(h)).toBe(w.accountId)
+    const api = webApi(h, o.notices)
+    const browser = await createExportKeyPair()
+    const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
+    const held = await api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) })
+    return { h, w, api, browser, c, held, linked }
+  }
+  const notice = (h: Harness) => [...h.fake.messages()].reverse().find((m) => m.text.includes('Key export requested'))
+  const fingerprintOf = (text: string) => /Browser key: ([0-9a-f ]{19})/.exec(text)?.[1]
+  const opened = (r: Awaited<ReturnType<typeof requested>>, sealed: SealedExport) =>
+    openExport(r.browser.privateKey, sealed, { challengeId: r.c.id, network: 'testnet', accountId: r.w.accountId })
+
+  it('a signed export is held and the wallet’s Telegram account is told at once, with Release it now and Cancel; nothing is released yet', async () => {
+    const notices: unknown[] = []
+    const r = await requested({ notices })
+    expect(r.held).toMatchObject({ exportId: r.c.id, accountId: r.w.accountId, ownerAccount: LINKED, status: 'held', browserKey: fingerprintOf(r.c.message) })
+    expect(r.held.releaseAt - r.h.deps.now()).toBeGreaterThanOrEqual(24 * 60 * 60_000)
+    // What the browser sees carries neither the Telegram account nor the Mini App's parameter.
+    expect(Object.keys(r.held)).not.toContain('digest')
+    expect(Object.keys(r.held)).not.toContain('userId')
+    const n = notice(r.h)
+    expect(n?.chatId).toBe(ALICE.id)
+    expect(n?.text).toContain(`Your owner wallet <code>${LINKED}</code> signed a request in NEARKITS web`)
+    expect(n?.text).toContain(`<code>${r.held.browserKey}</code>`)
+    expect(n?.text).toContain('The key itself never comes to Telegram.')
+    const release = n?.buttons.find((b) => b.text.includes('Release it now'))?.url ?? ''
+    // The Mini App link names exactly this export: its start parameter is the signer's digest of it.
+    expect(release).toBe(`https://t.me/${r.h.deps.me.username}?startapp=${(await r.h.custody.recovery.exportStatus({ exportId: r.held.exportId }))?.digest}`)
+    expect(n?.buttons.find((b) => b.text.includes('Cancel export'))?.data).toBe(`cr:xcancel:${r.held.exportId}`)
+    expect(notices).toEqual([{ kind: 'export-requested', userId: ALICE.id, accountId: r.w.accountId, owner: LINKED, browserKey: r.held.browserKey }])
+    // Held: the browser gets nothing yet.
+    expect(await status(r.api.collect(r.held.exportId))).toBe(425)
+    expect((await r.api.status(r.held.exportId)).status).toBe('held')
+    expect((await r.h.custody.store.auditOf(r.w.id)).map((a) => a.action)).toEqual(expect.arrayContaining(['key-export-requested', 'key-export-notified']))
+  })
+
+  it('normal confirmed export: Alice releases it in the Mini App, the browser collects it at once, and Telegram hears of both; the key never reaches Telegram', async () => {
+    const notices: unknown[] = []
+    const r = await requested({ notices })
+    await r.h.approveInTelegram()
+    expect(r.h.last()?.text).toContain('You released the key export of your NEARKITS wallet')
+    expect((await r.api.status(r.held.exportId)).status).toBe('ready')
+    const out = await r.api.collect(r.held.exportId)
+    expect(out.released).toBe('telegram')
+    const secret = await opened(r, out.sealed)
+    const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
+    expect(`ed25519:${base58Encode(raw.subarray(32))}`).toBe(r.w.publicKey)
+    expect(r.h.last()?.text).toContain('was exported to the browser with the key')
+    expect(notices.at(-1)).toMatchObject({ kind: 'exported', released: 'telegram' })
+    // Once only.
+    expect(await status(r.api.collect(r.held.exportId))).toBe(409)
+    // Nothing in Telegram, the audit log or the API's answers holds the key.
+    const audit = await r.h.custody.store.auditOf(r.w.id)
+    expect(audit.map((a) => a.action)).toEqual(expect.arrayContaining(['key-export-requested', 'key-export-notified', 'key-export-released', 'key-exported']))
+    for (const place of [JSON.stringify(r.h.fake.calls), JSON.stringify(audit), JSON.stringify(out)]) expect(place).not.toContain(secret.slice(8))
+  })
+
+  it('without Telegram: once the hold is over, the browser that asked collects it', async () => {
+    const r = await requested()
+    r.h.advance(r.held.releaseAt - r.h.deps.now() - 1)
+    expect(await status(r.api.collect(r.held.exportId))).toBe(425)
+    r.h.advance(1)
+    const out = await r.api.collect(r.held.exportId)
+    expect(out.released).toBe('hold')
+    expect(await opened(r, out.sealed)).toMatch(/^ed25519:/)
+  })
+
+  it('❌ Cancel export in the chat: only the wallet’s own Telegram account can, and then nothing is released, ever', async () => {
+    const r = await requested()
+    const cancel = `cr:xcancel:${r.held.exportId}`
+    // Another Telegram account pressing the same button (a forwarded message, a guessed ID): refused.
+    await r.h.say('/start', MALLORY_TG)
+    await r.h.press(cancel, MALLORY_TG)
+    expect(r.h.last()?.text).toContain('Only the Telegram account of this NEARKITS wallet can cancel its export')
+    expect((await r.api.status(r.held.exportId)).status).toBe('held')
+    // Alice cancels.
+    await r.h.press(cancel)
+    expect(r.h.last()?.text).toContain('Export cancelled')
+    expect(r.h.last()?.text).toContain('Nothing was released, and nothing will be')
+    expect((await r.api.status(r.held.exportId)).status).toBe('cancelled')
+    // Not after the hold, and not by a release in the Mini App afterwards.
+    r.h.advance(r.held.releaseAt - r.h.deps.now() + 60_000)
+    expect(await status(r.api.collect(r.held.exportId))).toBe(410)
+    await expect(r.h.approveInTelegram()).rejects.toMatchObject({ code: 'cancelled' })
+    expect((await r.h.custody.store.auditOf(r.w.id)).map((a) => a.action)).toContain('key-export-cancelled')
+  })
+
+  it('the page that asked can cancel it too, and Telegram hears of it', async () => {
+    const r = await requested()
+    expect((await r.api.cancel(r.held.exportId)).status).toBe('cancelled')
+    expect(r.h.last()?.text).toContain('was cancelled in NEARKITS web. Nothing was released.')
+    r.h.advance(r.held.releaseAt - r.h.deps.now())
+    expect(await status(r.api.collect(r.held.exportId))).toBe(410)
+  })
+
+  it('if the wallet’s Telegram account can’t be told (it blocked the bot), the export is cancelled and nothing is released', async () => {
+    const { h, linked } = await setup()
+    const w = await h.funded(ONE)
+    const api = webApi(h)
+    await h.store.markBlocked(ALICE.id)
+    const browser = await createExportKeyPair()
+    const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
+    const refused = await api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) }).catch((e: unknown) => e)
+    expect(refused).toMatchObject({ status: 503, code: 'telegram' })
+    expect(await h.custody.recovery.exportStatus({ accountId: w.accountId })).toBeNull()
+    expect((await h.custody.recovery.exportStatus({ exportId: c.id }))?.status).toBe('cancelled')
+    h.advance(25 * 60 * 60_000)
+    // The API releases nothing Telegram wasn't told of, and the signer itself holds it cancelled.
+    expect(await status(api.collect(c.id))).toBe(403)
+    await expect(h.custody.signer.collectExport(c.id)).rejects.toMatchObject({ problem: 'cancelled' })
+  })
+
+  it('nothing is released through the API for an export Telegram wasn’t told of, even once its hold is over', async () => {
+    const { h, linked } = await setup()
+    const w = await h.funded(ONE)
+    const api = webApi(h)
+    const browser = await createExportKeyPair()
+    const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
+    // The signer held it, but the notice step never happened (a crash between the two, say).
+    const { held } = await h.custody.recovery.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) })
+    h.advance(held.releaseAt - h.deps.now())
+    expect(await status(api.collect(held.exportId))).toBe(403)
+  })
+
+  it('the Recovery screen shows an open export with Release it now and Cancel', async () => {
+    const r = await requested()
+    await r.h.press('cr:show')
+    expect(r.h.last()?.text).toContain('An export is open')
+    expect(r.h.last()?.text).toContain(r.held.browserKey)
+    expect(r.h.buttons().find((b) => b.text.includes('Release it now'))?.url).toMatch(/startapp=/)
+    await r.h.press(r.h.button('Cancel export'))
+    expect(r.h.last()?.text).toContain('Export cancelled')
+    await r.h.press('cr:show')
+    expect(r.h.last()?.text).not.toContain('An export is open')
   })
 })
 
@@ -222,7 +358,7 @@ describe('the web page checks what it is asked to sign', () => {
 })
 
 describe('recovery without Telegram', () => {
-  it('the owner wallet alone lists its NEARKITS wallets and exports one; Telegram only hears about it', async () => {
+  it('the owner wallet alone lists its NEARKITS wallets and exports one: held, announced in Telegram, collected once its hold is over', async () => {
     const { h, linked } = await setup()
     const a = await h.funded(ONE)
     await h.press('cw:list')
@@ -241,15 +377,21 @@ describe('recovery without Telegram', () => {
     ])
     // The session request is used up: replaying it lists nothing.
     expect(await status(api.wallets({ challengeId: session.id, publicKey: linked.publicKey, signature: await ownerSign(session, linked.pair) }))).toBe(409)
+    // Listing involved no bot message at all.
+    expect(h.fake.messages().length).toBe(updatesBefore)
     const browser = await createExportKeyPair()
     const c = await api.challenge({ kind: 'export', accountId: b.accountId, recipientKey: browser.publicKey })
-    const out = await api.exportKey({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) })
+    const held = await api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) })
+    h.advance(held.releaseAt - h.deps.now())
+    const out = await api.collect(held.exportId)
     const secret = await openExport(browser.privateKey, out.sealed, { challengeId: c.id, network: 'testnet', accountId: b.accountId })
     const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
     expect(`ed25519:${base58Encode(raw.subarray(32))}`).toBe(b.publicKey)
-    // No bot update was involved; the notice is the only Telegram side of it.
-    expect(h.fake.messages().length).toBe(updatesBefore)
-    expect(notices).toEqual([{ userId: ALICE.id, wallet: b.accountId, owner: LINKED }])
+    // Telegram is told twice: when it was asked for, and when it was collected. No bot update was involved.
+    expect(notices).toEqual([
+      { kind: 'export-requested', userId: ALICE.id, accountId: b.accountId, owner: LINKED, browserKey: held.browserKey },
+      { kind: 'exported', userId: ALICE.id, accountId: b.accountId, owner: LINKED, released: 'hold' },
+    ])
   })
 
   it('another account’s signature lists nothing of the owner’s', async () => {
@@ -276,11 +418,11 @@ describe('the owner, not whichever wallet is linked now', () => {
     const browser = await createExportKeyPair()
     const c = await api.challenge({ kind: 'export', accountId: w.accountId, recipientKey: browser.publicKey })
     expect(c.ownerAccount).toBe(LINKED)
-    expect(await status(api.exportKey({ challengeId: c.id, publicKey: mallory.publicKey, signature: await ownerSign(c, mallory.pair) }))).toBe(403)
+    expect(await status(api.requestExport({ challengeId: c.id, publicKey: mallory.publicKey, signature: await ownerSign(c, mallory.pair) }))).toBe(403)
     expect((await h.signerVault?.events('testnet', w.accountId))?.map((e) => e.kind)).toContain('owner-proof-refused')
     await h.store.unlink('testnet', LINKED, ALICE.id)
-    const out = await api.exportKey({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) })
-    expect(out.accountId).toBe(w.accountId)
+    const held = await api.requestExport({ challengeId: c.id, publicKey: linked.publicKey, signature: await ownerSign(c, linked.pair) })
+    expect(held.accountId).toBe(w.accountId)
   })
 
   it('backup key: always a key of the owner wallet; a request for any other key is refused before signing', async () => {

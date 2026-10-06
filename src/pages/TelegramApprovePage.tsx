@@ -10,13 +10,15 @@ import {
   sendTelegramApproval,
   telegramLaunchContext,
   telegramRequestProblem,
+  type ExportFacts,
   type TelegramLaunchContext,
   type TelegramRequestView,
 } from '@/services/telegramApproval'
 
 /**
  * NearKit's Telegram Mini App. Opened from the Approve button in the chat, it approves a
- * withdrawal address (or the first owner wallet) of a NearKit wallet with no owner wallet:
+ * withdrawal address (or the first owner wallet) of a NearKit wallet with no owner wallet, or
+ * (Release it now) releases a held key export sooner; cancelling stays in the chat's button:
  * it shows the request only if it is exactly what the link names (its digest is the start
  * parameter Telegram signed), and on Approve sends Telegram's signed launch data, which
  * NearKit's signer checks itself. Opened directly from the bot (its Open button), it is a
@@ -49,13 +51,15 @@ function useTelegramScript() {
   }, [])
 }
 
+type Status = 'open' | 'used' | 'expired' | 'cancelled' | null
+type Shown = { request: TelegramRequestView; walletName: string | null; facts: ExportFacts | null }
 type View =
   | { step: 'loading' }
   | { step: 'home' }
   | { step: 'outside' }
   | { step: 'refused'; message: string }
-  | { step: 'review'; request: TelegramRequestView; walletName: string | null; status: 'open' | 'used' | 'expired' | null; error?: string }
-  | { step: 'sending'; request: TelegramRequestView; walletName: string | null }
+  | ({ step: 'review'; status: Status; error?: string } & Shown)
+  | ({ step: 'sending' } & Shown)
   | { step: 'done'; request: TelegramRequestView }
 
 function Shell({ children }: { children: ReactNode }) {
@@ -94,7 +98,9 @@ function Notice({ tone, children }: { tone: 'ok' | 'neg'; children: ReactNode })
   )
 }
 
-const title = (r: TelegramRequestView) => (r.kind === 'destination' ? 'Approve a withdrawal address' : 'Make an owner wallet')
+const title = (r: TelegramRequestView) => (r.kind === 'destination' ? 'Approve a withdrawal address' : r.kind === 'export' ? 'Release a key export' : 'Make an owner wallet')
+/** A time as the reader's clock shows it, with the date: an export is held for a day. */
+const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const botLink = ENV.telegramBot ? `https://t.me/${ENV.telegramBot}` : null
 
 /** Back to the chat: Telegram closes the Mini App; without its script, the bot's link. */
@@ -133,7 +139,7 @@ export default function TelegramApprovePage() {
       if (!r.request) return { step: 'refused', message: 'This request is unknown. Start again in Telegram.' }
       const problem = await telegramRequestProblem(r.request, { digest: launch.startParam, network: ENV.network })
       if (problem) return { step: 'refused', message: problem }
-      return { step: 'review', request: r.request, walletName: r.walletName, status: r.status }
+      return { step: 'review', request: r.request, walletName: r.walletName, facts: r.export ?? null, status: r.status }
     }
     run()
       .then((v) => live && setView(v))
@@ -143,15 +149,16 @@ export default function TelegramApprovePage() {
     }
   }, [apiUrl])
 
-  const approve = async (request: TelegramRequestView, walletName: string | null) => {
+  const approve = async (shown: Shown) => {
     if (context.kind !== 'approval' || !apiUrl) return
-    setView({ step: 'sending', request, walletName })
+    setView({ step: 'sending', ...shown })
     try {
       await sendTelegramApproval(apiUrl, context.launch.initData)
-      setView({ step: 'done', request })
-      setTimeout(() => webApp()?.close(), 2500)
+      setView({ step: 'done', request: shown.request })
+      // A released export stays on screen: its "cancel it now" matters more than closing.
+      if (shown.request.kind !== 'export') setTimeout(() => webApp()?.close(), 2500)
     } catch (e) {
-      setView({ step: 'review', request, walletName, status: 'open', error: describeError(e).message })
+      setView({ step: 'review', ...shown, status: 'open', error: describeError(e).message })
     }
   }
 
@@ -198,7 +205,9 @@ export default function TelegramApprovePage() {
         <Notice tone="ok">
           {view.request.kind === 'destination'
             ? `Approved. ${view.request.target} can now receive withdrawals from this NEARKITS wallet. Go back to the chat and tap Continue.`
-            : `Approved. ${view.request.target} is now this NEARKITS wallet’s owner wallet.`}
+            : view.request.kind === 'export'
+              ? `Released. The browser with the key ${view.request.target} can collect this wallet’s private key now. If that wasn’t you, tap ❌ Cancel export in the chat at once.`
+              : `Approved. ${view.request.target} is now this NEARKITS wallet’s owner wallet.`}
         </Notice>
         <Button variant="secondary" size="lg" block onClick={() => webApp()?.close()}>
           Back to NEARKITS
@@ -206,37 +215,48 @@ export default function TelegramApprovePage() {
       </Shell>
     )
 
-  const { request, walletName } = view
+  const { request, walletName, facts } = view
+  const shown: Shown = { request, walletName, facts }
   // As the signer saw it when the page loaded; an approval sent after that is refused by the signer anyway.
   const status = view.step === 'review' ? view.status : 'open'
-  const expired = status === 'expired'
+  const isExport = request.kind === 'export'
   return (
     <Shell>
       <h1 className="text-lg font-semibold">{title(request)}</h1>
       <p className="text-sm leading-6 text-fg-2">
         {request.kind === 'destination'
           ? 'This NEARKITS wallet has no owner wallet, so your Telegram account approves where it may send funds. Approve only an address you typed yourself.'
-          : 'This NEARKITS wallet has no owner wallet yet. The wallet below becomes its owner for good: withdrawals then go only to it, or to addresses it approves.'}
+          : isExport
+            ? `Your owner wallet${facts ? ` ${facts.ownerAccount}` : ''} signed a request in NEARKITS web to export this wallet’s private key to the browser below. NEARKITS holds it${facts ? ` until ${when(facts.releaseAt)}` : ''}. Release it now only if you asked for it yourself and the browser key matches the one on your NEARKITS page. If it wasn’t you, close this and tap ❌ Cancel export in the chat.`
+            : 'This NEARKITS wallet has no owner wallet yet. The wallet below becomes its owner for good: withdrawals then go only to it, or to addresses it approves.'}
       </p>
       <Field label={`NEARKITS wallet${walletName ? ` · ${walletName}` : ''}`}>{request.accountId}</Field>
-      <Field label={request.kind === 'destination' ? 'Withdrawal address' : 'Owner wallet'}>{request.target}</Field>
+      {isExport && facts && <Field label="Owner wallet">{facts.ownerAccount}</Field>}
+      <Field label={request.kind === 'destination' ? 'Withdrawal address' : isExport ? 'Browser key' : 'Owner wallet'}>{request.target}</Field>
+      {isExport && facts && <Field label="Released on its own">{when(facts.releaseAt)}</Field>}
       <Field label="Network">NEAR {request.network}</Field>
       {view.step === 'review' && view.error && <Notice tone="neg">{view.error}</Notice>}
       {status === 'used' ? (
-        <Notice tone="ok">Already approved. Go back to the chat.</Notice>
-      ) : expired ? (
-        <Notice tone="neg">This request expired. Start again in Telegram.</Notice>
+        <Notice tone="ok">{isExport ? 'Already released. Go back to the chat.' : 'Already approved. Go back to the chat.'}</Notice>
+      ) : status === 'cancelled' ? (
+        <Notice tone="ok">This export was cancelled. Nothing will be released.</Notice>
+      ) : status === 'expired' ? (
+        <Notice tone="neg">{isExport ? 'This export expired. Nothing will be released.' : 'This request expired. Start again in Telegram.'}</Notice>
       ) : (
         <div className="flex flex-col gap-2">
-          <Button variant="primary" size="lg" block loading={view.step === 'sending'} disabled={view.step === 'sending'} onClick={() => void approve(request, walletName)}>
-            Approve
+          <Button variant="primary" size="lg" block loading={view.step === 'sending'} disabled={view.step === 'sending'} onClick={() => void approve(shown)}>
+            {isExport ? 'Release the key now' : 'Approve'}
           </Button>
           <Button variant="ghost" size="lg" block onClick={() => webApp()?.close()}>
-            Cancel
+            {isExport ? 'Not me: close' : 'Cancel'}
           </Button>
         </div>
       )}
-      <p className="text-xs leading-5 text-fg-3">Telegram signs your approval for your account only. NEARKITS’ servers can’t approve anything without it.</p>
+      <p className="text-xs leading-5 text-fg-3">
+        {isExport
+          ? 'Telegram signs your release for your account only. NEARKITS’ servers can’t release an export sooner without it, and the key never comes to Telegram.'
+          : 'Telegram signs your approval for your account only. NEARKITS’ servers can’t approve anything without it.'}
+      </p>
     </Shell>
   )
 }

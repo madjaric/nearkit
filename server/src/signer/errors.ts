@@ -52,6 +52,12 @@ export type ChallengeProblem =
   | 'stale'
   /** This signer can't check Telegram's signature (not configured). */
   | 'telegram-off'
+  /** A key export still held: its time hasn't come and the wallet's Telegram account hasn't released it. */
+  | 'held'
+  /** A key export that was cancelled: nothing is released, ever. */
+  | 'cancelled'
+  /** Another export of this wallet is still open. */
+  | 'pending'
 
 /** An owner-signed request that doesn't hold up. */
 export class ChallengeError extends Error {

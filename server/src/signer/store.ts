@@ -105,6 +105,46 @@ export interface TelegramApproval {
   revokedAt: number | null
 }
 
+/**
+ * A key export the owner signed for, held until its release time unless the wallet's Telegram
+ * account releases it sooner. `held` → `confirmed` (Telegram) → `collected`, or `held` →
+ * `collected` once the hold is over; `cancelled` and `expired` end it. Nothing here is trusted
+ * when the key is released: the owner's signed request and Telegram's signed launch are
+ * re-verified against every field.
+ */
+export type ExportState = 'held' | 'confirmed' | 'collected' | 'cancelled' | 'expired'
+
+export interface ExportRequest {
+  /** The owner-signed request's ID (its `Request:` line): one export per request. */
+  id: string
+  /** The Mini App's start parameter for releasing it sooner (src/lib/telegramApproval.ts). */
+  digest: string
+  network: string
+  accountId: string
+  ownerAccount: string
+  /** The owner key that signed, and its NEP-413 signature of `message` (emptied when cancelled). */
+  ownerKey: string
+  signature: string
+  message: string
+  nonce: string
+  recipient: string
+  /** The wallet's Telegram account, from the signer's own key record: the only one that releases or cancels it in Telegram. */
+  userId: number
+  /** The browser key the key is sealed to (P-256, raw, base64url). */
+  recipientKey: string
+  state: ExportState
+  attempts: number
+  createdAt: number
+  releaseAt: number
+  expiresAt: number
+  confirmedAt: number | null
+  /** Telegram's signed launch data that released it sooner. */
+  confirmInitData: string | null
+  cancelledAt: number | null
+  cancelledBy: string | null
+  collectedAt: number | null
+}
+
 export interface SignatureRecord {
   intentId: string
   step: number
@@ -271,6 +311,58 @@ const toTelegramApproval = (r: TelegramApprovalRow): TelegramApproval => ({
   revokedAt: r.revoked_at === null ? null : Number(r.revoked_at),
 })
 
+interface ExportRow {
+  id: string
+  digest: string
+  network: string
+  account_id: string
+  owner_account: string
+  owner_key: string
+  signature: string
+  message: string
+  nonce: string
+  recipient: string
+  user_id: number
+  recipient_key: string
+  state: ExportState
+  attempts: number
+  created_at: number
+  release_at: number
+  expires_at: number
+  confirmed_at: number | null
+  confirm_init_data: string | null
+  cancelled_at: number | null
+  cancelled_by: string | null
+  collected_at: number | null
+}
+
+const orNull = (v: number | null) => (v === null ? null : Number(v))
+
+const toExport = (r: ExportRow): ExportRequest => ({
+  id: r.id,
+  digest: r.digest,
+  network: r.network,
+  accountId: r.account_id,
+  ownerAccount: r.owner_account,
+  ownerKey: r.owner_key,
+  signature: r.signature,
+  message: r.message,
+  nonce: r.nonce,
+  recipient: r.recipient,
+  userId: Number(r.user_id),
+  recipientKey: r.recipient_key,
+  state: r.state,
+  attempts: Number(r.attempts),
+  createdAt: Number(r.created_at),
+  releaseAt: Number(r.release_at),
+  expiresAt: Number(r.expires_at),
+  confirmedAt: orNull(r.confirmed_at),
+  confirmInitData: r.confirm_init_data,
+  cancelledAt: orNull(r.cancelled_at),
+  cancelledBy: r.cancelled_by,
+  collectedAt: orNull(r.collected_at),
+})
+
 interface SignatureRow {
   intent_id: string
   step: number
@@ -379,6 +471,7 @@ export class SignerStore {
     await this.db.run('DELETE FROM signer_request_nonces WHERE expires_at < ?', [t])
     await this.db.run('DELETE FROM signer_challenges WHERE expires_at < ?', [t - 7 * 86_400_000])
     await this.db.run('DELETE FROM signer_tg_requests WHERE expires_at < ?', [t - 7 * 86_400_000])
+    await this.db.run('DELETE FROM signer_exports WHERE expires_at < ?', [t - 7 * 86_400_000])
   }
 
   // ─── challenges ───────────────────────────────────────────────────────────
@@ -548,6 +641,107 @@ export class SignerStore {
           accountId,
           destination,
         ])
+  }
+
+  // ─── held key exports ─────────────────────────────────────────────────────
+
+  /**
+   * Records a held export. Null when it can't be: the wallet already has an open export (one at
+   * a time, enforced by the database), or the request was recorded before.
+   */
+  async createExport(
+    e: Omit<ExportRequest, 'state' | 'attempts' | 'createdAt' | 'confirmedAt' | 'confirmInitData' | 'cancelledAt' | 'cancelledBy' | 'collectedAt'>,
+  ): Promise<ExportRequest | null> {
+    try {
+      await this.db.attempt(() =>
+        this.db.run(
+          `INSERT INTO signer_exports (id, digest, network, account_id, owner_account, owner_key, signature, message, nonce, recipient, user_id, recipient_key, state, created_at, release_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'held', ?, ?, ?)`,
+          [
+            e.id,
+            e.digest,
+            e.network,
+            e.accountId,
+            e.ownerAccount,
+            e.ownerKey,
+            e.signature,
+            e.message,
+            e.nonce,
+            e.recipient,
+            e.userId,
+            e.recipientKey,
+            this.now(),
+            e.releaseAt,
+            e.expiresAt,
+          ],
+        ),
+      )
+    } catch (err) {
+      if (isUniqueViolation(err)) return null
+      throw err
+    }
+    return this.exportById(e.id)
+  }
+
+  async exportById(id: string): Promise<ExportRequest | null> {
+    const r = await this.db.get<ExportRow>('SELECT * FROM signer_exports WHERE id = ?', [id])
+    return r ? toExport(r) : null
+  }
+
+  async exportByDigest(digest: string): Promise<ExportRequest | null> {
+    const r = await this.db.get<ExportRow>('SELECT * FROM signer_exports WHERE digest = ?', [digest])
+    return r ? toExport(r) : null
+  }
+
+  /** The wallet's open export (held or released, not yet collected), if any. */
+  async openExport(network: string, accountId: string): Promise<ExportRequest | null> {
+    const r = await this.db.get<ExportRow>("SELECT * FROM signer_exports WHERE network = ? AND account_id = ? AND state IN ('held', 'confirmed')", [network, accountId])
+    return r ? toExport(r) : null
+  }
+
+  /** Closes the wallet's open exports past their time, so a new one can start. Returns how many. */
+  async expireExports(network: string, accountId: string): Promise<number> {
+    return this.db.run("UPDATE signer_exports SET state = 'expired' WHERE network = ? AND account_id = ? AND state IN ('held', 'confirmed') AND expires_at < ?", [
+      network,
+      accountId,
+      this.now(),
+    ])
+  }
+
+  async bumpExportAttempt(id: string): Promise<void> {
+    await this.db.run('UPDATE signer_exports SET attempts = attempts + 1 WHERE id = ?', [id])
+  }
+
+  /** Released sooner by the wallet's Telegram account: once, only while held and in time. */
+  async confirmExport(id: string, initData: string): Promise<boolean> {
+    const t = this.now()
+    return (
+      (await this.db.run("UPDATE signer_exports SET state = 'confirmed', confirmed_at = ?, confirm_init_data = ? WHERE id = ? AND state = 'held' AND expires_at >= ?", [
+        t,
+        initData,
+        id,
+        t,
+      ])) === 1
+    )
+  }
+
+  /** Collected by its browser: once, only while open and in time. */
+  async collectExport(id: string): Promise<boolean> {
+    const t = this.now()
+    return (
+      (await this.db.run("UPDATE signer_exports SET state = 'collected', collected_at = ? WHERE id = ? AND state IN ('held', 'confirmed') AND expires_at >= ?", [t, id, t])) === 1
+    )
+  }
+
+  /** Cancelled for good, unless it was collected: the owner's signature goes with it, so no edit can bring the request back. */
+  async cancelExport(id: string, by: string): Promise<boolean> {
+    return (
+      (await this.db.run("UPDATE signer_exports SET state = 'cancelled', cancelled_at = ?, cancelled_by = ?, signature = '' WHERE id = ? AND state IN ('held', 'confirmed')", [
+        this.now(),
+        by,
+        id,
+      ])) === 1
+    )
   }
 
   // ─── signatures ───────────────────────────────────────────────────────────

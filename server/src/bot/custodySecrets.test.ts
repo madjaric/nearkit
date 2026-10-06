@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { base58Decode, base58Encode, base64Encode } from '@/lib/encoding'
 import { createExportKeyPair, openExport, type SealedExport } from '@/lib/exportCrypto'
-import { recoveryRoutes } from '../api/recoveryRoutes'
 import type { Database } from '../db/database'
 import type { ChallengeView } from '../signer/core'
 import { ownerSign } from '../signer/testing'
 import type { Logger } from '../log'
-import { exportedText } from './recovery'
 import { ONE, walletBot } from './walletTesting'
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex')
@@ -24,6 +22,7 @@ const dump = async (db: Database) => {
 }
 
 describe('the NEARKITS wallet key over a whole lifecycle', () => {
+  // A whole lifecycle (trades, withdrawals, backup key, a held export released in Telegram, revoke): longer than one step.
   it('reaches neither Telegram, the logs, the database nor the API in plain form: only the owner’s browser opens it', async () => {
     const logs: unknown[] = []
     const capture = (level: string) => (msg: string, fields?: Record<string, unknown>) => void logs.push({ level, msg, fields })
@@ -67,19 +66,17 @@ describe('the NEARKITS wallet key over a whole lifecycle', () => {
     await h.press(h.button('Add backup key'))
     expect(h.last()?.text).toContain('Backup key added')
 
-    // The export happens in the web app; Telegram only hears that it happened.
+    // The export happens in the web app: held and announced in Telegram, released there by Alice; Telegram never sees the key.
     h.advance(60_000)
     await h.press('cr:export')
     const wallet = (h.buttons().find((b) => b.url)?.url ?? '').split('#wallet=')[1] as string
-    const routes = recoveryRoutes({
-      recovery: h.custody.recovery,
-      onExported: async (r) => void (await h.app.notify(r.userId, exportedText(r.wallet, r.owner))),
-      onDestinationApproved: async () => undefined,
-    })
+    const routes = h.recoveryApi()
     const browser = await createExportKeyPair()
     const d = (await routes['/api/recovery/challenge']?.({ kind: 'export', accountId: wallet, recipientKey: browser.publicKey }, {} as never)) as ChallengeView
     const signature = await ownerSign(d, pair)
-    const out = (await routes['/api/recovery/export']?.({ challengeId: d.id, publicKey: ownerKey, signature }, {} as never)) as { sealed: SealedExport }
+    const held = (await routes['/api/recovery/export']?.({ challengeId: d.id, publicKey: ownerKey, signature }, {} as never)) as { exportId: string }
+    await h.approveInTelegram()
+    const out = (await routes['/api/recovery/export/collect']?.({ exportId: held.exportId }, {} as never)) as { sealed: SealedExport }
     const secretKey = await openExport(browser.privateKey, out.sealed, { challengeId: d.id, network: 'testnet', accountId: wallet })
     const heldDb = await dump(h.db)
 
@@ -95,10 +92,11 @@ describe('the NEARKITS wallet key over a whole lifecycle', () => {
     // The scan does see the key where it is allowed: in the owner's browser, after opening the sealed export.
     expect(json({ secretKey })).toContain(forms[0])
     const telegram = json(h.fake.calls)
-    expect(telegram).toContain('was just exported in NEARKITS web')
+    expect(telegram).toContain('Key export requested')
+    expect(telegram).toContain('was exported to the browser with the key')
     expect(json(logs)).toContain('intent refused before signing')
     expect(json(logs)).toContain('send unclear')
-    const places = { telegram, logs: json(logs), heldDb, finalDb: await dump(h.db), challenge: json(d), exportResponse: json(out) }
+    const places = { telegram, logs: json(logs), heldDb, finalDb: await dump(h.db), challenge: json(d), heldResponse: json(held), exportResponse: json(out) }
     for (const [place, text] of Object.entries(places)) for (const form of forms) expect(text.includes(form), `${place} holds the key`).toBe(false)
-  })
+  }, 30_000)
 })

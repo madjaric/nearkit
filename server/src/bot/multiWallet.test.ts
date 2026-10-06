@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { base58Decode, base58Encode } from '@/lib/encoding'
-import { recoveryRoutes } from '../api/recoveryRoutes'
 import { MAX_ACTIVE_WALLETS_PER_USER } from '../custody/limits'
 import type { TradingWallet } from '../custody/store'
-import type { ChallengeView } from '../signer/core'
-import { exportAsOwner, ownerKeypair } from '../signer/testing'
+import { ownerKeypair } from '../signer/testing'
 import { ALICE } from './testing'
 import { ONE, walletBot } from './walletTesting'
 
@@ -169,15 +167,7 @@ describe('several NEARKITS wallets per Telegram user', () => {
     await h.press(`cr:export:${third.id}`)
     expect(h.last()?.text).toContain('Wallet 3')
     expect(h.buttons().find((b) => b.url)?.url).toBe(`https://nearkits.com/recover#wallet=${third.accountId}`)
-    const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
-    const secret = await exportAsOwner(
-      {
-        challenge: async (req) => (await routes['/api/recovery/challenge']?.(req, {} as never)) as ChallengeView,
-        exportKey: async (p) => (await routes['/api/recovery/export']?.(p, {} as never)) as { sealed: unknown },
-      },
-      third.accountId,
-      owner,
-    )
+    const secret = await h.exportViaWeb(third.accountId, owner)
     const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
     const exportedPublic = `ed25519:${base58Encode(raw.subarray(32))}`
     expect(exportedPublic).toBe(third.publicKey)

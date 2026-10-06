@@ -1,12 +1,28 @@
 import { base58Encode } from '@/lib/encoding'
 import type { SealedExport } from '@/lib/exportCrypto'
-import type { ChallengeView, SignerCore, SignerMethod, TelegramRequestView } from '../signer/core'
+import type { ChallengeView, ExportView, SignerCore, SignerMethod, TelegramRequestView } from '../signer/core'
 import { encodeOp } from '../signer/codec'
 import { SignerUnavailableError } from '../signer/errors'
 import type { WalletOperation, WalletTxPlan } from './policy'
 import type { TradingWallet } from './store'
 
-export type { TelegramRequestView }
+export type { ExportView, TelegramRequestView }
+
+/** A key export the owner signed for, as the signer holds it (signer/core.ts, "held key exports"). */
+export type HeldExport = ExportView
+
+/** Who cancels a held export: the browser that asked (by its ID), the app (it couldn't tell Telegram), or the wallet's Telegram account. */
+export type ExportCancel = { exportId: string; by: 'web' | 'app' } | { exportId: string; by: 'telegram'; userId: number }
+
+/** The key, sealed to the browser key the owner signed for, once its export is released. */
+export interface CollectedExport {
+  exportId: string
+  accountId: string
+  publicKey: string
+  sealed: SealedExport
+  /** Released by its time, or sooner by the wallet's Telegram account. */
+  released: 'hold' | 'telegram'
+}
 
 /**
  * The app's side of NearKit's signer (signer/core.ts). The app never holds a wallet key:
@@ -88,14 +104,25 @@ export interface TradingSigner {
   approveDestination(proof: OwnerProof): Promise<{ accountId: string; destination: string; approvedAt: number }>
   revokeDestination(req: { accountId: string; destination: string }): Promise<boolean>
   destinations(accountId: string): Promise<{ ownerAccount: string | null; destinations: ApprovedDestination[] }>
-  /** The key, sealed to the browser key the owner signed for: the app can't open it. */
-  exportKey(proof: OwnerProof): Promise<{ accountId: string; publicKey: string; sealed: SealedExport }>
+  /** An export the owner signed for: held (nothing is released yet) while the wallet's Telegram account is told. */
+  requestExport(proof: OwnerProof): Promise<HeldExport>
+  /** A held export by its ID, or a wallet's open one; null when there is none. */
+  exportStatus(req: { exportId: string } | { accountId: string }): Promise<HeldExport | null>
+  /** The key, sealed to the browser key the owner signed for, once released: the app can't open it. Once. */
+  collectExport(exportId: string): Promise<CollectedExport>
+  /** Cancels a held export for good (unless already collected). */
+  cancelExport(req: ExportCancel): Promise<HeldExport>
   /** A request for the wallet's Telegram account to approve in NearKit's Mini App (`startapp=<digest>`). */
   telegramRequest(req: TelegramRequestInput): Promise<TelegramRequestView>
   /** A request by its digest, for the Mini App page to show (public data only). */
-  telegramRequestView(digest: string): Promise<{ request: TelegramRequestView | null; status: 'open' | 'used' | 'expired' | null }>
-  /** The Mini App's launch data, signed by Telegram: the signer checks it and records the approval. */
-  telegramApprove(initData: string): Promise<{ kind: 'destination' | 'bind-owner'; accountId: string; target: string }>
+  telegramRequestView(digest: string): Promise<{
+    request: TelegramRequestView | null
+    status: 'open' | 'used' | 'expired' | 'cancelled' | null
+    /** A key export: who signed for it, and when it is released on its own. */
+    export?: { ownerAccount: string; releaseAt: number; requestedAt: number }
+  }>
+  /** The Mini App's launch data, signed by Telegram: the signer checks it and records the approval (or releases a held export). */
+  telegramApprove(initData: string): Promise<{ kind: 'destination' | 'bind-owner' | 'export'; accountId: string; target: string }>
   /** Pausing only stops things, so the app may ask for it; only the signer's operator resumes. */
   pause(reason: string): Promise<void>
   health(): Promise<SignerHealth>
@@ -108,6 +135,8 @@ export function inProcessTransport(core: SignerCore): SignerTransport {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+const EXPORT_VIEW = ['exportId', 'accountId', 'ownerAccount', 'browserKey', 'status', 'releaseAt', 'expiresAt', 'digest', 'userId'] as const
 
 function answer<T>(v: unknown, keys: readonly string[]): T {
   if (!isObj(v) || keys.some((k) => !(k in v))) throw new SignerUnavailableError('The signer answered something unexpected')
@@ -167,8 +196,19 @@ export function createSignerClient(transport: SignerTransport): TradingSigner {
     async destinations(accountId) {
       return answer(await call('destinations', { accountId }), ['ownerAccount', 'destinations'])
     },
-    async exportKey(proof) {
-      return answer(await call('export', { ...proof }), ['accountId', 'publicKey', 'sealed'])
+    async requestExport(proof) {
+      // `held`: this app knows exports are held (a signer refuses an app that would hand the key over at once).
+      return answer(await call('export', { ...proof, held: true }), EXPORT_VIEW)
+    },
+    async exportStatus(req) {
+      const r = answer<{ export: HeldExport | null }>(await call('export-status', { ...req }), ['export'])
+      return r.export === null ? null : answer<HeldExport>(r.export, EXPORT_VIEW)
+    },
+    async collectExport(exportId) {
+      return answer(await call('export-collect', { exportId }), ['exportId', 'accountId', 'publicKey', 'sealed', 'released'])
+    },
+    async cancelExport(req) {
+      return answer(await call('export-cancel', { ...req }), EXPORT_VIEW)
     },
     async telegramRequest(req) {
       const body =

@@ -28,6 +28,7 @@ describe('the signer’s tables', () => {
         'signer_challenges',
         'signer_destinations',
         'signer_events',
+        'signer_exports',
         'signer_keys',
         'signer_request_nonces',
         'signer_signatures',

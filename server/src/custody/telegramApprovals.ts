@@ -5,7 +5,8 @@ import type { TelegramRequestInput, TelegramRequestView, TradingSigner } from '.
 import type { CustodyStore, TradingWallet } from './store'
 
 /**
- * Approvals in NearKit's Telegram Mini App, for NearKit wallets with no owner wallet.
+ * Approvals in NearKit's Telegram Mini App, for NearKit wallets with no owner wallet, and
+ * "Release it now" for a held key export of any wallet.
  *
  * The bot asks the signer for a request (a withdrawal address, or the wallet's first owner)
  * and gives the user a link to NearKit's Mini App with the request's digest as `startapp`.
@@ -23,7 +24,7 @@ const relay = async <T>(run: () => Promise<T>): Promise<T> => {
 }
 
 export interface TelegramApprovalResult {
-  kind: 'destination' | 'bind-owner'
+  kind: 'destination' | 'bind-owner' | 'export'
   accountId: string
   target: string
   userId: number | null
@@ -69,6 +70,8 @@ export function createTelegramApprovals(deps: { custody: CustodyStore; signer: T
       const r = await relay(() => signer.telegramApprove(initData))
       let w = await custody.walletByAccount(network, r.accountId)
       if (w && r.kind === 'bind-owner') w = await syncOwner(w)
+      else if (w && r.kind === 'export')
+        await custody.audit({ userId: w.userId, walletId: w.id, action: 'key-export-released', detail: { browserKey: r.target, releasedBy: 'telegram' } })
       else if (w) await custody.audit({ userId: w.userId, walletId: w.id, action: 'destination-approved', detail: { destination: r.target, approvedBy: 'telegram' } })
       return { ...r, userId: w?.userId ?? null, walletId: w?.id ?? null }
     },

@@ -17,8 +17,8 @@ import { AlreadySignedError, ChallengeError, DestinationNotApprovedError, Signer
 import { probeKek } from './kms'
 import { challengeMessage, readMessage } from './messages'
 import { verifySwapRoute, type RouteOracle } from './routes'
-import type { Challenge, ChallengeKind, SignerKey, SignerStore, TelegramRequest, TelegramRequestKind } from './store'
-import { verifyTelegramLaunch, type TelegramCheck } from './telegram'
+import type { Challenge, ChallengeKind, ExportRequest, SignerKey, SignerStore, TelegramRequest, TelegramRequestKind } from './store'
+import { verifyTelegramLaunch, type TelegramCheck, type TelegramLaunch } from './telegram'
 import { sameTransaction, toTxActions } from './tx'
 
 /**
@@ -39,6 +39,12 @@ import { sameTransaction, toTxActions } from './tx'
  *   written here, signed by a full-access key of the owner wallet (checked on chain by a
  *   quorum of RPC providers), within minutes, once. An export is sealed to the browser key
  *   named in the signed message: nothing in between sees the key.
+ * - Exports are held. A phishing site can relay NEARKITS' own request and get the owner's
+ *   signature for its own browser key, so that signature alone releases nothing: the export
+ *   waits until the time the owner signed (24 hours by default) while the wallet's Telegram
+ *   account is told; that account can release it sooner in the Mini App (Telegram signs it,
+ *   checked here) or cancel it. When the key is released, the owner's signed request and any
+ *   Telegram release are verified again in full, and it is sealed once.
  * - Wallets with no owner wallet: the Telegram account that created one controls it, and its
  *   key is sealed to that account. A withdrawal address, and the wallet's first owner, are
  *   approved in NearKit's Mini App: the signer checks Telegram's own signature on the launch
@@ -62,6 +68,8 @@ export interface SignerConfig {
   pausedByHost?: () => boolean
   /** NearKit's bot and Telegram's key, for approvals in the Mini App (wallets with no owner wallet). Null: none can be approved. */
   telegram?: TelegramCheck | null
+  /** How long a key export is held before it is released to the browser that asked (EXPORT_HOLD_MS unless set). */
+  exportHoldMs?: number
 }
 
 export interface SignerDeps {
@@ -83,6 +91,10 @@ const TELEGRAM_SKEW_MS = 60_000
 const CHALLENGES_PER_WINDOW = 20
 const CHALLENGE_WINDOW_MS = 10 * 60_000
 const REGISTRATION_WINDOW_MS = 24 * 60 * 60_000
+/** How long a key export is held, unless the wallet's Telegram account releases it sooner. */
+export const EXPORT_HOLD_MS = 24 * 60 * 60_000
+/** After its release, how long the browser that asked has to collect the key. */
+export const EXPORT_COLLECT_MS = 24 * 60 * 60_000
 
 /** NEAR a transaction attaches to storage registrations: the contract it calls keeps it. */
 const registrationPaid = (actions: readonly TxAction[]): bigint =>
@@ -117,12 +129,38 @@ export interface TelegramRequestView {
   id: string
   /** The Mini App's start parameter. */
   digest: string
-  kind: TelegramRequestKind
+  kind: TelegramRequestKind | 'export'
   network: string
   accountId: string
-  /** The withdrawal address, or the account that becomes the owner. */
+  /** The withdrawal address, the account that becomes the owner, or (export) the browser key's fingerprint. */
   target: string
   expiresAt: number
+}
+
+/** Where a held export stands: held, ready to collect (its time came, or Telegram released it), or over. */
+export type ExportStatus = 'held' | 'ready' | 'collected' | 'cancelled' | 'expired'
+
+export interface ExportView {
+  exportId: string
+  accountId: string
+  network: string
+  ownerAccount: string
+  /** The browser key's fingerprint, as the owner signed it and Telegram shows it. */
+  browserKey: string
+  status: ExportStatus
+  requestedAt: number
+  /** Released on its own at this time, unless cancelled. */
+  releaseAt: number
+  /** Collected by then, or over. */
+  expiresAt: number
+  /** When the wallet's Telegram account released it sooner. */
+  confirmedAt: number | null
+  cancelledAt: number | null
+  cancelledBy: string | null
+  collectedAt: number | null
+  /** For the app only: the Mini App start parameter that releases it sooner, and the Telegram account to tell. */
+  digest: string
+  userId: number
 }
 
 const telegramView = (r: TelegramRequest): TelegramRequestView => ({
@@ -146,6 +184,9 @@ export type SignerMethod =
   | 'revoke-destination'
   | 'destinations'
   | 'export'
+  | 'export-status'
+  | 'export-collect'
+  | 'export-cancel'
   | 'tg-request'
   | 'tg-request-view'
   | 'tg-approve'
@@ -163,6 +204,9 @@ export const SIGNER_METHODS: readonly SignerMethod[] = [
   'revoke-destination',
   'destinations',
   'export',
+  'export-status',
+  'export-collect',
+  'export-cancel',
   'tg-request',
   'tg-request-view',
   'tg-approve',
@@ -176,6 +220,7 @@ export function createSignerCore(deps: SignerDeps) {
   const now = deps.now ?? Date.now
   const log = deps.log ?? silentLogger
   const ttl = config.challengeTtlMs ?? CHALLENGE_TTL_MS
+  const exportHold = config.exportHoldMs ?? EXPORT_HOLD_MS
   let health: { at: number; kek: string } | null = null
   const queues = new Map<string, Promise<unknown>>()
 
@@ -378,6 +423,140 @@ export function createSignerCore(deps: SignerDeps) {
     return key
   }
 
+  // ─── held key exports ─────────────────────────────────────────────────────
+
+  const PENDING = 'An export of this NEARKITS wallet is already waiting. Cancel it in Telegram (or on the page that asked for it) before you start another.'
+  const CANCELLED = 'This export was cancelled. Nothing was released.'
+  const COLLECTED = 'This export was already collected. To export the key again, start again.'
+  const NO_TELEGRAM = 'This NEARKITS wallet has no Telegram account on record to release or cancel an export, so its key can’t be exported.'
+
+  const fingerprintOf = async (e: ExportRequest): Promise<string | null> => {
+    try {
+      return await exportKeyFingerprint(e.recipientKey)
+    } catch {
+      return null
+    }
+  }
+
+  /** The Mini App start parameter that releases this export sooner: every fact of it, hashed. */
+  async function exportDigest(e: ExportRequest): Promise<string | null> {
+    const target = await fingerprintOf(e)
+    return target === null ? null : telegramApprovalDigest({ id: e.id, kind: 'export', network: e.network, accountId: e.accountId, target, expiresAt: e.expiresAt })
+  }
+
+  const exportStatusOf = (e: ExportRequest): ExportStatus =>
+    e.state === 'collected'
+      ? 'collected'
+      : e.state === 'cancelled'
+        ? 'cancelled'
+        : e.state === 'expired' || now() > e.expiresAt
+          ? 'expired'
+          : e.state === 'confirmed' || now() >= e.releaseAt
+            ? 'ready'
+            : 'held'
+
+  async function exportView(e: ExportRequest): Promise<ExportView> {
+    return {
+      exportId: e.id,
+      accountId: e.accountId,
+      network: e.network,
+      ownerAccount: e.ownerAccount,
+      browserKey: (await fingerprintOf(e)) ?? '',
+      status: exportStatusOf(e),
+      requestedAt: e.createdAt,
+      releaseAt: e.releaseAt,
+      expiresAt: e.expiresAt,
+      confirmedAt: e.confirmedAt,
+      cancelledAt: e.cancelledAt,
+      cancelledBy: e.cancelledBy,
+      collectedAt: e.collectedAt,
+      digest: e.digest,
+      userId: e.userId,
+    }
+  }
+
+  /**
+   * The owner's signed request behind a held export, verified again in full before the key is
+   * released: the message states exactly this export (wallet, owner, network, request, browser key
+   * and both of its times), the signature is the owner key's over it for this site, and that key
+   * is a full-access key of the owner on chain today. A row edited since, or cancelled (its
+   * signature went with the cancel), doesn't hold up.
+   */
+  async function exportRequestProblem(e: ExportRequest): Promise<'unknown' | 'not-owner' | null> {
+    const read = readMessage(e.message)
+    const f = read?.fields
+    const iso = (t: number) => new Date(t).toISOString()
+    if (
+      read?.kind !== 'export' ||
+      e.network !== network.id ||
+      f?.['NearKit wallet'] !== e.accountId ||
+      f['Owner wallet'] !== e.ownerAccount ||
+      f['Network'] !== network.id ||
+      f['Request'] !== e.id ||
+      f['Browser key'] !== (await fingerprintOf(e)) ||
+      f['Held until'] !== iso(e.releaseAt) ||
+      f['Collect by'] !== iso(e.expiresAt) ||
+      e.recipient !== config.recipient
+    )
+      return 'unknown'
+    const nonce = base64Decode(e.nonce)
+    let signed = false
+    try {
+      signed = Boolean(e.signature) && nonce !== null && nonce.length === 32 && (await verifyNep413({ message: e.message, nonce, recipient: e.recipient }, e.ownerKey, e.signature))
+    } catch {
+      signed = false
+    }
+    if (!signed) return 'unknown'
+    return (await chain.permission(e.ownerAccount, e.ownerKey)) === 'full' ? null : 'not-owner'
+  }
+
+  /** Whether the wallet's Telegram account released this export sooner: Telegram's stored launch, verified again for this very export. */
+  async function releasedInTelegram(e: ExportRequest, key: SignerKey): Promise<boolean> {
+    if (e.state !== 'confirmed' || !e.confirmInitData || e.confirmedAt === null || !config.telegram) return false
+    const launch = await verifyTelegramLaunch(e.confirmInitData, config.telegram)
+    if (!launch || launch.userId !== e.userId || key.userId !== e.userId) return false
+    if (launch.startParam !== (await exportDigest(e))) return false
+    const opened = launch.authDate * 1000
+    return opened >= e.createdAt - TELEGRAM_SKEW_MS && opened <= e.confirmedAt + TELEGRAM_SKEW_MS
+  }
+
+  /**
+   * "Release it now" in the Mini App: the wallet's own Telegram account, in a launch Telegram signed
+   * for exactly this export, opened after it was requested. Once; never after a cancel or past its time.
+   */
+  async function releaseExport(e: ExportRequest, launch: TelegramLaunch, initData: string): Promise<{ kind: 'export'; accountId: string; target: string }> {
+    if (e.network !== network.id) throw new ChallengeError('unknown', 'This request is unknown. Start again in Telegram.')
+    const refused = (reason: string) =>
+      store.event('tg-approval-refused', { network: network.id, accountId: e.accountId, detail: { export: e.id, reason, telegramUser: launch.userId } })
+    if (e.state === 'cancelled') throw new ChallengeError('cancelled', 'This export was cancelled. Nothing will be released.')
+    if (e.state === 'confirmed' || e.state === 'collected') throw new ChallengeError('used', 'This export was already released.')
+    if (e.state === 'expired' || now() > e.expiresAt) throw new ChallengeError('expired', 'This export expired. Start again in NEARKITS web.')
+    if (e.attempts >= MAX_CHALLENGE_ATTEMPTS) throw new ChallengeError('locked', 'Too many attempts with this export. Start again in NEARKITS web.')
+    await store.bumpExportAttempt(e.id)
+    if ((await exportDigest(e)) !== launch.startParam) {
+      await refused('the request was altered')
+      throw new ChallengeError('unknown', 'This request is unknown. Start again in Telegram.')
+    }
+    const opened = launch.authDate * 1000
+    if (opened < e.createdAt - TELEGRAM_SKEW_MS || opened > now() + TELEGRAM_SKEW_MS) {
+      await refused('opened outside the request’s lifetime')
+      throw new ChallengeError('stale', 'This was opened before the export was requested. Open it again from the chat.')
+    }
+    const key = await liveKey(e.accountId)
+    if (key.ownerAccount !== e.ownerAccount) throw new ChallengeError('wallet', 'This NEARKITS wallet answers to another owner wallet now. Nothing was released.')
+    if (launch.userId !== e.userId || key.userId !== e.userId) {
+      await refused('another Telegram account')
+      throw new ChallengeError('not-controller', 'Release it with the Telegram account of this NEARKITS wallet. Nothing was released.')
+    }
+    if (!(await store.confirmExport(e.id, initData))) {
+      if ((await store.exportById(e.id))?.state === 'cancelled') throw new ChallengeError('cancelled', 'This export was cancelled. Nothing will be released.')
+      throw new ChallengeError('used', 'This export was already released.')
+    }
+    await store.event('export-confirmed', { network: network.id, accountId: e.accountId, detail: { export: e.id, telegramUser: launch.userId } })
+    log.info('key export released in Telegram', { account: e.accountId })
+    return { kind: 'export', accountId: e.accountId, target: (await fingerprintOf(e)) ?? '' }
+  }
+
   // ─── methods ──────────────────────────────────────────────────────────────
 
   const methods: Record<SignerMethod, (body: unknown) => Promise<unknown>> = {
@@ -535,6 +714,10 @@ export function createSignerCore(deps: SignerDeps) {
           } catch {
             throw new BadRequestError('malformed request: the browser key is not a P-256 public key')
           }
+          // The wallet's Telegram account hears of every export and is the one that releases or cancels it.
+          if (!key.userId) throw new ChallengeError('wallet', NO_TELEGRAM)
+          await store.expireExports(network.id, accountId)
+          if (await store.openExport(network.id, accountId)) throw new ChallengeError('pending', PENDING)
         } else {
           destination = account(b.destination, 'the destination')
           if (destination === accountId) throw new BadRequestError('malformed request: the destination is the wallet itself')
@@ -545,6 +728,9 @@ export function createSignerCore(deps: SignerDeps) {
         throw new ChallengeError('rate-limited', 'Too many requests for this wallet. Try again in a few minutes.')
       const id = randomToken(18)
       const expiresAt = now() + ttl
+      // An export is held from the end of its signing window: the full hold after the owner signs, at least.
+      const heldUntil = kind === 'export' ? expiresAt + exportHold : null
+      const collectBy = heldUntil === null ? null : heldUntil + EXPORT_COLLECT_MS
       const c = await store.createChallenge({
         id,
         kind,
@@ -553,7 +739,7 @@ export function createSignerCore(deps: SignerDeps) {
         ownerAccount,
         destination,
         recipientKey,
-        message: challengeMessage({ kind, id, network: network.id, ownerAccount, accountId, destination, browserKey, expiresAt }),
+        message: challengeMessage({ kind, id, network: network.id, ownerAccount, accountId, destination, browserKey, expiresAt, heldUntil, collectBy }),
         nonce: base64Encode(randomBytesArray(32)),
         recipient: config.recipient,
         expiresAt,
@@ -615,19 +801,127 @@ export function createSignerCore(deps: SignerDeps) {
     },
 
     async export(body) {
-      const { challenge: c, publicKey } = await verifyProof(body, 'export')
+      // Exports are held: an app that would hand the key straight to the browser gets nothing, and the signed request isn't used up.
+      const b = obj(body, 'the request', ['challengeId', 'publicKey', 'signature', 'held'])
+      if (b.held !== true) throw new BadRequestError('malformed request: key exports are held; ask for a held export')
+      const { challenge: c, publicKey } = await verifyProof({ challengeId: b.challengeId, publicKey: b.publicKey, signature: b.signature }, 'export')
       const key = await ownedKey(c)
       if (!c.recipientKey) throw new ChallengeError('unknown', 'This export request names no browser key. Start again.')
       const recipientKey = c.recipientKey
-      // The owner signed the browser key's fingerprint, not the row: the key sealed to must be that one.
-      if (readMessage(c.message)?.fields['Browser key'] !== (await exportKeyFingerprint(recipientKey)))
-        throw new ChallengeError('unknown', 'This export request doesn’t name the browser key you signed for. Start again.')
+      // The owner signed the browser key's fingerprint and the hold's times, not the row: those are what count.
+      const f = readMessage(c.message)?.fields
+      const browserKey = await exportKeyFingerprint(recipientKey)
+      if (f?.['Browser key'] !== browserKey) throw new ChallengeError('unknown', 'This export request doesn’t name the browser key you signed for. Start again.')
+      const releaseAt = Date.parse(f['Held until'] ?? '')
+      const expiresAt = Date.parse(f['Collect by'] ?? '')
+      if (!Number.isFinite(releaseAt) || !Number.isFinite(expiresAt) || releaseAt < c.expiresAt || expiresAt <= releaseAt)
+        throw new ChallengeError('unknown', 'This export request doesn’t say how long NEARKITS holds it. Start again.')
+      if (!key.userId) throw new ChallengeError('wallet', NO_TELEGRAM)
+      const digest = await telegramApprovalDigest({ id: c.id, kind: 'export', network: network.id, accountId: key.accountId, target: browserKey, expiresAt })
+      await store.expireExports(network.id, key.accountId)
+      const e = await store.createExport({
+        id: c.id,
+        digest,
+        network: network.id,
+        accountId: key.accountId,
+        ownerAccount: c.ownerAccount,
+        ownerKey: publicKey,
+        signature: String(b.signature),
+        message: c.message,
+        nonce: c.nonce,
+        recipient: c.recipient,
+        userId: key.userId,
+        recipientKey,
+        releaseAt,
+        expiresAt,
+      })
+      // One open export per wallet, kept by the database itself (two requests at once can't both be held).
+      if (!e) throw new ChallengeError('pending', PENDING)
+      await store.event('export-requested', {
+        network: network.id,
+        accountId: key.accountId,
+        detail: { owner: c.ownerAccount, key: publicKey, challenge: c.id, browserKey, releaseAt, expiresAt, telegramUser: key.userId },
+      })
+      log.info('key export requested: held', { account: key.accountId, owner: c.ownerAccount, until: new Date(releaseAt).toISOString() })
+      return exportView(e)
+    },
+
+    async 'export-status'(body) {
+      // By its ID (the browser that asked), or a wallet's open one (the app, for its Telegram user).
+      const b = obj(body, 'the request', [], ['exportId', 'accountId'])
+      let e: ExportRequest | null
+      if (b.exportId !== undefined) e = await store.exportById(str(b.exportId, 'exportId', 64))
+      else if (b.accountId !== undefined) e = await store.openExport(network.id, str(b.accountId, 'accountId', 64))
+      else throw new BadRequestError('malformed request: name the export or the wallet')
+      return { export: e && e.network === network.id ? await exportView(e) : null }
+    },
+
+    async 'export-collect'(body) {
+      const b = obj(body, 'the request', ['exportId'])
+      const id = str(b.exportId, 'exportId', 64)
+      await open()
+      const e = await store.exportById(id)
+      if (!e || e.network !== network.id) throw new ChallengeError('unknown', 'This export is unknown. Start again.')
+      if (e.state === 'cancelled') throw new ChallengeError('cancelled', CANCELLED)
+      if (e.state === 'collected') throw new ChallengeError('used', COLLECTED)
+      if (e.state === 'expired' || now() > e.expiresAt) throw new ChallengeError('expired', 'This export expired before the key was collected. Start again.')
+      const refused = (reason: string) => store.event('export-refused', { network: network.id, accountId: e.accountId, detail: { export: e.id, reason } })
+      // Nothing stored is trusted: the owner's signed request is verified again, and the key on chain.
+      const problem = await exportRequestProblem(e)
+      if (problem === 'unknown') {
+        await refused('the owner’s signed request doesn’t hold up')
+        throw new ChallengeError('unknown', 'This export request doesn’t hold up any more. Nothing was released. Start again.')
+      }
+      if (problem === 'not-owner') {
+        await refused('the signing key is no longer a full-access key of the owner')
+        throw new ChallengeError('not-owner', `The key that signed this export is no longer a full-access key of ${e.ownerAccount}. Nothing was released. Start again.`)
+      }
+      const key = await liveKey(e.accountId)
+      if (key.ownerAccount !== e.ownerAccount) throw new ChallengeError('wallet', 'This NEARKITS wallet answers to another owner wallet now. Nothing was released.')
+      // Released by its time (the one the owner signed), or sooner by the wallet's Telegram account (Telegram's signature, verified again).
+      const released = now() >= e.releaseAt ? 'hold' : (await releasedInTelegram(e, key)) ? 'telegram' : null
+      if (!released) throw new ChallengeError('held', `NEARKITS holds this export until ${new Date(e.releaseAt).toISOString()}. Release it sooner in Telegram, or wait until then.`)
       // The key exists in the clear only between opening it and sealing it to the browser key the owner signed for.
       const secret = await withSeed(key, (seed) => secretKeyText(seed))
-      const sealed = await sealExport(recipientKey, secret, { challengeId: c.id, network: network.id, accountId: key.accountId })
-      await store.event('key-exported', { network: network.id, accountId: key.accountId, detail: { owner: c.ownerAccount, key: publicKey, challenge: c.id } })
-      log.info('key exported to its owner', { account: key.accountId, owner: c.ownerAccount })
-      return { accountId: key.accountId, publicKey: key.publicKey, sealed }
+      const sealed = await sealExport(e.recipientKey, secret, { challengeId: e.id, network: network.id, accountId: key.accountId })
+      // Collected once: if a collection or a cancel came first, this sealing is dropped, never released.
+      if (!(await store.collectExport(e.id))) {
+        if ((await store.exportById(e.id))?.state === 'cancelled') throw new ChallengeError('cancelled', CANCELLED)
+        throw new ChallengeError('used', COLLECTED)
+      }
+      await store.event('key-exported', {
+        network: network.id,
+        accountId: key.accountId,
+        detail: { owner: e.ownerAccount, key: e.ownerKey, challenge: e.id, released, browserKey: await fingerprintOf(e) },
+      })
+      log.info('key exported to its owner', { account: key.accountId, owner: e.ownerAccount, released })
+      return { exportId: e.id, accountId: key.accountId, publicKey: key.publicKey, sealed, released }
+    },
+
+    async 'export-cancel'(body) {
+      // Cancelling only takes the release away: it needs no owner signature and works while paused.
+      // In Telegram only the wallet's own account cancels (the app vouches for who pressed); the
+      // browser that asked cancels with the export's ID.
+      const b = obj(body, 'the request', ['exportId', 'by'], ['userId'])
+      const id = str(b.exportId, 'exportId', 64)
+      const by = b.by
+      if (by !== 'web' && by !== 'telegram' && by !== 'app') throw new BadRequestError('malformed request: by is unknown')
+      const userId = by === 'telegram' ? int(b.userId, 'userId', Number.MAX_SAFE_INTEGER) : null
+      const e = await store.exportById(id)
+      if (!e || e.network !== network.id) throw new ChallengeError('unknown', 'This export is unknown.')
+      if (userId !== null && userId !== e.userId) {
+        await store.event('export-cancel-refused', { network: network.id, accountId: e.accountId, detail: { export: e.id, telegramUser: userId } })
+        throw new ChallengeError('not-controller', 'Only the Telegram account of this NEARKITS wallet can cancel its export there.')
+      }
+      const tooLate = 'This export was already collected, so cancelling can’t stop it any more. If it wasn’t you, move your funds now.'
+      if (e.state === 'collected') throw new ChallengeError('used', tooLate)
+      if (await store.cancelExport(e.id, by)) {
+        await store.event('export-cancelled', { network: network.id, accountId: e.accountId, detail: { export: e.id, by, ...(userId === null ? {} : { telegramUser: userId }) } })
+        log.info('key export cancelled', { account: e.accountId, by })
+      }
+      const after = (await store.exportById(e.id)) as ExportRequest
+      if (after.state === 'collected') throw new ChallengeError('used', tooLate)
+      return exportView(after)
     },
 
     async 'tg-request'(body) {
@@ -659,9 +953,21 @@ export function createSignerCore(deps: SignerDeps) {
 
     async 'tg-request-view'(body) {
       const b = obj(body, 'the request', ['digest'])
-      const r = await store.telegramRequestByDigest(str(b.digest, 'digest', 64))
-      if (!r || r.network !== network.id) return { request: null, status: null }
-      return { request: telegramView(r), status: r.usedAt !== null ? 'used' : now() > r.expiresAt ? 'expired' : 'open' }
+      const digest = str(b.digest, 'digest', 64)
+      const r = await store.telegramRequestByDigest(digest)
+      if (r) {
+        if (r.network !== network.id) return { request: null, status: null }
+        return { request: telegramView(r), status: r.usedAt !== null ? 'used' : now() > r.expiresAt ? 'expired' : 'open' }
+      }
+      // A held key export, as the Mini App's "Release it now" shows it: public facts only, and its digest is checked by the page.
+      const e = await store.exportByDigest(digest)
+      if (!e || e.network !== network.id) return { request: null, status: null }
+      const s = exportStatusOf(e)
+      return {
+        request: { id: e.id, digest: e.digest, kind: 'export', network: e.network, accountId: e.accountId, target: (await fingerprintOf(e)) ?? '', expiresAt: e.expiresAt },
+        status: s === 'cancelled' || s === 'expired' ? s : s === 'collected' || e.state === 'confirmed' ? 'used' : 'open',
+        export: { ownerAccount: e.ownerAccount, releaseAt: e.releaseAt, requestedAt: e.createdAt },
+      }
     },
 
     async 'tg-approve'(body) {
@@ -671,6 +977,11 @@ export function createSignerCore(deps: SignerDeps) {
       const launch = await verifyTelegramLaunch(initData, telegram())
       if (!launch) throw new ChallengeError('bad-signature', 'This approval isn’t signed by Telegram for NEARKITS’ bot. Nothing happened.')
       const r = await store.telegramRequestByDigest(launch.startParam)
+      if (!r) {
+        // "Release it now" for a held key export.
+        const e = await store.exportByDigest(launch.startParam)
+        if (e) return releaseExport(e, launch, initData)
+      }
       if (!r || r.network !== network.id) throw new ChallengeError('unknown', 'This request is unknown. Start again in Telegram.')
       const refused = (reason: string) =>
         store.event('tg-approval-refused', { network: network.id, accountId: r.accountId, detail: { request: r.id, reason, telegramUser: launch.userId } })

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { recoveryRoutes } from '../api/recoveryRoutes'
 import { RecoveryApiError } from '../custody/recovery'
 import type { TradingWallet } from '../custody/store'
 import type { ChallengeView } from '../signer/core'
@@ -23,7 +22,7 @@ async function world() {
   const mallory = await ownerKeypair()
   h.chain.accounts.set(MALLORY, { amount: ONE, keys: { [mallory.publicKey]: 'full' } })
   h.chain.accounts.set('evil.testnet', { amount: ONE })
-  const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
+  const routes = h.recoveryApi()
   const challenge = async (destination: string, wallet = w.accountId) =>
     (await routes['/api/recovery/challenge']?.({ kind: 'approve-destination', accountId: wallet, destination }, {} as never)) as ChallengeView
   const approve = (c: ChallengeView, publicKey: string, signature: string) => routes['/api/recovery/destination']?.({ challengeId: c.id, publicKey, signature }, {} as never)

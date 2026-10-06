@@ -3,11 +3,11 @@ import { recoveryRoutes } from '../api/recoveryRoutes'
 import { telegramRoutes } from '../api/telegramRoutes'
 import { botModules } from '../app'
 import type { TradingWallet } from '../custody/store'
-import type { ChallengeView } from '../signer/core'
-import { ownerSign } from '../signer/testing'
+import { EXPORT_HOLD_MS, type ChallengeView } from '../signer/core'
+import { exportAsOwner, ownerSign } from '../signer/testing'
 import type { Logger } from '../log'
 import type { Command } from './context'
-import { telegramApprovedText } from './recovery'
+import { exportCancelledText, exportedText, exportRequestedNotice, telegramApprovedText } from './recovery'
 import { tradingWallet } from './tradingWallet'
 import { ALICE, botHarness } from './testing'
 import type { TgUser } from '../telegram/types'
@@ -109,6 +109,28 @@ export async function walletBot(
     await h.store.updateSettings(ALICE.id, { defaultAccount: LINKED })
   }
   const custody = h.deps.custody as NonNullable<typeof h.deps.custody>
+  /**
+   * NearKit web's recovery API, wired as the app wires it: the wallet's Telegram account is told
+   * through this bot, so an export's notice (Release it now, Cancel) lands in the chat.
+   */
+  const recoveryApi = (notices: unknown[] = []) =>
+    recoveryRoutes({
+      recovery: custody.recovery,
+      onExportRequested: async (r) => {
+        notices.push({ kind: 'export-requested', userId: r.userId, accountId: r.accountId, owner: r.ownerAccount, browserKey: r.browserKey })
+        const n = exportRequestedNotice(r, custody.telegram.link(r))
+        return h.app.notify(r.userId, n.text, n.markup)
+      },
+      onExported: async (r) => {
+        notices.push({ kind: 'exported', userId: r.userId, accountId: r.accountId, owner: r.ownerAccount, released: r.released })
+        await h.app.notify(r.userId, exportedText(r))
+      },
+      onExportCancelled: async (r) => {
+        notices.push({ kind: 'export-cancelled', userId: r.userId, accountId: r.accountId })
+        await h.app.notify(r.userId, exportCancelledText(r))
+      },
+      onDestinationApproved: async (r) => void notices.push(r),
+    })
   const tgRoutes = telegramRoutes({
     approvals: custody.telegram,
     onApproved: async (r) => {
@@ -158,9 +180,34 @@ export async function walletBot(
     },
     /** The data of the button whose label contains `label`. */
     button: (label: string) => h.buttons().find((b) => b.text.includes(label))?.data ?? '',
+    recoveryApi,
+    /**
+     * The whole key export through NearKit web's API, as the owner's browser runs it: the owner signs
+     * (the export is held and announced in Telegram), it is released (its hold runs out, or Alice
+     * taps Release it now in the Mini App), then collected and opened in the browser.
+     */
+    async exportViaWeb(wallet: string, owner: { pair: CryptoKeyPair; publicKey: string }, release: 'hold' | 'telegram' = 'hold') {
+      const routes = recoveryApi()
+      const call = async <T>(path: string, body: unknown) => (await routes[path]?.(body, {} as never)) as T
+      return exportAsOwner(
+        {
+          challenge: (req) => call<ChallengeView>('/api/recovery/challenge', req),
+          requestExport: (p) => call<{ exportId: string; releaseAt: number }>('/api/recovery/export', p),
+          release: async (held) => {
+            if (release === 'telegram') await this.approveInTelegram()
+            else h.advance(held.releaseAt - h.deps.now())
+          },
+          collect: (exportId) => call<{ sealed: unknown }>('/api/recovery/export/collect', { exportId }),
+        },
+        wallet,
+        owner,
+      )
+    },
+    /** How long an export is held. */
+    exportHoldMs: EXPORT_HOLD_MS,
     /** The owner approves `destination` for the NearKit wallet `wallet` in NearKit web: it signs the signer's message. */
     async approve(wallet: string, destination: string, owner: { pair: CryptoKeyPair; publicKey: string }) {
-      const routes = recoveryRoutes({ recovery: custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
+      const routes = recoveryApi()
       const c = (await routes['/api/recovery/challenge']?.({ kind: 'approve-destination', accountId: wallet, destination }, {} as never)) as ChallengeView
       return routes['/api/recovery/destination']?.({ challengeId: c.id, publicKey: owner.publicKey, signature: await ownerSign(c, owner.pair) }, {} as never)
     },

@@ -1,4 +1,3 @@
-import type { SealedExport } from '@/lib/exportCrypto'
 import { accessKeyPermission } from '@/services/near/nep413'
 import { NearKitError } from '@/services/near/errors'
 import type { ServerConfig } from '../config'
@@ -11,7 +10,7 @@ import { ChallengeError, SignerPausedError, SignerUnavailableError } from '../si
 import { KmsUnavailableError } from '../signer/kms'
 import type { IntentHandler } from './engine'
 import { walletName } from './limits'
-import type { ChallengeRequest, OwnerProof, TradingSigner } from './signer'
+import type { ChallengeRequest, CollectedExport, ExportCancel, HeldExport, OwnerProof, TradingSigner } from './signer'
 import type { CustodyStore, TradingWallet } from './store'
 import { KeyUnavailableError } from './vault'
 import { accessKeys } from './wallets'
@@ -27,10 +26,11 @@ import { accessKeys } from './wallets'
  *   NearKit wallet. Whoever holds the user's own wallet can then control this one
  *   directly, even if NearKit, its database and its servers are gone.
  * - Export and the web recovery page: the owner wallet signs a one-time message the signer
- *   wrote (NEP-413, minutes, once). Telegram is not needed: the NearKit web app lists the
- *   owner's NearKit wallets after a signature, and exports one after another. The key is
- *   sealed by the signer to a key of the owner's browser, named in the signed message, so
- *   the app relaying it can't read it. Telegram only hears about it afterwards.
+ *   wrote (NEP-413, minutes, once). The NearKit web app lists the owner's NearKit wallets
+ *   after a signature, and asks for an export. The signer holds every export (24 hours by
+ *   default) while the wallet's Telegram account is told at once: it can release the export
+ *   sooner in the Mini App, or cancel it. Then the key is sealed by the signer to a key of
+ *   the owner's browser, named in the signed message, so the app relaying it can't read it.
  * - Revoke: NearKit deletes its own key from the wallet (only once a full-access key of
  *   the owner wallet is on it), then the signer erases its sealed copy. The wallet stays,
  *   the user's alone.
@@ -51,7 +51,8 @@ export class RecoveryApiError extends Error {
 export function recoveryError(e: unknown): RecoveryApiError | null {
   if (e instanceof RecoveryApiError) return e
   if (e instanceof ChallengeError) {
-    const status = e.problem === 'rate-limited' ? 429 : e.problem === 'expired' ? 410 : e.problem === 'used' ? 409 : e.problem === 'unknown' ? 404 : 403
+    // A held export is 425 (too early); a cancelled one is gone like an expired one; another one open is a conflict.
+    const status = { 'rate-limited': 429, expired: 410, cancelled: 410, used: 409, pending: 409, unknown: 404, held: 425 }[e.problem as string] ?? 403
     return new RecoveryApiError(status, e.problem, e.message)
   }
   if (e instanceof KeyUnavailableError) return new RecoveryApiError(410, 'wallet', 'This NEARKITS wallet is closed; NEARKITS no longer holds its key.')
@@ -112,12 +113,58 @@ export function createRecoveryService(deps: { custody: CustodyStore; signer: Tra
       return { ownerAccount: r.ownerAccount, network, wallets }
     },
 
-    /** The key, sealed by the signer to the owner's browser key. The app relays it and can't open it. */
-    async export(proof: OwnerProof): Promise<{ accountId: string; publicKey: string; sealed: SealedExport; userId: number | null; ownerAccount: string | null }> {
-      const r = await relay(() => signer.exportKey(proof))
-      const w = await custody.walletByAccount(network, r.accountId)
-      if (w) await custody.audit({ userId: w.userId, walletId: w.id, action: 'key-exported', detail: { signedWith: proof.publicKey } })
-      return { ...r, userId: w?.userId ?? null, ownerAccount: w?.ownerAccount ?? null }
+    /**
+     * An export the owner signed for: the signer holds it (nothing is released yet). The caller
+     * tells the wallet's Telegram account at once; `wallet` is this app's record of it.
+     */
+    async requestExport(proof: OwnerProof): Promise<{ held: HeldExport; wallet: TradingWallet }> {
+      const held = await relay(() => signer.requestExport(proof))
+      const w = await custody.walletByAccount(network, held.accountId)
+      if (!w) {
+        await signer.cancelExport({ exportId: held.exportId, by: 'app' }).catch(() => undefined)
+        throw new RecoveryApiError(404, 'no-wallet', 'This NEARKITS wallet isn’t known here, so its key can’t be exported.')
+      }
+      await custody.audit({
+        userId: w.userId,
+        walletId: w.id,
+        action: 'key-export-requested',
+        detail: { export: held.exportId, signedWith: proof.publicKey, browserKey: held.browserKey, releaseAt: held.releaseAt, telegramUser: held.userId },
+      })
+      return { held, wallet: w }
+    },
+
+    /** The wallet's Telegram account was told of this export. Nothing is released through this app for an export it wasn't told of. */
+    async noticeDelivered(held: HeldExport, wallet: TradingWallet): Promise<void> {
+      await custody.audit({ userId: wallet.userId, walletId: wallet.id, action: 'key-export-notified', detail: { export: held.exportId, telegramUser: held.userId } })
+    },
+
+    /** A held export by its ID (the browser that asked holds it), or a wallet's open one (Telegram's Recovery screen). */
+    async exportStatus(req: { exportId: string } | { accountId: string }): Promise<HeldExport | null> {
+      return relay(() => signer.exportStatus(req))
+    },
+
+    /**
+     * The key, once its export is released: sealed by the signer to the owner's browser key. The
+     * app relays it and can't open it. Only for an export the wallet's Telegram account was told of.
+     */
+    async collectExport(exportId: string): Promise<{ collected: CollectedExport; wallet: TradingWallet; held: HeldExport }> {
+      const held = await relay(() => signer.exportStatus({ exportId }))
+      const w = held ? await custody.walletByAccount(network, held.accountId) : null
+      if (!held || !w) throw new RecoveryApiError(404, 'unknown', 'This export is unknown. Start again.')
+      const told = (await custody.auditOf(w.id)).some((a) => a.action === 'key-export-notified' && a.detail?.['export'] === exportId)
+      if (!told) throw new RecoveryApiError(403, 'not-told', 'NEARKITS couldn’t tell this wallet’s Telegram account about this export, so nothing is released. Start again.')
+      const collected = await relay(() => signer.collectExport(exportId))
+      await custody.audit({ userId: w.userId, walletId: w.id, action: 'key-exported', detail: { released: collected.released, export: exportId } })
+      return { collected, wallet: w, held }
+    },
+
+    /** Cancels a held export for good: from the browser that asked, from Telegram (the wallet's own account only), or by this app. */
+    async cancelExport(req: ExportCancel): Promise<{ held: HeldExport; wallet: TradingWallet | null }> {
+      // Cancelling only takes the release away: the browser that asked (it holds the export's ID) may, and so may the wallet's Telegram account.
+      const held = await relay(() => signer.cancelExport(req))
+      const w = await custody.walletByAccount(network, held.accountId)
+      if (w) await custody.audit({ userId: w.userId, walletId: w.id, action: 'key-export-cancelled', detail: { by: req.by, export: req.exportId } })
+      return { held, wallet: w }
     },
 
     /** The owner approves a withdrawal destination for one wallet (a signed message the signer verifies and keeps). */

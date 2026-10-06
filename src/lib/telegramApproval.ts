@@ -2,7 +2,8 @@ import { base64UrlEncode } from './encoding'
 
 /**
  * Something NearKit's signer asks a wallet's Telegram account to approve in NearKit's Mini
- * App: for a wallet with no owner wallet, a withdrawal address or the wallet's first owner.
+ * App: for a wallet with no owner wallet, a withdrawal address or the wallet's first owner;
+ * for any wallet, releasing a key export its owner wallet asked for before the hold is over.
  *
  * The Mini App opens with `startapp=<digest>`, and Telegram signs that start parameter into
  * the launch data it hands the page. The digest therefore ties Telegram's signature to exactly
@@ -11,16 +12,16 @@ import { base64UrlEncode } from './encoding'
  */
 export interface TelegramApprovalRequest {
   id: string
-  kind: 'destination' | 'bind-owner'
+  kind: 'destination' | 'bind-owner' | 'export'
   network: string
   /** The NearKit wallet. */
   accountId: string
-  /** The withdrawal address, or the account that becomes the wallet's owner. */
+  /** The withdrawal address, the account that becomes the wallet's owner, or (export) the browser key's fingerprint. */
   target: string
   expiresAt: number
 }
 
-/** Every field is a NEAR account, a network, a fixed kind or base64url: none can contain `|`. */
+/** Every field is a NEAR account, a network, a fixed kind, base64url or a hex fingerprint: none can contain `|`. */
 const text = (r: TelegramApprovalRequest) => ['nearkit:telegram-approval:v1', r.kind, r.network, r.accountId, r.target, r.id, String(r.expiresAt)].join('|')
 
 /** base64url of SHA-256 of the request: 43 characters, within Telegram's start parameter. */

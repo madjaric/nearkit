@@ -15,7 +15,7 @@ import type { Database } from '../db/database'
 import { SqliteDatabase } from '../db/sqlite'
 import { ChainUncertainError, type SignerChain } from './chain'
 import { BadRequestError } from './codec'
-import type { ChallengeView, SignerCore } from './core'
+import { EXPORT_COLLECT_MS, EXPORT_HOLD_MS, type ChallengeView, type SignerCore } from './core'
 import { AlreadySignedError, ChallengeError, DestinationNotApprovedError, SignerPausedError } from './errors'
 import type { SignerStore } from './store'
 import { exportAsOwner, ownerKeypair, ownerSign, testSigner } from './testing'
@@ -215,6 +215,13 @@ describe('what a plan may do', () => {
 
 describe('owner-signed requests', () => {
   const proofFor = async (c: ChallengeView, key = owner): Promise<OwnerProof> => ({ challengeId: c.id, publicKey: key.publicKey, signature: await ownerSign(c, key.pair) })
+  /** The web export, released by its hold running out (export.test.ts covers the hold and Telegram's release). */
+  const asOwner = {
+    challenge: (r: Parameters<TradingSigner['challenge']>[0]) => signer.challenge(r),
+    requestExport: (p: OwnerProof) => signer.requestExport(p),
+    release: (held: { releaseAt: number }) => void (now = held.releaseAt),
+    collect: (id: string) => signer.collectExport(id),
+  }
 
   it('the message names every fact it authorizes', async () => {
     const browser = await createExportKeyPair()
@@ -227,6 +234,8 @@ describe('owner-signed requests', () => {
       'Network: testnet',
       `Request: ${c.id}`,
       `Expires: ${new Date(now + 5 * 60_000).toISOString()}`,
+      `Held until: ${new Date(now + 5 * 60_000 + EXPORT_HOLD_MS).toISOString()}`,
+      `Collect by: ${new Date(now + 5 * 60_000 + EXPORT_HOLD_MS + EXPORT_COLLECT_MS).toISOString()}`,
       '',
       expect.stringContaining('Anyone who sees the exported key controls that wallet'),
     ])
@@ -235,13 +244,15 @@ describe('owner-signed requests', () => {
   })
 
   it('export: sealed to the browser key the owner signed for; it opens there and nowhere else', async () => {
-    const secret = await exportAsOwner({ challenge: (r) => signer.challenge(r), exportKey: (p) => signer.exportKey(p) }, wallet.accountId, owner)
+    const secret = await exportAsOwner(asOwner, wallet.accountId, owner)
     const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
     expect(`ed25519:${base58Encode(raw.subarray(32))}`).toBe(wallet.publicKey)
     // Another browser's key, or another binding, doesn't open it.
     const browser = await createExportKeyPair()
     const c = await signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey })
-    const out = await signer.exportKey(await proofFor(c))
+    const held = await signer.requestExport(await proofFor(c))
+    now = held.releaseAt
+    const out = await signer.collectExport(held.exportId)
     const other = await createExportKeyPair()
     const binding = { challengeId: c.id, network: 'testnet', accountId: wallet.accountId }
     await expect(openExport(other.privateKey, out.sealed, binding)).rejects.toThrow()
@@ -258,13 +269,13 @@ describe('owner-signed requests', () => {
     const proof = await proofFor(c)
     // The owner signed the message naming the browser's key; the row now names another one.
     await db.run('UPDATE signer_challenges SET recipient_key = ? WHERE id = ?', [attacker.publicKey, c.id])
-    await expect(signer.exportKey(proof)).rejects.toThrow(/browser key/)
+    await expect(signer.requestExport(proof)).rejects.toThrow(/browser key/)
     expect((await vault.events('testnet', wallet.accountId)).filter((e) => e.kind === 'key-exported')).toHaveLength(0)
   })
 
   it('a NEARKITS wallet’s own key, exported, never proves its owner, not even while the owner’s key is also on that wallet', async () => {
     // The wallet's key as Recover hands it to the owner, imported into a wallet app that now signs with it.
-    const secret = await exportAsOwner({ challenge: (r) => signer.challenge(r), exportKey: (p) => signer.exportKey(p) }, wallet.accountId, owner)
+    const secret = await exportAsOwner(asOwner, wallet.accountId, owner)
     const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
     const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url')
     const privateKey = await crypto.subtle.importKey(
@@ -282,7 +293,7 @@ describe('owner-signed requests', () => {
     const problem = (p: Promise<unknown>) => p.then(() => 'ok').catch((e: unknown) => (e instanceof ChallengeError ? e.problem : String(e)))
     const browser = await createExportKeyPair()
     const requests = [
-      { ask: () => signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey }), answer: (p: OwnerProof) => signer.exportKey(p) },
+      { ask: () => signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey }), answer: (p: OwnerProof) => signer.requestExport(p) },
       {
         ask: () => signer.challenge({ kind: 'approve-destination', accountId: wallet.accountId, destination: 'bob.testnet' }),
         answer: (p: OwnerProof) => signer.approveDestination(p),
@@ -309,20 +320,22 @@ describe('owner-signed requests', () => {
     chain.grant('mallory.testnet', mallory.publicKey)
     const problem = (p: Promise<unknown>) => p.then(() => 'ok').catch((e: unknown) => (e instanceof ChallengeError ? e.problem : String(e)))
     let c = await fresh()
-    expect(await problem(signer.exportKey(await proofFor(c, mallory)))).toBe('not-owner')
+    expect(await problem(signer.requestExport(await proofFor(c, mallory)))).toBe('not-owner')
     const app = await ownerKeypair()
     chain.grant(OWNER, app.publicKey, 'function-call')
-    expect(await problem(signer.exportKey(await proofFor(c, app)))).toBe('not-owner')
-    expect(await problem(signer.exportKey({ ...(await proofFor(c)), signature: (await proofFor({ ...c, message: 'x' })).signature }))).toBe('bad-signature')
-    expect(await problem(signer.exportKey(await proofFor(c)))).toBe('ok')
-    expect(await problem(signer.exportKey(await proofFor(c)))).toBe('used')
+    expect(await problem(signer.requestExport(await proofFor(c, app)))).toBe('not-owner')
+    expect(await problem(signer.requestExport({ ...(await proofFor(c)), signature: (await proofFor({ ...c, message: 'x' })).signature }))).toBe('bad-signature')
+    expect(await problem(signer.requestExport(await proofFor(c)))).toBe('ok')
+    expect(await problem(signer.requestExport(await proofFor(c)))).toBe('used')
+    // (One export at a time: this one is cancelled so the next requests can start.)
+    await signer.cancelExport({ exportId: c.id, by: 'web' })
     c = await fresh()
     expect(await problem(signer.approveDestination(await proofFor(c)))).toBe('unknown')
     now += 5 * 60_000 + 1
-    expect(await problem(signer.exportKey(await proofFor(c)))).toBe('expired')
+    expect(await problem(signer.requestExport(await proofFor(c)))).toBe('expired')
     c = await fresh()
-    for (let i = 0; i < 5; i++) await problem(signer.exportKey(await proofFor(c, mallory)))
-    expect(await problem(signer.exportKey(await proofFor(c)))).toBe('locked')
+    for (let i = 0; i < 5; i++) await problem(signer.requestExport(await proofFor(c, mallory)))
+    expect(await problem(signer.requestExport(await proofFor(c)))).toBe('locked')
   })
 
   it('an owner can’t be flooded with requests: at most 20 in 10 minutes', async () => {

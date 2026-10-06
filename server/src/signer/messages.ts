@@ -5,7 +5,7 @@ import type { ChallengeKind } from './store'
  * signer writes it, the wallet shows it, and the signer reads the same fields back out of
  * a stored approval before trusting it: every line binds one fact (the operation, the
  * network, the NearKit wallet, the destination or the browser key, the owner wallet, the
- * request and its expiry).
+ * request and its expiry and, for an export, how long NEARKITS holds it before releasing it).
  */
 
 const HEADERS: Record<ChallengeKind, string> = {
@@ -16,7 +16,8 @@ const HEADERS: Record<ChallengeKind, string> = {
 
 const FOOTERS: Record<ChallengeKind, string> = {
   'owner-session': 'Signing this shows which NearKit wallets answer to your wallet. It moves nothing.',
-  export: 'Only sign this if you are exporting this key yourself, in this browser. Anyone who sees the exported key controls that wallet.',
+  export:
+    'Only sign this if you are exporting this key yourself, in this browser. NEARKITS holds the export until the time above and tells your Telegram account now: confirm there to release it sooner, or cancel it. Anyone who sees the exported key controls that wallet.',
   'approve-destination': 'Only sign this if you asked NearKit for this yourself. Once approved, withdrawals from this NearKit wallet may go to this destination.',
 }
 
@@ -30,6 +31,10 @@ export interface MessageFacts {
   /** Export: the fingerprint of the browser key the exported key is sealed to. */
   browserKey: string | null
   expiresAt: number
+  /** Export: NEARKITS releases nothing before this, unless the wallet's Telegram account confirms sooner. */
+  heldUntil?: number | null
+  /** Export: the browser must collect the key by then, or start again. */
+  collectBy?: number | null
 }
 
 export function challengeMessage(f: MessageFacts): string {
@@ -42,6 +47,8 @@ export function challengeMessage(f: MessageFacts): string {
     `Network: ${f.network}`,
     `Request: ${f.id}`,
     `Expires: ${new Date(f.expiresAt).toISOString()}`,
+    ...(f.heldUntil ? [`Held until: ${new Date(f.heldUntil).toISOString()}`] : []),
+    ...(f.collectBy ? [`Collect by: ${new Date(f.collectBy).toISOString()}`] : []),
     '',
     FOOTERS[f.kind],
   ].join('\n')

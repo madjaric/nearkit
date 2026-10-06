@@ -3,14 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { base58Decode, base58Encode } from '@/lib/encoding'
-import { recoveryRoutes } from '../api/recoveryRoutes'
 import type { TradingWallet } from '../custody/store'
 import { openDatabase } from '../db/open'
 import { migrate } from '../db/schema'
 import { Store } from '../db/store'
 import { runOpsAdmin } from '../ops/admin'
-import type { ChallengeView } from '../signer/core'
-import { exportAsOwner, ownerKeypair } from '../signer/testing'
+import { ownerKeypair } from '../signer/testing'
 import { ONE, USDT, walletBot } from './walletTesting'
 
 async function bot() {
@@ -69,15 +67,7 @@ describe('kill switches', () => {
     await h.press('cw:wd')
     expect(h.last()?.text).toContain('Withdrawals are paused')
     expect(h.chain.sent).toHaveLength(0)
-    const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
-    const secret = await exportAsOwner(
-      {
-        challenge: async (req) => (await routes['/api/recovery/challenge']?.(req, {} as never)) as ChallengeView,
-        exportKey: async (p) => (await routes['/api/recovery/export']?.(p, {} as never)) as { sealed: unknown },
-      },
-      w.accountId,
-      owner,
-    )
+    const secret = await h.exportViaWeb(w.accountId, owner)
     expect(`ed25519:${base58Encode((base58Decode(secret.slice(8)) as Uint8Array).subarray(32))}`).toBe(w.publicKey)
     expect((await h.custody.store.auditOf(w.id)).map((a) => a.action)).toContain('key-exported')
   })

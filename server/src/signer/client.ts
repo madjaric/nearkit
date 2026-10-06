@@ -10,7 +10,18 @@ import { errorFromWire, SignerUnavailableError } from './errors'
  * after a network failure; the rest are not, so nothing happens twice.
  */
 
-const SAFE_TO_RETRY: ReadonlySet<SignerMethod> = new Set(['sign', 'key-info', 'destinations', 'health', 'erase-key', 'revoke-destination', 'pause', 'tg-request-view'])
+const SAFE_TO_RETRY: ReadonlySet<SignerMethod> = new Set([
+  'sign',
+  'key-info',
+  'destinations',
+  'health',
+  'erase-key',
+  'revoke-destination',
+  'pause',
+  'tg-request-view',
+  'export-status',
+  'export-cancel',
+])
 
 export function httpSignerTransport(o: { url: string; authKey: Buffer; fetch?: typeof fetch; timeoutMs?: number; now?: () => number }): SignerTransport {
   const fetchImpl = o.fetch ?? globalThis.fetch.bind(globalThis)

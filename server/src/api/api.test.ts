@@ -12,6 +12,9 @@ import { silentLogger } from '../log'
 import { createServerNear } from '../near'
 import { createApiServer, listen } from './http'
 import { linkRoutes } from './linkRoutes'
+import { API_LIMITS } from './limits'
+import { recoveryRoutes } from './recoveryRoutes'
+import type { RecoveryService } from '../custody/recovery'
 
 const ORIGIN = 'https://nearkits.com'
 let server: Server
@@ -77,6 +80,43 @@ describe('API', () => {
     const pre = await fetch(base + '/api/link/confirm', { method: 'OPTIONS', headers: { origin: ORIGIN, 'access-control-request-method': 'POST' } })
     expect(pre.status).toBe(204)
     expect(pre.headers.get('access-control-allow-methods')).toContain('POST')
+  })
+
+  it('a page on another site can’t reach the key export at all: refused before any recovery route runs', async () => {
+    const ran: string[] = []
+    // A recovery service that records anything that reaches it.
+    const recovery = new Proxy({} as RecoveryService, { get: (_t, name) => async () => void ran.push(String(name)) })
+    const { config } = loadConfig({ NEAR_NETWORK: 'testnet' })
+    const api = createApiServer({
+      config,
+      log: silentLogger,
+      routes: recoveryRoutes({
+        recovery,
+        onExportRequested: async () => true,
+        onExported: async () => undefined,
+        onExportCancelled: async () => undefined,
+        onDestinationApproved: async () => undefined,
+      }),
+      limits: API_LIMITS,
+      health: () => ({}),
+    })
+    const at = `http://127.0.0.1:${await listen(api, 0, '127.0.0.1')}`
+    try {
+      const paths = ['/api/recovery/challenge', '/api/recovery/export', '/api/recovery/export/status', '/api/recovery/export/collect', '/api/recovery/export/cancel']
+      for (const path of paths) {
+        const res = await fetch(at + path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: 'https://nearkits-login.example' },
+          body: JSON.stringify({ kind: 'export', accountId: 'a'.repeat(64), recipientKey: 'k', challengeId: 'c', publicKey: 'p', signature: 's', exportId: 'e' }),
+        })
+        expect(res.status, path).toBe(403)
+        expect(res.headers.get('access-control-allow-origin'), path).toBeNull()
+      }
+      expect(ran).toEqual([])
+      // (A phishing site's own server can still relay without a browser: that is what the 24-hour hold and Telegram are for; see signer/export.test.ts.)
+    } finally {
+      await new Promise<void>((resolve) => api.close(() => resolve()))
+    }
   })
 
   it('reports health without secrets', async () => {

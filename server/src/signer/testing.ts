@@ -51,11 +51,17 @@ export async function ownerSign(c: Pick<ChallengeView, 'message' | 'nonce' | 're
   return base64Encode(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key.privateKey, digest)))
 }
 
-/** The whole web export, as the owner's browser runs it: its own key, the owner's signature, then opening what the signer sealed. */
-export async function exportAsOwner(
+/**
+ * The whole web export, as the owner's browser runs it: its own key, the owner's signature (the
+ * export is then held), `release` (its hold running out, or the wallet's Telegram account
+ * releasing it sooner), then collecting it and opening what the signer sealed.
+ */
+export async function exportAsOwner<H extends { exportId: string }>(
   run: {
     challenge: (req: { kind: 'export'; accountId: string; recipientKey: string }) => Promise<ChallengeView>
-    exportKey: (p: { challengeId: string; publicKey: string; signature: string }) => Promise<{ sealed: unknown }>
+    requestExport: (p: { challengeId: string; publicKey: string; signature: string }) => Promise<H>
+    release: (held: H) => Promise<void> | void
+    collect: (exportId: string) => Promise<{ sealed: unknown }>
   },
   accountId: string,
   owner: { pair: CryptoKeyPair; publicKey: string },
@@ -63,7 +69,9 @@ export async function exportAsOwner(
 ): Promise<string> {
   const browser = await createExportKeyPair()
   const c = await run.challenge({ kind: 'export', accountId, recipientKey: browser.publicKey })
-  const r = await run.exportKey({ challengeId: c.id, publicKey: owner.publicKey, signature: await ownerSign(c, owner.pair) })
+  const held = await run.requestExport({ challengeId: c.id, publicKey: owner.publicKey, signature: await ownerSign(c, owner.pair) })
+  await run.release(held)
+  const r = await run.collect(held.exportId)
   return openExport(browser.privateKey, r.sealed as Parameters<typeof openExport>[1], { challengeId: c.id, network, accountId })
 }
 

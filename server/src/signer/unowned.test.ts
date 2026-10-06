@@ -48,7 +48,7 @@ const withdraw = (to: string, amount = 5n): WalletOperation => ({ kind: 'withdra
 const sign = (to: string, w = wallet) => signer.sign({ wallet: w, intentId: `i${++seq}`, step: 0, op: withdraw(to), plan: transfer(to), nonce: 42n, blockHash: BLOCK })
 
 /** The user opens NearKit's Mini App from the request's link and taps Approve: Telegram signs the launch. */
-async function openInTelegram(r: TelegramRequestView, userId = ALICE, at = now) {
+async function openInTelegram(r: Pick<TelegramRequestView, 'digest'>, userId = ALICE, at = now) {
   return tg.launch({ userId, startParam: r.digest, authDate: Math.floor(at / 1000) })
 }
 async function approveDestination(to: string, w = wallet, userId = ALICE) {
@@ -166,8 +166,18 @@ describe('binding a first owner wallet later', () => {
     // The owned rules from now on: the owner, or destinations the owner signs for.
     expect((await sign(OWNER)).hash).toBeTruthy()
     await expect(sign('bob.testnet')).rejects.toThrow(DestinationNotApprovedError)
-    // Its owner has the owner's powers: the export works.
-    expect(await exportAsOwner({ challenge: (c) => signer.challenge(c), exportKey: (p) => signer.exportKey(p) }, wallet.accountId, owner)).toMatch(/^ed25519:/)
+    // Its owner has the owner's powers: the export works (held, then released by its Telegram account).
+    const exported = await exportAsOwner(
+      {
+        challenge: (c) => signer.challenge(c),
+        requestExport: (p) => signer.requestExport(p),
+        release: async (held) => void (await signer.telegramApprove(await openInTelegram(held))),
+        collect: (id) => signer.collectExport(id),
+      },
+      wallet.accountId,
+      owner,
+    )
+    expect(exported).toMatch(/^ed25519:/)
     // Telegram can't approve anything for it any more, and it is never bound again.
     await expect(signer.telegramRequest({ kind: 'destination', accountId: wallet.accountId, destination: 'carol.testnet' })).rejects.toThrow(/owner wallet/)
     await expect(signer.telegramRequest({ kind: 'bind-owner', accountId: wallet.accountId, owner: 'mallory.testnet', ownerKey: owner.publicKey })).rejects.toThrow(/owner wallet/)

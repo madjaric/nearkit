@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { base58Decode, base58Encode } from '@/lib/encoding'
-import { recoveryRoutes } from '../api/recoveryRoutes'
 import type { TradingWallet } from '../custody/store'
-import type { ChallengeView } from '../signer/core'
-import { exportAsOwner, ownerKeypair } from '../signer/testing'
+import { ownerKeypair } from '../signer/testing'
 import { ALICE } from './testing'
 import { LINKED, ONE, walletBot } from './walletTesting'
 
@@ -55,15 +53,7 @@ describe('NEARKITS wallets with the separate signer service', { timeout: 60_000 
     expect(h.last()?.text).toContain('Withdrawal confirmed')
     expect(h.chain.accounts.get('bob.testnet')?.amount).toBe(ONE + ONE / 2n)
 
-    const routes = recoveryRoutes({ recovery: h.custody.recovery, onExported: async () => undefined, onDestinationApproved: async () => undefined })
-    const secret = await exportAsOwner(
-      {
-        challenge: async (req) => (await routes['/api/recovery/challenge']?.(req, {} as never)) as ChallengeView,
-        exportKey: async (p) => (await routes['/api/recovery/export']?.(p, {} as never)) as { sealed: unknown },
-      },
-      w.accountId,
-      owner,
-    )
+    const secret = await h.exportViaWeb(w.accountId, owner, 'telegram')
     const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
     expect(`ed25519:${base58Encode(raw.subarray(32))}`).toBe(w.publicKey)
     expect(ALICE.id).toBeGreaterThan(0)

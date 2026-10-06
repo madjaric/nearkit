@@ -14,6 +14,10 @@ import { runMigrations, type Migration } from '../db/schema'
  * - signer_tg_requests / signer_tg_approvals: for wallets with no owner wallet, what the
  *   controlling Telegram account is asked to approve in NearKit's Mini App, and the approvals
  *   it gave, each with Telegram's signed launch data, re-verified whenever it is used.
+ * - signer_exports: key exports the owner signed for, held (24 hours by default) until the
+ *   hold is over or the wallet's Telegram account releases one sooner in the Mini App; at most
+ *   one open per wallet, each collected once. The owner's signature and Telegram's are kept and
+ *   re-verified when the key is released.
  * - signer_signatures: one signed transaction per (intent, step), ever.
  * - signer_events: the signer's own audit log (no secrets).
  * - signer_state: the signer pause switch.
@@ -153,6 +157,38 @@ const SQLITE: readonly Migration[] = [
       CREATE UNIQUE INDEX signer_tg_approvals_live ON signer_tg_approvals(network, account_id, destination) WHERE revoked_at IS NULL;
     `,
   },
+  {
+    version: 3,
+    name: 'held-exports',
+    sql: `
+      CREATE TABLE signer_exports (
+        id TEXT PRIMARY KEY,
+        digest TEXT NOT NULL UNIQUE,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        owner_account TEXT NOT NULL,
+        owner_key TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        message TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        recipient_key TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('held', 'confirmed', 'collected', 'cancelled', 'expired')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        release_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        confirmed_at INTEGER,
+        confirm_init_data TEXT,
+        cancelled_at INTEGER,
+        cancelled_by TEXT,
+        collected_at INTEGER
+      );
+      CREATE INDEX signer_exports_account ON signer_exports(network, account_id, created_at);
+      CREATE UNIQUE INDEX signer_exports_open ON signer_exports(network, account_id) WHERE state IN ('held', 'confirmed');
+    `,
+  },
 ]
 
 const POSTGRES: readonly Migration[] = [
@@ -287,6 +323,38 @@ const POSTGRES: readonly Migration[] = [
         revoked_at BIGINT
       );
       CREATE UNIQUE INDEX signer_tg_approvals_live ON signer_tg_approvals(network, account_id, destination) WHERE revoked_at IS NULL;
+    `,
+  },
+  {
+    version: 3,
+    name: 'held-exports',
+    sql: `
+      CREATE TABLE signer_exports (
+        id TEXT PRIMARY KEY,
+        digest TEXT NOT NULL UNIQUE,
+        network TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        owner_account TEXT NOT NULL,
+        owner_key TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        message TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        user_id BIGINT NOT NULL,
+        recipient_key TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('held', 'confirmed', 'collected', 'cancelled', 'expired')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        release_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        confirmed_at BIGINT,
+        confirm_init_data TEXT,
+        cancelled_at BIGINT,
+        cancelled_by TEXT,
+        collected_at BIGINT
+      );
+      CREATE INDEX signer_exports_account ON signer_exports(network, account_id, created_at);
+      CREATE UNIQUE INDEX signer_exports_open ON signer_exports(network, account_id) WHERE state IN ('held', 'confirmed');
     `,
   },
 ]

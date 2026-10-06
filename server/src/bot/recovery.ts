@@ -13,7 +13,8 @@ import { linkedAccount } from './wallet'
 
 /**
  * 🔐 Recovery, per NearKit wallet: the backup key, the key export (in the NearKit web
- * app only) and removing NearKit's access, which answer to the wallet's owner wallet. A
+ * app only, held 24 hours and announced here, where it can be released sooner or cancelled)
+ * and removing NearKit's access, which answer to the wallet's owner wallet. A
  * wallet with no owner wallet can get one here (linking is optional): the user's linked
  * wallet, approved in NearKit's Mini App (Telegram signs it), bound for good. Keys are never
  * shown or asked for in Telegram. Every button carries the wallet it was shown for, so an
@@ -96,6 +97,10 @@ async function showRecovery(ctx: BotCtx, walletId = '') {
   const known = [w.publicKey, w.ownerKey, w.backupKey, mine]
   const others = (view.keys ?? []).filter((k) => !known.includes(k))
   const status = backup === null ? '— (couldn’t read the chain)' : backup ? '✓ added' : view.exists ? 'not added yet' : 'after the first deposit'
+  // An export waiting for this wallet: shown here too, so it can be released or cancelled without the original notice.
+  const custody = ctx.deps.custody
+  const open = await custody?.recovery.exportStatus({ accountId: w.accountId }).catch(() => null)
+  const waiting = open && (open.status === 'held' || open.status === 'ready') ? open : null
   await ctx.show(
     [
       `🔐 ${bold('Recovery')} · ${walletLine(w)}`,
@@ -107,13 +112,21 @@ async function showRecovery(ctx: BotCtx, walletId = '') {
       ...others.map((k) => `⚠️ Another key also controls this wallet: ${code(`${k.slice(0, 16)}…`)}. If it isn’t yours, move your funds.`),
       '',
       bold('2. Export'),
-      'See this wallet’s private key in NEARKITS web, after signing with your owner wallet. Never in Telegram. Only this wallet’s key.',
+      'See this wallet’s private key in NEARKITS web, after signing with your owner wallet. Never in Telegram. Only this wallet’s key. Every export waits 24 hours and is announced here: release it sooner here, or cancel it.',
+      ...(waiting
+        ? [
+            `⏳ ${bold('An export is open')}: to the browser with the key ${code(waiting.browserKey)}, ${waiting.status === 'held' ? `held until ${esc(utc(waiting.releaseAt))}` : 'released'}. If it isn’t yours, cancel it now.`,
+          ]
+        : []),
       '',
       bold('3. Remove NEARKITS’ access'),
       'NEARKITS deletes its own key; after that only your wallet controls this one. Needs the backup key first.',
     ].join('\n'),
     keyboard(
       backup === false && view.exists && mine ? [btn('🔐 Add backup key', `cr:backup:${w.id}`)] : [],
+      waiting && custody
+        ? [...(waiting.status === 'held' ? [urlBtn('✅ Release it now', custody.telegram.link(waiting))] : []), btn('❌ Cancel export', `cr:xcancel:${waiting.exportId}`)]
+        : [],
       owner ? [btn('🌐 Export key in NEARKITS web', `cr:export:${w.id}`)] : [],
       backup ? [btn('🧹 Remove NEARKITS’ access', `cr:revoke:${w.id}`)] : [],
       deletionOf(view).ok ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
@@ -220,11 +233,37 @@ async function exportLink(ctx: BotCtx, walletId: string) {
       '',
       `1. Open NEARKITS web with the button below (the same page works without Telegram: ${ctx.deps.config.webUrl.replace(/^https?:\/\//, '')}/recover).`,
       `2. Connect ${w.ownerAccount ? code(w.ownerAccount) : 'your owner wallet'}, the wallet this one was created with, and sign the message it shows. Signing is free.`,
-      '3. The private key is sealed to that browser and shown once, on your screen. Nothing in between can read it.',
+      '3. NEARKITS holds the export for 24 hours and tells you here at once: release it sooner with one tap, or cancel it.',
+      '4. Then the private key is sealed to that browser and shown once, on your screen. Nothing in between can read it.',
       '',
       'Anyone who sees that key controls the wallet. Never share it or paste it into a chat. NEARKITS never asks for it.',
     ].join('\n'),
     keyboard([urlBtn('🌐 Open NEARKITS to export', issued.url)], back),
+  )
+}
+
+/** ❌ Cancel export, on the notice or the Recovery screen: only the wallet's own Telegram account (the signer checks it). */
+async function cancelExport(ctx: BotCtx, exportId: string) {
+  const custody = ctx.deps.custody
+  if (!custody || !/^[A-Za-z0-9_-]{8,64}$/.test(exportId)) return showWalletHome(ctx)
+  let r
+  try {
+    r = await custody.recovery.cancelExport({ exportId, by: 'telegram', userId: ctx.user.id })
+  } catch (e) {
+    if (e instanceof RecoveryApiError) return ctx.show(`⚠️ ${esc(e.message)}`, keyboard(back))
+    throw e
+  }
+  const w = r.wallet
+  await ctx.show(
+    r.held.status === 'cancelled'
+      ? [
+          `🛑 ${bold('Export cancelled')}${w ? ` · ${walletLine(w)}` : ''}`,
+          '',
+          'Nothing was released, and nothing will be: this request is void.',
+          'If you didn’t ask for it, your owner wallet signed NEARKITS’ request on a site that isn’t NEARKITS. Be careful what it signs.',
+        ].join('\n')
+      : `This export is ${r.held.status === 'expired' ? 'over: it expired' : 'no longer open'}. Nothing was released.`,
+    keyboard(w ? [btn('🔐 Recovery', `cr:show:${w.id}`)] : [], back),
   )
 }
 
@@ -279,6 +318,8 @@ export function recoveryModule(): BotModule {
             return offerBackup(ctx, arg)
           case 'export':
             return exportLink(ctx, arg)
+          case 'xcancel':
+            return cancelExport(ctx, arg)
           case 'revoke':
             return offerRevoke(ctx, arg)
           case 'delete':
@@ -291,16 +332,47 @@ export function recoveryModule(): BotModule {
   }
 }
 
-/** Sent to Telegram when the key was exported in the web app: the owner hears about it either way. */
-export function exportedText(wallet: string, owner: string): string {
-  return `🔐 Your NEARKITS wallet ${esc(shortAccount(wallet))} key was just exported in NEARKITS web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
+/** A held export's times, in UTC: the user's clock may be anywhere. */
+const utc = (t: number) => `${new Date(t).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+
+/** Sent to the wallet's Telegram account the moment its owner wallet signs a key export. Nothing is released yet. */
+export function exportRequestedNotice(r: { wallet: TradingWallet; ownerAccount: string; browserKey: string; releaseAt: number; exportId: string }, releaseLink: string) {
+  return {
+    text: [
+      `🔐 ${bold('Key export requested')} · ${walletLine(r.wallet)}`,
+      '',
+      `Your owner wallet ${code(r.ownerAccount)} signed a request in NEARKITS web to export this wallet’s private key to a browser with the key ${code(r.browserKey)}.`,
+      '',
+      `NEARKITS holds it until ${bold(utc(r.releaseAt))}; then that browser can collect it.`,
+      '• If it was you: ✅ Release it now skips the wait. NEARKITS’ mini app opens; check that the browser key matches your page.',
+      '• If it wasn’t you: ❌ Cancel export now. Nothing is released. A site got your owner wallet to sign NEARKITS’ request: be careful what it signs.',
+      '',
+      'The key itself never comes to Telegram.',
+    ].join('\n'),
+    markup: keyboard([urlBtn('✅ Release it now', releaseLink)], [btn('❌ Cancel export', `cr:xcancel:${r.exportId}`)]),
+  }
+}
+
+/** Sent when the key was collected: the owner hears about it either way. */
+export function exportedText(r: { wallet: TradingWallet; ownerAccount: string; browserKey: string; released: 'hold' | 'telegram' }): string {
+  return `🔐 The private key of your NEARKITS wallet ${walletLine(r.wallet)} was exported to the browser with the key ${code(r.browserKey)}, signed by its owner wallet ${code(r.ownerAccount)}${r.released === 'telegram' ? ' and released by you in Telegram' : ' after its hold'}.\n\nIf this wasn’t you, move your funds now.`
+}
+
+/** Sent when a held export was cancelled on the web page that asked for it. */
+export function exportCancelledText(r: { wallet: TradingWallet; browserKey: string }): string {
+  return `🛑 The key export of your NEARKITS wallet ${walletLine(r.wallet)} to the browser with the key ${code(r.browserKey)} was cancelled in NEARKITS web. Nothing was released.`
 }
 
 /** Sent to Telegram when an approval given in the Mini App counted (Telegram signed it). */
-export function telegramApprovedText(r: { kind: 'destination' | 'bind-owner'; accountId: string; target: string; walletId: string }): {
+export function telegramApprovedText(r: { kind: 'destination' | 'bind-owner' | 'export'; accountId: string; target: string; walletId: string }): {
   text: string
   markup: ReturnType<typeof keyboard>
 } {
+  if (r.kind === 'export')
+    return {
+      text: `✅ You released the key export of your NEARKITS wallet ${esc(shortAccount(r.accountId))} in Telegram: the browser with the key ${code(r.target)} can collect it now.\n\nIf this wasn’t you, cancel it (🔐 Recovery) and move your funds.`,
+      markup: keyboard([btn('🔐 Recovery', `cr:show:${r.walletId}`), btn('👛 Wallet', 'cw:home')]),
+    }
   if (r.kind === 'destination')
     return {
       text: `✅ ${code(r.target)} can now receive withdrawals from your NEARKITS wallet ${esc(shortAccount(r.accountId))}: approved in Telegram.\n\nIf this wasn’t you, move your funds now.`,
