@@ -130,6 +130,20 @@ describe('trade handoffs', () => {
     expect(traded).toHaveLength(1)
   })
 
+  it('one transaction confirms one handoff: reported again for another, it is refused and earns nothing more', async () => {
+    const tx = aggBuy as unknown as RpcTxResult
+    const make = () =>
+      handoffs.create({ userId: 7, chatId: 7, accountId: 'alijay3637.tg', side: 'buy', tokenIn: 'near', tokenOut: 'token.rhealab.near', amountIn: '1', slippagePct: 1 })
+    const first = (await make()).handoff
+    const second = (await make()).handoff
+    expect(await handoffs.report(first.id, [tx.transaction.hash])).toEqual({ status: 'confirmed', outcome: 'traded' })
+    await expect(handoffs.report(second.id, [tx.transaction.hash])).rejects.toMatchObject({ status: 409, code: 'used' })
+    expect(traded).toHaveLength(1)
+    expect(sent).toHaveLength(1)
+    // The second handoff stays open for its own trade.
+    expect((await handoffs.describe(second.id)).status).toBe('open')
+  })
+
   it('refuses a transaction signed by someone else', async () => {
     const { handoff } = await prepare('alice.near')
     // The RPC finds transactions by hash and signer: someone else's hash is unknown for alice.near.

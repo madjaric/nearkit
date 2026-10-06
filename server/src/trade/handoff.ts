@@ -165,6 +165,11 @@ export function createHandoffs(deps: {
       if (now() - h.createdAt > REPORT_WINDOW_MS) throw new HandoffError(410, 'expired', 'This Telegram trade link is too old to report on.')
       if (!Array.isArray(hashes) || hashes.length === 0 || hashes.length > 8 || !hashes.every((x) => typeof x === 'string' && TX_HASH.test(x)))
         throw new HandoffError(400, 'bad-hashes', 'Send the transaction hashes the wallet returned.')
+      // One transaction confirms one handoff: a hash another handoff reported is another trade's (base58, so no LIKE wildcards).
+      for (const hash of hashes as string[]) {
+        const other = await deps.db.get<{ id: string }>('SELECT id FROM handoffs WHERE id <> ? AND network = ? AND tx_hashes LIKE ? LIMIT 1', [id, deps.network.id, `%"${hash}"%`])
+        if (other) throw new HandoffError(409, 'used', 'That transaction already confirmed another Telegram trade.')
+      }
 
       const txs = []
       for (const hash of hashes as string[]) {

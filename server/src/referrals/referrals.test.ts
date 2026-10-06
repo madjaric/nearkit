@@ -118,6 +118,16 @@ describe.each(TEST_ENGINES)(
       expect(await r.store.earningsOf(ALICE, 'mainnet')).toHaveLength(1)
     })
 
+    it('one on-chain transaction earns once, whatever record reports it (two handoffs, an intent and a handoff)', async () => {
+      await join(BOB)
+      await r.attribute(BOB, (await r.link(ALICE, 'b')).code)
+      const once = (source: 'intent' | 'handoff', id: string) => r.recordTrade({ source, sourceId: id, userId: BOB, fee: fee(400n), txHash: 'SAME-TX', trader: 'bob.near' })
+      expect(await once('handoff', 'h1')).toBe(true)
+      expect(await once('handoff', 'h2')).toBe(false)
+      expect(await once('intent', 'i1')).toBe(false)
+      expect(await r.store.earningsOf(ALICE, 'mainnet')).toHaveLength(1)
+    })
+
     it('a referrer trading through the referred account with their own wallet earns nothing', async () => {
       await join(BOB)
       await r.attribute(BOB, (await r.link(ALICE, 'b')).code)

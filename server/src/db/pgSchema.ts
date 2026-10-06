@@ -443,4 +443,11 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       );
     `,
   },
+  {
+    version: 5,
+    name: 'Referrals: one earning per on-chain transaction',
+    sql: `
+      CREATE UNIQUE INDEX referral_earnings_tx ON referral_earnings(network, tx_hash) WHERE tx_hash IS NOT NULL;
+    `,
+  },
 ]

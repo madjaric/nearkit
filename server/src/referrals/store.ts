@@ -188,7 +188,7 @@ export class ReferralStore {
     return (
       (await this.db.run(
         `INSERT INTO referral_earnings (source, source_id, referrer_user_id, referred_user_id, network, token, received_raw, referral_raw, net_raw, volume_raw, tx_hash, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (source, source_id) DO NOTHING`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
         [
           e.source,
           e.sourceId,

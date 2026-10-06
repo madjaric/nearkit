@@ -562,6 +562,14 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       );
     `,
   },
+  {
+    version: 14,
+    name: 'Referrals: one earning per on-chain transaction',
+    sql: `
+      -- A transaction pays NEARKITS one fee: it earns its referrer once, whichever record (intent or handoff) reports it.
+      CREATE UNIQUE INDEX referral_earnings_tx ON referral_earnings(network, tx_hash) WHERE tx_hash IS NOT NULL;
+    `,
+  },
 ]
 
 /**
