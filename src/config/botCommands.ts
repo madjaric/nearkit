@@ -31,6 +31,13 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'quote', usage: '[token] [NEAR amount]', description: 'price a buy through Rhea without signing anything', section: 'Trading', scope: 'private' },
   { name: 'token', usage: '<symbol or contract>', description: 'token details read from chain', section: 'Trading', scope: 'private' },
   { name: 'balance', description: 'balances of your NEARKITS wallet (or your linked account)', section: 'Trading', scope: 'private' },
+  {
+    name: 'volume',
+    usage: '[start|pause|resume|stop]',
+    description: 'your Volume Bot: status, volume, PnL; start, pause, resume or stop it',
+    section: 'Trading',
+    scope: 'private',
+  },
   { name: 'positions', description: 'holdings with cost basis and PnL from on-chain history', section: 'Portfolio', scope: 'private' },
   { name: 'pnl', usage: '[7d|30d|90d]', description: 'realized and unrealized PnL', section: 'Portfolio', scope: 'private' },
   { name: 'buybot', description: 'buy alerts for a token in your group (group admins)', section: 'Groups', scope: 'any' },

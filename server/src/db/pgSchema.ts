@@ -359,4 +359,87 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       ALTER TABLE trading_wallets ADD COLUMN display_order INTEGER;
     `,
   },
+  {
+    version: 4,
+    name: 'Volume Bot: bots, their wallets, runs, trades, events and metrics',
+    sql: `
+      CREATE TABLE volume_bots (
+        id TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        config TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'running', 'paused', 'stopping', 'stopped', 'completed')),
+        pause_code TEXT,
+        pause_reason TEXT,
+        next_tick_at BIGINT,
+        lease_owner TEXT,
+        lease_until BIGINT,
+        started_at BIGINT,
+        stopped_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX volume_bots_due ON volume_bots(status, next_tick_at);
+      CREATE INDEX volume_bots_user ON volume_bots(user_id, created_at);
+      CREATE UNIQUE INDEX volume_bots_one_live_per_token ON volume_bots(user_id, network, token) WHERE status IN ('running', 'paused', 'stopping');
+      CREATE TABLE volume_bot_wallets (
+        bot_id TEXT NOT NULL REFERENCES volume_bots(id) ON DELETE CASCADE,
+        wallet_id TEXT NOT NULL REFERENCES trading_wallets(id),
+        PRIMARY KEY (bot_id, wallet_id)
+      );
+      CREATE TABLE volume_bot_runs (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES volume_bots(id) ON DELETE CASCADE,
+        started_at BIGINT NOT NULL,
+        ended_at BIGINT,
+        end_reason TEXT,
+        state TEXT NOT NULL
+      );
+      CREATE INDEX volume_bot_runs_bot ON volume_bot_runs(bot_id, started_at);
+      CREATE TABLE volume_bot_trades (
+        id BIGSERIAL PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES volume_bots(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
+        intent_id TEXT,
+        side TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('submitted', 'confirmed', 'failed')),
+        near_raw TEXT,
+        token_raw TEXT,
+        price_near DOUBLE PRECISION,
+        impact_bps DOUBLE PRECISION,
+        fee_near DOUBLE PRECISION,
+        gas_near DOUBLE PRECISION,
+        near_usd DOUBLE PRECISION,
+        tx_hash TEXT,
+        message TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX volume_bot_trades_bot ON volume_bot_trades(bot_id, created_at);
+      CREATE UNIQUE INDEX volume_bot_trades_intent ON volume_bot_trades(intent_id) WHERE intent_id IS NOT NULL;
+      CREATE TABLE volume_bot_events (
+        id BIGSERIAL PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES volume_bots(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        code TEXT,
+        message TEXT NOT NULL,
+        at BIGINT NOT NULL
+      );
+      CREATE INDEX volume_bot_events_bot ON volume_bot_events(bot_id, at);
+      CREATE TABLE volume_bot_metrics (
+        bot_id TEXT NOT NULL REFERENCES volume_bots(id) ON DELETE CASCADE,
+        at BIGINT NOT NULL,
+        price_near DOUBLE PRECISION,
+        equity_near DOUBLE PRECISION,
+        pnl_near DOUBLE PRECISION,
+        token_pct DOUBLE PRECISION,
+        volume_near DOUBLE PRECISION NOT NULL,
+        trades INTEGER NOT NULL,
+        PRIMARY KEY (bot_id, at)
+      );
+    `,
+  },
 ]

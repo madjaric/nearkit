@@ -1,3 +1,7 @@
+import { volumeModule } from './bot/volume'
+import { botRoutes } from './volumebot/routes'
+import { createVolumeBotRunner } from './volumebot/runner'
+import { VolumeBotStore } from './volumebot/store'
 import type { Server } from 'node:http'
 import { createApiServer, listen } from './api/http'
 import { handoffRoutes } from './api/handoffRoutes'
@@ -61,6 +65,7 @@ import { referralsModule } from './bot/referrals'
 import { OpsSwitches } from './ops/switches'
 import { createReferrals } from './referrals/service'
 import { walletErrorText } from './bot/ui'
+import { esc } from './telegram/html'
 
 /**
  * Wires the server together: configuration, database, NearKit services, the
@@ -92,6 +97,7 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     intentsModule(),
     referralsModule(),
     webModule(),
+    volumeModule(),
   ]
 }
 
@@ -250,6 +256,8 @@ export async function startServer(options: { env: Record<string, string | undefi
 
   // NearKit web sign-in: sessions for the user's NearKit wallets on the website.
   const web = custody ? new WebSessions(db, now) : null
+  // Volume Bots: configured on the web, stepped by the worker below, trading only through custody.
+  const volumeBots = custody && web ? new VolumeBotStore(db, now) : null
   let botDeps: BotDeps | null = null
 
   let tg: TelegramApi | null = null
@@ -286,6 +294,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       custody,
       referrals,
       web,
+      volumeBots,
     }
     botDeps = deps
     let list: () => { name: string; command: Command }[] = () => []
@@ -325,7 +334,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     const switches = new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused)
     health.pauses = await switches
       .state()
-      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused }))
+      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused, volumebot: s.volumebot.paused }))
       .catch(() => 'unknown' as const)
     if (custody) {
       const h = await custody.signer.health().catch(() => null)
@@ -372,6 +381,19 @@ export async function startServer(options: { env: Record<string, string | undefi
             log,
           })
         : {}),
+      ...(custody && web && volumeBots
+        ? botRoutes({
+            sessions: web,
+            custody,
+            bots: volumeBots,
+            near,
+            network: config.network,
+            now,
+            // The security notice when a bot starts on the web; nothing waits for it.
+            notify: async (userId, html) => (bot ? bot.notify(userId, html) : false),
+            log,
+          })
+        : {}),
       ...(custody
         ? telegramRoutes({
             approvals: custody.telegram,
@@ -406,18 +428,44 @@ export async function startServer(options: { env: Record<string, string | undefi
       '/api/web/send/review': 20,
       '/api/web/send/execute': 10,
       '/api/web/send/status': 120,
+      '/api/web/bots': 60,
+      '/api/web/bots/save': 20,
+      '/api/web/bots/detail': 120,
+      '/api/web/bots/start': 10,
+      '/api/web/bots/pause': 20,
+      '/api/web/bots/resume': 20,
+      '/api/web/bots/stop': 20,
+      '/api/web/bots/delete': 10,
     },
     // Public and secret-free: whether the bot and buy alerts run, the kill switches, the signer, and the boot count (see Store.recordBoot).
     health: () => ({
       bot: bot ? true : false,
       buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : config.buybot.runner === 'separate' ? 'separate process' : 'needs the bot token',
       wallets: custody ? 'on' : 'off',
+      volumebot: volumeRunner ? 'running' : 'off',
       pauses: health.pauses,
       signer: health.signer,
       boot: boot.boot,
     }),
     now,
   })
+  // The Volume Bot's worker: each bot is stepped under its own lease, so instances never double up.
+  const volumeRunner =
+    custody && volumeBots && config.volumeBot.runner === 'app'
+      ? createVolumeBotRunner({
+          store: volumeBots,
+          custody,
+          near,
+          network: config.network,
+          log,
+          instanceId: instance,
+          now,
+          notify: async (userId, text) => void (bot ? await bot.notify(userId, esc(text)) : undefined),
+        })
+      : null
+  volumeRunner?.start()
+  if (volumeRunner) log.info('Volume Bot worker running')
+
   const apiPort = await listen(api, config.api.port, config.api.host)
   log.info('API listening', { url: `http://${config.api.host}:${apiPort}`, public: config.api.publicUrl, origins: config.api.allowedOrigins })
 
@@ -446,6 +494,7 @@ export async function startServer(options: { env: Record<string, string | undefi
         await leases.prune()
         await web?.prune()
         await buybot?.store.prune(7 * 86_400_000)
+        await volumeBots?.prune()
         // Keys of wallets closed lately that the signer couldn't erase yet (the chain wasn't sure).
         if (custody) {
           const c = custody
@@ -470,6 +519,8 @@ export async function startServer(options: { env: Record<string, string | undefi
       clearInterval(healthTimer)
       clearInterval(housekeeping)
       clearInterval(resolver)
+      // No bot starts a new step; the one under way finishes (its trade is settled from its intent after a restart anyway).
+      await volumeRunner?.stop()
       await buybotRunner?.stop()
       await poller?.stop()
       await new Promise<void>((resolve) => api.close(() => resolve()))

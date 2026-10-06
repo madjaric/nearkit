@@ -26,8 +26,9 @@ import type { Database } from '../db/database'
  * only reads the chain) and the bot keeps answering.
  */
 
-export type SwitchName = 'trading' | 'withdrawals'
-export const SWITCHES: readonly SwitchName[] = ['trading', 'withdrawals']
+/** `volumebot`: every Volume Bot pauses (its worker checks it each tick); manual trading goes on. */
+export type SwitchName = 'trading' | 'withdrawals' | 'volumebot'
+export const SWITCHES: readonly SwitchName[] = ['trading', 'withdrawals', 'volumebot']
 
 export interface SwitchState {
   paused: boolean
@@ -58,7 +59,7 @@ export class OpsSwitches {
       const r = rows.find((x) => x.name === name)
       return r && r.paused === 1 ? { paused: true, reason: r.reason, since: r.updated_at } : { paused: false, reason: null, since: r?.updated_at ?? null }
     }
-    return { trading: of('trading'), withdrawals: of('withdrawals') }
+    return { trading: of('trading'), withdrawals: of('withdrawals'), volumebot: of('volumebot') }
   }
 
   async set(name: SwitchName, paused: boolean, reason: string, by: string): Promise<void> {

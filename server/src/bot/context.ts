@@ -1,3 +1,4 @@
+import type { VolumeBotStore } from '../volumebot/store'
 import { commandDoc } from '@/config/botCommands'
 import type { WebSessions } from '../web/sessions'
 import type { ServerConfig } from '../config'
@@ -36,6 +37,8 @@ export interface BotDeps {
   referrals: Referrals | null
   /** NearKit web sign-in (one-time links, sessions); null when NearKit wallets are off here. */
   web: WebSessions | null
+  /** The user's Volume Bots (/volume); null or absent when NEARKITS wallets are off here. */
+  volumeBots?: VolumeBotStore | null
 }
 
 export interface BuybotDeps {

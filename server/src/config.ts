@@ -54,6 +54,8 @@ export interface ServerConfig {
     /** 'app': this process follows and posts; 'separate': it only handles /buybot settings, `npm run buybot` posts. */
     runner: 'app' | 'separate'
   }
+  /** The Volume Bot's worker: 'app' runs it in this process (with NEARKITS wallets on); 'off' runs no bot here. */
+  volumeBot: { runner: 'app' | 'off' }
   /**
    * NearKit trading wallets. Their keys live with NearKit's signer: in this process on
    * testnet (a KEK in the environment), or the separate signer service (NEARKIT_SIGNER_URL).
@@ -154,6 +156,8 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
 
   const runnerRaw = raw.BUYBOT_RUNNER?.trim()
   if (!blank(runnerRaw) && runnerRaw !== 'app' && runnerRaw !== 'separate') issue('BUYBOT_RUNNER', 'Expected "app" or "separate"')
+  const volumeRunnerRaw = raw.NEARKIT_VOLUMEBOT_RUNNER?.trim()
+  if (!blank(volumeRunnerRaw) && volumeRunnerRaw !== 'app' && volumeRunnerRaw !== 'off') issue('NEARKIT_VOLUMEBOT_RUNNER', 'Expected "app" or "off"')
   const buybotRaw = raw.BUYBOT_ENABLED?.trim()
   if (!blank(buybotRaw) && buybotRaw !== 'true' && buybotRaw !== 'false') issue('BUYBOT_ENABLED', 'Expected "true" or "false"')
   const bbNetRaw = raw.BUYBOT_NETWORK?.trim()
@@ -276,6 +280,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         dataUrl: dataUrl ?? NETWORKS[bbId].discovery.fastnearTxUrl,
         runner: runnerRaw === 'separate' ? 'separate' : 'app',
       },
+      volumeBot: { runner: volumeRunnerRaw === 'off' ? 'off' : 'app' },
       custody,
       ops: { hostPaused: hostPaused.filter((s): s is SwitchName => SWITCHES.includes(s as SwitchName)) },
       logLevel,

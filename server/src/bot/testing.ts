@@ -1,3 +1,4 @@
+import { VolumeBotStore } from '../volumebot/store'
 import { createFakeChain, type FakeChainOptions } from '@/services/real/testing/fakeChain'
 import { WebSessions } from '../web/sessions'
 import type { Follower, TxIndex } from '../buybot/follower'
@@ -206,6 +207,7 @@ export async function botHarness(
     custody,
     referrals: null,
     web: custody ? new WebSessions(db, now) : null,
+    volumeBots: custody ? new VolumeBotStore(db, now) : null,
   }
   const referrals = createReferrals({
     db,

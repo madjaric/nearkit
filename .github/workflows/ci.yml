@@ -86,7 +86,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Database, leases and concurrency on SQLite, PGlite and PostgreSQL
-        run: npx vitest run server/src/db server/src/custody server/src/signer server/src/referrals
+        run: npx vitest run server/src/db server/src/custody server/src/signer server/src/referrals server/src/volumebot
         env:
           NEARKIT_TEST_DATABASE_URL: postgres://nearkit:nearkit_ci@127.0.0.1:5432/nearkit_test
       - name: The whole bot on the Postgres dialect (PGlite)
