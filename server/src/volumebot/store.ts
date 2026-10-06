@@ -264,6 +264,9 @@ export class VolumeBotStore {
     const runId = randomToken(12)
     try {
       return await this.db.tx(async () => {
+        // One user's starts take turns (SQLite runs one write at a time; on Postgres, this lock), so the count below is the truth.
+        if (this.db.dialect === 'postgres')
+          await this.db.get("SELECT pg_advisory_xact_lock(hashtext('nearkit:volumebot-live:' || (SELECT user_id FROM volume_bots WHERE id = ?)::text))", [id])
         const live = await this.db.get<{ n: number }>(
           `SELECT COUNT(*) AS n FROM volume_bots WHERE user_id = (SELECT user_id FROM volume_bots WHERE id = ?) AND id <> ? AND status IN (${inList(LIVE)})`,
           [id, id],
@@ -411,12 +414,12 @@ export class VolumeBotStore {
 
   async addTrade(t: Omit<BotTrade, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
     const at = this.now()
-    await this.db.run(
+    // The id of this very row (RETURNING), never "the bot's newest", which another insert may be.
+    const r = await this.db.get<{ id: number }>(
       `INSERT INTO volume_bot_trades (bot_id, run_id, wallet_id, intent_id, side, status, near_raw, token_raw, price_near, impact_bps, fee_near, gas_near, near_usd, tx_hash, message, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [t.botId, t.runId, t.walletId, t.intentId, t.side, t.status, t.nearRaw, t.tokenRaw, t.priceNear, t.impactBps, t.feeNear, t.gasNear, t.nearUsd, t.txHash, t.message, at, at],
     )
-    const r = await this.db.get<{ id: number }>('SELECT id FROM volume_bot_trades WHERE bot_id = ? ORDER BY id DESC LIMIT 1', [t.botId])
     return Number(r?.id)
   }
 

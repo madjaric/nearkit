@@ -40,8 +40,23 @@ async function signOutEverywhere(ctx: BotCtx): Promise<void> {
   const web = ctx.deps.web
   if (!web) return ctx.answer()
   const n = await web.revokeAll(ctx.user.id)
+  // A bot started from a session (perhaps a stolen one) trades on with no session at all: signing
+  // out everywhere pauses the running ones too, until their owner resumes them here.
+  const bots = ctx.deps.volumeBots
+  let paused = 0
+  if (bots)
+    for (const b of await bots.ofUser(ctx.user.id, ctx.deps.config.network.id)) {
+      if (b.status !== 'running' || !(await bots.pause(b.id, 'owner', 'Paused when you signed out of NEARKITS web everywhere'))) continue
+      await bots.event(b.id, 'paused', 'Paused when you signed out of NEARKITS web everywhere', 'owner')
+      paused++
+    }
   await ctx.answer()
-  await ctx.reply(`🚪 ${bold('Signed out of NEARKITS web')} on every browser${n ? ` (${n} ${n === 1 ? 'session' : 'sessions'})` : ''}.`)
+  await ctx.reply(
+    [
+      `🚪 ${bold('Signed out of NEARKITS web')} on every browser${n ? ` (${n} ${n === 1 ? 'session' : 'sessions'})` : ''}.`,
+      ...(paused ? ['', `${paused === 1 ? 'Your running Volume Bot is' : `Your ${paused} running Volume Bots are`} paused too. Check them with /volume before you resume.`] : []),
+    ].join('\n'),
+  )
 }
 
 export function webModule(): BotModule {

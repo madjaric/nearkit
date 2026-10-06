@@ -4,7 +4,7 @@ import { emptyBook } from '@/lib/volumeBot/inventory'
 import { CustodyStore } from '../custody/store'
 import type { Database } from '../db/database'
 import { Store } from '../db/store'
-import { ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES } from '../db/testing'
+import { anotherInstance, ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES } from '../db/testing'
 import { VolumeBotStore, type RunState } from './store'
 
 const USER = 101
@@ -58,6 +58,19 @@ describe.each(TEST_ENGINES)(
       expect((await bots.get(b.id))?.status).toBe('draft')
     })
 
+    it('starts racing (two instances, one user, every bot on its own token) never make more than MAX_LIVE_BOTS_PER_USER live', async () => {
+      const list = []
+      for (let i = 0; i <= MAX_LIVE_BOTS_PER_USER; i++)
+        list.push(
+          await bots.create({ userId: USER, network: 'testnet', config: defaultBotConfig('market-maker', { id: `r${i}.testnet`, symbol: `R${i}`, decimals: 6 }, [walletId]) }),
+        )
+      // On a real server each start runs on its own connection pool, like two app instances at once.
+      const other = engine === 'postgres' ? new VolumeBotStore(anotherInstance(db), () => now) : bots
+      const results = await Promise.all(list.map((b, i) => (i % 2 ? other : bots).start(b.id, state())))
+      expect(results.filter((r) => r.ok)).toHaveLength(MAX_LIVE_BOTS_PER_USER)
+      expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, reason: 'too-many' }])
+    })
+
     it('a user has at most MAX_LIVE_BOTS_PER_USER live bots at once (each on its own token); another starts once one has stopped', async () => {
       const tokens = Array.from({ length: MAX_LIVE_BOTS_PER_USER + 1 }, (_, i) => ({ id: `t${i}.testnet`, symbol: `T${i}`, decimals: 6 }))
       const list = []
@@ -99,6 +112,34 @@ describe.each(TEST_ENGINES)(
       await bots.release(b.id, 'w2')
       await bots.setNextTick(b.id, now + 60_000)
       expect(await bots.due(10)).toEqual([])
+    })
+
+    it('two trades recorded at once (two instances) each get their own id', async () => {
+      const b = await make()
+      const started = await bots.start(b.id, state())
+      if (!started.ok) throw new Error('not started')
+      const other = engine === 'postgres' ? new VolumeBotStore(anotherInstance(db), () => now) : bots
+      const trade = (intentId: string) => ({
+        botId: b.id,
+        runId: started.runId,
+        walletId,
+        intentId,
+        side: 'buy' as const,
+        status: 'submitted' as const,
+        nearRaw: '1',
+        tokenRaw: '1',
+        priceNear: 1,
+        impactBps: null,
+        feeNear: null,
+        gasNear: null,
+        nearUsd: null,
+        txHash: null,
+        message: '',
+      })
+      const ids = await Promise.all(Array.from({ length: 6 }, (_, i) => (i % 2 ? other : bots).addTrade(trade(`r${i}`))))
+      expect(new Set(ids).size).toBe(6)
+      const rows = await bots.trades(b.id)
+      for (const [i, id] of ids.entries()) expect(rows.find((r) => r.id === id)?.intentId).toBe(`r${i}`)
     })
 
     it('records runs, trades, events and metrics', async () => {

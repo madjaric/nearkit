@@ -241,6 +241,33 @@ describe('accumulate, stop and restarts', () => {
     void bot
   })
 
+  it('a step that lost its bot to another instance (its lease ran out) sends nothing', async () => {
+    const { h, bots, bot, step } = await setup()
+    for (let i = 0; i < 5; i++) await step()
+    h.market.usdtPerNear = 4_200_000n
+    // Another instance holds the bot's lease from now on.
+    const claim = bots.claim.bind(bots)
+    bots.claim = async (id, owner, ms) => (id === bot.id && owner === 'test' ? false : claim(id, owner, ms))
+    const sent = h.chain.sent.length
+    await step()
+    expect(h.chain.sent.length).toBe(sent)
+  })
+
+  it('a quote that fails is shown in plain words: no provider URL, key or internal message reaches the owner', async () => {
+    const { h, bots, bot, step } = await setup()
+    for (let i = 0; i < 5; i++) await step()
+    h.market.usdtPerNear = 4_200_000n
+    const quote = h.custody.swaps.quote.bind(h.custody.swaps)
+    h.custody.swaps.quote = async (params, wallet) => {
+      if (params.side === 'buy' && params.amountIn === '1') throw new Error('fetch https://rpc.provider.example/v1/SECRET-API-KEY failed: ECONNRESET')
+      return quote(params, wallet)
+    }
+    await step()
+    const seen = JSON.stringify([(await bots.currentRun(bot.id))?.state.waiting, await bots.events(bot.id)])
+    expect(seen).toMatch(/No quote/)
+    expect(seen).not.toMatch(/SECRET-API-KEY|rpc\.provider|ECONNRESET/)
+  })
+
   it('stop: nothing new is sent, and it ends stopped', async () => {
     const { bots, bot, step } = await setup()
     await step()

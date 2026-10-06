@@ -143,6 +143,19 @@ describe('/volume in Telegram', () => {
     expect(h.last()?.text).not.toMatch(/ed25519:|secret|seed/i)
   })
 
+  it('“Sign out of NEARKITS web everywhere” also pauses the bots running: one a stolen session started stops with it', async () => {
+    const { h, call, signIn, bots, refused } = await app()
+    const token = await signIn()
+    const w = await h.funded(5n * ONE)
+    const id = ((await call('/api/web/bots/save', { session: token, config: configFor(w.id) })).bot as { id: string }).id
+    await call('/api/web/bots/start', { session: token, botId: id })
+    expect((await bots.get(id))?.status).toBe('running')
+    await h.press('web:out')
+    expect((await bots.get(id))?.status).toBe('paused')
+    expect(h.last()?.text).toMatch(/Volume Bot/)
+    expect(await refused('/api/web/bots', { session: token })).toMatchObject({ status: 401 })
+  })
+
   it('with no bot yet, points to the console on NEARKITS web', async () => {
     const { h } = await app()
     await h.say('/volume')

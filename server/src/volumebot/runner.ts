@@ -6,6 +6,7 @@ import { GUARDIAN_LABEL, guardBalances, guardFill, guardHealth, guardLoss, guard
 import { nextEvaluationAt, scheduleGate } from '@/lib/volumeBot/schedule'
 import { acceptQuote, decide, MIN_TRADE_NEAR, updateFairValue } from '@/lib/volumeBot/strategy'
 import type { BotWallet, GuardianPause, Intent as BotIntent, MarketSnapshot, TradeQuote } from '@/lib/volumeBot/types'
+import { walletErrorText } from '../bot/ui'
 import type { ExecuteResult } from '../custody/engine'
 import type { Intent, TradingWallet } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
@@ -318,7 +319,8 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
       try {
         quote = await custody.swaps.quote(params, wallet)
       } catch (e) {
-        st.waiting = `No quote: ${e instanceof Error ? e.message : String(e)}`
+        // In plain words: a provider's URL (with any key in it) or an internal message stays in the server log.
+        st.waiting = `No quote: ${walletErrorText(e, { network: deps.network.id === 'mainnet' ? 'mainnet' : 'testnet', side: intent.side, log, context: 'volume bot quote failed' })}`
         await store.event(bot.id, 'skip', st.waiting)
         return null
       }
@@ -376,7 +378,15 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
       // Saved before anything is signed: a restart finds this trade and settles it from its intent.
       await store.saveRunState(runId, st)
       // The lease runs from now for the whole confirmation wait: no other worker steps this bot meanwhile.
-      await store.claim(bot.id, deps.instanceId, LEASE_MS)
+      // Lost meanwhile (this step outlived its lease and another instance took the bot): that one
+      // decides now, so this trade is cancelled before anything is signed.
+      if (!(await store.claim(bot.id, deps.instanceId, LEASE_MS))) {
+        await custody.store.setStatus(created.id, ['quoted'], 'cancelled')
+        st.progress.inFlight = Math.max(0, st.progress.inFlight - 1)
+        await store.dropTrade(tradeId)
+        st.waiting = 'Another worker took this bot over; this trade was not sent'
+        return null
+      }
       let r: ExecuteResult
       try {
         r = await custody.engine.execute(created.id, bot.userId)
