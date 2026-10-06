@@ -11,6 +11,8 @@ import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule } from '
 
 /** /web, and `/start web` (NearKit web's "Sign in with Telegram" button). */
 export async function startWeb(ctx: BotCtx): Promise<void> {
+  // A sign-in link is a session for whoever opens it: it is never shown where others can read it.
+  if (!ctx.isPrivate) return
   const web = ctx.deps.web
   if (!web || !ctx.deps.custody) return void (await ctx.reply('NEARKITS wallets aren’t available on this server.'))
   let code: string

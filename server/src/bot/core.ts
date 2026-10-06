@@ -88,7 +88,15 @@ export function coreModule(commandList: () => { name: string; command: Command }
   return {
     commands: {
       start: { scope: 'any', run: (ctx, args) => start(ctx, args.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)) },
-      help: { ...documented('help'), run: async (ctx) => void (await ctx.reply(helpText(ctx), keyboard([btn('« Menu', 'menu:home')]))) },
+      help: {
+        ...documented('help'),
+        // In a group the menu is someone's private screen: offer the private chat instead.
+        run: async (ctx) =>
+          void (await ctx.reply(
+            helpText(ctx),
+            ctx.isPrivate ? keyboard([btn('« Menu', 'menu:home')]) : keyboard([urlBtn('Open a private chat', `https://t.me/${ctx.deps.me.username}`)]),
+          )),
+      },
       cancel: {
         ...documented('cancel'),
         run: async (ctx) => {

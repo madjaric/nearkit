@@ -294,6 +294,8 @@ export function buybotModule(): BotModule {
         },
       },
     },
+    // The buy alerts' settings are the group's own buttons (admins only, checked on every press).
+    groupCallbacks: ['bb'],
     callbacks: {
       bb: async (ctx, action, arg) => {
         const bb = ctx.deps.buybot

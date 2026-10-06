@@ -88,6 +88,12 @@ export type FlowHandler = (ctx: BotCtx, text: string, data: Record<string, unkno
 export interface BotModule {
   commands?: Record<string, Command>
   callbacks?: Record<string, CallbackHandler>
+  /**
+   * The button namespaces (of `callbacks`) that work in a group chat. Every other button works
+   * only in a private chat: pressed in a group, it would draw the presser's private screens (wallet,
+   * deposit address, one-time link and sign-in codes) into a chat everyone reads.
+   */
+  groupCallbacks?: readonly string[]
   flows?: Record<string, FlowHandler>
   /**
    * A plain message in a private chat that no command or waiting step claimed. True when the

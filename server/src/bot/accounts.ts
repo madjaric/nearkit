@@ -13,6 +13,8 @@ import { SAFETY } from './texts'
 const CALLBACK_TTL_MS = 30 * 60_000
 
 export async function startLink(ctx: BotCtx) {
+  // The link works once for whoever opens it first: it is never shown where others can read it.
+  if (!ctx.isPrivate) return
   const { link: service, config } = ctx.deps
   let issued
   try {

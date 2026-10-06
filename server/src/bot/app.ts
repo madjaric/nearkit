@@ -41,6 +41,7 @@ export function createBotApp(
   const texts = modules.flatMap((m) => (m.onText ? [m.onText] : []))
   const commands = new Map<string, Command>()
   const callbacks = new Map<string, NonNullable<BotModule['callbacks']>[string]>()
+  const groupCallbacks = new Set(modules.flatMap((m) => m.groupCallbacks ?? []))
   const flows = new Map<string, NonNullable<BotModule['flows']>[string]>()
   for (const m of modules) {
     for (const [name, c] of Object.entries(m.commands ?? {})) commands.set(name, c)
@@ -184,6 +185,13 @@ export function createBotApp(
     const handler = callbacks.get(ns)
     if (!handler) {
       await ctx.answer('This button no longer works. Send /start.', false)
+      return
+    }
+    // A group is read by everyone in it: only the group's own buttons work there. Any other button
+    // would draw the presser's private screens (wallet, deposit address, a one-time link or sign-in
+    // code) into the group, or redraw a shared message as someone else's.
+    if (!ctx.isPrivate && !groupCallbacks.has(ns)) {
+      await ctx.answer('That button works in a private chat with me.', true)
       return
     }
     await guarded(ctx, `button ${ns}:${action}`, () => handler(ctx, action, rest.join(':')))
