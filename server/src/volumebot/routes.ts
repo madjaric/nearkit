@@ -141,6 +141,20 @@ export function botRoutes(deps: BotApiDeps): Record<string, Route> {
       const updated = await bots.update(b.id, userId, config)
       if (!updated) throw new HttpError(409, 'live', 'Stop the bot before changing its configuration.')
       await bots.event(b.id, 'config', 'Configuration changed on NEARKITS web')
+      // A security notice, like a start's: a stolen web session can't re-point a stopped bot unseen
+      // for its owner to start later. The contract and the limits, not just a symbol anyone can copy.
+      const r = config.risk
+      await deps
+        .notify(
+          userId,
+          [
+            `⚙️ ${bold('Volume Bot changed on NEARKITS web')}`,
+            `${esc(config.tokenSymbol)} (${esc(config.tokenId)}) · ${esc(updated.strategy)} · ${config.walletIds.length} wallet${config.walletIds.length === 1 ? '' : 's'}`,
+            `Max trade ${r.maxTradeNear} NEAR · slippage ${(r.maxSlippageBps / 100).toFixed(2)}% · impact ${(r.maxPriceImpactBps / 100).toFixed(2)}% · daily loss ${r.maxDailyLossNear} NEAR`,
+            'If this wasn’t you: don’t start it, and sign out of NEARKITS web everywhere.',
+          ].join('\n'),
+        )
+        .catch(() => undefined)
       return { bot: await summaryOf(bots, updated, deps.now()) }
     },
 

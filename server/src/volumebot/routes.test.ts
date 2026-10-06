@@ -102,6 +102,21 @@ describe('the Volume Bot console API', () => {
     expect(await refused('/api/web/bots/delete', { session: token, botId: id })).toMatchObject({ status: 409 })
   })
 
+  it('a configuration changed on NEARKITS web is announced in Telegram: the token’s contract and the limits that now apply', async () => {
+    const { h, call, signIn, notices } = await app()
+    const token = await signIn()
+    const w = await h.funded(5n * ONE)
+    const id = ((await call('/api/web/bots/save', { session: token, config: configFor(w.id) })).bot as { id: string }).id
+    const before = notices.length
+    const changed = configFor(w.id)
+    changed.risk.maxSlippageBps = 900
+    await call('/api/web/bots/save', { session: token, botId: id, config: changed })
+    const n = notices.slice(before).find((x) => x.userId === ALICE.id)
+    expect(n?.html).toMatch(/Volume Bot changed on NEARKITS web/)
+    expect(n?.html).toContain(USDT)
+    expect(n?.html).toMatch(/slippage 9(.00)?%/)
+  })
+
   it('nothing starts while NEARKITS has paused the Volume Bot', async () => {
     const { h, call, refused, signIn } = await app()
     const token = await signIn()

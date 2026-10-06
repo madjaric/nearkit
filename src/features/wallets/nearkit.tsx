@@ -20,7 +20,7 @@ import { formatUnits } from '@/lib/amounts'
 import { formatAccount, formatAmount } from '@/lib/format'
 import { rankTokenList } from '@/lib/tokenRanking'
 import { WALLET_DUST_NEAR } from '@/lib/walletDust'
-import { BOT_NAME, WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
+import { approvalLink, BOT_NAME, WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
 import { accountIdError } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import { explorerTxUrl } from '@/services/near/explorer'
@@ -788,12 +788,13 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
           <Button type="button" variant="primary" onClick={() => setApproving({ wallet: approval.accountId, destination: to.trim() })}>
             Approve & continue
           </Button>
-        ) : approval?.kind === 'telegram' && !telegramOpened ? (
+        ) : approval?.kind === 'telegram' && approvalLink(approval.url) && !telegramOpened ? (
           <Button
             type="button"
             variant="primary"
             onClick={() => {
-              window.open(approval.url, '_blank', 'noopener,noreferrer')
+              const link = approvalLink(approval.url)
+              if (link) window.open(link, '_blank', 'noopener,noreferrer')
               setTelegramOpened(true)
             }}
           >

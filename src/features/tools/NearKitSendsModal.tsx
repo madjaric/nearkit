@@ -14,6 +14,7 @@ import { sendTargets, snapshotOf } from '@/services/postTradeRefresh'
 import { qk, reconcileBalances, useCapabilities } from '@/services/queries'
 import type { Holding, Wallet } from '@/types/domain'
 import { reviewLines, sendLines, type LineState, type SendLine } from './nearkitSends'
+import { approvalLink } from '@/lib/telegramLinks'
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -56,8 +57,8 @@ function LineStatus({ state, to }: { state: LineState; to: string }) {
             >
               {`Approve with ${formatAccount(state.approval.owner)}`}
             </a>
-          ) : state.approval?.kind === 'telegram' ? (
-            <a href={state.approval.url} target="_blank" rel="noreferrer noopener" className="text-accent underline">
+          ) : state.approval?.kind === 'telegram' && approvalLink(state.approval.url) ? (
+            <a href={approvalLink(state.approval.url) ?? undefined} target="_blank" rel="noreferrer noopener" className="text-accent underline">
               Approve in Telegram
             </a>
           ) : null}

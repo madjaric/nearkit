@@ -310,7 +310,7 @@ export function classifyOutcome(result: RpcTxResult, planned: PlannedTransaction
     if (used === 0n) {
       const inner = firstReceiptFailure(result)
       const cause = inner ? classifyFailure(inner) : new NearKitError('TRANSACTION_FAILED', 'The receiving contract did not accept the transfer')
-      return fail(cause, 'Nothing was swapped: the full amount was refunded to your wallet')
+      return fail(cause, 'Nothing was swapped: what was sent to the exchange was refunded to your wallet')
     }
 
     // Rhea's aggregator keeps the whole input either way and refunds with a separate

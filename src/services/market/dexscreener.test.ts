@@ -77,3 +77,26 @@ describe('DEX Screener pairs', () => {
     await expect(fetchDexPairs(down, 'https://api.dexscreener.com', 'near', SING)).rejects.toThrow(/503/)
   })
 })
+
+describe('a pair’s link', () => {
+  it('is kept only when it is a DEX Screener page', () => {
+    const pair = (url: unknown) =>
+      parseDexPairs({
+        pairs: [
+          {
+            chainId: 'near',
+            dexId: 'ref',
+            pairAddress: '1',
+            url,
+            baseToken: { address: 'a.near', symbol: 'A', name: 'A' },
+            quoteToken: { address: 'wrap.near', symbol: 'WNEAR', name: 'Wrapped NEAR' },
+            priceUsd: '1',
+          },
+        ],
+      })[0]?.url ?? null
+    expect(pair('https://dexscreener.com/near/1')).toBe('https://dexscreener.com/near/1')
+    expect(pair('javascript:alert(1)')).toBeNull()
+    expect(pair('https://evil.example/near/1')).toBeNull()
+    expect(pair('https://dexscreener.com.evil.example/x')).toBeNull()
+  })
+})

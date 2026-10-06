@@ -15,7 +15,7 @@ import { useTradeWallets } from '@/features/trade/useTradeWallets'
 import { HandoffBanner, RequestedToken } from '@/features/trade/TelegramHandoff'
 import { useHandoffReport } from '@/features/trade/useHandoffReport'
 import { cn } from '@/lib/cn'
-import { MAX_SLIPPAGE, NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { HIGH_SLIPPAGE, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPrice, formatUsdCompact } from '@/lib/format'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
@@ -211,13 +211,16 @@ function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId;
   )
 }
 
-/** Amount and slippage from a link, only when they are exactly what the form would accept. */
+/**
+ * Amount and slippage from a link, only when they are exactly what the form would accept. A link
+ * anyone can make never sets a high slippage: above HIGH_SLIPPAGE it is the user's to set, on the form.
+ */
 function readPrefill(params: URLSearchParams): Prefill {
   const amount = params.get('amount') ?? ''
   const slippage = Number(params.get('slippage'))
   return {
     ...(/^\d{1,30}(\.\d{1,24})?$/.test(amount) ? { amount } : {}),
-    ...(params.has('slippage') && slippage > 0 && slippage <= MAX_SLIPPAGE ? { slippage } : {}),
+    ...(params.has('slippage') && slippage > 0 && slippage <= HIGH_SLIPPAGE ? { slippage } : {}),
     handoff: readHandoffId(params.get('tg')),
   }
 }

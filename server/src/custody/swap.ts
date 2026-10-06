@@ -355,7 +355,11 @@ export function createSwapService(near: ServerNear) {
           },
         }
       }
-      const refund = params.side === 'buy' ? ' Nothing was bought: the NEAR came back to your wallet as wNEAR (wrapped NEAR).' : ' Nothing was sold: your tokens came back.'
+      // A direct DCL route pays NEARKITS' fee before the swap, in the same transaction: a failed swap returns the rest.
+      const shown = intent.quote as unknown as SwapQuote | null
+      const feeKept = shown?.source === 'dcl' && shown.fee.charged ? ', less the NEARKITS fee paid before the swap' : ''
+      const refund =
+        params.side === 'buy' ? ` Nothing was bought: the NEAR came back to your wallet as wNEAR (wrapped NEAR)${feeKept}.` : ` Nothing was sold: your tokens came back${feeKept}.`
       const why =
         verdict.error?.code === 'SLIPPAGE_EXCEEDED' || /slippage|min/i.test(verdict.error?.message ?? '') ? 'The price moved past your slippage.' : 'The swap failed on chain.'
       return { ok: false, message: `${why}${verdict.phase === 'failed' ? refund : ' Open the transaction for the details.'}`, hashes, facts: { gasBurnt: gas.toString() } }

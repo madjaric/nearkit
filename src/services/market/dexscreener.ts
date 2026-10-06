@@ -48,7 +48,8 @@ export function parseDexPairs(json: unknown): DexPair[] {
       {
         id: r.pairAddress,
         dex: typeof r.dexId === 'string' && r.dexId ? r.dexId : 'unknown',
-        url: typeof r.url === 'string' && r.url ? r.url : null,
+        // A link target from a third party: DEX Screener's own pages only.
+        url: typeof r.url === 'string' && r.url.startsWith('https://dexscreener.com/') ? r.url : null,
         base,
         quote,
         priceUsd: num(r.priceUsd),

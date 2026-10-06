@@ -33,7 +33,9 @@ export function HandoffBanner({ id, report }: { id: string; report: HandoffRepor
       <MessageSquare size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
       <div className="flex min-w-0 flex-col gap-1.5 text-sm">
         <p className="flex flex-wrap items-center gap-2 text-fg">
-          Prepared in Telegram{account && <span className="num text-fg-2">for {account}</span>}
+          {/* Only a link the bot server recognizes says it was prepared in Telegram. */}
+          {info.data ? 'Prepared in Telegram' : info.isPending ? 'Checking the Telegram trade link…' : 'Telegram trade link not recognized'}
+          {account && <span className="num text-fg-2">for {account}</span>}
           <Tag tone="neutral">Telegram</Tag>
         </p>
         <p className="text-xs leading-5 text-fg-3">
