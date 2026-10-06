@@ -105,6 +105,18 @@ describe('trading from NEARKITS web: the web session authorizes, no Telegram ste
     expect(messages()).toBe(before)
   })
 
+  it('a user quotes at most 30 wallets a minute, from any number of addresses: the quote server behind NEARKITS is shared', { timeout: 60_000 }, async () => {
+    const { h, signIn, wallets, quote } = await webApp()
+    const token = await signIn()
+    const [a, b, c] = await wallets(token, 2)
+    const legs = [a, b, c].map((walletId) => ({ walletId, amountIn: '0.1' }))
+    for (let i = 0; i < 10; i++) await quote(token, 'buy', legs)
+    await expect(quote(token, 'buy', legs)).rejects.toMatchObject({ status: 429, code: 'rate-limited' })
+    // A minute later the budget is back.
+    h.advance(60_000)
+    await expect(quote(token, 'buy', legs)).resolves.toBeTruthy()
+  })
+
   it('executes on the web’s own confirmation: each wallet trades its own NEAR with its own key, and the web follows each one', async () => {
     const { h, signIn, wallets, quote, execute, statuses, usdt, near, account, messages } = await webApp()
     const token = await signIn()

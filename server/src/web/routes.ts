@@ -9,6 +9,7 @@ import { toNearKitError } from '@/services/near/errors'
 import { HttpError, type Route } from '../api/http'
 import { field } from '../api/linkRoutes'
 import { btn, copyBtn, keyboard } from '../bot/context'
+import { Buckets } from '../bot/ratelimit'
 import { parseSlippage } from '../bot/settings'
 import { friendlyError } from '../bot/ui'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
@@ -135,8 +136,15 @@ function sendStatus(intent: Intent, now: number, requoted: boolean) {
   return { status: s, message: intent.status === 'failed' ? (intent.result?.message ?? null) : null, hashes: intent.result?.hashes ?? [] }
 }
 
+/**
+ * Wallets one user may have quoted per minute, whatever addresses the requests come from: each is a
+ * route asked of the shared quote server behind NEARKITS (the bot's own budget is per user too).
+ */
+export const QUOTE_LEGS_PER_MINUTE = 30
+
 export function webRoutes(deps: WebApiDeps): Record<string, Route> {
   const { custody } = deps
+  const quoteBudget = new Buckets(QUOTE_LEGS_PER_MINUTE, QUOTE_LEGS_PER_MINUTE / 60, deps.now)
   /** The signed-in user; 401 for a missing, forged, expired or signed-out session. */
   const userOf = async (body: unknown): Promise<number> => {
     const userId = await deps.sessions.userOf(field(body, 'session', 64))
@@ -285,6 +293,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       const side = b.side === 'buy' || b.side === 'sell' ? b.side : null
       if (!side) throw new HttpError(400, 'bad-request', 'Missing or invalid "side"')
       const legsIn = legsOf(body)
+      if (!quoteBudget.take(String(userId), legsIn.length)) throw new HttpError(429, 'rate-limited', 'Too many quotes in a minute. Wait a little, then quote again.')
       // Every leg is one of this user's own NearKit wallets, checked before anything is read or quoted.
       const picked: { leg: LegInput; wallet: TradingWallet }[] = []
       for (const leg of legsIn) picked.push({ leg, wallet: await ownWallet(userId, leg.walletId) })
