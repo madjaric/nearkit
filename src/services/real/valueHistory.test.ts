@@ -39,7 +39,7 @@ function setup(opts: { browser: boolean; web: boolean }) {
 }
 
 describe('the dashboard’s portfolio value', () => {
-  it('signed in to NearKit web with no browser wallet: the NearKit wallets’ value, not “connect a wallet” zeros', async () => {
+  it('signed in to NEARKITS web with no browser wallet: the NEARKITS wallets’ value, not “connect a wallet” zeros', async () => {
     const { services } = setup({ browser: false, web: true })
     const s = await services.portfolio.getSummary()
     expect(s.valueUsd).toBeCloseTo(15, 6)
@@ -47,7 +47,7 @@ describe('the dashboard’s portfolio value', () => {
     expect(s.availableNear).toBeCloseTo(3, 6)
   })
 
-  it('a browser wallet and NearKit wallets: both, as executable wallets', async () => {
+  it('a browser wallet and NEARKITS wallets: both, as executable wallets', async () => {
     const { services } = setup({ browser: true, web: true })
     await services.wallets.connect('fake')
     expect((await services.portfolio.getSummary()).valueUsd).toBeCloseTo(25, 6)

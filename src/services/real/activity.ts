@@ -111,8 +111,8 @@ export async function reconcile(ctx: NearContext, record: ActivityRecord, active
     }
     if (!interrupted) return t
     if (t.phase === 'queued') return { ...t, phase: 'not_sent' }
-    if (t.phase === 'awaiting_signature') return { ...t, phase: 'unknown', note: 'NearKit closed while the wallet was open. Check your wallet activity.' }
-    if (t.phase === 'processing' && !t.hash) return { ...t, phase: 'unknown', note: 'NearKit closed while looking for this transaction on chain. Check your wallet activity.' }
+    if (t.phase === 'awaiting_signature') return { ...t, phase: 'unknown', note: 'NEARKITS closed while the wallet was open. Check your wallet activity.' }
+    if (t.phase === 'processing' && !t.hash) return { ...t, phase: 'unknown', note: 'NEARKITS closed while looking for this transaction on chain. Check your wallet activity.' }
     return t
   })
   // Pending also means "still settling on chain"; a record whose steps all settled isn't running.

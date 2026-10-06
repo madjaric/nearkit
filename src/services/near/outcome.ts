@@ -220,7 +220,7 @@ function directFeeOf(planned: PlannedTransaction): (TokenAmount & { recipient: s
   return typeof receiver_id === 'string' && typeof amount === 'string' && /^\d+$/.test(amount) ? { token: planned.receiverId, raw: amount, recipient: receiver_id } : null
 }
 
-const UNCONFIRMED_DELIVERY = 'The swap ran, but NearKit couldn’t confirm the output reached your account. Open it in the explorer before trading again.'
+const UNCONFIRMED_DELIVERY = 'The swap ran, but NEARKITS couldn’t confirm the output reached your account. Open it in the explorer before trading again.'
 
 /** Whether a transaction's actions, as the chain shows them, are exactly the planned ones. */
 export function sameActions(chain: readonly unknown[], planned: PlannedAction[]): boolean {
@@ -264,7 +264,7 @@ export function swapDelivered(result: RpcTxResult, planned: PlannedTransaction, 
     const received = dclReceived(result, last.args.receiver_id, expect.recipient, dcl)
     if (!received || received.token !== expect.token) return null
     const appFee = directFeeOf(planned)
-    const note = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
+    const note = [`Received ${show(received, 'received')}`, appFee ? `NEARKITS fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
     return { phase: 'success', error: null, note, swap: { received, refunded: null, appFee } }
   }
   const done = events.find((e) => e.event === 'withdraw_succeeded' && e.data.token_id === expect.token && e.data.receive_id === expect.recipient)
@@ -273,7 +273,7 @@ export function swapDelivered(result: RpcTxResult, planned: PlannedTransaction, 
   const feeData = events.find((e) => e.event === 'earn_app_fee')?.data
   const fee = amountOf(feeData, 'token')
   const appFee = fee && typeof feeData?.receipt === 'string' ? { ...fee, recipient: feeData.receipt } : null
-  const note = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
+  const note = [`Received ${show(received, 'received')}`, appFee ? `NEARKITS fee ${show(appFee, 'fee')}` : null].filter(Boolean).join(' · ')
   return { phase: 'success', error: null, note, swap: { received, refunded: null, appFee } }
 }
 
@@ -323,7 +323,7 @@ export function classifyOutcome(result: RpcTxResult, planned: PlannedTransaction
       const received = dclReceived(result, receiver, planned.signerId, dcl)
       const appFee = directFeeOf(planned)
       if (!received) return { phase: 'unknown', error: null, note: UNCONFIRMED_DELIVERY, swap: { received: null, refunded: null, appFee } }
-      const parts = [`Received ${show(received, 'received')}`, appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean)
+      const parts = [`Received ${show(received, 'received')}`, appFee ? `NEARKITS fee ${show(appFee, 'fee')}` : null].filter(Boolean)
       return { phase: 'success', error: null, note: parts.join(' · '), swap: { received, refunded: null, appFee } }
     }
     if (events.some((e) => AGGREGATOR_EVENTS.has(e.event))) {
@@ -355,7 +355,7 @@ export function classifyOutcome(result: RpcTxResult, planned: PlannedTransaction
             swap: { received, refunded: null, appFee },
           }
         }
-        const parts = [received ? `Received ${show(received, 'received')}` : 'Swap completed', appFee ? `NearKit fee ${show(appFee, 'fee')}` : null].filter(Boolean)
+        const parts = [received ? `Received ${show(received, 'received')}` : 'Swap completed', appFee ? `NEARKITS fee ${show(appFee, 'fee')}` : null].filter(Boolean)
         return { phase: 'success', error: null, note: parts.join(' · '), swap: { received, refunded: null, appFee } }
       }
       return {

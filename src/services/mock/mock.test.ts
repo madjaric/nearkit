@@ -11,7 +11,7 @@ beforeAll(() => {
 const { near, blackdragon, kit, shitzu } = TOKEN_IDS
 
 describe('demo trading', () => {
-  it('charges NearKit’s 0.50% on the NEAR leg of a buy', async () => {
+  it('charges NEARKITS’ 0.50% on the NEAR leg of a buy', async () => {
     const s = createMockServices()
     const quote = await s.trading.quote({ tokenIn: near, tokenOut: blackdragon, amountIn: '10', slippagePct: 1, walletId: 'w01' })
     expect(quote.nearkitFee.amountNear).toBeCloseTo(0.05, 10)

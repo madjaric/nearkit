@@ -32,7 +32,7 @@ describe('splitFigures', () => {
   })
 
   it('leaves digits inside words and ids alone', () => {
-    expect(mark('1 main · 11 NearKit-managed')).toBe('[1] main · [11] NearKit-managed')
+    expect(mark('1 main · 11 NEARKITS-managed')).toBe('[1] main · [11] NEARKITS-managed')
     expect(mark('w01 to 3fa9c2')).toBe('w01 to 3fa9c2')
     expect(mark('Split KIT across TRADING')).toBe('Split KIT across TRADING')
     expect(mark('')).toBe('')

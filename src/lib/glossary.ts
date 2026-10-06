@@ -23,8 +23,8 @@ export const GLOSSARY = {
     text: 'Fully diluted value: the total supply read from the token’s contract, times its current price. Not a market cap: tokens not in circulation count too.',
   },
   nearkitFee: {
-    term: 'NearKit fee',
-    text: `NearKit's ${NEARKIT_FEE_LABEL} fee on each trade. On mainnet Rhea's aggregator collects it inside the swap: NearKit receives ${NEARKIT_FEE_RECEIVED_LABEL} and Rhea keeps ${RHEA_APP_FEE_SHARE_LABEL}. Testnet trades and the demo are not charged.`,
+    term: 'NEARKITS fee',
+    text: `NEARKITS' ${NEARKIT_FEE_LABEL} fee on each trade. On mainnet Rhea's aggregator collects it inside the swap: NEARKITS receives ${NEARKIT_FEE_RECEIVED_LABEL} and Rhea keeps ${RHEA_APP_FEE_SHARE_LABEL}. Testnet trades and the demo are not charged.`,
   },
   networkFee: {
     term: 'Network fee',
@@ -40,7 +40,7 @@ export const GLOSSARY = {
   },
   gasReserve: {
     term: 'Minimum wallet reserve',
-    text: `The NEAR NearKit keeps available in each wallet: MAX leaves ${GAS_RESERVE_NEAR} NEAR so the wallet can still pay for gas and storage later. This is not the temporary gas reserve a transaction holds while it runs (“${GAS_RESERVE_LABEL}” on reviews).`,
+    text: `The NEAR NEARKITS keeps available in each wallet: MAX leaves ${GAS_RESERVE_NEAR} NEAR so the wallet can still pay for gas and storage later. This is not the temporary gas reserve a transaction holds while it runs (“${GAS_RESERVE_LABEL}” on reviews).`,
   },
   quoteAge: {
     term: 'Quote age',
@@ -72,7 +72,7 @@ export const GLOSSARY = {
   },
   implicitAccount: {
     term: 'Implicit account',
-    text: 'A 64-character hex NEAR account derived from a key pair. NearKit-managed wallets use these.',
+    text: 'A 64-character hex NEAR account derived from a key pair. NEARKITS-managed wallets use these.',
   },
   top10: {
     term: 'Top 10 concentration',
@@ -140,7 +140,7 @@ export const GLOSSARY = {
   },
   priority: {
     term: 'Execution priority',
-    text: 'How aggressively NearKit submits and retries a transaction. The exact routing, gas and retry mechanics are defined with execution in Phase 2.',
+    text: 'How aggressively NEARKITS submits and retries a transaction. The exact routing, gas and retry mechanics are defined with execution in Phase 2.',
   },
 } as const
 

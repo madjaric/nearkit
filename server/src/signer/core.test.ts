@@ -192,7 +192,7 @@ describe('what a plan may do', () => {
     expect((await addKey(owner.publicKey, 'b3')).hash).toBeTruthy()
   })
 
-  it('NearKit’s key is removed only when another key on the wallet belongs to the owner', async () => {
+  it('NEARKITS’ key is removed only when another key on the wallet belongs to the owner', async () => {
     const revoke = (intentId: string) =>
       sign({
         intentId,
@@ -245,7 +245,7 @@ describe('owner-signed requests', () => {
     expect((await vault.events('testnet', wallet.accountId)).filter((e) => e.kind === 'key-exported')).toHaveLength(2)
   })
 
-  it('a NearKit wallet’s own key, exported, never proves its owner, not even while the owner’s key is also on that wallet', async () => {
+  it('a NEARKITS wallet’s own key, exported, never proves its owner, not even while the owner’s key is also on that wallet', async () => {
     // The wallet's key as Recover hands it to the owner, imported into a wallet app that now signs with it.
     const secret = await exportAsOwner({ challenge: (r) => signer.challenge(r), exportKey: (p) => signer.exportKey(p) }, wallet.accountId, owner)
     const raw = base58Decode(secret.slice('ed25519:'.length)) as Uint8Array
@@ -363,7 +363,7 @@ describe('erasing keys', () => {
     expect(await signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).toBe(false)
   })
 
-  it('after a revoke, only once NearKit’s key is gone from the account', async () => {
+  it('after a revoke, only once NEARKITS’ key is gone from the account', async () => {
     chain.exists(wallet.accountId)
     chain.grant(wallet.accountId, wallet.publicKey)
     await expect(signer.eraseKey({ accountId: wallet.accountId, reason: 'revoked' })).rejects.toThrow(/still on the wallet/)

@@ -47,7 +47,7 @@ export function TelegramLink({ href, children, variant = 'secondary' }: { href: 
 }
 
 /** How to sign in: the bot sends a one-time link. */
-export function NearKitSignIn({ title = 'Sign in with Telegram to use your NearKit wallets' }: { title?: string }) {
+export function NearKitSignIn({ title = 'Sign in with Telegram to use your NEARKITS wallets' }: { title?: string }) {
   return (
     <EmptyState
       title={title}
@@ -112,7 +112,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
   return (
     <Panel>
       <PanelHeader
-        title="NearKit wallets"
+        title="NEARKITS wallets"
         meta={session && list.data ? `${wallets.length} of ${limit}` : undefined}
         actions={
           session ? (
@@ -121,12 +121,12 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                 Create wallet
               </Button>
               <IconButton
-                label={`Sign out ${session.userName} from NearKit web`}
+                label={`Sign out ${session.userName} from NEARKITS web`}
                 size="sm"
                 disabled={logout.isPending}
                 onClick={() =>
                   logout.mutate(undefined, {
-                    onSuccess: () => toast.push({ title: 'Signed out of NearKit web', detail: 'Your NearKit wallets are unchanged. Sign in again from Telegram: /web.' }),
+                    onSuccess: () => toast.push({ title: 'Signed out of NEARKITS web', detail: 'Your NEARKITS wallets are unchanged. Sign in again from Telegram: /web.' }),
                   })
                 }
               >
@@ -144,7 +144,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
         </div>
       ) : list.isError ? (
         <EmptyState
-          title="Your NearKit wallets can’t be listed right now"
+          title="Your NEARKITS wallets can’t be listed right now"
           action={
             <Button variant="secondary" onClick={() => void list.refetch()}>
               Try again
@@ -155,22 +155,22 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
         </EmptyState>
       ) : wallets.length === 0 ? (
         <EmptyState
-          title="No NearKit wallets yet"
+          title="No NEARKITS wallets yet"
           action={
             <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
               Create wallet
             </Button>
           }
         >
-          A NearKit wallet trades, joins a Multi Buy and sends without a browser wallet: NearKit executes each one with the wallet’s own key, which only its signer holds.
+          A NEARKITS wallet trades, joins a Multi Buy and sends without a browser wallet: NEARKITS executes each one with the wallet’s own key, which only its signer holds.
         </EmptyState>
       ) : (
         <div className="@container">
           <p className="border-b border-line-soft px-4 py-2 text-xs text-fg-3">
-            Trade, Multi Buy, Multi Sell and Send right here: NearKit executes each wallet’s own transactions with that wallet’s key. No wallet prompt.
+            Trade, Multi Buy, Multi Sell and Send right here: NEARKITS executes each wallet’s own transactions with that wallet’s key. No wallet prompt.
           </p>
           <div className="hidden @[48rem]:block">
-            <Table label="NearKit wallets" minWidth={760}>
+            <Table label="NEARKITS wallets" minWidth={760}>
               <thead>
                 <tr>
                   <Th>Wallet</Th>
@@ -194,7 +194,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                         <span className="flex items-center gap-2 text-fg">
                           {w.name}
                           {w.frozen && (
-                            <Tag tone="warn" title="Frozen by NearKit for your protection: it doesn't trade or send.">
+                            <Tag tone="warn" title="Frozen by NEARKITS for your protection: it doesn't trade or send.">
                               Frozen
                             </Tag>
                           )}
@@ -233,7 +233,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
               </tbody>
             </Table>
           </div>
-          <ul className="divide-y divide-line-soft @[48rem]:hidden" aria-label="NearKit wallets">
+          <ul className="divide-y divide-line-soft @[48rem]:hidden" aria-label="NEARKITS wallets">
             {wallets.map((w, i) => {
               const s = snapshotOf(w)
               return (
@@ -291,7 +291,7 @@ function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWa
     onClose()
   }
   return (
-    <Modal open={wallet !== null} onClose={close} size="sm" title={`Delete ${wallet?.name ?? 'NearKit wallet'}?`}>
+    <Modal open={wallet !== null} onClose={close} size="sm" title={`Delete ${wallet?.name ?? 'NEARKITS wallet'}?`}>
       {wallet && (
         <div className="flex flex-col gap-4">
           <p className="flex items-center gap-1 text-sm text-fg-2">
@@ -299,11 +299,11 @@ function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWa
           </p>
           {holds ? (
             <p role="alert" className="text-sm text-fg-2">
-              {`${wallet.name} holds funds, so it can’t be deleted. Send everything out of it first, or use Recover to add the backup key and remove NearKit’s access.`}
+              {`${wallet.name} holds funds, so it can’t be deleted. Send everything out of it first, or use Recover to add the backup key and remove NEARKITS’ access.`}
             </p>
           ) : (
             <p className="text-sm text-fg-2">
-              Only a NearKit wallet that was never funded can be deleted: NearKit checks the chain, erases its key and frees its slot for a new wallet. Nothing can be lost.
+              Only a NEARKITS wallet that was never funded can be deleted: NEARKITS checks the chain, erases its key and frees its slot for a new wallet. Nothing can be lost.
             </p>
           )}
           {remove.isError && (
@@ -343,7 +343,7 @@ function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWa
 
 export function CreateWalletModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Modal open={open} onClose={onClose} size="sm" title="Create a NearKit wallet" description="A new wallet of your own, ready to trade once it holds NEAR.">
+    <Modal open={open} onClose={onClose} size="sm" title="Create a NEARKITS wallet" description="A new wallet of your own, ready to trade once it holds NEAR.">
       {open && <CreateWalletForm onClose={onClose} />}
     </Modal>
   )
@@ -393,7 +393,7 @@ function CreateWalletForm({ onClose }: { onClose: () => void }) {
         )}
       </Field>
       <p className="text-xs text-fg-3">
-        NearKit creates the wallet and keeps its key in its signer: the key never reaches this page. It trades as soon as it holds NEAR, here or in Telegram. Up to 10 NearKit
+        NEARKITS creates the wallet and keeps its key in its signer: the key never reaches this page. It trades as soon as it holds NEAR, here or in Telegram. Up to 10 NEARKITS
         wallets at once.
       </p>
       <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
@@ -476,8 +476,8 @@ export function NearKitSendModal({ wallet, tokenId, onClose }: { wallet: Wallet 
       open={wallet !== null}
       onClose={onClose}
       size="sm"
-      title={`Send from ${wallet?.label ?? 'NearKit wallet'}`}
-      description="Reviewed, then sent by NearKit from this wallet. No wallet prompt."
+      title={`Send from ${wallet?.label ?? 'NEARKITS wallet'}`}
+      description="Reviewed, then sent by NEARKITS from this wallet. No wallet prompt."
     >
       {wallet && <SendForm key={`${wallet.id}:${tokenId ?? ''}`} wallet={wallet} tokenId={tokenId} onClose={onClose} />}
     </Modal>
@@ -624,7 +624,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
         <p className="text-xs text-fg-3">Check the address: transfers can’t be undone.</p>
         {executeSend.error && (
           <p role="alert" className="text-sm text-neg">
-            {paused ? 'Withdrawals are paused by NearKit right now. Nothing was sent.' : describeError(executeSend.error).message}
+            {paused ? 'Withdrawals are paused by NEARKITS right now. Nothing was sent.' : describeError(executeSend.error).message}
           </p>
         )}
         <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
@@ -651,7 +651,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
     >
       {paused && (
         <p role="alert" className="rounded-sm border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
-          Withdrawals are paused by NearKit right now: nothing can be sent until NearKit resumes them. Your funds stay where they are.
+          Withdrawals are paused by NEARKITS right now: nothing can be sent until NEARKITS resumes them. Your funds stay where they are.
         </p>
       )}
       <Field label="Asset">
@@ -745,8 +745,8 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
             {approval.kind === 'owner'
               ? `Approve & continue: ${formatAccount(approval.owner)}, the owner wallet, signs the approval here, once; then the send is reviewed again. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.`
               : telegramOpened
-                ? 'Approve it in NearKit’s Telegram mini app (opened in a new tab), then Continue: the send is reviewed again.'
-                : 'This wallet has no owner wallet, so its Telegram account approves a new address once, in NearKit’s mini app. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.'}
+                ? 'Approve it in NEARKITS’ Telegram mini app (opened in a new tab), then Continue: the send is reviewed again.'
+                : 'This wallet has no owner wallet, so its Telegram account approves a new address once, in NEARKITS’ mini app. The approval is the custody safeguard: nobody who gets into this account can send funds to a new address alone.'}
           </p>
         </div>
       ) : (

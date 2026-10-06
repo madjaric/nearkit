@@ -50,6 +50,6 @@ describe('crawler files', () => {
   })
 
   it('the JSON-LD names the site and its home page', () => {
-    expect(JSON.parse(websiteJsonLd('https://nearkits.com'))).toEqual({ '@context': 'https://schema.org', '@type': 'WebSite', name: 'NearKit', url: 'https://nearkits.com/' })
+    expect(JSON.parse(websiteJsonLd('https://nearkits.com'))).toEqual({ '@context': 'https://schema.org', '@type': 'WebSite', name: 'NEARKITS', url: 'https://nearkits.com/' })
   })
 })

@@ -228,7 +228,7 @@ export function createEngine(deps: EngineDeps) {
       if (available !== null && available >= need) return null
       if (now() >= stop) {
         const has = available === null ? 'no NEAR' : `${formatUnits(available, NEAR_DECIMALS, { maxFraction: 4 })} NEAR`
-        return `The next step needs ${formatUnitsUp(need, NEAR_DECIMALS, 4)} NEAR available and your NearKit wallet has ${has}, so it wasn’t sent.`
+        return `The next step needs ${formatUnitsUp(need, NEAR_DECIMALS, 4)} NEAR available and your NEARKITS wallet has ${has}, so it wasn’t sent.`
       }
       if (!(await keep())) throw new LeaseLostError(intent.id)
       await sleep(wait)
@@ -295,7 +295,9 @@ export function createEngine(deps: EngineDeps) {
         const onChain = await chain.keyNonce(wallet.accountId, wallet.publicKey)
         if (onChain === null) {
           const msg =
-            step === 0 ? 'Your NearKit wallet isn’t on chain yet: deposit NEAR to it first. Nothing was sent.' : 'NearKit’s key is no longer on this wallet. Nothing more was sent.'
+            step === 0
+              ? 'Your NEARKITS wallet isn’t on chain yet: deposit NEAR to it first. Nothing was sent.'
+              : 'NEARKITS’ key is no longer on this wallet. Nothing more was sent.'
           return {
             kind: 'finished',
             intent: await fail(
@@ -410,8 +412,8 @@ export function createEngine(deps: EngineDeps) {
       try {
         const wallet = (await store.wallet(intent.walletId)) as TradingWallet
         const handler = deps.handlers[intent.kind]
-        if (!handler) return { kind: 'finished', intent: await fail(intent, 'NearKit can’t do that here. Nothing was sent.') }
-        const blocked = deps.gate ? await deps.gate(intent, wallet).catch(() => 'NearKit can’t confirm that this is allowed right now. Try again in a moment.') : null
+        if (!handler) return { kind: 'finished', intent: await fail(intent, 'NEARKITS can’t do that here. Nothing was sent.') }
+        const blocked = deps.gate ? await deps.gate(intent, wallet).catch(() => 'NEARKITS can’t confirm that this is allowed right now. Try again in a moment.') : null
         if (blocked) {
           await store.audit({ userId: intent.userId, walletId: intent.walletId, action: 'intent-blocked', detail: { intent: intent.id, kind: intent.kind, reason: blocked } })
           return { kind: 'finished', intent: await fail(intent, `${blocked} Nothing was sent.`) }
@@ -505,7 +507,7 @@ export function createEngine(deps: EngineDeps) {
     const txs = await store.txsOf(intent.id)
     if (!txs.length) {
       // Confirmed, then stopped before anything was signed: nothing can have been sent.
-      keep(await failIntent(intent, 'NearKit restarted before sending anything. Nothing was sent; try again.'))
+      keep(await failIntent(intent, 'NEARKITS restarted before sending anything. Nothing was sent; try again.'))
       return
     }
     let unresolved = false
@@ -547,7 +549,7 @@ export function createEngine(deps: EngineDeps) {
       }
       if (nonce !== undefined && nonce !== null && nonce < t.nonce) {
         // Nonces only go up, so the key never used this one, and past expiry it never can: provably not executed.
-        await store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NearKit’s key never used its nonce' })
+        await store.markTx(intent.id, t.step, 'expired', { reason: 'past its expiry height; NEARKITS’ key never used its nonce' })
       } else if (nonce !== undefined && height > t.expiresHeight + AMBIGUOUS_GRACE_BLOCKS) {
         // The key's nonce moved (or the key is gone) but the chain returns no such transaction: nobody can tell.
         await store.markTx(intent.id, t.step, 'unconfirmed', { reason: 'the key’s nonce moved but the chain does not return this transaction' })
@@ -569,7 +571,7 @@ export function createEngine(deps: EngineDeps) {
       keep(
         await failIntent(
           intent,
-          'NearKit couldn’t confirm whether a transaction went through: the chain doesn’t return it, though the wallet’s key was used. Check the wallet’s balance and history before trying again.',
+          'NEARKITS couldn’t confirm whether a transaction went through: the chain doesn’t return it, though the wallet’s key was used. Check the wallet’s balance and history before trying again.',
           [...landed.map((t) => t.hash), unknown.hash],
         ),
       )
@@ -614,7 +616,7 @@ export function createEngine(deps: EngineDeps) {
       keep(
         await failIntent(
           intent,
-          'NearKit restarted between steps, so the rest was not sent. Nothing was traded; try again.',
+          'NEARKITS restarted between steps, so the rest was not sent. Nothing was traded; try again.',
           confirmed.map((c) => c.hash),
         ),
       )

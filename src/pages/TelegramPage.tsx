@@ -21,7 +21,7 @@ import { confirmLink, describeLink, readLinkCode, readRecoverCode, type LinkDesc
 import { useConnectPrompt } from '@/state/contexts'
 
 const BOT_URL = ENV.telegramBot ? `https://t.me/${ENV.telegramBot}` : null
-const BOT_NAME = ENV.telegramBot ? `@${ENV.telegramBot}` : 'the NearKit bot'
+const BOT_NAME = ENV.telegramBot ? `@${ENV.telegramBot}` : 'the NEARKITS bot'
 
 function BotButton({ label = `Open ${BOT_NAME}` }: { label?: string }) {
   if (!BOT_URL) return null
@@ -116,7 +116,7 @@ function LinkPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
           <ShieldCheck size={15} className="mt-0.5 shrink-0 text-warn" aria-hidden="true" />
           <p>
             Only continue if <span className="text-fg">you</span> asked {BOT_NAME} for this link from {who}. Your wallet signs a message, not a transaction: it is free and moves no
-            funds. NearKit never asks for a seed phrase or private key.
+            funds. NEARKITS never asks for a seed phrase or private key.
           </p>
         </div>
 
@@ -127,7 +127,7 @@ function LinkPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
 
         {wrongNetwork ? (
           <p className="text-sm text-neg" role="alert">
-            This link is for {d.network}, but this NearKit runs on {caps.networkLabel.toLowerCase()}. Open the link in the {d.network} NearKit.
+            This link is for {d.network}, but this NEARKITS runs on {caps.networkLabel.toLowerCase()}. Open the link in the {d.network} NEARKITS.
           </p>
         ) : left <= 0 ? (
           <p className="text-sm text-neg" role="alert">
@@ -156,7 +156,7 @@ function LinkPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
 function MovedPanel() {
   return (
     <Panel>
-      <PanelHeader title="Export NearKit wallet key" />
+      <PanelHeader title="Export NEARKITS wallet key" />
       <PanelBody className="flex flex-col gap-3">
         <p className="text-sm text-fg-2">Exporting a key now happens on the Recover page, with your owner wallet’s signature alone: no Telegram link needed.</p>
         <Link to="/recover" className="inline-flex">
@@ -185,7 +185,7 @@ function ConnectPanel() {
         {[
           [`Open ${BOT_NAME} in Telegram and send /start.`, 'It explains what it can do and never asks for keys.'],
           ['Send /link.', 'The bot answers with a one-time link to this page. It works once, for 10 minutes.'],
-          ['Sign the message in your wallet.', 'NearKit checks the signature and that it comes from a full-access key of your account. Nothing is sent or spent.'],
+          ['Sign the message in your wallet.', 'NEARKITS checks the signature and that it comes from a full-access key of your account. Nothing is sent or spent.'],
         ].map(([title, text], i) => (
           <li key={title} className="flex items-start gap-4 px-4 py-3">
             <span className="num mt-0.5 text-xs text-fg-4">{String(i + 1).padStart(2, '0')}</span>
@@ -200,7 +200,7 @@ function ConnectPanel() {
         {TELEGRAM_BOT_LIVE ? (
           <BotButton />
         ) : (
-          <p className="text-xs text-fg-3">The bot is built, but no NearKit bot server is connected to this build yet, so linking isn’t available here.</p>
+          <p className="text-xs text-fg-3">The bot is built, but no NEARKITS bot server is connected to this build yet, so linking isn’t available here.</p>
         )}
       </div>
     </Panel>
@@ -220,7 +220,7 @@ export default function TelegramPage() {
       <PageHeader
         title="Telegram"
         status={TELEGRAM_BOT_LIVE ? undefined : <ComingSoon />}
-        description="Link your NEAR account to the NearKit bot. Trades prepared in Telegram are signed here, in your own wallet: the bot never holds keys."
+        description="Link your NEAR account to the NEARKITS bot. Trades prepared in Telegram are signed here, in your own wallet: the bot never holds keys."
       />
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[440px_minmax(0,1fr)]">

@@ -122,9 +122,9 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
     const direct = route.direct
     if (!direct) throw new PolicyViolation('a direct route must state what the exchange receives and the fee')
     if (p.network.id === 'mainnet') {
-      if (!p.feeRecipient) throw new PolicyViolation('no NearKit fee account is configured for the signer')
-      if (direct.feeRecipient !== p.feeRecipient) throw new PolicyViolation('the fee goes to an account that is not NearKit’s fee account')
-      if (direct.fee !== mulBps(route.amountIn, NEARKIT_FEE_BPS)) throw new PolicyViolation('the fee is not NearKit’s fee rate of the amount')
+      if (!p.feeRecipient) throw new PolicyViolation('no NEARKITS fee account is configured for the signer')
+      if (direct.feeRecipient !== p.feeRecipient) throw new PolicyViolation('the fee goes to an account that is not NEARKITS’ fee account')
+      if (direct.fee !== mulBps(route.amountIn, NEARKIT_FEE_BPS)) throw new PolicyViolation('the fee is not NEARKITS’ fee rate of the amount')
     } else if (direct.fee !== 0n || direct.feeRecipient !== null) {
       throw new PolicyViolation('no fee is charged on this network')
     }
@@ -153,8 +153,8 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
   }
 
   // Mainnet: the aggregator and NearKit's fee, always.
-  if (route.router !== 'aggregator') throw new PolicyViolation('on this network swaps go through Rhea’s aggregator, with NearKit’s fee')
-  if (!p.feeRecipient) throw new PolicyViolation('no NearKit fee account is configured for the signer')
+  if (route.router !== 'aggregator') throw new PolicyViolation('on this network swaps go through Rhea’s aggregator, with NEARKITS’ fee')
+  if (!p.feeRecipient) throw new PolicyViolation('no NEARKITS fee account is configured for the signer')
   if (route.receiver !== agg.contract) throw new PolicyViolation('the swap goes to a contract that is not Rhea’s aggregator')
   let signed: { msg?: unknown; signature?: unknown }
   try {
@@ -188,7 +188,7 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
       p.now(),
     )
   } catch (e) {
-    if (e instanceof NearKitError) throw new PolicyViolation(e.message.replace(/^NearKit refused Rhea’s route: /, '').replace(/\. Nothing was signed\.$/, ''))
+    if (e instanceof NearKitError) throw new PolicyViolation(e.message.replace(/^(?:NearKit|NEARKITS) refused Rhea’s route: /, '').replace(/\. Nothing was signed\.$/, ''))
     throw e
   }
   // The minimum the user confirmed is never more than what the route itself enforces.

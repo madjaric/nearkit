@@ -21,7 +21,7 @@ export class DestinationNotApprovedError extends PolicyViolation {
 
 /** The signer is paused (kill switch): nothing is signed, exported, approved or erased. */
 export class SignerPausedError extends Error {
-  constructor(message = 'NearKit’s signer is paused. Nothing was signed.') {
+  constructor(message = 'NEARKITS’ signer is paused. Nothing was signed.') {
     super(message)
     this.name = 'SignerPausedError'
   }
@@ -89,7 +89,7 @@ export function errorToWire(e: unknown): { status: number; code: SignerErrorCode
 
 export function errorFromWire(code: string, message: string, detail?: string): Error {
   if (code === 'destination') return new DestinationNotApprovedError(detail ?? 'that destination')
-  if (code === 'policy') return new PolicyViolation(message.replace(/^NearKit refused to sign: /, ''))
+  if (code === 'policy') return new PolicyViolation(message.replace(/^(?:NearKit|NEARKITS) refused to sign: /, ''))
   if (code === 'paused') return new SignerPausedError(message)
   if (code === 'already-signed') return new AlreadySignedError(message)
   if (code === 'key') return new KeyUnavailableError(message)

@@ -14,17 +14,17 @@ type Harness = Awaited<ReturnType<typeof walletBot>>
 async function newWallet(h: Harness): Promise<TradingWallet> {
   h.advance(10_000) // a person's pace: the bot's flood limit is not what these tests are about
   await h.press('cw:list')
-  const create = h.button('New wallet') || h.button('Create NearKit wallet')
+  const create = h.button('New wallet') || h.button('Create NEARKITS wallet')
   if (!create) {
     await h.say('/wallet')
-    await h.press(h.button('Create NearKit wallet'))
+    await h.press(h.button('Create NEARKITS wallet'))
   } else {
     await h.press(create)
   }
   return (await h.wallet()) as TradingWallet
 }
 
-describe('several NearKit wallets per Telegram user', () => {
+describe('several NEARKITS wallets per Telegram user', () => {
   it(`up to ${MAX_ACTIVE_WALLETS_PER_USER} active wallets; the next is refused; deleting an empty one frees its slot`, async () => {
     const h = await walletBot()
     const made: TradingWallet[] = []
@@ -37,7 +37,7 @@ describe('several NearKit wallets per Telegram user', () => {
     expect(h.last()?.text).toContain(`${MAX_ACTIVE_WALLETS_PER_USER} of ${MAX_ACTIVE_WALLETS_PER_USER}`)
     expect(h.button('New wallet')).toBe('') // no Create button when full
     await h.press(`cw:new:extra-key-1`)
-    expect(h.last()?.text).toContain(`You have ${MAX_ACTIVE_WALLETS_PER_USER} NearKit wallets`)
+    expect(h.last()?.text).toContain(`You have ${MAX_ACTIVE_WALLETS_PER_USER} NEARKITS wallets`)
     // Deleting the (never funded) 4th frees slot 4; a new day's creation takes it.
     await h.press(`cr:delete:${made[3]?.id}`)
     await h.press(h.button('Yes, delete it'))
@@ -60,7 +60,7 @@ describe('several NearKit wallets per Telegram user', () => {
   it('a used Create button never offers its wallet again once that wallet is closed', async () => {
     const h = await walletBot()
     await h.say('/wallet')
-    const create = h.button('Create NearKit wallet')
+    const create = h.button('Create NEARKITS wallet')
     await h.press(create)
     const w = (await h.wallet()) as TradingWallet
     await h.press(`cr:delete:${w.id}`)

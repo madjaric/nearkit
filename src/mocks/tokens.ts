@@ -15,7 +15,7 @@ export const TOKEN_IDS = {
 
 export const SEED_TOKENS: Token[] = [
   { id: TOKEN_IDS.near, symbol: 'NEAR', name: 'NEAR', decimals: 24, contract: 'wrap.near', isNative: true, status: 'listed' },
-  { id: TOKEN_IDS.kit, symbol: 'KIT', name: 'NearKit', decimals: 18, contract: null, status: 'prelaunch' },
+  { id: TOKEN_IDS.kit, symbol: 'KIT', name: 'NEARKITS Token', decimals: 18, contract: null, status: 'prelaunch' },
   { id: TOKEN_IDS.blackdragon, symbol: 'BLACKDRAGON', name: 'Black Dragon', decimals: 24, contract: TOKEN_IDS.blackdragon, status: 'listed' },
   { id: TOKEN_IDS.shitzu, symbol: 'SHITZU', name: 'Shitzu', decimals: 18, contract: TOKEN_IDS.shitzu, status: 'listed' },
   { id: TOKEN_IDS.usdc, symbol: 'USDC', name: 'USD Coin', decimals: 6, contract: TOKEN_IDS.usdc, status: 'listed' },

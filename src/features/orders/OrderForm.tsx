@@ -211,7 +211,7 @@ export function OrderForm() {
             <Line
               label={
                 <>
-                  <Term term="nearkitFee">NearKit fee on fill</Term> <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span>
+                  <Term term="nearkitFee">NEARKITS fee on fill</Term> <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span>
                 </>
               }
             >
@@ -250,7 +250,7 @@ export function OrderForm() {
           {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
           <SimulationNote
             demo="Orders are stored for this session only. Nothing watches the price, so they never fill."
-            real="Orders are saved as drafts in this browser. Nothing watches the price, so they never fill: that needs a keeper service NearKit doesn't run yet."
+            real="Orders are saved as drafts in this browser. Nothing watches the price, so they never fill: that needs a keeper service NEARKITS doesn't run yet."
           />
         </div>
       </div>

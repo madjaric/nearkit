@@ -19,7 +19,7 @@ export function createServerNear(config: Pick<ServerConfig, 'env' | 'network'>, 
     fetch: fetchImpl,
     kv: memoryStorage(),
     now,
-    wallet: () => Promise.reject(new NearKitError('WALLET_UNAVAILABLE', 'The NearKit server holds no keys and never signs. Transactions are signed in your wallet.')),
+    wallet: () => Promise.reject(new NearKitError('WALLET_UNAVAILABLE', 'The NEARKITS server holds no keys and never signs. Transactions are signed in your wallet.')),
   })
   // No wallet session on the server: services never try to restore one.
   ctx.session.restored = true

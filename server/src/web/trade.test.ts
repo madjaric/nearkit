@@ -79,8 +79,8 @@ async function webApp(options: Parameters<typeof walletBot>[0] = {}) {
   return { h, custody, call, signIn, wallets, usdt, near, account, messages, quote, execute, statuses, shown }
 }
 
-describe('trading from NearKit web: the web session authorizes, no Telegram step', () => {
-  it('quotes each NearKit wallet on the server and sends nothing, not even a Telegram message', async () => {
+describe('trading from NEARKITS web: the web session authorizes, no Telegram step', () => {
+  it('quotes each NEARKITS wallet on the server and sends nothing, not even a Telegram message', async () => {
     const { h, signIn, wallets, quote, messages } = await webApp()
     const token = await signIn()
     const [a, b, c] = await wallets(token, 2)
@@ -207,7 +207,7 @@ describe('trading from NearKit web: the web session authorizes, no Telegram step
     expect(await usdt(b)).toBe(0n)
   })
 
-  it('refuses any leg that isn’t the signed-in user’s own NearKit wallet, before anything is quoted', async () => {
+  it('refuses any leg that isn’t the signed-in user’s own NEARKITS wallet, before anything is quoted', async () => {
     const { h, call, signIn, wallets, custody, quote, account } = await webApp()
     const token = await signIn()
     const [a] = await wallets(token, 0)
@@ -328,7 +328,7 @@ describe('trading from NearKit web: the web session authorizes, no Telegram step
   })
 })
 
-describe('Send from NearKit web: reviewed and executed on the web', () => {
+describe('Send from NEARKITS web: reviewed and executed on the web', () => {
   it('review, then send: the existing withdrawal path runs from the web, with no Telegram step', async () => {
     const { h, call, signIn, wallets, messages } = await webApp()
     const token = await signIn()

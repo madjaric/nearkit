@@ -139,7 +139,7 @@ function Readouts() {
               ? 'demo wallets'
               : s.walletCount > s.executableWalletCount
                 ? `${s.executableWalletCount} executable · ${s.walletCount - s.executableWalletCount} watch-only`
-                : 'NearKit and connected wallets'
+                : 'NEARKITS and connected wallets'
         }
       />
     </ReadoutStrip>
@@ -256,7 +256,7 @@ export default function DashboardPage() {
                 </Button>
               }
             >
-              Positions across all of your NearKit wallets appear here.
+              Positions across all of your NEARKITS wallets appear here.
             </EmptyState>
           ) : (
             <PositionsTable positions={positions.data ?? []} loading={positions.isPending} compact />

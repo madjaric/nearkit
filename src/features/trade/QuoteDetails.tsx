@@ -61,7 +61,7 @@ export function QuoteDetails({
           : `${formatNumber(fee.amountNear, 2, 4)} NEAR`
   const feeSplit =
     fee && fee.charged && fee.receivedBps !== null && fee.routerShareBps !== null
-      ? `Of the ${NEARKIT_FEE_LABEL}, NearKit receives ${bpsLabel(fee.receivedBps)} and Rhea keeps ${bpsLabel(fee.routerShareBps)}.${fee.routerFeeBps ? ` Rhea also charges its own ${bpsLabel(fee.routerFeeBps)} on every swap.` : ''}`
+      ? `Of the ${NEARKIT_FEE_LABEL}, NEARKITS receives ${bpsLabel(fee.receivedBps)} and Rhea keeps ${bpsLabel(fee.routerShareBps)}.${fee.routerFeeBps ? ` Rhea also charges its own ${bpsLabel(fee.routerFeeBps)} on every swap.` : ''}`
       : null
   const fade = stale && q ? 'opacity-45' : ''
   const small = q ? q.rate < 0.01 : false
@@ -109,7 +109,7 @@ export function QuoteDetails({
         <Line
           label={
             <>
-              NearKit fee <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span> {feeSplit ? <InfoTip>{feeSplit}</InfoTip> : <InfoTip term="nearkitFee" />}
+              NEARKITS fee <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span> {feeSplit ? <InfoTip>{feeSplit}</InfoTip> : <InfoTip term="nearkitFee" />}
             </>
           }
         >

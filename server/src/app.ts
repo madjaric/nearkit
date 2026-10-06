@@ -148,7 +148,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     notify: (userId, html) => notifyUser(userId, html),
     onTraded: (t) => onHandoffTraded(t),
   })
-  log.info('NearKit server starting', { network: config.network.id, web: config.webUrl, db: describeDatabase(config.database), bot: Boolean(config.telegramToken) })
+  log.info('NEARKITS server starting', { network: config.network.id, web: config.webUrl, db: describeDatabase(config.database), bot: Boolean(config.telegramToken) })
 
   // NearKit trading wallets: testnet only, and only with a key-encryption key (config.ts).
   let custody: CustodyDeps | null = null
@@ -477,7 +477,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       // as the poller lets Telegram's finish.
       await webRunsSettled()
       await db.close()
-      log.info('NearKit server stopped')
+      log.info('NEARKITS server stopped')
     },
   }
 }

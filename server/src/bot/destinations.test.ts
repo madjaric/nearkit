@@ -65,7 +65,7 @@ describe('withdrawal destinations the owner approves', () => {
     expect((await h.custody.signer.destinations(w.accountId)).destinations).toEqual([])
   })
 
-  it('a new NearKit wallet answers to the same owner as the others, not to a wallet linked later', async () => {
+  it('a new NEARKITS wallet answers to the same owner as the others, not to a wallet linked later', async () => {
     const { h, w, mallory } = await world()
     await h.store.createLinkRequest({ codeHash: 'm2', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
     await h.store.completeLink({ codeHash: 'm2', network: 'testnet', accountId: MALLORY, userId: ALICE.id, publicKey: mallory.publicKey })

@@ -66,7 +66,7 @@ export function NearKitTradeModal({
       onClose={onClose}
       size="md"
       title={multi ? `Review multi ${verb}` : `Review ${verb}`}
-      description="NearKit executes it from your NearKit wallets: each one trades its own funds, signed with its own key. No wallet prompt."
+      description="NEARKITS executes it from your NEARKITS wallets: each one trades its own funds, signed with its own key. No wallet prompt."
     >
       <NearKitTrade request={request} wallets={wallets} onClose={onClose} onSettled={onSettled} />
     </Modal>
@@ -225,7 +225,7 @@ function NearKitTrade({
               <Figures>{`${shown.reduce((s, l) => s + Number(l.amountIn), 0)} ${inUnit} → ≈ ${fmt(shown.reduce((s, l) => s + BigInt(l.amountOut), 0n).toString())} ${outUnit}`}</Figures>
             </Line>
           )}
-          <Line label="NearKit fee">{g.fee.charged ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `Not charged on ${caps.networkLabel.toLowerCase()}`}</Line>
+          <Line label="NEARKITS fee">{g.fee.charged ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `Not charged on ${caps.networkLabel.toLowerCase()}`}</Line>
           <Line label="Price impact">{g.priceImpactPct === null ? 'Unknown' : formatPct(g.priceImpactPct, { decimals: 2 })}</Line>
           <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>
             <Figures>{`≈ ${formatUnits(BigInt(g.networkFeeNear), NEAR_DECIMALS, { maxFraction: 4 })} NEAR${multi ? ' per wallet' : ''}`}</Figures>
@@ -239,7 +239,7 @@ function NearKitTrade({
         <p className="text-xs text-fg-3">
           {expired
             ? 'This quote expired. Get a fresh one.'
-            : `Valid for ${seconds}s. Right before sending, NearKit checks each price again; if a wallet would get less than its minimum, nothing is sent from it until you confirm the new price.`}
+            : `Valid for ${seconds}s. Right before sending, NEARKITS checks each price again; if a wallet would get less than its minimum, nothing is sent from it until you confirm the new price.`}
         </p>
       )}
       {settled && (
@@ -248,7 +248,7 @@ function NearKitTrade({
         </p>
       )}
       {running && !settled && requoted.length === 0 && shown.some((l) => runningLeg(l.status) || l.status === 'quoted') && (
-        <p className="text-xs text-fg-3">NearKit is executing each wallet’s trade. You can close this: it keeps going, and balances update when it’s done.</p>
+        <p className="text-xs text-fg-3">NEARKITS is executing each wallet’s trade. You can close this: it keeps going, and balances update when it’s done.</p>
       )}
       {error && (
         <p role="alert" className="text-sm text-neg">

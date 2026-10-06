@@ -58,7 +58,7 @@ async function buybotInfo(ctx: BotCtx) {
     [bold('📣 Buy alerts for your group'), '', 'Add me to your token’s group. Then a group admin sends /buybot there to choose the token, the minimum buy and the style.'].join(
       '\n',
     ),
-    keyboard([urlBtn('➕ Add NearKit to a group', `https://t.me/${ctx.deps.me.username}?startgroup=buybot`)], [btn('« Menu', 'menu:home')]),
+    keyboard([urlBtn('➕ Add NEARKITS to a group', `https://t.me/${ctx.deps.me.username}?startgroup=buybot`)], [btn('« Menu', 'menu:home')]),
   )
 }
 
@@ -73,7 +73,7 @@ export function coreModule(commandList: () => { name: string; command: Command }
 
   const start = async (ctx: BotCtx, payload: string) => {
     if (!ctx.isPrivate) {
-      await ctx.reply(`Hi! I’m the NearKit bot. A group admin can set up buy alerts with /buybot. For trading, open a private chat with me.`, {
+      await ctx.reply(`Hi! I’m the NEARKITS bot. A group admin can set up buy alerts with /buybot. For trading, open a private chat with me.`, {
         inline_keyboard: [[{ text: 'Open a private chat', url: `https://t.me/${ctx.deps.me.username}` }]],
       })
       return

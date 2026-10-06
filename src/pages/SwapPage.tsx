@@ -177,7 +177,7 @@ function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId;
         title="Swap"
         description={
           caps.mode === 'demo'
-            ? `Trade any listed token. Every demo swap is priced through NEAR, with the ${NEARKIT_FEE_LABEL} NearKit fee shown on that NEAR leg.`
+            ? `Trade any listed token. Every demo swap is priced through NEAR, with the ${NEARKIT_FEE_LABEL} NEARKITS fee shown on that NEAR leg.`
             : 'Trade any NEP-141 token through Rhea. The route is quoted again right before you sign, and every fee is shown in the review.'
         }
       />

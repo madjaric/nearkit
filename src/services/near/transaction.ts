@@ -201,7 +201,7 @@ function readAction(r: Reader): TxAction {
     case ACTION.DeleteKey:
       return { type: 'DeleteKey', publicKey: readKey(r) }
     default:
-      throw new TransactionFormatError(`Action type ${tag} is not one NearKit builds`)
+      throw new TransactionFormatError(`Action type ${tag} is not one NEARKITS builds`)
   }
 }
 

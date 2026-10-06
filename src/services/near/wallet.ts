@@ -87,7 +87,7 @@ export interface WalletAdapter {
 /** Refuse to run inside another site's frame: NEAR Connect accepts injected wallets from any parent. */
 export function assertTopLevel(): void {
   if (typeof window !== 'undefined' && window.top !== window.self) {
-    throw new NearKitError('WALLET_UNAVAILABLE', 'NearKit can’t connect a wallet while it is embedded in another page. Open NearKit directly.')
+    throw new NearKitError('WALLET_UNAVAILABLE', 'NEARKITS can’t connect a wallet while it is embedded in another page. Open NEARKITS directly.')
   }
 }
 

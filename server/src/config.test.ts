@@ -9,7 +9,7 @@ import { ensureSignerTls, parseTlsPin } from './signer/tls'
 const TOKEN = '1234567890:AAH-abcdefghijklmnopqrstuvwxyz_0123456'
 
 describe('server config', () => {
-  it('defaults to testnet, NearKit’s public web app (nearkits.com) and a local API', () => {
+  it('defaults to testnet, NEARKITS’ public web app (nearkits.com) and a local API', () => {
     const { config, issues } = loadConfig({ TELEGRAM_BOT_TOKEN: TOKEN })
     expect(issues).toEqual([])
     expect(config.network.id).toBe('testnet')

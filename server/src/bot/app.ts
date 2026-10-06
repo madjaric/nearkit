@@ -92,7 +92,7 @@ export function createBotApp(
       if (!known) deps.log.error('handler failed', { what, error: e })
       else deps.log.info('handler refused', { what, reason: known })
       await ctx.answer().catch(() => undefined)
-      await ctx.reply(known ? `⚠️ ${esc(known)}` : '⚠️ Something went wrong on NearKit’s side. Nothing was sent or signed. Try again in a moment.').catch(() => undefined)
+      await ctx.reply(known ? `⚠️ ${esc(known)}` : '⚠️ Something went wrong on NEARKITS’ side. Nothing was sent or signed. Try again in a moment.').catch(() => undefined)
     } finally {
       await ctx.answer().catch(() => undefined)
     }

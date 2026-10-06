@@ -13,8 +13,8 @@ export default function WalletsPage() {
         title="Wallets & Presets"
         description={
           caps.mode === 'demo'
-            ? 'Your main account and NearKit-managed wallets, plus the saved groups you trade them in.'
-            : 'Your NearKit wallets, the accounts you connect and any you watch, plus the saved groups you trade them in.'
+            ? 'Your main account and NEARKITS-managed wallets, plus the saved groups you trade them in.'
+            : 'Your NEARKITS wallets, the accounts you connect and any you watch, plus the saved groups you trade them in.'
         }
       />
       <RequireWallet feature="Wallets" nearkit>

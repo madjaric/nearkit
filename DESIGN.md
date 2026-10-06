@@ -1,5 +1,5 @@
 ---
-name: NearKit
+name: NEARKITS
 description: The trading toolkit for NEAR, drawn as a dark, dense trading terminal.
 colors:
   well: "oklch(0.122 0.006 250)"
@@ -232,7 +232,7 @@ components:
     height: "56px"
 ---
 
-# Design System: NearKit
+# Design System: NEARKITS
 
 ## Overview
 

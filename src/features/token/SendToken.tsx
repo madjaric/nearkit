@@ -65,7 +65,7 @@ export function SendTokenButton({
               <span className="flex min-w-0 flex-col">
                 <span className="text-sm text-fg">{wallet.label}</span>
                 <span className="num text-xs text-fg-3">
-                  {formatAmount(amount, 2)} {token.symbol} · {executesViaNearKit(wallet) ? 'sent by NearKit' : 'signed in your wallet'}
+                  {formatAmount(amount, 2)} {token.symbol} · {executesViaNearKit(wallet) ? 'sent by NEARKITS' : 'signed in your wallet'}
                 </span>
               </span>
               <Button size="sm" variant="secondary" onClick={() => sendFromWallet(wallet)}>

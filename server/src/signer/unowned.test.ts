@@ -68,7 +68,7 @@ beforeEach(async () => {
   wallet = { accountId: k.accountId, publicKey: k.publicKey, network: 'testnet' }
 })
 
-describe('a NearKit wallet created with no owner wallet', () => {
+describe('a NEARKITS wallet created with no owner wallet', () => {
   it('is sealed to the Telegram account that created it, and has no owner', async () => {
     const held = await vault.key('testnet', wallet.accountId)
     expect(held).toMatchObject({ status: 'active', ownerAccount: null, userId: ALICE })
@@ -127,7 +127,7 @@ describe('a NearKit wallet created with no owner wallet', () => {
     expect((await sign('bob.testnet')).hash).toBeTruthy()
   })
 
-  it('has none of the owner wallet’s powers: no export, no owner session, no backup key, no removing NearKit’s key', async () => {
+  it('has none of the owner wallet’s powers: no export, no owner session, no backup key, no removing NEARKITS’ key', async () => {
     await expect(signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: 'x' })).rejects.toThrow(ChallengeError)
     await expect(signer.challenge({ kind: 'approve-destination', accountId: wallet.accountId, destination: 'bob.testnet' })).rejects.toThrow(ChallengeError)
     const keyPlan: WalletTxPlan[] = [
@@ -178,7 +178,7 @@ describe('binding a first owner wallet later', () => {
     await signer.telegramRequest({ kind: 'bind-owner', accountId: wallet.accountId, owner: 'mallory.testnet', ownerKey: owner.publicKey })
     // Eve opens the link from her own Telegram account.
     const r = await signer.telegramRequest({ kind: 'bind-owner', accountId: wallet.accountId, owner: 'mallory.testnet', ownerKey: owner.publicKey })
-    await expect(signer.telegramApprove(await openInTelegram(r, EVE))).rejects.toThrow(/controls this NearKit wallet/)
+    await expect(signer.telegramApprove(await openInTelegram(r, EVE))).rejects.toThrow(/controls this NEARKITS wallet/)
     // Alice's approval of OWNER is Telegram's signature over OWNER's request: it can't bind anyone else.
     const mine = await signer.telegramRequest({ kind: 'bind-owner', accountId: wallet.accountId, owner: OWNER, ownerKey: owner.publicKey })
     const swapped = new URLSearchParams(await openInTelegram(mine))

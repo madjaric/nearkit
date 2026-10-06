@@ -86,7 +86,7 @@ const policy = (network: NetworkConfig, expected: bigint | Error, feeRecipient: 
 })
 
 describe('mainnet swap routes, checked by the signer itself', () => {
-  it('accepts Rhea’s signed route with NearKit’s fee to the production account', async () => {
+  it('accepts Rhea’s signed route with NEARKITS’ fee to the production account', async () => {
     const r = await rhea()
     const checked = await verifySwapRoute(await r.route(), WALLET, policy(r.network, (MIN * 1005n) / 1000n))
     expect(checked.routeTokens).toEqual([USDT, WRAP])
@@ -100,7 +100,7 @@ describe('mainnet swap routes, checked by the signer itself', () => {
     await expect(verifySwapRoute(await r.route({ app_fee_rate: 0, app_fee_recipient: null }), WALLET, p)).rejects.toThrow(/fee rate differs/)
     // A signer configured with any other account refuses too (it doesn't trust the app for this).
     await expect(verifySwapRoute(await r.route(), WALLET, policy(r.network, MIN, 'testone.near'))).rejects.toThrow(/fee goes to another account/)
-    await expect(verifySwapRoute(await r.route(), WALLET, policy(r.network, MIN, null))).rejects.toThrow(/no NearKit fee account/)
+    await expect(verifySwapRoute(await r.route(), WALLET, policy(r.network, MIN, null))).rejects.toThrow(/no NEARKITS fee account/)
   })
 
   it('refuses a route for another user or paying out to someone else', async () => {
@@ -175,7 +175,7 @@ describe('mainnet swap plans (structure)', () => {
   })
   const wallet = { accountId: WALLET, publicKey: 'ed25519:K', network: 'mainnet' }
 
-  it('allows exactly: registrations of the wallet and the aggregator, Rhea registrations of the wallet and NearKit’s fee account, the swap', async () => {
+  it('allows exactly: registrations of the wallet and the aggregator, Rhea registrations of the wallet and NEARKITS’ fee account, the swap', async () => {
     const r = await rhea()
     const route = await r.route()
     const plan = [
@@ -199,7 +199,7 @@ describe('mainnet swap plans (structure)', () => {
     expect(check([rheaReg([{ user: WALLET, tokens: [WRAP] }], 6n * 10n ** 21n), swap(route)])).toThrow(/unexpected deposit/)
     expect(check([reg(WRAP, 'mallory.near'), swap(route)])).toThrow(/unexpected account/)
     expect(check([swap(route, 'mallory.near')])).toThrow(PolicyViolation)
-    expect(() => checkPlan(op(route), [swap(route)], wallet, r.network, null)).toThrow(/no NearKit fee account/)
+    expect(() => checkPlan(op(route), [swap(route)], wallet, r.network, null)).toThrow(/no NEARKITS fee account/)
   })
 })
 
@@ -268,7 +268,7 @@ describe('mainnet direct DCL routes, checked by the signer itself', () => {
 
   it('refuses a fee to any other account, another fee rate, no fee, or a swap amount that is not the rest', async () => {
     const p = dclPolicy(onChain(18_000n))
-    await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR - FEE, fee: FEE, feeRecipient: 'testone.near' } }), WALLET, p)).rejects.toThrow(/not NearKit’s fee account/)
+    await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR - FEE, fee: FEE, feeRecipient: 'testone.near' } }), WALLET, p)).rejects.toThrow(/not NEARKITS’ fee account/)
     await expect(verifySwapRoute(dcl({ direct: { swapAmount: ONE_NEAR - FEE + 1n, fee: FEE - 1n, feeRecipient: PRODUCTION_FEE_RECIPIENT } }), WALLET, p)).rejects.toThrow(
       /fee rate/,
     )
@@ -277,8 +277,8 @@ describe('mainnet direct DCL routes, checked by the signer itself', () => {
       /amount less the fee/,
     )
     // A signer configured with any other account, or none, refuses too.
-    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n), 'testone.near'))).rejects.toThrow(/not NearKit’s fee account/)
-    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n), null))).rejects.toThrow(/no NearKit fee account/)
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n), 'testone.near'))).rejects.toThrow(/not NEARKITS’ fee account/)
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(18_000n), null))).rejects.toThrow(/no NEARKITS fee account/)
   })
 
   it('refuses pools that do not connect the pair, another contract, tokens that differ from the pools, no pools, or a message that is not the verified one', async () => {

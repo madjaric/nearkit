@@ -16,10 +16,10 @@ const HEX64 = /^[0-9a-f]{64}$/
 async function newWallet(h: Harness): Promise<TradingWallet> {
   h.advance(10_000)
   await h.press('cw:list')
-  const create = h.button('New wallet') || h.button('Create NearKit wallet')
+  const create = h.button('New wallet') || h.button('Create NEARKITS wallet')
   if (!create) {
     await h.say('/wallet')
-    await h.press(h.button('Create NearKit wallet'))
+    await h.press(h.button('Create NEARKITS wallet'))
   } else {
     await h.press(create)
   }

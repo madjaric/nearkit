@@ -190,7 +190,7 @@ export function createSignerCore(deps: SignerDeps) {
 
   async function liveKey(accountId: string): Promise<SignerKey> {
     const key = await store.key(network.id, accountId)
-    if (!key || key.status !== 'active' || !key.sealedKey) throw new KeyUnavailableError('This NearKit wallet is closed or unknown; NearKit holds no key for it')
+    if (!key || key.status !== 'active' || !key.sealedKey) throw new KeyUnavailableError('This NEARKITS wallet is closed or unknown; NEARKITS holds no key for it')
     return key
   }
 
@@ -236,7 +236,7 @@ export function createSignerCore(deps: SignerDeps) {
 
   function telegram(): TelegramCheck {
     if (!config.telegram)
-      throw new ChallengeError('telegram-off', 'Approvals in Telegram aren’t set up on this NearKit server, so nothing can be approved for a wallet without an owner wallet.')
+      throw new ChallengeError('telegram-off', 'Approvals in Telegram aren’t set up on this NEARKITS server, so nothing can be approved for a wallet without an owner wallet.')
     return config.telegram
   }
 
@@ -279,10 +279,10 @@ export function createSignerCore(deps: SignerDeps) {
         if ((await chain.permission(key.ownerAccount, op.publicKey)) !== 'full') throw new PolicyViolation(`the backup key is not a full-access key of ${key.ownerAccount}`)
         return
       case 'revoke': {
-        if (!key.ownerAccount) throw new PolicyViolation('this wallet has no recorded owner, so NearKit keeps its key')
+        if (!key.ownerAccount) throw new PolicyViolation('this wallet has no recorded owner, so NEARKITS keeps its key')
         const others = (await chain.fullAccessKeys(key.accountId)).filter((k) => k !== key.publicKey).slice(0, 8)
         for (const k of others) if ((await chain.permission(key.ownerAccount, k)) === 'full') return
-        throw new PolicyViolation(`no other key on this wallet is a full-access key of ${key.ownerAccount}; removing NearKit’s key would leave it to nobody`)
+        throw new PolicyViolation(`no other key on this wallet is a full-access key of ${key.ownerAccount}; removing NEARKITS’ key would leave it to nobody`)
       }
       case 'swap':
         // The route is the swap's last transaction; earlier ones only register storage.
@@ -327,7 +327,7 @@ export function createSignerCore(deps: SignerDeps) {
   /** The wallet a verified request is about, still held and still owned by the same owner. */
   async function ownedKey(c: Challenge): Promise<SignerKey> {
     const key = await liveKey(c.accountId ?? '')
-    if (key.ownerAccount !== c.ownerAccount) throw new ChallengeError('wallet', 'This NearKit wallet answers to another owner wallet now. Nothing happened.')
+    if (key.ownerAccount !== c.ownerAccount) throw new ChallengeError('wallet', 'This NEARKITS wallet answers to another owner wallet now. Nothing happened.')
     return key
   }
 
@@ -425,7 +425,7 @@ export function createSignerCore(deps: SignerDeps) {
         if (await chain.accountExists(accountId)) throw new PolicyViolation('the wallet exists on chain (it was funded), so its key is not erased')
       } else {
         if (!(await chain.accountExists(accountId))) throw new PolicyViolation('the wallet does not exist on chain')
-        if ((await chain.permission(accountId, key.publicKey)) !== 'missing') throw new PolicyViolation('NearKit’s key is still on the wallet, so its copy is not erased')
+        if ((await chain.permission(accountId, key.publicKey)) !== 'missing') throw new PolicyViolation('NEARKITS’ key is still on the wallet, so its copy is not erased')
       }
       const erased = await store.eraseKey(network.id, accountId, b.reason)
       if (erased) await store.event('key-erased', { network: network.id, accountId, detail: { reason: b.reason } })
@@ -455,7 +455,7 @@ export function createSignerCore(deps: SignerDeps) {
       } else {
         accountId = str(b.accountId, 'accountId', 64)
         const key = await liveKey(accountId)
-        if (!key.ownerAccount) throw new ChallengeError('wallet', 'This NearKit wallet has no recorded owner wallet, so nothing can be authorized for it.')
+        if (!key.ownerAccount) throw new ChallengeError('wallet', 'This NEARKITS wallet has no recorded owner wallet, so nothing can be authorized for it.')
         ownerAccount = key.ownerAccount
         if (kind === 'export') {
           recipientKey = str(b.recipientKey, 'recipientKey', 128)
@@ -571,8 +571,8 @@ export function createSignerCore(deps: SignerDeps) {
       await open()
       telegram()
       const key = await liveKey(accountId)
-      if (key.ownerAccount) throw new ChallengeError('owned', `This NearKit wallet has an owner wallet, ${key.ownerAccount}: approve with it in NearKit web instead.`)
-      if (!key.userId) throw new ChallengeError('wallet', 'This NearKit wallet has no Telegram account on record, so nothing can be approved for it.')
+      if (key.ownerAccount) throw new ChallengeError('owned', `This NEARKITS wallet has an owner wallet, ${key.ownerAccount}: approve with it in NEARKITS web instead.`)
+      if (!key.userId) throw new ChallengeError('wallet', 'This NEARKITS wallet has no Telegram account on record, so nothing can be approved for it.')
       if ((await store.countTelegramRequestsSince(network.id, accountId, now() - CHALLENGE_WINDOW_MS)) >= CHALLENGES_PER_WINDOW)
         throw new ChallengeError('rate-limited', 'Too many requests for this wallet. Try again in a few minutes.')
       const id = randomToken(18)
@@ -595,7 +595,7 @@ export function createSignerCore(deps: SignerDeps) {
       const initData = str(b.initData, 'initData', 4096)
       await open()
       const launch = await verifyTelegramLaunch(initData, telegram())
-      if (!launch) throw new ChallengeError('bad-signature', 'This approval isn’t signed by Telegram for NearKit’s bot. Nothing happened.')
+      if (!launch) throw new ChallengeError('bad-signature', 'This approval isn’t signed by Telegram for NEARKITS’ bot. Nothing happened.')
       const r = await store.telegramRequestByDigest(launch.startParam)
       if (!r || r.network !== network.id) throw new ChallengeError('unknown', 'This request is unknown. Start again in Telegram.')
       const refused = (reason: string) =>
@@ -615,10 +615,10 @@ export function createSignerCore(deps: SignerDeps) {
         throw new ChallengeError('stale', 'This approval was opened before the request existed. Start again in Telegram.')
       }
       const key = await liveKey(r.accountId)
-      if (key.ownerAccount) throw new ChallengeError('owned', `This NearKit wallet has an owner wallet, ${key.ownerAccount}: approve with it in NearKit web instead.`)
+      if (key.ownerAccount) throw new ChallengeError('owned', `This NEARKITS wallet has an owner wallet, ${key.ownerAccount}: approve with it in NEARKITS web instead.`)
       if (launch.userId !== r.userId || key.userId !== r.userId) {
         await refused('another Telegram account')
-        throw new ChallengeError('not-controller', 'Approve with the Telegram account that controls this NearKit wallet. Nothing happened.')
+        throw new ChallengeError('not-controller', 'Approve with the Telegram account that controls this NEARKITS wallet. Nothing happened.')
       }
       if (!(await store.useTelegramRequest(r.id))) throw new ChallengeError('used', 'This approval was already used. Start again in Telegram.')
       if (r.kind === 'destination') {
@@ -638,7 +638,7 @@ export function createSignerCore(deps: SignerDeps) {
       const before = key.sealedKey as string
       const after = await bindOwnerKey(keys, before, bindingOf(key), r.target)
       if (!(await store.bindOwner(network.id, r.accountId, before, after, r.target, r.targetKey)))
-        throw new ChallengeError('owned', 'This NearKit wallet got an owner wallet meanwhile. Nothing changed.')
+        throw new ChallengeError('owned', 'This NEARKITS wallet got an owner wallet meanwhile. Nothing changed.')
       // From now on only the owner's signed approvals count: the ones given in Telegram end here.
       const ended = await store.revokeTelegramApprovals(network.id, r.accountId)
       await store.event('owner-bound', {

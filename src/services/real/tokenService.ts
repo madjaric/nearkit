@@ -43,7 +43,7 @@ export function createTokenService(ctx: NearContext, market: Market, wallets?: P
     if (isForeignToNetwork(contract, ctx.network.id))
       throw new NearKitError(
         'NETWORK_MISMATCH',
-        `${contract} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} contract; NearKit is on ${ctx.network.label.toLowerCase()}`,
+        `${contract} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} contract; NEARKITS is on ${ctx.network.label.toLowerCase()}`,
       )
     let state
     try {

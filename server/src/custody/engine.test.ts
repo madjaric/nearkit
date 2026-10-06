@@ -306,7 +306,7 @@ describe('lagging chain index and a resolver that runs twice', () => {
     expect(chain.sent).toHaveLength(1)
   })
 
-  it('if the index never shows it, NearKit says it can’t confirm, never that nothing was sent', async () => {
+  it('if the index never shows it, NEARKITS says it can’t confirm, never that nothing was sent', async () => {
     const engine = engineFor()
     chain.onSend('hidden')
     const i = await intent()

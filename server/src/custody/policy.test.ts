@@ -148,7 +148,7 @@ describe('signer policy: swaps', () => {
         buyOp,
         tweak(plan, (p) => (reg(p).deposit = (2n * 10n ** 23n).toString())),
       ),
-    ).toMatch(/outside NearKit’s limit/)
+    ).toMatch(/outside NEARKITS’ limit/)
     expect(
       refused(
         buyOp,
@@ -157,7 +157,7 @@ describe('signer policy: swaps', () => {
     ).toMatch(/outside the route/)
   })
 
-  it('refuses the wrong network, and Rhea’s classic exchange on mainnet (swaps there carry NearKit’s fee through the aggregator)', () => {
+  it('refuses the wrong network, and Rhea’s classic exchange on mainnet (swaps there carry NEARKITS’ fee through the aggregator)', () => {
     expect(refused(buyOp, swapPlan(BUY), { ...WALLET, network: 'mainnet' })).toMatch(/wallet is on mainnet/)
     expect(refused(buyOp, swapPlan(BUY), { ...WALLET, network: 'mainnet' }, NETWORKS.mainnet)).toMatch(/aggregator|fee account/)
   })
@@ -269,16 +269,16 @@ describe('signer policy: withdrawals, backup key, revoke', () => {
     expect(refused(op, [...unwrap(ONE), ...near('evil.testnet')])).toMatch(/one call to the wrap contract/)
   })
 
-  it('adds only your linked wallet’s key as the backup key, and revokes only NearKit’s own key', () => {
+  it('adds only your linked wallet’s key as the backup key, and revokes only NEARKITS’ own key', () => {
     const add = (key: string, receiver = WALLET.accountId): WalletTxPlan[] => [{ receiverId: receiver, actions: [{ kind: 'add-key', publicKey: key }], label: 'b' }]
     expect(() => checkPlan({ kind: 'add-backup-key', publicKey: LINKED_KEY }, add(LINKED_KEY), WALLET, net)).not.toThrow()
     expect(refused({ kind: 'add-backup-key', publicKey: LINKED_KEY }, add(WALLET.publicKey))).toMatch(/differs from your linked wallet’s key/)
-    expect(refused({ kind: 'add-backup-key', publicKey: WALLET.publicKey }, add(WALLET.publicKey))).toMatch(/NearKit’s own key/)
+    expect(refused({ kind: 'add-backup-key', publicKey: WALLET.publicKey }, add(WALLET.publicKey))).toMatch(/NEARKITS’ own key/)
     expect(refused({ kind: 'add-backup-key', publicKey: LINKED_KEY }, add(LINKED_KEY, 'bob.testnet'))).toMatch(/to itself/)
     const del = (key: string): WalletTxPlan[] => [{ receiverId: WALLET.accountId, actions: [{ kind: 'delete-key', publicKey: key }], label: 'r' }]
     expect(() => checkPlan({ kind: 'revoke', publicKey: WALLET.publicKey }, del(WALLET.publicKey), WALLET, net)).not.toThrow()
-    expect(refused({ kind: 'revoke', publicKey: LINKED_KEY }, del(LINKED_KEY))).toMatch(/only NearKit’s own key/)
-    expect(refused({ kind: 'revoke', publicKey: WALLET.publicKey }, del(LINKED_KEY))).toMatch(/only NearKit’s own key/)
+    expect(refused({ kind: 'revoke', publicKey: LINKED_KEY }, del(LINKED_KEY))).toMatch(/only NEARKITS’ own key/)
+    expect(refused({ kind: 'revoke', publicKey: WALLET.publicKey }, del(LINKED_KEY))).toMatch(/only NEARKITS’ own key/)
   })
 })
 
@@ -328,7 +328,7 @@ describe('signer policy: direct DCL swaps', () => {
     expect(() => checkPlan(op(r), p, { ...WALLET, network: network.id }, network, fee)).toThrow(re)
   }
 
-  it('accepts exactly: the wrap, the fee transfer to NearKit’s account and the swap call with the rest, and registrations of the wallet or the fee account on route tokens', () => {
+  it('accepts exactly: the wrap, the fee transfer to NEARKITS’ account and the swap call with the rest, and registrations of the wallet or the fee account on route tokens', () => {
     const buy = direct('buy', ONE)
     expect(() => checkPlan(op(buy), plan(buy), mainWallet, main, FEES)).not.toThrow()
     expect(() => checkPlan(op(buy), plan(buy, [{ contract: SING, accountId: WALLET.accountId }]), mainWallet, main, FEES)).not.toThrow()
@@ -346,7 +346,7 @@ describe('signer policy: direct DCL swaps', () => {
     const fee = buy.direct as NonNullable<SwapRouteFacts['direct']>
     const to = (over: Partial<NonNullable<SwapRouteFacts['direct']>>) => direct('buy', ONE, main, { direct: { ...fee, ...over } })
     // Route facts that disagree with NearKit's rate or account are refused whatever the plan says.
-    refusedWith(to({ feeRecipient: 'mallory.near' }), plan(buy), /not NearKit’s fee account/)
+    refusedWith(to({ feeRecipient: 'mallory.near' }), plan(buy), /not NEARKITS’ fee account/)
     refusedWith(to({ fee: fee.fee - 1n, swapAmount: fee.swapAmount + 1n }), plan(buy), /fee rate/)
     refusedWith(to({ fee: 0n, feeRecipient: null, swapAmount: ONE }), plan(buy), /fee/)
     refusedWith(to({ swapAmount: fee.swapAmount + 1n }), plan(buy), /amount less the fee/)
@@ -367,7 +367,7 @@ describe('signer policy: direct DCL swaps', () => {
       ],
       /different arguments/,
     )
-    expect(() => checkPlan(op(buy), plan(buy), mainWallet, main, null)).toThrow(/no NearKit fee account/)
+    expect(() => checkPlan(op(buy), plan(buy), mainWallet, main, null)).toThrow(/no NEARKITS fee account/)
   })
 
   it('refuses pools that do not connect, another exchange, a message that is not the verified one, or a lower minimum than confirmed', () => {

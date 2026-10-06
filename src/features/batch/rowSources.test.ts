@@ -32,7 +32,7 @@ describe('the wallet a manual row sends from', () => {
     expect(rowSource(undefined, SNIPER.id, POOL.nearkit)).toBe(SNIPER.id)
   })
 
-  it('a row that names another NearKit wallet sends from it; rows can each name a different one', () => {
+  it('a row that names another NEARKITS wallet sends from it; rows can each name a different one', () => {
     expect(rowSource(SNIPER.id, MAIN.id, POOL.nearkit)).toBe(SNIPER.id)
     expect([undefined, SNIPER.id, MAIN.id].map((choice) => rowSource(choice, MAIN.id, POOL.nearkit))).toEqual([MAIN.id, SNIPER.id, MAIN.id])
   })
@@ -62,7 +62,7 @@ describe('what each wallet sends in all', () => {
   })
 })
 
-describe('the lines NearKit’s server sends', () => {
+describe('the lines NEARKITS’ server sends', () => {
   it('every row from Send from: the lines are exactly as before (no per-line wallet)', () => {
     expect(
       nearkitLines(
@@ -78,7 +78,7 @@ describe('the lines NearKit’s server sends', () => {
     ])
   })
 
-  it('rows from different wallets: every line names the NearKit wallet that sends it (its server id, name and account)', () => {
+  it('rows from different wallets: every line names the NEARKITS wallet that sends it (its server id, name and account)', () => {
     expect(
       nearkitLines(
         [

@@ -130,10 +130,10 @@ export function RequireWallet({ feature, children, nearkit = false }: { feature:
           {soon
             ? 'Connect a wallet to preview the page. Nothing on it can be signed, sent or saved during the beta.'
             : caps.mode === 'demo'
-              ? `${feature} works across your NearKit wallets. The demo runs on a sample account.`
+              ? `${feature} works across your NEARKITS wallets. The demo runs on a sample account.`
               : telegram
-                ? `${feature} works across the accounts you connect, which sign in your wallet, and your NearKit wallets, which NearKit executes: the NearKit bot’s /web sends a one-time sign-in link.`
-                : `${feature} works across the accounts you connect. You sign in your wallet; NearKit never sees your keys.`}
+                ? `${feature} works across the accounts you connect, which sign in your wallet, and your NEARKITS wallets, which NEARKITS executes: the NEARKITS bot’s /web sends a one-time sign-in link.`
+                : `${feature} works across the accounts you connect. You sign in your wallet; NEARKITS never sees your keys.`}
         </EmptyState>
       </Panel>
     )

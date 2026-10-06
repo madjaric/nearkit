@@ -49,7 +49,7 @@ export async function showReferrals(ctx: BotCtx) {
       `🎁 ${bold('Invite friends')}`,
       '',
       `Your invite link: ${code(s.url)}`,
-      'When someone new starts NearKit with it, you earn 20% of NearKit’s fee on their trades: 0.08% of what they trade. They pay the same 0.50% as everyone.',
+      'When someone new starts NEARKITS with it, you earn 20% of NEARKITS’ fee on their trades: 0.08% of what they trade. They pay the same 0.50% as everyone.',
       '',
       `👥 Invited ${bold(String(s.referred))}`,
       `📈 Their volume ${await amounts(ctx, s.tokens, (t) => t.volume)}`,
@@ -101,7 +101,7 @@ async function confirmClaim(ctx: BotCtx, id: string) {
       `💸 ${bold('Claim')} ${await amounts(ctx, [t], (x) => x.available)}`,
       `To your linked wallet ${code(p.to)}`,
       '',
-      'NearKit reviews each claim and pays it from its own account, usually within a few days. You get a message here when it’s paid.',
+      'NEARKITS reviews each claim and pays it from its own account, usually within a few days. You get a message here when it’s paid.',
     ].join('\n'),
     keyboard([btn('✅ Request payout', `ref:cy:${yes}`), btn('✖ Cancel', 'ref:show')]),
   )
@@ -132,9 +132,9 @@ export async function referralStart(ctx: BotCtx, codeText: string): Promise<void
     return
   }
   if (result !== 'attributed' || referrerUserId === null) return
-  await ctx.reply('🎁 Welcome! You joined NearKit with an invite.')
+  await ctx.reply('🎁 Welcome! You joined NEARKITS with an invite.')
   // The referrer hears that it worked, not who joined.
-  await ctx.deps.tg.sendMessage(referrerUserId, '🎁 Someone new joined NearKit with your invite link. /referral shows your invites.').catch(() => undefined)
+  await ctx.deps.tg.sendMessage(referrerUserId, '🎁 Someone new joined NEARKITS with your invite link. /referral shows your invites.').catch(() => undefined)
 }
 
 export function referralsModule(): BotModule {

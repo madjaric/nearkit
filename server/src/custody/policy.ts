@@ -76,7 +76,7 @@ export interface PolicyWallet {
 
 export class PolicyViolation extends Error {
   constructor(reason: string) {
-    super(`NearKit refused to sign: ${reason}`)
+    super(`NEARKITS refused to sign: ${reason}`)
     this.name = 'PolicyViolation'
   }
 }
@@ -122,12 +122,12 @@ function expectRegistration(a: WalletAction | undefined, allowed: ReadonlySet<st
   const account = a.args.account_id
   if (typeof account !== 'string' || !allowed.has(account)) refuse('a registration is for an unexpected account')
   const deposit = int(a.deposit, 'a deposit')
-  if (deposit <= 0n || deposit > MAX_REGISTRATION_YOCTO) refuse('a registration deposit is outside NearKit’s limit')
+  if (deposit <= 0n || deposit > MAX_REGISTRATION_YOCTO) refuse('a registration deposit is outside NEARKITS’ limit')
   expectCall(a, 'storage_deposit', { account_id: account, registration_only: true }, deposit, REGISTRATION_GAS)
 }
 
 function checkEnvelope(plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig): void {
-  if (wallet.network !== network.id) refuse(`the wallet is on ${wallet.network}, NearKit is running on ${network.id}`)
+  if (wallet.network !== network.id) refuse(`the wallet is on ${wallet.network}, NEARKITS is running on ${network.id}`)
   if (plan.length === 0 || plan.length > MAX_TXS) refuse('unexpected number of transactions')
   for (const tx of plan) {
     if (tx.actions.length === 0 || tx.actions.length > MAX_ACTIONS) refuse('unexpected number of actions')
@@ -219,8 +219,8 @@ function checkAggregatorSwap(
   const r = op.route
   const agg = network.rhea.aggregator
   if (!agg) return refuse('there is no aggregator on this network')
-  if (r.router !== 'aggregator') refuse('on this network swaps go through Rhea’s aggregator, with NearKit’s fee')
-  if (!feeRecipient) refuse('no NearKit fee account is configured')
+  if (r.router !== 'aggregator') refuse('on this network swaps go through Rhea’s aggregator, with NEARKITS’ fee')
+  if (!feeRecipient) refuse('no NEARKITS fee account is configured')
   if (r.receiver !== agg.contract) refuse('the swap goes to a contract that is not Rhea’s aggregator')
   if (r.nativeIn && r.routeIn !== network.wrapContract) refuse('NEAR must be swapped from the wrap contract')
   if (r.amountIn <= 0n) refuse('the swap amount is not positive')
@@ -279,9 +279,9 @@ function checkDclSwap(
   if (!d) return refuse('a direct route must state what the exchange receives and the fee')
   // Mainnet: NearKit's fee, to the one canonical account. Testnet: no fee on any route.
   if (network.id === 'mainnet') {
-    if (!feeRecipient) refuse('no NearKit fee account is configured')
-    if (d.feeRecipient !== feeRecipient) refuse('the fee goes to an account that is not NearKit’s fee account')
-    if (d.fee !== mulBps(r.amountIn, NEARKIT_FEE_BPS)) refuse('the fee is not NearKit’s fee rate of the amount')
+    if (!feeRecipient) refuse('no NEARKITS fee account is configured')
+    if (d.feeRecipient !== feeRecipient) refuse('the fee goes to an account that is not NEARKITS’ fee account')
+    if (d.fee !== mulBps(r.amountIn, NEARKIT_FEE_BPS)) refuse('the fee is not NEARKITS’ fee rate of the amount')
   } else if (d.fee !== 0n || d.feeRecipient !== null) {
     refuse('no fee is charged on this network')
   }
@@ -382,7 +382,7 @@ export function checkPlan(op: WalletOperation, plan: readonly WalletTxPlan[], wa
     }
     case 'add-backup-key': {
       if (!parseEd25519PublicKey(op.publicKey)) refuse('the backup key is not an ed25519 public key')
-      if (op.publicKey === wallet.publicKey) refuse('the backup key is NearKit’s own key')
+      if (op.publicKey === wallet.publicKey) refuse('the backup key is NEARKITS’ own key')
       const [tx] = plan
       if (plan.length !== 1 || !tx || tx.receiverId !== wallet.accountId) return refuse('the backup key is added by the wallet to itself')
       const [a] = tx.actions
@@ -397,11 +397,11 @@ export function checkPlan(op: WalletOperation, plan: readonly WalletTxPlan[], wa
       return
     }
     case 'revoke': {
-      if (op.publicKey !== wallet.publicKey) refuse('only NearKit’s own key can be revoked')
+      if (op.publicKey !== wallet.publicKey) refuse('only NEARKITS’ own key can be revoked')
       const [tx] = plan
       if (plan.length !== 1 || !tx || tx.receiverId !== wallet.accountId) return refuse('revoking is done by the wallet on itself')
       const [a] = tx.actions
-      if (tx.actions.length !== 1 || a?.kind !== 'delete-key' || a.publicKey !== wallet.publicKey) refuse('only NearKit’s own key can be deleted')
+      if (tx.actions.length !== 1 || a?.kind !== 'delete-key' || a.publicKey !== wallet.publicKey) refuse('only NEARKITS’ own key can be deleted')
       return
     }
   }

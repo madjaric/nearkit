@@ -39,7 +39,7 @@ export function NearTicker({ className, showAge = false }: { className?: string;
       ) : isPending ? (
         <Skeleton className="h-4 w-20 self-center" />
       ) : (
-        <Tip content="Testnet NEAR has no market price, so NearKit shows no USD values on testnet.">
+        <Tip content="Testnet NEAR has no market price, so NEARKITS shows no USD values on testnet.">
           <span tabIndex={0} className="num text-sm text-fg-4">
             —
           </span>
@@ -60,8 +60,8 @@ export function NetworkChip({ bare = false }: { bare?: boolean }) {
     : viewOnly
       ? (caps.execution.reason ?? 'Execution is disabled in this build.')
       : network.beta
-        ? 'NearKit public testnet beta. Testnet tokens have no value, and mainnet execution is off in this build. You sign every transaction in your wallet, and NearKit confirms it on chain.'
-        : `NEAR ${network.name}. You sign every transaction in your wallet, and NearKit confirms it on chain.`
+        ? 'NEARKITS public testnet beta. Testnet tokens have no value, and mainnet execution is off in this build. You sign every transaction in your wallet, and NEARKITS confirms it on chain.'
+        : `NEAR ${network.name}. You sign every transaction in your wallet, and NEARKITS confirms it on chain.`
   return (
     <Tip content={tip}>
       <span tabIndex={0} className={cn('flex shrink-0 items-center gap-2', bare ? 'h-7' : 'h-10 rounded-md border border-line bg-panel px-3')}>
@@ -182,7 +182,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
             <IconButton label="Open navigation" onClick={onOpenNav} className="-ml-1 lg:hidden">
               <MenuIcon size={18} />
             </IconButton>
-            <Link to="/" className="flex items-center gap-2 lg:hidden" aria-label="NearKit dashboard">
+            <Link to="/" className="flex items-center gap-2 lg:hidden" aria-label="NEARKITS dashboard">
               {/* Phones drop the mark so the connected account prints in full. */}
               <LogoMark size={20} className="hidden sm:block" />
               <Wordmark />

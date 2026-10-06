@@ -19,8 +19,8 @@ describe('which token Rhea takes the fee from', () => {
   })
 })
 
-describe('aggregatorFee: NearKit’s 0.50% (5000 ppm), Rhea’s protocol 1000 ppm, Rhea keeps 20% of the app fee', () => {
-  it('splits an input-side fee exactly: user pays 0.50%, NearKit receives 0.40%, Rhea 0.10%, plus Rhea’s own 0.10%', () => {
+describe('aggregatorFee: NEARKITS’ 0.50% (5000 ppm), Rhea’s protocol 1000 ppm, Rhea keeps 20% of the app fee', () => {
+  it('splits an input-side fee exactly: user pays 0.50%, NEARKITS receives 0.40%, Rhea 0.10%, plus Rhea’s own 0.10%', () => {
     expect(APP_PPM).toBe(5000)
     const fee = aggregatorFee({ base: 100n * 10n ** 24n, appFeePpm: APP_PPM, protocolFeePpm: 1000, routerShareBps: 2000 })
     expect(fee.app).toBe(5n * 10n ** 23n)

@@ -40,7 +40,7 @@ async function accounts(ctx: BotCtx): Promise<string[]> {
 async function needAccounts(ctx: BotCtx): Promise<string[] | null> {
   const list = await accounts(ctx)
   if (!list.length) {
-    await ctx.reply('Link a NEAR account or create a NearKit wallet first to see positions.', keyboard([btn('🔗 Link wallet', 'acct:link'), btn('👛 Wallet', 'menu:wallet')]))
+    await ctx.reply('Link a NEAR account or create a NEARKITS wallet first to see positions.', keyboard([btn('🔗 Link wallet', 'acct:link'), btn('👛 Wallet', 'menu:wallet')]))
     return null
   }
   return list
@@ -105,7 +105,7 @@ async function showPositions(ctx: BotCtx, details: boolean) {
       ].join('\n'),
       keyboard(
         [btn(details ? '🔎 Less' : '🔎 Details', details ? 'pf:positions' : 'pf:posdetails'), btn('📈 PnL', 'pf:pnl')],
-        ...(details ? [[urlBtn('Open in NearKit', `${ctx.deps.config.webUrl}/positions`)]] : []),
+        ...(details ? [[urlBtn('Open in NEARKITS', `${ctx.deps.config.webUrl}/positions`)]] : []),
         [btn('🔄 Refresh', details ? 'pf:posdetails' : 'pf:positions'), btn('« Menu', 'menu:home')],
       ),
     )
@@ -159,7 +159,7 @@ async function showPnl(ctx: BotCtx, range: PnlRange, details: boolean) {
       keyboard(
         [btn('7D', `pf:pnl7d${d}`), btn('30D', `pf:pnl30d${d}`), btn('90D', `pf:pnl90d${d}`), btn('All', `pf:pnlall${d}`)],
         [btn(details ? '🔎 Less' : '🔎 Details', `pf:pnl${range}${details ? '' : 'd'}`), btn('📊 Positions', 'pf:positions')],
-        ...(details ? [[urlBtn('Open in NearKit', `${ctx.deps.config.webUrl}/pnl`)]] : []),
+        ...(details ? [[urlBtn('Open in NEARKITS', `${ctx.deps.config.webUrl}/pnl`)]] : []),
         [btn('« Menu', 'menu:home')],
       ),
     )

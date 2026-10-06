@@ -23,7 +23,7 @@ const dump = async (db: Database) => {
   return json(await Promise.all((await db.all<{ name: string }>(tables)).map(async (t) => [t.name, await db.all(`SELECT * FROM "${t.name}"`)])))
 }
 
-describe('the NearKit wallet key over a whole lifecycle', () => {
+describe('the NEARKITS wallet key over a whole lifecycle', () => {
   it('reaches neither Telegram, the logs, the database nor the API in plain form: only the owner’s browser opens it', async () => {
     const logs: unknown[] = []
     const capture = (level: string) => (msg: string, fields?: Record<string, unknown>) => void logs.push({ level, msg, fields })
@@ -50,7 +50,7 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
     // The paths that log: a refused revoke (no backup key yet) and a send the RPC times out on.
     h.advance(60_000)
     await h.press('cr:revoke')
-    await h.press(h.button('Remove NearKit’s key'))
+    await h.press(h.button('Remove NEARKITS’ key'))
     expect(h.last()?.text).toContain('Add your backup key first')
     h.advance(60_000)
     h.chain.onSend('timeout')
@@ -85,9 +85,9 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
 
     h.advance(60_000)
     await h.press('cr:show')
-    await h.press(h.button('Remove NearKit’s access'))
-    await h.press(h.button('Remove NearKit’s key'))
-    expect(h.last()?.text).toContain('NearKit’s key was removed')
+    await h.press(h.button('Remove NEARKITS’ access'))
+    await h.press(h.button('Remove NEARKITS’ key'))
+    expect(h.last()?.text).toContain('NEARKITS’ key was removed')
 
     const raw = base58Decode(secretKey.slice('ed25519:'.length)) as Uint8Array
     const seed = raw.subarray(0, 32)
@@ -95,7 +95,7 @@ describe('the NearKit wallet key over a whole lifecycle', () => {
     // The scan does see the key where it is allowed: in the owner's browser, after opening the sealed export.
     expect(json({ secretKey })).toContain(forms[0])
     const telegram = json(h.fake.calls)
-    expect(telegram).toContain('was just exported in NearKit web')
+    expect(telegram).toContain('was just exported in NEARKITS web')
     expect(json(logs)).toContain('intent refused before signing')
     expect(json(logs)).toContain('send unclear')
     const places = { telegram, logs: json(logs), heldDb, finalDb: await dump(h.db), challenge: json(d), exportResponse: json(out) }

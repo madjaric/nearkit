@@ -1,12 +1,12 @@
-# NearKit server: Telegram bot and API
+# NEARKITS server: Telegram bot and API
 
-The app process runs the NearKit Telegram bot (long polling) and a small HTTP API the web
-app calls. It shares NearKit's own code with the web app through the `@` alias (`src/`):
+The app process runs the NEARKITS Telegram bot (long polling) and a small HTTP API the web
+app calls. It shares NEARKITS' own code with the web app through the `@` alias (`src/`):
 token lookup, Rhea quotes and every route check, prices and NEAR RPC. Trading logic is
 never re-implemented here.
 
 Two more processes come from the same build:
-- **the signer** (`npm run signer`), the only holder of NearKit wallet keys;
+- **the signer** (`npm run signer`), the only holder of NEARKITS wallet keys;
 - **the buy bot** (`npm run buybot`), which is read-only.
 
 Production topology, configuration and operations are in [DEPLOYMENT.md](../DEPLOYMENT.md).
@@ -23,7 +23,7 @@ That builds `dist-server/main.js` and starts it. Settings come from the environm
 from `server/.env.local` (git-ignored; see `server/.env.example`). Only the names of
 loaded variables are logged, never values.
 
-NearKit wallets need a signer. On testnet the app can host it in-process with a local
+NEARKITS wallets need a signer. On testnet the app can host it in-process with a local
 key-encryption key. Create it once:
 
 ```bash
@@ -38,7 +38,7 @@ Or run the signer as its own service, as mainnet requires:
 - `npm run signer:auth-key` writes the shared auth key for both sides;
 - then `npm run signer`, and set `NEARKIT_SIGNER_URL` on the app.
 
-Without a signer, NearKit wallets are off (`/health` says `"wallets": "off"`). On mainnet
+Without a signer, NEARKITS wallets are off (`/health` says `"wallets": "off"`). On mainnet
 they stay off until the owner's `NEARKIT_MAINNET_CUSTODY=enabled`, and that mode needs:
 - the signer service;
 - a KMS key;
@@ -60,7 +60,7 @@ The web app finds the server through two public build variables:
 
 ## Security model
 
-- **Custody only in NearKit wallets.** A user's NearKit wallet is a separate implicit
+- **Custody only in NEARKITS wallets.** A user's NEARKITS wallet is a separate implicit
   account whose key only the signer holds.
   - The key is envelope-encrypted and bound to its wallet and owner, under a KMS key on
     mainnet. The app's database holds no key.
@@ -88,7 +88,7 @@ The web app finds the server through two public build variables:
 - **Input.** Everything from outside (token names from chain metadata, user text) is
   HTML-escaped and stripped of control and bidi characters before it reaches Telegram.
 
-## NearKit wallets
+## NEARKITS wallets
 
 `/wallet` (the menu's 👛 Wallet), `/deposit`, `/withdraw` and 🔐 Recovery:
 
@@ -98,17 +98,17 @@ The web app finds the server through two public build variables:
     owner.
   - Deposit shows the exact address and network. Balances are read from chain.
 - **Withdraw** NEAR or any token it holds to the owner wallet, or to **any valid address**
-  the owner wallet approved once, with a signature in NearKit web. The signer checks that
+  the owner wallet approved once, with a signature in NEARKITS web. The signer checks that
   approval at every use.
   - The review shows wallet, asset, amount, destination, network, fees and any
     registration the destination needs.
   - Everything is re-checked right before signing.
 - **Recovery, per wallet:**
   - Add the owner wallet's key as a backup key. The user's own wallet then controls this
-    one without NearKit.
-  - Export the key in NearKit web (`/recover`) after an owner-wallet signature. It works
+    one without NEARKITS.
+  - Export the key in NEARKITS web (`/recover`) after an owner-wallet signature. It works
     without Telegram and never happens in Telegram.
-  - Remove NearKit's key, or delete a wallet that was never funded.
+  - Remove NEARKITS' key, or delete a wallet that was never funded.
 - **One Confirm, at most one transaction.**
   - Every Confirm is a persisted intent.
   - Each transaction is saved before it is sent and never signed twice.
@@ -117,36 +117,36 @@ The web app finds the server through two public build variables:
   - With PostgreSQL, several instances can run: leases make sure only one of them executes
     an intent. With SQLite, run a single instance.
 - **Invite friends** (`/referral`): a permanent invite link. A referrer earns 20% of
-  NearKit's net fee on the trades of the people they brought. Claims are paid by the owner.
-- **NearKit web** (`/web`, or `/start web` from the website's "Sign in with Telegram"): a
+  NEARKITS' net fee on the trades of the people they brought. Claims are paid by the owner.
+- **NEARKITS web** (`/web`, or `/start web` from the website's "Sign in with Telegram"): a
   one-time link signs the website in, with no browser wallet and no `/link`
   (`src/web/`, `SECURITY_REVIEW.md` §5c).
   - The website is a client of its own: the user creates (up to the same 10) and renames
-    NearKit wallets, buys, sells, runs Multi Buy and Multi Sell, and sends, all there.
+    NEARKITS wallets, buys, sells, runs Multi Buy and Multi Sell, and sends, all there.
     Nothing is confirmed in Telegram; each wallet's trade or send runs through the same engine
     and signer as the bot's.
   - `POST /api/web/{login,logout,wallets,wallets/create,wallets/rename}`,
     `/api/web/trade/{quote,execute,cancel,status}` and `/api/web/send/{review,execute,status}`
-    take the session in the JSON body and act only on the signed-in user's own NearKit wallets.
+    take the session in the JSON body and act only on the signed-in user's own NEARKITS wallets.
 
 ## Trading from Telegram
 
-`/buy`, `/sell`, `/quote`, `/token` and `/balance`, in a private chat. With a NearKit
+`/buy`, `/sell`, `/quote`, `/token` and `/balance`, in a private chat. With a NEARKITS
 wallet, trades run right here (below); without one, on the linked default account through
 the web app. Tokens are found by symbol or by exact contract (the same `lookupToken`
 as the web app's exact-contract import, so a token launched minutes ago works).
 
-**From the NearKit wallet:** a compact quote (you pay, you receive, minimum and slippage,
-NearKit fee, network fee, registrations, route), then Confirm. Right before signing,
-NearKit fetches a fresh route bound to the wallet and sends it only if its minimum is at
+**From the NEARKITS wallet:** a compact quote (you pay, you receive, minimum and slippage,
+NEARKITS fee, network fee, registrations, route), then Confirm. Right before signing,
+NEARKITS fetches a fresh route bound to the wallet and sends it only if its minimum is at
 least the one confirmed; otherwise the new quote is shown and nothing is sent. The result
 (spent, received, fee, transaction) is read from the chain.
 
-The quote comes from NearKit's own trading service: Rhea's router with every route
-check the web app runs, the same NearKit fee on mainnet (`NEARKIT_FEE`, 0.50%), and "Rhea found no route" said
+The quote comes from NEARKITS' own trading service: Rhea's router with every route
+check the web app runs, the same NEARKITS fee on mainnet (`NEARKIT_FEE`, 0.50%), and "Rhea found no route" said
 plainly when there is none. Nothing is ever faked or estimated into a trade.
 
-**From a linked wallet (no NearKit wallet): signing stays in the wallet.** "Confirm & sign in NearKit" opens the web app's
+**From a linked wallet (no NEARKITS wallet): signing stays in the wallet.** "Confirm & sign in NEARKITS" opens the web app's
 swap page with the trade filled in and a random handoff ID (`src/trade/handoff.ts`).
 There the route is quoted again, the usual review shows the exact transactions, and the
 user's wallet signs (HOT Wallet signs inside Telegram; other wallets open as usual).
@@ -159,13 +159,13 @@ report "Bought … for …", "the swap failed", or "confirmed, but no swap went 
 
 `/positions` and `/pnl [7d|30d|90d]` run the web app's own engine, tracker and report
 (`src/lib/pnl.ts`, `src/services/real/pnlTracker.ts`, `pnlReport.ts`) over the user's linked
-accounts, and link back to the NearKit pages. Figures the history can't support are marked
+accounts, and link back to the NEARKITS pages. Figures the history can't support are marked
 partial, with the reason. Gas is reported for the history actually read.
 
 ## Buybot
 
 Group admins send `/buybot` (or `/add <contract>`) in their group. They add a token by its
-exact contract; NearKit reads its metadata from chain and shows it before anything is saved.
+exact contract; NEARKITS reads its metadata from chain and shows it before anything is saved.
 From then on every buy is posted in the group.
 
 Per token, admins choose:
@@ -193,7 +193,7 @@ fall back to text and the media is dropped, so the group isn't left silent.
 - **The alert:**
   - `$TOKEN Buy!`, the USD value, the NEAR value, the amount and the buyer;
   - **Market cap (FDV)**, holders (NearBlocks), the contract (CA) and the transaction link;
-  - buttons: **Buy $TOKEN** (NearKit's swap), **Chart** (DexScreener) and **Copy CA**.
+  - buttons: **Buy $TOKEN** (NEARKITS' swap), **Chart** (DexScreener) and **Copy CA**.
 - **Figures:**
   - Amounts come from the chain.
   - USD uses NEAR/USD from Coinbase (CoinGecko fallback), or Rhea's price list for other
@@ -228,7 +228,7 @@ Channels aren't supported yet: add the bot to a group.
 - **Stored:**
   - Telegram user IDs and names, linked NEAR account IDs and public keys, preferences and
     short-lived conversation state;
-  - for NearKit wallets: addresses, owners, intents, the signed transactions (public once
+  - for NEARKITS wallets: addresses, owners, intents, the signed transactions (public once
     sent) and a security log;
   - referrals and kill switches.
 - **The signer has its own database:** sealed keys, owner requests, approved destinations
@@ -249,7 +249,7 @@ Channels aren't supported yet: add the bot to a group.
 - The database, custody, signer and referral suites also run against PostgreSQL when
   `NEARKIT_TEST_DATABASE_URL` is set (CI does).
 - `npm run e2e:telegram` runs the built server and the web app together, with Telegram and
-  NEAR faked over HTTP, links an account end to end, and creates a NearKit wallet.
+  NEAR faked over HTTP, links an account end to end, and creates a NEARKITS wallet.
 
 ## Deploying
 

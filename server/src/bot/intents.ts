@@ -46,7 +46,7 @@ export async function resultScreen(deps: BotDeps, intent: Intent): Promise<{ tex
 }
 
 /** Sent, and the chain hasn't finished it within the live wait: slower than usual, never a failure. */
-export const PENDING_TEXT = `⏳ ${bold('Processing — NEAR network is taking longer than usual')}\nNearKit keeps checking the chain and messages you as soon as it’s through. Nothing will be sent twice.`
+export const PENDING_TEXT = `⏳ ${bold('Processing — NEAR network is taking longer than usual')}\nNEARKITS keeps checking the chain and messages you as soon as it’s through. Nothing will be sent twice.`
 
 async function confirm(ctx: BotCtx, id: string) {
   const custody = ctx.deps.custody
@@ -64,7 +64,7 @@ async function confirm(ctx: BotCtx, id: string) {
   }
   await ctx.answer('Sending…')
   // The buttons go away at once, so this message can't be pressed again.
-  await ctx.show(`⏳ ${bold('Sending')}…\nNearKit is signing and waiting for the chain.`)
+  await ctx.show(`⏳ ${bold('Sending')}…\nNEARKITS is signing and waiting for the chain.`)
   const r = await custody.engine.execute(id, ctx.user.id)
   const kindScreens = screens[intent.kind]
   switch (r.kind) {
@@ -86,9 +86,9 @@ async function confirm(ctx: BotCtx, id: string) {
         r.reason === 'expired'
           ? '⏱ That review expired. Nothing was sent. Get a fresh one.'
           : r.reason === 'busy'
-            ? '⏳ Another transaction from your NearKit wallet is still being confirmed. Nothing was sent; try again in a moment.'
+            ? '⏳ Another transaction from your NEARKITS wallet is still being confirmed. Nothing was sent; try again in a moment.'
             : r.reason === 'wallet'
-              ? 'This NearKit wallet is closed. Nothing was sent.'
+              ? 'This NEARKITS wallet is closed. Nothing was sent.'
               : 'Already confirmed: see the result above.'
       return ctx.show(text, keyboard(retry, walletRow()))
     }

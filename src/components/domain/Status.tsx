@@ -26,7 +26,7 @@ const STATUS: Record<OrderStatus | RuleStatus | TxLamp | 'draft' | 'armed' | 'si
   processing: {
     tone: 'warn',
     label: 'Processing',
-    hint: 'NEAR network is taking longer than usual. NearKit keeps checking the chain; don’t send this again until it settles.',
+    hint: 'NEAR network is taking longer than usual. NEARKITS keeps checking the chain; don’t send this again until it settles.',
   },
   success: { tone: 'on', label: 'Confirmed' },
   failed: { tone: 'neg', label: 'Failed' },
@@ -108,7 +108,7 @@ export function SimulationNote({ className, children, demo, real }: { className?
       : (real ??
         (off
           ? (caps.execution.reason ?? 'Execution is disabled in this build.')
-          : `You sign in your wallet; NearKit confirms the result on NEAR ${caps.networkLabel.toLowerCase()}.`)))
+          : `You sign in your wallet; NEARKITS confirms the result on NEAR ${caps.networkLabel.toLowerCase()}.`)))
   return (
     <p className={cn('flex items-start gap-2 text-xs leading-4', off ? 'text-warn' : 'text-fg-3', className)}>
       <Led tone={caps.mode === 'demo' ? 'off' : off ? 'warn' : 'on'} className="mt-[5px]" />

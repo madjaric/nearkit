@@ -7,14 +7,14 @@ import { LINKED, ONE, walletBot } from './walletTesting'
  * external NEAR wallet is the optional alternative, and nothing says a link is needed.
  */
 
-describe('/start with no NearKit wallet yet', () => {
+describe('/start with no NEARKITS wallet yet', () => {
   it('leads with Create wallet, then Link wallet; the text never says a link is needed', async () => {
     const h = await walletBot({ link: false })
     await h.say('/start')
     const text = h.last()?.text ?? ''
-    expect(text).toContain('👜 <b>No NearKit wallet yet</b>')
+    expect(text).toContain('👜 <b>No NEARKITS wallet yet</b>')
     expect(text).toContain('Create a wallet instantly and start trading.')
-    expect(text).toContain('🔒 NearKit never asks for your seed phrase or private key.')
+    expect(text).toContain('🔒 NEARKITS never asks for your seed phrase or private key.')
     expect(text).not.toContain('No wallet linked yet')
     const [first, second] = h.buttons()
     expect(first?.text).toBe('💼 Create wallet')
@@ -24,11 +24,11 @@ describe('/start with no NearKit wallet yet', () => {
     expect(h.buttons().map((b) => b.text)).toEqual(expect.arrayContaining(['⚙️ Settings', '❓ Help']))
   })
 
-  it('Create wallet makes the NearKit wallet in one tap, with no link', async () => {
+  it('Create wallet makes the NEARKITS wallet in one tap, with no link', async () => {
     const h = await walletBot({ link: false })
     await h.say('/start')
     await h.press(h.button('Create wallet'))
-    expect(h.last()?.text).toContain('NearKit wallet created')
+    expect(h.last()?.text).toContain('NEARKITS wallet created')
     const w = (await h.wallet()) as TradingWallet
     expect(w.ownerAccount).toBeNull()
   })
@@ -37,18 +37,18 @@ describe('/start with no NearKit wallet yet', () => {
     const h = await walletBot()
     await h.say('/start')
     const text = h.last()?.text ?? ''
-    expect(text).toContain('No NearKit wallet yet')
+    expect(text).toContain('No NEARKITS wallet yet')
     expect(text).toContain(`🔗 Linked wallet <code>${LINKED}</code>`)
     expect(h.buttons()[0]?.text).toBe('💼 Create wallet')
     expect(h.buttons().some((b) => b.data === 'acct:link')).toBe(false)
   })
 
-  it('with a NearKit wallet, /start is as before: the wallet, no Create or Link button', async () => {
+  it('with a NEARKITS wallet, /start is as before: the wallet, no Create or Link button', async () => {
     const h = await walletBot()
     await h.funded(2n * ONE)
     await h.say('/start')
-    expect(h.last()?.text).toContain('<b>NearKit</b> · NEAR trading')
-    expect(h.last()?.text).toContain('NearKit wallet')
+    expect(h.last()?.text).toContain('<b>NEARKITS</b> · NEAR trading')
+    expect(h.last()?.text).toContain('NEARKITS wallet')
     expect(h.buttons().some((b) => b.text === '💼 Create wallet' || b.data === 'acct:link')).toBe(false)
   })
 

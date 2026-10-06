@@ -20,7 +20,8 @@ const DATE = `${MONTH} \\d{1,2}(?:, \\d{4})?(?:,? \\d{1,2}:\\d{2})?`
 const DURATION = '\\d+[smhd](?: \\d+[smh])?'
 const DIGITS = '(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?'
 const NUMBER = `(?:≈ ?)?[+−-]?\\$?${DIGITS}(?::\\d{2}|[KMBT]|%)?`
-const UNIT = '(?: [A-Z][A-Z0-9]{2,15}(?![A-Za-z0-9]))?'
+// NEARKITS is the brand, not a ticker: "11 NEARKITS-managed" is a count and a word.
+const UNIT = '(?: (?!NEARKITS(?![A-Za-z0-9]))[A-Z][A-Z0-9]{2,15}(?![A-Za-z0-9]))?'
 const FIGURE = new RegExp(`(?<![\\w.$])(?:${DATE}|${DURATION}|${NUMBER}${UNIT})(?!\\w)`, 'g')
 
 export function splitFigures(text: string): Run[] {

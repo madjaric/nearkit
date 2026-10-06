@@ -70,7 +70,7 @@ export async function runOpsAdmin(
           await migrateSigner(db)
           out(`signer (in this process): paused ${String((await new SignerStore(db).getState('paused')) === 'true')}`)
         } else {
-          out('signer: NearKit wallets are off on this server')
+          out('signer: NEARKITS wallets are off on this server')
         }
         return 0
       }
@@ -96,7 +96,7 @@ export async function runOpsAdmin(
         }
         const w = await walletOf(target)
         if (!w || w.status !== 'active') {
-          out('no active NearKit wallet with that id or account')
+          out('no active NEARKITS wallet with that id or account')
           return 1
         }
         await custody.setFrozen(w.id, command === 'freeze' ? reason : null)
@@ -118,7 +118,7 @@ export async function runOpsAdmin(
           await store.setState('paused', 'true')
           await store.event('signer-paused', { detail: { reason: why, by } })
         } else {
-          out('NearKit wallets are off on this server: there is no signer to pause')
+          out('NEARKITS wallets are off on this server: there is no signer to pause')
           return 1
         }
         await custody.audit({ action: 'ops-signer-paused', detail: { reason: why, by } })

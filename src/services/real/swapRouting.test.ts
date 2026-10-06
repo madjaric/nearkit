@@ -57,7 +57,7 @@ const swap = (feeRecipient: string): RoutedSwap => ({
 })
 
 describe('swap prerequisites with Rhea’s aggregator', () => {
-  it('registers the trader and NearKit’s fee account for what each needs', async () => {
+  it('registers the trader and NEARKITS’ fee account for what each needs', async () => {
     const pre = await router('fees.near').prerequisites(swap('fees.near'), 'trader.near')
     expect(pre.aggregatorEntries).toEqual([
       { user: 'trader.near', tokens: ['wrap.near', USDC], deposit: 10_000_000_000_000_000_000_000n },
@@ -243,7 +243,7 @@ describe('routing a token Rhea does not index, through DCL directly', () => {
     })
   })
 
-  it('registers NearKit’s fee account on the fee token when it is not yet, paid like any other registration', async () => {
+  it('registers NEARKITS’ fee account on the fee token when it is not yet, paid like any other registration', async () => {
     const { router } = mainnet()
     const r = await router.route({ tokenIn: SING, tokenOut: 'near', amountIn: '9000', slippagePct: 1, walletId: 'w' }, 'trader.near', true)
     const pre = await router.prerequisites(r, 'trader.near')

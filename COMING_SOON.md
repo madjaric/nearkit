@@ -16,7 +16,7 @@ Each feature has one category:
 | **A** | can be built properly now |
 | **B** | needs another external service or API |
 | **C** | needs product decisions first |
-| **D** | needs custody or signing architecture that NearKit doesn't have |
+| **D** | needs custody or signing architecture that NEARKITS doesn't have |
 | **E** | should stay COMING SOON |
 
 | Feature | Category | Status |
@@ -52,7 +52,7 @@ Each feature has one category:
 - **Today:** orders are validated drafts saved in the browser. Nothing watches the price or executes them.
 - **A real path exists:** Rhea DCL v2 limit orders are on chain and non-custodial, and the pool fills them when the price crosses. DCL v2 is `dclv2.ref-labs.near` on mainnet (2,085 pools) and `dclv2.ref-dev.testnet` on testnet (464 pools), both read live on 2026-09-29. That path would cover a limit buy below the price and a take-profit sell above it, for pairs that have a DCL pool.
 - **Decisions needed first:**
-  1. **Fee.** Swaps on DCL carry the NearKit fee (0.50%) as a transfer in the swap's own transaction (README, "Operator tasks"). A limit order fills later, so its fee would be charged either at placement (paid even if the order never fills) or at fill, which needs a NearKit contract on chain. Decide.
+  1. **Fee.** Swaps on DCL carry the NEARKITS fee (0.50%) as a transfer in the swap's own transaction (README, "Operator tasks"). A limit order fills later, so its fee would be charged either at placement (paid even if the order never fills) or at fill, which needs a NEARKITS contract on chain. Decide.
   2. **Expiry.** DCL orders don't expire. The 1h, 24h, 7d and 30d options would have to go, or be done by manual cancel.
   3. **Price unit.** Orders fill at a NEAR-per-token price. A USD trigger would drift with NEAR's price.
   4. **Stop-loss.** It can't be a DCL order, because a sell below the price fills at once. It needs a keeper that signs for the user (D).
@@ -62,10 +62,10 @@ Each feature has one category:
 A DCA plan buys on a schedule while the user is away, so something has to sign for them.
 
 No DCA contract exists on NEAR at the likely names (`dca.ref-labs.near`, `dca.rhea.near`, `dca-v1.ref-labs.near` don't exist). The options are:
-- a NearKit keeper holding a limited function-call key per user, with allowance and receiver limits;
+- a NEARKITS keeper holding a limited function-call key per user, with allowance and receiver limits;
 - a custody service.
 
-Both are a security design NearKit doesn't have. Today plans are drafts, and nothing runs.
+Both are a security design NEARKITS doesn't have. Today plans are drafts, and nothing runs.
 
 ## Copy Trade: D, or C for an alerts-only version
 
@@ -85,7 +85,7 @@ It also carries the highest risk of loss. It should stay COMING SOON until the s
 
 The bot and its API are built and tested in `server/` (see `server/README.md`):
 - account linking;
-- NearKit wallets (up to 10 per user) with Buy/Sell, owner-approved withdrawals and recovery right in Telegram. Custody is on testnet; mainnet waits for the owner's ceremony (MAINNET_CEREMONY.md);
+- NEARKITS wallets (up to 10 per user) with Buy/Sell, owner-approved withdrawals and recovery right in Telegram. Custody is on testnet; mainnet waits for the owner's ceremony (MAINNET_CEREMONY.md);
 - invites (referrals);
 - buy and sell from a linked wallet, signed in the wallet;
 - the buybot;
@@ -95,4 +95,4 @@ The site's Telegram page goes live on its own when a build sets `VITE_NEARKIT_AP
 
 ## $KIT: E and C
 
-The token hasn't launched. Its launch through Nearly and its tokenomics are product decisions. The 2% buy and sell fee on $KIT is separate from NearKit's trading fee and is not implemented here.
+The token hasn't launched. Its launch through Nearly and its tokenomics are product decisions. The 2% buy and sell fee on $KIT is separate from NEARKITS' trading fee and is not implemented here.

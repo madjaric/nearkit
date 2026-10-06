@@ -60,7 +60,7 @@ export async function runReferralsAdmin(
           const paid = sum(claims.filter((c) => c.token === token && c.status === 'paid').map((c) => c.amount))
           const requested = sum(claims.filter((c) => c.token === token && c.status === 'requested').map((c) => c.amount))
           const net = sum(mine.map((e) => e.net))
-          out(`${token}: earned ${earned} · paid ${paid} · requested ${requested} · available ${available} · NearKit net ${net} (raw units)`)
+          out(`${token}: earned ${earned} · paid ${paid} · requested ${requested} · available ${available} · NEARKITS net ${net} (raw units)`)
         }
         if (!tokens.size) out('no referral earnings yet')
         return 0

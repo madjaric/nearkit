@@ -156,18 +156,12 @@ export function drawPnlCard(canvas: HTMLCanvasElement, card: PnlCard, account: s
     ctx.stroke()
   }
 
-  // Wordmark: NEAR/KIT.
+  // Wordmark: NEARKITS.
   ctx.textBaseline = 'alphabetic'
   ctx.font = `700 30px ${SANS}`
   ctx.letterSpacing = '2px'
   ctx.fillStyle = c.fg
-  ctx.fillText('NEAR', pad, 96)
-  let x = pad + ctx.measureText('NEAR').width + 3
-  ctx.fillStyle = c.accent
-  ctx.fillText('/', x, 96)
-  x += ctx.measureText('/').width + 3
-  ctx.fillStyle = c.fg
-  ctx.fillText('KIT', x, 96)
+  ctx.fillText('NEARKITS', pad, 96)
 
   // Chips, right-aligned: network, and DEMO when it is.
   ctx.font = `600 18px ${SANS}`

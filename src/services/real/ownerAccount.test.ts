@@ -36,7 +36,7 @@ const session = (accounts: string[], keys: Record<string, string> = {}): WalletS
   batch: true,
   keys: Object.entries(keys).map(([accountId, publicKey]) => ({ accountId, publicKey })),
 })
-const request = { message: 'NearKit owner request', recipient: 'nearkit.example', nonce: new Uint8Array(32), accountId: OWNER }
+const request = { message: 'NEARKITS owner request', recipient: 'nearkit.example', nonce: new Uint8Array(32), accountId: OWNER }
 
 /**
  * NearKit web's wallet service on a fake chain where the owner holds its own key (and a limited app
@@ -75,7 +75,7 @@ function setup(start: WalletSession, opts: { signsWith?: string; claims?: string
 }
 
 describe('the connected NEAR account', () => {
-  it('a wallet that shares only an EVM address is not connected as a NEAR account: NearKit keeps no session and says so', async () => {
+  it('a wallet that shares only an EVM address is not connected as a NEAR account: NEARKITS keeps no session and says so', async () => {
     const { services, wallet } = setup(session([EVM]))
     const failed = await services.wallets.connect('fake').catch((e: unknown) => e)
     expect(failed).toBeInstanceOf(NoNearAccountError)
@@ -137,7 +137,7 @@ describe('signing for the owner', () => {
     const { services, asked } = setup(session([IMPLICIT], { [IMPLICIT]: OWNER_KEY }), { signsWith: WALLET_KEY })
     await services.wallets.connect('fake')
     await expect(services.wallets.signMessage(request)).rejects.toThrow(
-      `Your wallet signed with ${WALLET_KEY}, which isn’t a full-access key of ${OWNER}. NearKit didn’t use that signature.`,
+      `Your wallet signed with ${WALLET_KEY}, which isn’t a full-access key of ${OWNER}. NEARKITS didn’t use that signature.`,
     )
     expect(asked).toEqual([IMPLICIT])
   })
@@ -155,7 +155,7 @@ describe('signing for the owner', () => {
       const { services, asked } = setup(session([OWNER]), { signsWith: key })
       await services.wallets.connect('fake')
       await expect(services.wallets.signMessage(request)).rejects.toThrow(
-        `Your wallet signed with ${key}, which isn’t a full-access key of ${OWNER}. NearKit didn’t use that signature.`,
+        `Your wallet signed with ${key}, which isn’t a full-access key of ${OWNER}. NEARKITS didn’t use that signature.`,
       )
       expect(asked).toEqual([OWNER])
     }
@@ -175,14 +175,14 @@ describe('signing for the owner', () => {
     const before = setup(session([IMPLICIT], { [IMPLICIT]: OWNER_KEY }))
     await before.services.wallets.connect('fake')
     before.setKeysDown(true)
-    await expect(before.services.wallets.signMessage(request)).rejects.toThrow(`NearKit couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}`)
+    await expect(before.services.wallets.signMessage(request)).rejects.toThrow(`NEARKITS couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}`)
     expect(before.asked).toEqual([])
     // The owner account itself needs no lookup before signing; the signature's key is still checked after.
     const after = setup(session([OWNER]))
     await after.services.wallets.connect('fake')
     after.setKeysDown(true)
     await expect(after.services.wallets.signMessage(request)).rejects.toThrow(
-      `NearKit couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}, so it didn’t use that signature. Try again in a moment.`,
+      `NEARKITS couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}, so it didn’t use that signature. Try again in a moment.`,
     )
     expect(after.asked).toEqual([OWNER])
   })

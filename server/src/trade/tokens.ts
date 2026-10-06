@@ -34,5 +34,5 @@ export async function resolveToken(near: ServerNear, query: string, extra: reado
   if (exact.length > 1) return { kind: 'many', tokens: exact }
   const partial = list.filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)).slice(0, 6)
   if (partial.length) return { kind: 'many', tokens: partial }
-  return { kind: 'none', message: `No token called “${query.trim().slice(0, 40)}” in NearKit’s list. Paste its exact contract ID instead.` }
+  return { kind: 'none', message: `No token called “${query.trim().slice(0, 40)}” in NEARKITS’ list. Paste its exact contract ID instead.` }
 }

@@ -75,7 +75,7 @@ describe('trading from Telegram', () => {
     expect(h.buttons()[0]?.data).toBe('acct:link')
   })
 
-  it('buys step by step: token by symbol, a preset amount, then a real Rhea quote and a link to sign in NearKit', async () => {
+  it('buys step by step: token by symbol, a preset amount, then a real Rhea quote and a link to sign in NEARKITS', async () => {
     const h = await bot()
     await h.say('/buy')
     expect(h.last()?.text).toContain('which token?')
@@ -92,7 +92,7 @@ describe('trading from Telegram', () => {
     expect(quote?.text).toContain('You receive <b>≈')
     expect(quote?.text).toContain('Minimum ')
     expect(quote?.text).toContain('Route NEAR → USDT')
-    expect(quote?.text).toContain('NearKit fee none on testnet')
+    expect(quote?.text).toContain('NEARKITS fee none on testnet')
     expect(quote?.text).toMatch(/⏱ Quote for \d+s/)
     const sign = h.buttons().find((b) => b.text.startsWith('✍️'))
     expect(sign?.url).toMatch(new RegExp(`^https://nearkits\\.com/swap\\?from=near&to=${USDT.replace(/\./g, '\\.')}&amount=1&slippage=1&tg=[A-Za-z0-9_-]{22}$`))
@@ -241,7 +241,7 @@ describe('trading from Telegram', () => {
   it('a mainnet contract on testnet is refused in plain words', async () => {
     const h = await bot()
     await h.say('/buy singularty.nearlytrade.near')
-    expect(h.last()?.text).toContain('This belongs to NEAR mainnet while NearKit is using testnet.')
+    expect(h.last()?.text).toContain('This belongs to NEAR mainnet while NEARKITS is using testnet.')
   })
 
   it('limits how often one user can ask Rhea for quotes', async () => {

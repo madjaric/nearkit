@@ -36,8 +36,8 @@ async function showUnowned(ctx: BotCtx, w: TradingWallet) {
       `${bold('No owner wallet')}: this Telegram account controls this wallet. Deposits, trades and withdrawals all work without one.`,
       '',
       'An owner wallet is optional: your own NEAR wallet, bound to this one for good. It adds',
-      '• a backup key, so your wallet controls this one even without NearKit;',
-      '• the key export, in NearKit web;',
+      '• a backup key, so your wallet controls this one even without NEARKITS;',
+      '• the key export, in NEARKITS web;',
       '• withdrawals only to it, or to addresses it approves.',
       '',
       linked ? `Your linked wallet ${code(linked)} can become its owner: you approve that in Telegram.` : 'Link a NEAR wallet (optional), then make it the owner here.',
@@ -70,12 +70,12 @@ async function offerBind(ctx: BotCtx, walletId: string) {
     [
       `🔐 ${bold(`Make ${link.accountId} the owner`)} · ${walletLine(w)}`,
       '',
-      `${code(link.accountId)} becomes this NearKit wallet’s owner wallet, for good:`,
-      '• withdrawals then go only to it, or to addresses it approves in NearKit web;',
+      `${code(link.accountId)} becomes this NEARKITS wallet’s owner wallet, for good:`,
+      '• withdrawals then go only to it, or to addresses it approves in NEARKITS web;',
       '• it can add itself as the backup key, and export the key.',
       'An owner wallet can’t be changed or removed later.',
       '',
-      'Approve it in NearKit’s mini app, right here in Telegram. It shows this wallet and the owner, and Telegram signs your approval.',
+      'Approve it in NEARKITS’ mini app, right here in Telegram. It shows this wallet and the owner, and Telegram signs your approval.',
       '⏱ Open for 10 minutes.',
     ].join('\n'),
     keyboard([urlBtn('✅ Approve in Telegram', custody.telegram.link(r))], back),
@@ -97,7 +97,7 @@ async function showRecovery(ctx: BotCtx, walletId = '') {
   await ctx.show(
     [
       `🔐 ${bold('Recovery')} · ${walletLine(w)}`,
-      'Your NearKit wallet stays yours, even if NearKit disappears.',
+      'Your NEARKITS wallet stays yours, even if NEARKITS disappears.',
       '',
       ...(owner ? [`Owner: ${code(owner)}, the wallet it was created with.`, ''] : []),
       `${bold('1. Backup key')} · ${esc(status)}`,
@@ -105,15 +105,15 @@ async function showRecovery(ctx: BotCtx, walletId = '') {
       ...others.map((k) => `⚠️ Another key also controls this wallet: ${code(`${k.slice(0, 16)}…`)}. If it isn’t yours, move your funds.`),
       '',
       bold('2. Export'),
-      'See this wallet’s private key in NearKit web, after signing with your owner wallet. Never in Telegram. Only this wallet’s key.',
+      'See this wallet’s private key in NEARKITS web, after signing with your owner wallet. Never in Telegram. Only this wallet’s key.',
       '',
-      bold('3. Remove NearKit’s access'),
-      'NearKit deletes its own key; after that only your wallet controls this one. Needs the backup key first.',
+      bold('3. Remove NEARKITS’ access'),
+      'NEARKITS deletes its own key; after that only your wallet controls this one. Needs the backup key first.',
     ].join('\n'),
     keyboard(
       backup === false && view.exists && mine ? [btn('🔐 Add backup key', `cr:backup:${w.id}`)] : [],
-      owner ? [btn('🌐 Export key in NearKit web', `cr:export:${w.id}`)] : [],
-      backup ? [btn('🧹 Remove NearKit’s access', `cr:revoke:${w.id}`)] : [],
+      owner ? [btn('🌐 Export key in NEARKITS web', `cr:export:${w.id}`)] : [],
+      backup ? [btn('🧹 Remove NEARKITS’ access', `cr:revoke:${w.id}`)] : [],
       view.exists === false ? [btn('🗑 Delete this empty wallet', `cr:delete:${w.id}`)] : [],
       back,
     ),
@@ -126,10 +126,10 @@ async function backupReview(deps: BotDeps, intent: Intent): Promise<string> {
   return [
     `🔐 ${bold('Add a backup key')}${w ? ` · ${walletLine(w)}` : ''}`,
     '',
-    `Your owner wallet ${code(p.linkedAccount)} gets a full-access key on this NearKit wallet:`,
+    `Your owner wallet ${code(p.linkedAccount)} gets a full-access key on this NEARKITS wallet:`,
     `Key ${code(p.publicKey)} (the one you signed with when you linked it)`,
     '',
-    'After this, your own wallet can control this NearKit wallet directly, even without NearKit.',
+    'After this, your own wallet can control this NEARKITS wallet directly, even without NEARKITS.',
     'Network fee ≈ 0.0001 NEAR; a tiny storage deposit stays on the wallet.',
   ].join('\n')
 }
@@ -137,10 +137,10 @@ async function backupReview(deps: BotDeps, intent: Intent): Promise<string> {
 async function revokeReview(deps: BotDeps, intent: Intent): Promise<string> {
   const w = await deps.custody?.store.wallet(intent.walletId)
   return [
-    `🧹 ${bold('Remove NearKit’s access')}${w ? ` · ${walletLine(w)}` : ''}`,
+    `🧹 ${bold('Remove NEARKITS’ access')}${w ? ` · ${walletLine(w)}` : ''}`,
     '',
-    `NearKit deletes its own key from ${esc(w ? shortAccount(w.accountId) : '')} and erases its copy.`,
-    'After this only your own wallet controls it: NearKit can’t trade or withdraw for it any more. This can’t be undone; you can create a new NearKit wallet any time.',
+    `NEARKITS deletes its own key from ${esc(w ? shortAccount(w.accountId) : '')} and erases its copy.`,
+    'After this only your own wallet controls it: NEARKITS can’t trade or withdraw for it any more. This can’t be undone; you can create a new NEARKITS wallet any time.',
     'Your funds stay in the wallet.',
   ].join('\n')
 }
@@ -155,7 +155,7 @@ registerIntentScreens('backup-key', {
     const text = r?.ok
       ? [
           `✅ ${bold('Backup key added')}${w ? ` · ${walletLine(w)}` : ''}`,
-          `Your wallet ${code(p.linkedAccount)} can now control this NearKit wallet without NearKit.`,
+          `Your wallet ${code(p.linkedAccount)} can now control this NEARKITS wallet without NEARKITS.`,
           ...(links ? [`Tx ${links}`] : []),
         ].join('\n')
       : [`❌ ${bold('Backup key not added')}`, esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')
@@ -164,18 +164,18 @@ registerIntentScreens('backup-key', {
 })
 
 registerIntentScreens('revoke', {
-  review: async (deps, intent) => ({ text: await revokeReview(deps, intent), confirm: '✅ Remove NearKit’s key' }),
+  review: async (deps, intent) => ({ text: await revokeReview(deps, intent), confirm: '✅ Remove NEARKITS’ key' }),
   result: async (deps, intent) => {
     const w = await deps.custody?.store.wallet(intent.walletId)
     const r = intent.result
     const links = r?.hashes.length ? txLinks(deps, r.hashes) : null
     const text = r?.ok
       ? [
-          `✅ ${bold('NearKit’s key was removed')}`,
-          `${code(w?.accountId ?? '')} is controlled only by your own wallet now. NearKit no longer holds a key for it.`,
+          `✅ ${bold('NEARKITS’ key was removed')}`,
+          `${code(w?.accountId ?? '')} is controlled only by your own wallet now. NEARKITS no longer holds a key for it.`,
           ...(links ? [`Tx ${links}`] : []),
         ].join('\n')
-      : [`❌ ${bold('NearKit’s key was not removed')}`, esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')
+      : [`❌ ${bold('NEARKITS’ key was not removed')}`, esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')
     return { text, markup: keyboard(r?.ok ? [newWalletButton()] : [btn('🔐 Recovery', `cr:show:${intent.walletId}`)], [btn('« Menu', 'menu:home')]) }
   },
 })
@@ -198,7 +198,7 @@ async function offerRevoke(ctx: BotCtx, walletId: string) {
   if (!custody || !w) return showWalletHome(ctx)
   await custody.store.cancelQuoted(w.id, ['backup-key', 'revoke'])
   const intent = await custody.store.createIntent({ walletId: w.id, userId: ctx.user.id, chatId: ctx.chat.id, kind: 'revoke', params: {}, ttlMs: RECOVERY_INTENT_TTL_MS })
-  await ctx.show(await revokeReview(ctx.deps, intent), intentKeyboard(intent, '✅ Remove NearKit’s key'))
+  await ctx.show(await revokeReview(ctx.deps, intent), intentKeyboard(intent, '✅ Remove NEARKITS’ key'))
 }
 
 async function exportLink(ctx: BotCtx, walletId: string) {
@@ -214,15 +214,15 @@ async function exportLink(ctx: BotCtx, walletId: string) {
   }
   await ctx.show(
     [
-      `🌐 ${bold('Export a NearKit wallet’s key')} · ${walletLine(w)}`,
+      `🌐 ${bold('Export a NEARKITS wallet’s key')} · ${walletLine(w)}`,
       '',
-      `1. Open NearKit web with the button below (the same page works without Telegram: ${ctx.deps.config.webUrl.replace(/^https?:\/\//, '')}/recover).`,
+      `1. Open NEARKITS web with the button below (the same page works without Telegram: ${ctx.deps.config.webUrl.replace(/^https?:\/\//, '')}/recover).`,
       `2. Connect ${w.ownerAccount ? code(w.ownerAccount) : 'your owner wallet'}, the wallet this one was created with, and sign the message it shows. Signing is free.`,
       '3. The private key is sealed to that browser and shown once, on your screen. Nothing in between can read it.',
       '',
-      'Anyone who sees that key controls the wallet. Never share it or paste it into a chat. NearKit never asks for it.',
+      'Anyone who sees that key controls the wallet. Never share it or paste it into a chat. NEARKITS never asks for it.',
     ].join('\n'),
-    keyboard([urlBtn('🌐 Open NearKit to export', issued.url)], back),
+    keyboard([urlBtn('🌐 Open NEARKITS to export', issued.url)], back),
   )
 }
 
@@ -232,11 +232,11 @@ async function offerDelete(ctx: BotCtx, walletId: string) {
   const view = await readWallet(ctx.deps.near, w)
   if (view.exists !== false)
     return ctx.show(
-      'This wallet has been funded, so it can’t just be deleted: withdraw everything, or add the backup key and remove NearKit’s access.',
+      'This wallet has been funded, so it can’t just be deleted: withdraw everything, or add the backup key and remove NEARKITS’ access.',
       keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], back),
     )
   await ctx.show(
-    `🗑 Delete the empty NearKit wallet ${walletLine(w)}?\n\nIt was never funded, so nothing can be lost. NearKit erases its key, and its slot is free for a new wallet.`,
+    `🗑 Delete the empty NEARKITS wallet ${walletLine(w)}?\n\nIt was never funded, so nothing can be lost. NEARKITS erases its key, and its slot is free for a new wallet.`,
     keyboard([btn('🗑 Yes, delete it', `cr:deleteyes:${w.id}`), btn('Keep it', 'cw:home')]),
   )
 }
@@ -285,7 +285,7 @@ export function recoveryModule(): BotModule {
 
 /** Sent to Telegram when the key was exported in the web app: the owner hears about it either way. */
 export function exportedText(wallet: string, owner: string): string {
-  return `🔐 Your NearKit wallet ${esc(shortAccount(wallet))} key was just exported in NearKit web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
+  return `🔐 Your NEARKITS wallet ${esc(shortAccount(wallet))} key was just exported in NEARKITS web, signed by its owner wallet ${code(owner)}.\n\nIf this wasn’t you, move your funds now.`
 }
 
 /** Sent to Telegram when an approval given in the Mini App counted (Telegram signed it). */
@@ -295,15 +295,15 @@ export function telegramApprovedText(r: { kind: 'destination' | 'bind-owner'; ac
 } {
   if (r.kind === 'destination')
     return {
-      text: `✅ ${code(r.target)} can now receive withdrawals from your NearKit wallet ${esc(shortAccount(r.accountId))}: approved in Telegram.\n\nIf this wasn’t you, move your funds now.`,
+      text: `✅ ${code(r.target)} can now receive withdrawals from your NEARKITS wallet ${esc(shortAccount(r.accountId))}: approved in Telegram.\n\nIf this wasn’t you, move your funds now.`,
       markup: keyboard([btn('▶️ Continue withdrawal', 'cw:wcont'), btn('👛 Wallet', 'cw:home')]),
     }
   return {
-    text: `🔐 ${code(r.target)} is now the owner of your NearKit wallet ${esc(shortAccount(r.accountId))}, for good.\n\nWithdrawals now go to it or to addresses it approves in NearKit web, and it can add the backup key or export the key (🔐 Recovery).`,
+    text: `🔐 ${code(r.target)} is now the owner of your NEARKITS wallet ${esc(shortAccount(r.accountId))}, for good.\n\nWithdrawals now go to it or to addresses it approves in NEARKITS web, and it can add the backup key or export the key (🔐 Recovery).`,
     markup: keyboard([btn('🔐 Recovery', `cr:show:${r.walletId}`), btn('👛 Wallet', 'cw:home')]),
   }
 }
 
 export function approvedText(wallet: string, destination: string): string {
-  return `✅ ${code(destination)} can now receive withdrawals from your NearKit wallet ${esc(shortAccount(wallet))}: approved with its owner wallet.\n\nIf this wasn’t you, move your funds now.`
+  return `✅ ${code(destination)} can now receive withdrawals from your NEARKITS wallet ${esc(shortAccount(wallet))}: approved with its owner wallet.\n\nIf this wasn’t you, move your funds now.`
 }

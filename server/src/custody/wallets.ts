@@ -36,9 +36,9 @@ export class WalletLimitError extends Error {
   constructor(readonly kind: 'active' | 'day' | 'used') {
     super(
       kind === 'active'
-        ? `You have ${MAX_ACTIVE_WALLETS_PER_USER} NearKit wallets, the most at once. Delete an empty one (🔐 Recovery) to make room.`
+        ? `You have ${MAX_ACTIVE_WALLETS_PER_USER} NEARKITS wallets, the most at once. Delete an empty one (🔐 Recovery) to make room.`
         : kind === 'day'
-          ? 'Too many NearKit wallets created today. Try again tomorrow.'
+          ? 'Too many NEARKITS wallets created today. Try again tomorrow.'
           : 'That Create button was already used, and the wallet it made is closed. Tap ➕ New wallet to make another.',
     )
     this.name = 'WalletLimitError'

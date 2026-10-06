@@ -37,7 +37,7 @@ export async function storageBoundsMin(rpc: RpcClient, contract: string): Promis
   if (value > MAX_REGISTRATION_YOCTO) {
     throw new NearKitError(
       'INVALID_TOKEN',
-      `${contract} asks ${formatUnits(value, 24, { maxFraction: 5 })} NEAR to register an account. NearKit refuses registrations above 0.1 NEAR.`,
+      `${contract} asks ${formatUnits(value, 24, { maxFraction: 5 })} NEAR to register an account. NEARKITS refuses registrations above 0.1 NEAR.`,
     )
   }
   return value

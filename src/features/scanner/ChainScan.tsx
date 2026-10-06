@@ -129,7 +129,7 @@ export function ChainScanView({ report, onRescan, rescanning }: { report: ChainS
           <Panel>
             <PanelHeader title="Observations" meta={report.observations.length === 0 ? 'None' : String(report.observations.length)} />
             {report.observations.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-fg-3">Nothing stood out in the facts NearKit can read. That is not a safety rating.</p>
+              <p className="px-4 py-4 text-sm text-fg-3">Nothing stood out in the facts NEARKITS can read. That is not a safety rating.</p>
             ) : (
               <ul className="divide-y divide-line-soft">
                 {report.observations.map((o) => (
@@ -181,7 +181,7 @@ export function ChainScanView({ report, onRescan, rescanning }: { report: ChainS
       </div>
 
       <p className="text-xs text-fg-3">
-        Verified figures are read from the chain by NearKit. Derived figures come from NearBlocks or Rhea and can lag or be wrong. Unknown means public data can’t answer it. None
+        Verified figures are read from the chain by NEARKITS. Derived figures come from NearBlocks or Rhea and can lag or be wrong. Unknown means public data can’t answer it. None
         of this is a safety rating or advice.
       </p>
     </div>

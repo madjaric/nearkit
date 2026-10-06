@@ -38,7 +38,7 @@ export function httpSignerTransport(o: { url: string; authKey: Buffer; fetch?: t
           clearTimeout(timer)
         }
         if (!checkResponse(o.authKey, headers['x-nearkit-nonce'], res.status, out, res.headers.get('x-nearkit-signature'))) {
-          last = new SignerUnavailableError(res.status === 401 ? 'The signer refused NearKit’s credentials' : 'An answer that is not the signer’s own was refused')
+          last = new SignerUnavailableError(res.status === 401 ? 'The signer refused NEARKITS’ credentials' : 'An answer that is not the signer’s own was refused')
           continue
         }
         let json: unknown

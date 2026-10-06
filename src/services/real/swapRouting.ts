@@ -126,14 +126,14 @@ export function createSwapRouter(ctx: NearContext) {
     if (!(await accountState(ctx.rpc, accountId, 'final')).exists)
       throw new NearKitError(
         'EXECUTION_DISABLED',
-        `The NearKit fee account ${accountId} does not exist on ${ctx.network.label.toLowerCase()}, so trades are blocked. Nothing was signed.`,
+        `The NEARKITS fee account ${accountId} does not exist on ${ctx.network.label.toLowerCase()}, so trades are blocked. Nothing was signed.`,
       )
     feeAccountExists = accountId
   }
   function feeRecipient(): string {
     const recipient = ctx.env.feeRecipient
     if (!recipient)
-      throw new NearKitError('EXECUTION_DISABLED', ctx.capabilities.execution.trading.reason ?? 'The NearKit fee account is not configured, so trades are blocked on mainnet')
+      throw new NearKitError('EXECUTION_DISABLED', ctx.capabilities.execution.trading.reason ?? 'The NEARKITS fee account is not configured, so trades are blocked on mainnet')
     return recipient
   }
   const aggregatorFeeConfig = () => {
@@ -176,7 +176,7 @@ export function createSwapRouter(ctx: NearContext) {
       p.verify ? assertFeeAccountExists(recipient) : null,
     ])
     if (p.verify && !(await verifySmartxSignature(quote.msg, quote.signature, agg.signerKey))) {
-      throw new NearKitError('QUOTE_REJECTED', 'NearKit refused Rhea’s route: its signature did not verify. Nothing was signed.')
+      throw new NearKitError('QUOTE_REJECTED', 'NEARKITS refused Rhea’s route: its signature did not verify. Nothing was signed.')
     }
     const checked = checkSmartxRoute(
       quote,

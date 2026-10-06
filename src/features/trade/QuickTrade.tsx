@@ -234,7 +234,7 @@ export function QuickTrade({ initialTokenId, initialSide = 'buy', variant = 'pan
           {cta.label}
         </Button>
         <ArmStatus id={`${uid}-arm`} armedAt={armedAt} tone={side} blocked={cta.reason} onCancel={disarm} />
-        {viaNearKit && <p className="text-xs text-fg-3">{`NearKit executes it from ${wallet?.label ?? 'this NearKit wallet'}: no wallet prompt.`}</p>}
+        {viaNearKit && <p className="text-xs text-fg-3">{`NEARKITS executes it from ${wallet?.label ?? 'this NEARKITS wallet'}: no wallet prompt.`}</p>}
       </div>
       {nearkitRun && (
         <NearKitTradeModal

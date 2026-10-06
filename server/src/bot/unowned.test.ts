@@ -20,7 +20,7 @@ const BOB = 'bob.testnet'
 async function unlinked(near = 3n * ONE) {
   const h = await walletBot({ link: false })
   await h.press('cw:home')
-  await h.press(h.button('Create NearKit wallet'))
+  await h.press(h.button('Create NEARKITS wallet'))
   const w = (await h.wallet()) as TradingWallet
   h.chain.fund(w.accountId, near)
   h.chain.accounts.set(BOB, { amount: ONE })
@@ -36,15 +36,15 @@ async function startWithdraw(h: Awaited<ReturnType<typeof walletBot>>, to: strin
 }
 
 describe('without ever linking a wallet', () => {
-  it('create: one tap makes a NearKit wallet this Telegram account controls, with no owner wallet', async () => {
+  it('create: one tap makes a NEARKITS wallet this Telegram account controls, with no owner wallet', async () => {
     const h = await walletBot({ link: false })
     await h.press('cw:home')
     const offer = h.last()?.text ?? ''
     expect(offer).toContain('optional')
     expect(offer).not.toContain('Link your own wallet first')
-    expect(h.buttons().some((b) => b.text.includes('Create NearKit wallet'))).toBe(true)
-    await h.press(h.button('Create NearKit wallet'))
-    expect(h.last()?.text).toContain('NearKit wallet created')
+    expect(h.buttons().some((b) => b.text.includes('Create NEARKITS wallet'))).toBe(true)
+    await h.press(h.button('Create NEARKITS wallet'))
+    expect(h.last()?.text).toContain('NEARKITS wallet created')
     const w = (await h.wallet()) as TradingWallet
     expect(w.ownerAccount).toBeNull()
     expect((await h.signerVault?.key('testnet', w.accountId))?.ownerAccount).toBeNull()
@@ -54,7 +54,7 @@ describe('without ever linking a wallet', () => {
   it('deposit: the address to send to, then the balance read from chain', async () => {
     const h = await walletBot({ link: false })
     await h.press('cw:home')
-    await h.press(h.button('Create NearKit wallet'))
+    await h.press(h.button('Create NEARKITS wallet'))
     const w = (await h.wallet()) as TradingWallet
     await h.press('cw:dep')
     expect(h.last()?.text).toContain(w.accountId)
@@ -63,7 +63,7 @@ describe('without ever linking a wallet', () => {
     expect(h.last()?.text).toContain('2.00')
   })
 
-  it('trade: buy and sell from the NearKit wallet', async () => {
+  it('trade: buy and sell from the NEARKITS wallet', async () => {
     const { h, w } = await unlinked()
     await h.say('/buy USDT 0.1')
     await h.press(h.button('Confirm buy'))
@@ -120,7 +120,7 @@ describe('without ever linking a wallet', () => {
     await h.press(`cr:show:${w.id}`)
     const text = h.last()?.text ?? ''
     expect(text).toContain('No owner wallet')
-    expect(h.buttons().some((b) => /Export|backup key|Remove NearKit/i.test(b.text))).toBe(false)
+    expect(h.buttons().some((b) => /Export|backup key|Remove NEARKITS/i.test(b.text))).toBe(false)
     await expect(h.custody.recovery.exportLink(ALICE.id, w.id)).rejects.toThrow(RecoveryApiError)
   })
 })
@@ -174,7 +174,7 @@ describe('owned wallets, as before', () => {
     h.chain.accounts.set(BOB, { amount: ONE })
     await startWithdraw(h, BOB)
     expect(h.last()?.text).toContain('Approve a new destination')
-    expect(h.buttons().some((b) => b.text.includes('Approve in NearKit web'))).toBe(true)
+    expect(h.buttons().some((b) => b.text.includes('Approve in NEARKITS web'))).toBe(true)
     expect(h.buttons().some((b) => b.text.includes('Approve in Telegram'))).toBe(false)
     await expect(h.custody.signer.telegramRequest({ kind: 'destination', accountId: w.accountId, destination: BOB })).rejects.toThrow(ChallengeError)
     expect(h.chain.accounts.get(BOB)?.amount).toBe(ONE)

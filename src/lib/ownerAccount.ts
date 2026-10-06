@@ -112,19 +112,19 @@ export async function checkOwnerControl(
 export function ownerControlProblem(r: OwnerRefusal, owner: string, nearkitWallet?: string): string {
   switch (r.reason) {
     case 'none':
-      return `No NEAR account is connected. Connect ${owner}, the wallet this NearKit wallet was created with.`
+      return `No NEAR account is connected. Connect ${owner}, the wallet this NEARKITS wallet was created with.`
     case 'evm-only':
       return `Your wallet returned an EVM address (${r.evm}), not a NEAR account. Switch to the NEAR account ${owner} in your wallet, then try again.`
     case 'no-key':
-      return `Your wallet returned ${r.account}, not ${owner}, and didn’t say which key it signs with, so NearKit can’t tell whether it holds a key of ${owner}. Switch to ${owner} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`
+      return `Your wallet returned ${r.account}, not ${owner}, and didn’t say which key it signs with, so NEARKITS can’t tell whether it holds a key of ${owner}. Switch to ${owner} itself in your wallet; if it keeps returning the same account, remove NEARKITS from the wallet’s connected sites, then connect again.`
     case 'not-owner-key':
       if (r.permission === 'function-call')
         return `Your wallet is connected as ${r.account} and signs with ${r.publicKey}, which is only a limited (function-call) key of ${owner}. Owner requests need a full-access key of ${owner}: connect the wallet that holds one, then try again.`
       if (r.account === nearkitWallet && implicitAccountOf(r.publicKey) === r.account)
-        return `Your wallet is connected as ${r.account}, your NearKit wallet itself: it signs with that wallet’s exported key (${r.publicKey}), which isn’t a key of ${owner}. Connect the wallet that holds ${owner}’s own key, then try again.`
+        return `Your wallet is connected as ${r.account}, your NEARKITS wallet itself: it signs with that wallet’s exported key (${r.publicKey}), which isn’t a key of ${owner}. Connect the wallet that holds ${owner}’s own key, then try again.`
       return `Your wallet is connected as ${r.account} and signs with ${r.publicKey}, which isn’t a key of ${owner}. Connect the wallet that holds ${owner}’s own key, then try again.`
     case 'unchecked':
-      return `NearKit couldn’t check on chain whether ${r.publicKey} is a key of ${owner}: the network didn’t answer. Nothing was signed. Try again in a moment.`
+      return `NEARKITS couldn’t check on chain whether ${r.publicKey} is a key of ${owner}: the network didn’t answer. Nothing was signed. Try again in a moment.`
   }
 }
 
@@ -140,11 +140,11 @@ export function ownerKeyNote(c: Extract<OwnerControl, { via: 'key' }>, owner: st
  * otherwise why the signature isn't used.
  */
 export async function signedKeyProblem(publicKey: string, owner: string, permission: (account: string, publicKey: string) => Promise<KeyPermission>): Promise<string | null> {
-  const refused = `Your wallet signed with ${publicKey}, which isn’t a full-access key of ${owner}. NearKit didn’t use that signature.`
+  const refused = `Your wallet signed with ${publicKey}, which isn’t a full-access key of ${owner}. NEARKITS didn’t use that signature.`
   if (implicitAccountOf(publicKey) === null) return refused
   try {
     return (await permission(owner, publicKey)) === 'full' ? null : refused
   } catch {
-    return `NearKit couldn’t check on chain whether ${publicKey} is a key of ${owner}, so it didn’t use that signature. Try again in a moment.`
+    return `NEARKITS couldn’t check on chain whether ${publicKey} is a key of ${owner}, so it didn’t use that signature. Try again in a moment.`
   }
 }

@@ -70,7 +70,7 @@ function AddAccountForm({ onClose, onAdded }: Omit<AddAccountModalProps, 'open'>
         {({ id }) => <Input id={id} value={label} maxLength={24} onChange={(e) => setLabel(e.target.value)} placeholder="Cold storage" />}
       </Field>
       <p className="text-xs text-fg-3">
-        Watch-only accounts show balances and can receive in Split and Batch send. To send from one, connect it in your wallet; NearKit asks when it is needed.
+        Watch-only accounts show balances and can receive in Split and Batch send. To send from one, connect it in your wallet; NEARKITS asks when it is needed.
       </p>
       <div className="flex flex-col-reverse gap-2 border-t border-line-soft pt-4 sm:flex-row sm:justify-end">
         <Button variant="ghost" onClick={onClose}>

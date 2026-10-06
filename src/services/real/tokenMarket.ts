@@ -110,7 +110,7 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
     if (!pair) {
       return {
         tokenId,
-        priceUsd: rhea ? { state: 'known', value: rhea.priceUsd, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(`${noPair}, and no price source NearKit uses reports it`),
+        priceUsd: rhea ? { state: 'known', value: rhea.priceUsd, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(`${noPair}, and no price source NEARKITS uses reports it`),
         priceNear: rhea && rhea.priceNear > 0 ? { state: 'known', value: rhea.priceNear, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(noPair),
         change24hPct: unavailable(noPair),
         marketCapUsd: unavailable(noPair),

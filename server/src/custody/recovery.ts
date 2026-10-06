@@ -54,11 +54,11 @@ export function recoveryError(e: unknown): RecoveryApiError | null {
     const status = e.problem === 'rate-limited' ? 429 : e.problem === 'expired' ? 410 : e.problem === 'used' ? 409 : e.problem === 'unknown' ? 404 : 403
     return new RecoveryApiError(status, e.problem, e.message)
   }
-  if (e instanceof KeyUnavailableError) return new RecoveryApiError(410, 'wallet', 'This NearKit wallet is closed; NearKit no longer holds its key.')
-  if (e instanceof SignerPausedError) return new RecoveryApiError(503, 'paused', 'NearKit’s signer is paused right now. Try again later.')
+  if (e instanceof KeyUnavailableError) return new RecoveryApiError(410, 'wallet', 'This NEARKITS wallet is closed; NEARKITS no longer holds its key.')
+  if (e instanceof SignerPausedError) return new RecoveryApiError(503, 'paused', 'NEARKITS’ signer is paused right now. Try again later.')
   if (e instanceof ChainUncertainError) return new RecoveryApiError(503, 'rpc', 'Couldn’t check your wallet on NEAR right now. Try again in a moment.')
   if (e instanceof KmsUnavailableError || e instanceof SignerUnavailableError)
-    return new RecoveryApiError(503, 'signer', 'NearKit’s signer is not answering right now. Try again in a moment.')
+    return new RecoveryApiError(503, 'signer', 'NEARKITS’ signer is not answering right now. Try again in a moment.')
   if (e instanceof BadRequestError) return new RecoveryApiError(400, 'bad-request', e.message)
   return null
 }
@@ -90,8 +90,8 @@ export function createRecoveryService(deps: { custody: CustodyStore; signer: Tra
      */
     async exportLink(userId: number, walletId: string): Promise<{ url: string }> {
       const w = await custody.ownedWallet(userId, walletId)
-      if (!w || w.network !== network) throw new RecoveryApiError(404, 'no-wallet', 'That NearKit wallet is closed or not yours.')
-      if (!w.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NearKit wallet has no recorded owner wallet, so its key can’t be exported.')
+      if (!w || w.network !== network) throw new RecoveryApiError(404, 'no-wallet', 'That NEARKITS wallet is closed or not yours.')
+      if (!w.ownerAccount) throw new RecoveryApiError(403, 'no-owner', 'This NEARKITS wallet has no recorded owner wallet, so its key can’t be exported.')
       await custody.audit({ userId, walletId: w.id, action: 'export-link-shown' })
       return { url: `${config.webUrl}/recover#wallet=${w.accountId}` }
     },
@@ -106,7 +106,7 @@ export function createRecoveryService(deps: { custody: CustodyStore; signer: Tra
       const wallets = await Promise.all(
         r.wallets.map(async (k) => {
           const w = await custody.walletByAccount(network, k.accountId)
-          return { accountId: k.accountId, name: w && w.status === 'active' ? walletName(w) : 'NearKit wallet', createdAt: k.createdAt }
+          return { accountId: k.accountId, name: w && w.status === 'active' ? walletName(w) : 'NEARKITS wallet', createdAt: k.createdAt }
         }),
       )
       return { ownerAccount: r.ownerAccount, network, wallets }
@@ -157,12 +157,12 @@ export function backupKeyHandler(deps: { near: ServerNear; custody: CustodyStore
     async plan(intent, wallet) {
       const p = intent.params as unknown as BackupKeyParams
       if (!wallet.ownerAccount || p.linkedAccount !== wallet.ownerAccount)
-        throw new NearKitError('INVALID_ACCOUNT', 'Only a key of the wallet this NearKit wallet was created with can be its backup key.')
+        throw new NearKitError('INVALID_ACCOUNT', 'Only a key of the wallet this NEARKITS wallet was created with can be its backup key.')
       const [permission, keys] = await Promise.all([accessKeyPermission(deps.near.ctx.rpc, p.linkedAccount, p.publicKey), accessKeys(deps.near, wallet.accountId)])
       if (permission !== 'full')
         throw new NearKitError('INVALID_ACCOUNT', `That key is no longer a full-access key of ${p.linkedAccount}. Link ${p.linkedAccount} again, then add the backup key.`)
       if (keys === null) throw new NearKitError('RPC_ERROR', 'Couldn’t read the wallet’s keys.')
-      if (!keys.includes(wallet.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'NearKit’s key isn’t on this wallet (is it funded?).')
+      if (!keys.includes(wallet.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'NEARKITS’ key isn’t on this wallet (is it funded?).')
       if (keys.includes(p.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'That key is already a backup key of this wallet.')
       return {
         kind: 'plan',
@@ -189,7 +189,7 @@ export function revokeHandler(deps: { near: ServerNear; custody: CustodyStore; s
     async plan(_intent, wallet) {
       const keys = await accessKeys(deps.near, wallet.accountId)
       if (keys === null) throw new NearKitError('RPC_ERROR', 'Couldn’t read the wallet’s keys.')
-      if (!keys.includes(wallet.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'NearKit’s key isn’t on this wallet.')
+      if (!keys.includes(wallet.publicKey)) throw new NearKitError('INVALID_ACCOUNT', 'NEARKITS’ key isn’t on this wallet.')
       // Never leave the wallet to a key NearKit can't vouch for: another key on it must be a
       // full-access key of the owner wallet, right now.
       const owner = wallet.ownerAccount
@@ -199,13 +199,13 @@ export function revokeHandler(deps: { near: ServerNear; custody: CustodyStore; s
         throw new NearKitError(
           'INVALID_ACCOUNT',
           owner
-            ? `Add your backup key first: no other key on this wallet is a full-access key of ${owner}, so nobody could control it after NearKit’s key is gone.`
-            : 'This NearKit wallet has no recorded owner wallet, so NearKit won’t remove its own key. Withdraw your funds instead.',
+            ? `Add your backup key first: no other key on this wallet is a full-access key of ${owner}, so nobody could control it after NEARKITS’ key is gone.`
+            : 'This NEARKITS wallet has no recorded owner wallet, so NEARKITS won’t remove its own key. Withdraw your funds instead.',
         )
       return {
         kind: 'plan',
         op: { kind: 'revoke', publicKey: wallet.publicKey },
-        plan: [{ receiverId: wallet.accountId, actions: [{ kind: 'delete-key', publicKey: wallet.publicKey }], label: 'Remove NearKit’s key' }],
+        plan: [{ receiverId: wallet.accountId, actions: [{ kind: 'delete-key', publicKey: wallet.publicKey }], label: 'Remove NEARKITS’ key' }],
       }
     },
     async summarize(_intent, wallet, confirmed) {
@@ -218,7 +218,7 @@ export function revokeHandler(deps: { near: ServerNear; custody: CustodyStore; s
       }
       return {
         ok,
-        message: ok ? 'NearKit’s key was removed.' : 'Removing NearKit’s key failed on chain. Nothing changed.',
+        message: ok ? 'NEARKITS’ key was removed.' : 'Removing NEARKITS’ key failed on chain. Nothing changed.',
         hashes: confirmed.map((c) => c.hash),
         facts: { accountId: wallet.accountId },
       }

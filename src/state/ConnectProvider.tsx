@@ -17,7 +17,7 @@ import { ConnectContext } from './contexts'
 function DemoBody() {
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-fg-2">Continue with the demo account to explore NearKit with sample balances. Nothing you do is signed or sent.</p>
+      <p className="text-sm text-fg-2">Continue with the demo account to explore NEARKITS with sample balances. Nothing you do is signed or sent.</p>
       <ul className="flex flex-col divide-y divide-line-soft rounded-sm border border-line">
         <li className="flex items-center gap-3 px-3 py-2.5">
           <Led tone="on" />
@@ -166,7 +166,7 @@ function NearBody({
         </div>
       )}
 
-      <p className="text-xs text-fg-3">You sign in your wallet. NearKit never asks for a seed phrase or private key and never holds your funds.</p>
+      <p className="text-xs text-fg-3">You sign in your wallet. NEARKITS never asks for a seed phrase or private key and never holds your funds.</p>
     </div>
   )
 }
@@ -274,7 +274,7 @@ export function ConnectProvider({ children }: { children: ReactNode }) {
           demo
             ? 'The demo runs on sample data.'
             : owner
-              ? `NearKit signs your wallet out first, so it can show its account picker: choose ${owner} there.`
+              ? `NEARKITS signs your wallet out first, so it can show its account picker: choose ${owner} there.`
               : `Choose a wallet for NEAR ${caps.networkLabel.toLowerCase()}.`
         }
         footer={

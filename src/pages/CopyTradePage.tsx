@@ -177,7 +177,7 @@ function CopyTrade() {
               <Line label="Max market cap">{mcap ? formatUsdCompact(mcap) : 'None'}</Line>
               <Line label="Blacklist">{blacklist.length ? `${blacklist.length} tokens` : 'None'}</Line>
               <Line label="Slippage">{formatNumber(slippage, 0, 2)}%</Line>
-              <Line label={`NearKit fee (${NEARKIT_FEE_LABEL})`}>per copied trade</Line>
+              <Line label={`NEARKITS fee (${NEARKIT_FEE_LABEL})`}>per copied trade</Line>
             </Lines>
             <div className="flex flex-col gap-2">
               <Button size="lg" block variant="primary" disabled={blocker !== null && touched} loading={createCopy.isPending} onClick={submit}>
@@ -186,7 +186,7 @@ function CopyTrade() {
               {touched && blocker && <p className="text-xs text-neg">{blocker}</p>}
               <SimulationNote
                 demo="Rules are saved in standby. No wallet is monitored."
-                real="Rules are saved as drafts in this browser. No wallet is monitored and nothing is copied: that needs a keeper service NearKit doesn't run yet."
+                real="Rules are saved as drafts in this browser. No wallet is monitored and nothing is copied: that needs a keeper service NEARKITS doesn't run yet."
               />
             </div>
           </div>

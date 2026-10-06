@@ -3,7 +3,7 @@ import { classifyFailure, NearKitError, toNearKitError } from './errors'
 import { RpcError } from './rpc'
 
 describe('toNearKitError', () => {
-  it('passes NearKit errors through unchanged', () => {
+  it('passes NEARKITS errors through unchanged', () => {
     const e = new NearKitError('QUOTE_EXPIRED', 'Quote expired')
     expect(toNearKitError(e)).toBe(e)
   })

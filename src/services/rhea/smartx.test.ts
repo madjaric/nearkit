@@ -160,7 +160,7 @@ describe('checkSmartxRoute', () => {
 
   it.each([
     ['an unknown top-level field', (d: Record<string, unknown>) => (d.extra_receiver = 'mallory.near')],
-    ['a referral NearKit does not know', (d: Record<string, unknown>) => (d.referral = 'mallory.near')],
+    ['a referral NEARKITS does not know', (d: Record<string, unknown>) => (d.referral = 'mallory.near')],
     ['a fee marked as already collected', (d: Record<string, unknown>) => (d.collected_fee = true)],
     ['a deposit other than 1 yocto on a step', (d: Record<string, unknown>) => (d.near_amounts = ['1', '1000000000000000000000000'])],
     ['an output recipient inside a classic step', (d: Record<string, unknown>) => innerMsg(d, 0, (m) => (m.swap_out_recipient = 'mallory.near'))],
@@ -201,13 +201,13 @@ describe('checkSmartxRoute', () => {
   })
 })
 
-describe('NearKit’s fee on Rhea routes', () => {
+describe('NEARKITS’ fee on Rhea routes', () => {
   // A real route Rhea signed for the same request at appFeeRate=50 (2026-09-29, read-only).
   const ours = parseSmartxResponse(nearkitFee)
   const oursDecoded = decodeSmartxMsg(ours.msg) as { deadline: number; app_fee_rate: number }
   const ourTerms: RouteExpectation = { ...expectFee, appFeePpm: NEARKIT_FEE_BPS * 100 }
 
-  it('passes a route Rhea signed at NearKit’s rate: app_fee_rate 5000 ppm', async () => {
+  it('passes a route Rhea signed at NEARKITS’ rate: app_fee_rate 5000 ppm', async () => {
     expect(await verifySmartxSignature(ours.msg, ours.signature, agg.signerKey)).toBe(true)
     expect(oursDecoded.app_fee_rate).toBe(5000)
     const route = checkSmartxRoute(ours, decodeSmartxMsg(ours.msg), ourTerms, oursDecoded.deadline - 120_000)
@@ -216,7 +216,7 @@ describe('NearKit’s fee on Rhea routes', () => {
   })
 
   it('refuses a route that still carries the old 2.00% app fee', () => {
-    expect(() => checkSmartxRoute(feeQuote, decodeSmartxMsg(feeQuote.msg), ourTerms, before(120_000))).toThrow(/fee rate differs from the NearKit fee/)
+    expect(() => checkSmartxRoute(feeQuote, decodeSmartxMsg(feeQuote.msg), ourTerms, before(120_000))).toThrow(/fee rate differs from the NEARKITS fee/)
   })
 })
 
@@ -232,7 +232,7 @@ describe('smartx client', () => {
     appFeeRecipient: 'fees.nearkit.near',
   }
 
-  it('asks for the NearKit app fee explicitly: appFeeRate=50 and the configured recipient', () => {
+  it('asks for the NEARKITS app fee explicitly: appFeeRate=50 and the configured recipient', () => {
     const url = new URL(smartxQuoteUrl(agg.quoteUrl, params))
     expect(url.searchParams.get('appFeeRate')).toBe('50')
     expect(url.searchParams.get('appFeeRecipient')).toBe('fees.nearkit.near')

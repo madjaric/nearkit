@@ -74,7 +74,7 @@ async function tokensOf(ctx: BotCtx, view: WalletView) {
 }
 
 /** A Create button with a fresh one-time key: pressing it twice makes one wallet. */
-export const newWalletButton = (label = '✨ Create NearKit wallet') => btn(label, `cw:new:${randomToken(9)}`)
+export const newWalletButton = (label = '✨ Create NEARKITS wallet') => btn(label, `cw:new:${randomToken(9)}`)
 
 /**
  * Whether the signer checks approvals in this bot's Mini App. A wallet with no owner wallet
@@ -93,14 +93,14 @@ async function offerCreate(ctx: BotCtx) {
     [
       bold('👛 Wallet'),
       '',
-      `${bold('NearKit wallet')}: not created yet.`,
+      `${bold('NEARKITS wallet')}: not created yet.`,
       'Trade right here in Telegram: no browser and no wallet pop-up for each trade. It’s a separate wallet: you move in only what you want to trade.',
       '',
       linked
         ? `🔗 Linked wallet ${code(linked)}${near !== null ? ` · ${esc(near)} NEAR` : ''}: it becomes the new wallet’s owner wallet.`
         : open
           ? 'No other wallet needed: this Telegram account controls it. Linking your own NEAR wallet is optional, now or later: it adds a backup key and key export.'
-          : 'Link your own wallet first: it proves the NearKit wallet is yours and becomes its backup key.',
+          : 'Link your own wallet first: it proves the NEARKITS wallet is yours and becomes its backup key.',
     ].join('\n'),
     keyboard([open ? newWalletButton() : btn('🔗 Link wallet', 'acct:link')], [...(linked ? [btn('🔗 Linked wallet', 'menu:linked')] : []), btn('« Menu', 'menu:home')]),
   )
@@ -149,7 +149,7 @@ export async function showWalletHome(ctx: BotCtx, details = false) {
         ? [
             '',
             w.ownerAccount ? `Owner ${code(w.ownerAccount)} (the wallet it was created with)` : null,
-            `NearKit’s key ${code(w.publicKey)}`,
+            `NEARKITS’ key ${code(w.publicKey)}`,
             view.totalNear !== null ? `NEAR total ${esc(amountText(view.totalNear, NEAR_DECIMALS))} · storage ${esc(amountText(view.storageNear ?? 0n, NEAR_DECIMALS))}` : null,
             'Balances are read from chain every time you open this.',
           ]
@@ -178,7 +178,7 @@ async function showWallets(ctx: BotCtx, note?: string) {
   await ctx.show(
     [
       ...(note ? [note, ''] : []),
-      `👛 ${bold('Your NearKit wallets')} · ${wallets.length} of ${MAX_ACTIVE_WALLETS_PER_USER}`,
+      `👛 ${bold('Your NEARKITS wallets')} · ${wallets.length} of ${MAX_ACTIVE_WALLETS_PER_USER}`,
       '',
       ...wallets.map((w) => `${w.id === selected?.id ? '✅' : '▫️'} ${w.slot}. ${walletLine(w)}`),
       '',
@@ -211,7 +211,7 @@ async function askRename(ctx: BotCtx, walletId: string) {
 
 async function create(ctx: BotCtx, createKey: string) {
   const custody = ctx.deps.custody
-  if (!custody) return ctx.answer('NearKit wallets aren’t available on this server.', true)
+  if (!custody) return ctx.answer('NEARKITS wallets aren’t available on this server.', true)
   const network = ctx.deps.config.network.id
   // The same owner rule as NearKit web (custody/wallets.ts).
   const owner = await ownerForNewWallet(custody, ctx.deps.store, {
@@ -238,12 +238,12 @@ async function create(ctx: BotCtx, createKey: string) {
   if (created) await ctx.deps.store.updateSettings(ctx.user.id, { activeWallet: wallet.id })
   await ctx.show(
     [
-      created ? `✅ ${bold('NearKit wallet created')} · ${walletLine(wallet)}` : `👛 ${walletLine(wallet)}`,
+      created ? `✅ ${bold('NEARKITS wallet created')} · ${walletLine(wallet)}` : `👛 ${walletLine(wallet)}`,
       code(wallet.accountId),
       '',
       `It’s empty. Send ${ctx.deps.config.network.id === 'testnet' ? 'testnet ' : ''}NEAR to this address to start trading here. Tap the address, or 📋 Copy address, to copy it.`,
       wallet.ownerAccount
-        ? 'Once it’s funded, add your owner wallet as its backup key (🔐 Recovery): then it’s yours even without NearKit.'
+        ? 'Once it’s funded, add your owner wallet as its backup key (🔐 Recovery): then it’s yours even without NEARKITS.'
         : 'This Telegram account controls it: deposits, trades and withdrawals need nothing else. Linking your own NEAR wallet later is optional (🔐 Recovery).',
     ].join('\n'),
     keyboard([copyBtn('📋 Copy address', wallet.accountId)], [btn('📥 Deposit', 'cw:dep'), btn('👛 Wallet', 'cw:home')]),
@@ -297,7 +297,7 @@ async function available(ctx: BotCtx, w: TradingWallet, a: Asset): Promise<bigin
   return ctx.deps.near.ctx.reader.balanceOf(a.asset, w.accountId).catch(() => null)
 }
 
-const closedWallet = (ctx: BotCtx) => ctx.show('That NearKit wallet is closed or not yours any more. Nothing was prepared.', keyboard(walletRow))
+const closedWallet = (ctx: BotCtx) => ctx.show('That NEARKITS wallet is closed or not yours any more. Nothing was prepared.', keyboard(walletRow))
 
 async function askWithdrawAmount(ctx: BotCtx, a: Asset) {
   const w = await flowWallet(ctx, a.walletId)
@@ -386,7 +386,7 @@ async function askApproval(ctx: BotCtx, w: TradingWallet, flow: WithdrawInput & 
         `🔐 ${bold('Approve a new address')} · ${walletLine(w)}`,
         '',
         again ? `${code(flow.to)} is not approved yet.` : `${code(flow.to)} hasn’t received withdrawals from this wallet before.`,
-        'Approve it once in NearKit’s mini app, right here in Telegram. It shows the address and this wallet, and Telegram signs your approval: NearKit’s servers can’t add an address without it.',
+        'Approve it once in NEARKITS’ mini app, right here in Telegram. It shows the address and this wallet, and Telegram signs your approval: NEARKITS’ servers can’t add an address without it.',
         '',
         '1. Tap Approve in Telegram and check the address.',
         '2. Come back and tap Continue.',
@@ -404,11 +404,11 @@ async function askApproval(ctx: BotCtx, w: TradingWallet, flow: WithdrawInput & 
       again ? `${code(flow.to)} is not approved yet.` : `${code(flow.to)} hasn’t received withdrawals from this wallet before.`,
       `Withdrawals go to your owner wallet ${code(w.ownerAccount ?? '')} or to destinations it approved, so nobody who gets into this Telegram account can send your funds elsewhere.`,
       '',
-      `1. Open NearKit web and connect ${code(w.ownerAccount ?? '')}.`,
+      `1. Open NEARKITS web and connect ${code(w.ownerAccount ?? '')}.`,
       '2. Sign the approval it shows: free, once for this destination.',
       '3. Come back and tap Continue.',
     ].join('\n'),
-    keyboard([urlBtn('🌐 Approve in NearKit web', url)], [btn('▶️ Continue', 'cw:wcont'), btn('✖ Cancel', 'cw:home')]),
+    keyboard([urlBtn('🌐 Approve in NEARKITS web', url)], [btn('▶️ Continue', 'cw:wcont'), btn('✖ Cancel', 'cw:home')]),
   )
 }
 

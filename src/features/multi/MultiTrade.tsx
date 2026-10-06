@@ -105,7 +105,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
     ? [
         members.excluded.filter((e) => e.reason === 'watch').length ? `${members.excluded.filter((e) => e.reason === 'watch').length} watch-only (can’t trade)` : null,
         members.executable.filter((w) => !pool.includes(w)).length
-          ? `${members.executable.filter((w) => !pool.includes(w)).length} ${source === 'nearkit' ? 'connected in the browser' : 'NearKit or frozen'}`
+          ? `${members.executable.filter((w) => !pool.includes(w)).length} ${source === 'nearkit' ? 'connected in the browser' : 'NEARKITS or frozen'}`
           : null,
         members.excluded.filter((e) => e.reason === 'missing').length ? `${members.excluded.filter((e) => e.reason === 'missing').length} no longer listed` : null,
       ].filter(Boolean)
@@ -242,7 +242,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
                   setPicked(null)
                 }}
                 options={[
-                  { value: 'nearkit', label: 'NearKit' },
+                  { value: 'nearkit', label: 'NEARKITS' },
                   { value: 'browser', label: 'Connected' },
                 ]}
               />
@@ -295,7 +295,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
       </div>
       {(leftOut.length > 0 || source === 'nearkit') && (
         <div className="flex flex-col gap-0.5 border-b border-line-soft px-4 py-2 text-xs text-fg-3">
-          {source === 'nearkit' && <p>NearKit wallets: NearKit executes each wallet’s own trade on its server when you confirm here. No wallet prompt.</p>}
+          {source === 'nearkit' && <p>NEARKITS wallets: NEARKITS executes each wallet’s own trade on its server when you confirm here. No wallet prompt.</p>}
           {leftOut.length > 0 && <p className="text-warn">{`Left out of ${preset?.name ?? 'this preset'}: ${leftOut.join(', ')}.`}</p>}
         </div>
       )}
@@ -320,7 +320,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
             </span>
           }
         >
-          {`A Multi ${side} runs on wallets that can trade: your NearKit wallets, or the accounts of a wallet connected here.${hiddenWatch ? ` Watch-only wallets (${hiddenWatch}) never join.` : ''}`}
+          {`A Multi ${side} runs on wallets that can trade: your NEARKITS wallets, or the accounts of a wallet connected here.${hiddenWatch ? ` Watch-only wallets (${hiddenWatch}) never join.` : ''}`}
         </EmptyState>
       ) : (
         <div className="@container">
@@ -527,7 +527,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
             <Line
               label={
                 <>
-                  NearKit fee <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span> <InfoTip term="nearkitFee" />
+                  NEARKITS fee <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span> <InfoTip term="nearkitFee" />
                 </>
               }
             >
@@ -563,7 +563,9 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
             Execute {verb.toLowerCase()}
           </Button>
           {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
-          <SimulationNote real={source === 'nearkit' ? 'NearKit executes each NearKit wallet’s own trade, signed with that wallet’s key, and confirms it on chain.' : undefined} />
+          <SimulationNote
+            real={source === 'nearkit' ? 'NEARKITS executes each NEARKITS wallet’s own trade, signed with that wallet’s key, and confirms it on chain.' : undefined}
+          />
         </div>
       </div>
     </Panel>

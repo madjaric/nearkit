@@ -219,7 +219,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   let custody: ServerConfig['custody']
   if (mainnet) {
     if (mainnetSwitch !== 'enabled') {
-      custody = { enabled: false, reason: 'NearKit trading wallets are off on mainnet until the owner turns them on at go-live.', signer: null }
+      custody = { enabled: false, reason: 'NEARKITS trading wallets are off on mainnet until the owner turns them on at go-live.', signer: null }
     } else {
       // The owner's switch is on: every production requirement must hold, or the server doesn't start.
       if (!remote) issue('NEARKIT_SIGNER_URL', 'Mainnet custody needs the separate signer service (NEARKIT_SIGNER_URL and NEARKIT_SIGNER_AUTH_KEY)')
@@ -236,7 +236,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   } else if (kek) {
     custody = { enabled: true, reason: null, signer: { kind: 'in-process', kek } }
   } else {
-    custody = { enabled: false, reason: 'NearKit trading wallets need NEARKIT_WALLET_KEK (testnet) or the signer service on this server.', signer: null }
+    custody = { enabled: false, reason: 'NEARKITS trading wallets need NEARKIT_WALLET_KEK (testnet) or the signer service on this server.', signer: null }
   }
 
   const hostPaused = (raw.NEARKIT_OPS_PAUSED ?? '')

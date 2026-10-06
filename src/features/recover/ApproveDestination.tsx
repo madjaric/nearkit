@@ -33,11 +33,11 @@ export function ApproveDestinationStep({ wallet, destination, onApproved, onBack
     prepare.mutate()
   }, [apiUrl, prepare])
 
-  if (!apiUrl) return <p className="text-sm text-neg">This NearKit build has no NearKit server configured, so it can’t approve addresses.</p>
+  if (!apiUrl) return <p className="text-sm text-neg">This NEARKITS build has no NEARKITS server configured, so it can’t approve addresses.</p>
   const c = prepare.data
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-fg-2">{`Approve ${destination} for this NearKit wallet: its owner wallet signs the request below, once. Then NearKit reviews your send again.`}</p>
+      <p className="text-sm text-fg-2">{`Approve ${destination} for this NEARKITS wallet: its owner wallet signs the request below, once. Then NEARKITS reviews your send again.`}</p>
       {prepare.isError ? (
         <div className="flex flex-col gap-2">
           <p role="alert" className="text-sm text-neg">

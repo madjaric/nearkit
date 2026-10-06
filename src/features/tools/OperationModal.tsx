@@ -304,7 +304,7 @@ export function OperationModal({ title, confirmLabel, prepare, onClose, onSettle
         <Button variant="secondary" onClick={onClose} disabled={locked}>
           {locked ? 'Working…' : 'Close'}
         </Button>
-        {running && !locked && <p className="text-xs text-fg-3 sm:text-right">NearKit keeps following it after you close this; the result shows in Activity.</p>}
+        {running && !locked && <p className="text-xs text-fg-3 sm:text-right">NEARKITS keeps following it after you close this; the result shows in Activity.</p>}
       </div>
     )
   })()

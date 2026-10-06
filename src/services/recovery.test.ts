@@ -49,7 +49,7 @@ describe('checking a request before the wallet signs it', () => {
     expect(await challengeProblem(good, want)).toBeNull()
     const other = await createExportKeyPair()
     expect(await challengeProblem(good, { ...want, recipientKey: other.publicKey })).toMatch(/another browser/)
-    expect(await challengeProblem(good, { ...want, wallet: 'b'.repeat(64) })).toMatch(/another NearKit wallet/)
+    expect(await challengeProblem(good, { ...want, wallet: 'b'.repeat(64) })).toMatch(/another NEARKITS wallet/)
     expect(await challengeProblem(good, { ...want, network: 'mainnet' })).toMatch(/runs on mainnet/)
     expect(await challengeProblem({ ...good, recipient: 'evil.example' }, want)).toMatch(/another site/)
     expect(await challengeProblem(good, { ...want, kind: 'approve-destination' })).toMatch(/different kind/)

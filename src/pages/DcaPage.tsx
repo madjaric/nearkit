@@ -128,7 +128,7 @@ function Dca() {
               <Line label="Ends">{hasEnd ? (end !== null ? formatDateTime(end) : '—') : 'Until stopped'}</Line>
               <Line label="Runs">{runs !== null ? runs : 'Open-ended'}</Line>
               <Line label="Total NEAR">{total !== null ? `${formatNumber(total, 2, 2)} NEAR` : `${formatNumber(amount, 2, 4)} NEAR per run`}</Line>
-              <Line label={`NearKit fee (${NEARKIT_FEE_LABEL})`}>
+              <Line label={`NEARKITS fee (${NEARKIT_FEE_LABEL})`}>
                 {formatNumber(((total ?? amount) * NEARKIT_FEE_BPS) / 10_000, 2, 4)} NEAR{total === null ? ' / run' : ''}
               </Line>
             </Lines>
@@ -174,7 +174,7 @@ function Dca() {
               {blocker && !soon && <p className="text-xs text-fg-3">{blocker}</p>}
               <SimulationNote
                 demo="Plans are saved in standby. Nothing is scheduled or bought."
-                real="Plans are saved as drafts in this browser. Nothing is scheduled or bought: that needs a keeper service NearKit doesn't run yet."
+                real="Plans are saved as drafts in this browser. Nothing is scheduled or bought: that needs a keeper service NEARKITS doesn't run yet."
               />
             </div>
           </div>

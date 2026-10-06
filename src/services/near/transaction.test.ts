@@ -47,7 +47,7 @@ describe('NEAR transaction wire format', () => {
     expect(hexEncode(bytes.subarray(0, 13))).toBe('09000000' + hexEncode(new TextEncoder().encode('a.testnet')))
   })
 
-  it('reads back exactly what it wrote, for every action NearKit builds', () => {
+  it('reads back exactly what it wrote, for every action NEARKITS builds', () => {
     const tx: NearTransaction = {
       signerId: 'f'.repeat(64),
       publicKey: KEY,
@@ -66,7 +66,7 @@ describe('NEAR transaction wire format', () => {
     expect(deserializeTransaction(serializeTransaction(tx))).toEqual(tx)
   })
 
-  it('refuses what NearKit never builds: other key types, other actions, trailing bytes, out-of-range numbers', () => {
+  it('refuses what NEARKITS never builds: other key types, other actions, trailing bytes, out-of-range numbers', () => {
     const base: NearTransaction = { signerId: 'a.testnet', publicKey: KEY, nonce: 1n, receiverId: 'b.testnet', blockHash: hash32, actions: [{ type: 'Transfer', deposit: 1n }] }
     expect(() => serializeTransaction({ ...base, publicKey: 'secp256k1:abc' })).toThrow(TransactionFormatError)
     expect(() => serializeTransaction({ ...base, actions: [] })).toThrow(/at least one action/)
@@ -77,7 +77,7 @@ describe('NEAR transaction wire format', () => {
     // Action tag 7 (DeleteAccount) in place of Transfer.
     const deleteAccount = Uint8Array.from(bytes)
     deleteAccount[bytes.length - 17] = 7
-    expect(() => deserializeTransaction(deleteAccount)).toThrow(/not one NearKit builds/)
+    expect(() => deserializeTransaction(deleteAccount)).toThrow(/not one NEARKITS builds/)
     expect(() => deserializeTransaction(Uint8Array.from([...bytes, 0]))).toThrow(/after the transaction/)
     expect(() => deserializeTransaction(bytes.subarray(0, 20))).toThrow(/end too early/)
   })

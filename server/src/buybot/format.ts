@@ -91,6 +91,6 @@ export function renderBuy(v: BuyView): string {
   if (caps.length) lines.push(`🏦 ${caps.join(' · ')}`)
   if (v.holders !== null) lines.push(`👥 Holders ${esc(v.holders.toLocaleString('en-US'))} (NearBlocks)`)
   lines.push(`📄 CA ${code(v.token)}`)
-  lines.push(`🔗 ${link(v.txUrl, 'Transaction')} · ⚡ NearKit`)
+  lines.push(`🔗 ${link(v.txUrl, 'Transaction')} · ⚡ NEARKITS`)
   return lines.join('\n')
 }

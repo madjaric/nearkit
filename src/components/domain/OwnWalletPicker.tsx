@@ -19,7 +19,7 @@ export function OwnWalletPicker({ wallets, value, onPick, exclude }: { wallets: 
   return (
     <span className="relative inline-flex items-center">
       <select
-        aria-label="Pick one of my NearKit wallets as the destination"
+        aria-label="Pick one of my NEARKITS wallets as the destination"
         value={picked}
         onChange={(e) => {
           if (e.target.value) onPick(e.target.value)

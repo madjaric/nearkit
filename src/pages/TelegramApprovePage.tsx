@@ -116,7 +116,7 @@ function Landing({ children }: { children: ReactNode }) {
 export default function TelegramApprovePage() {
   useTelegramScript()
   useEffect(() => {
-    document.title = context.kind === 'approval' ? 'Approve · NearKit' : 'NearKit · Telegram'
+    document.title = context.kind === 'approval' ? 'Approve · NEARKITS' : 'NEARKITS · Telegram'
   }, [])
   const [view, setView] = useState<View>({ step: 'loading' })
   const apiUrl = ENV.apiUrl
@@ -128,7 +128,7 @@ export default function TelegramApprovePage() {
       if (context.kind === 'direct') return { step: 'home' }
       // An approval: exactly the request the link names, or nothing.
       const { launch } = context
-      if (!apiUrl) return { step: 'refused', message: 'This NearKit build has no server to send approvals to.' }
+      if (!apiUrl) return { step: 'refused', message: 'This NEARKITS build has no server to send approvals to.' }
       const r = await fetchTelegramRequest(apiUrl, launch.startParam)
       if (!r.request) return { step: 'refused', message: 'This request is unknown. Start again in Telegram.' }
       const problem = await telegramRequestProblem(r.request, { digest: launch.startParam, network: ENV.network })
@@ -164,10 +164,10 @@ export default function TelegramApprovePage() {
   if (view.step === 'home')
     return (
       <Landing>
-        This app is used for secure NearKit wallet actions and approvals. When NearKit’s bot asks you to approve something, the Approve button in the chat opens it here.
+        This app is used for secure NEARKITS wallet actions and approvals. When NEARKITS’ bot asks you to approve something, the Approve button in the chat opens it here.
         <span className="mt-5 block">
           <Button variant="secondary" size="lg" block onClick={backToBot}>
-            Back to NearKit bot
+            Back to NEARKITS bot
           </Button>
         </span>
       </Landing>
@@ -175,11 +175,11 @@ export default function TelegramApprovePage() {
   if (view.step === 'outside')
     return (
       <Landing>
-        This page is NearKit’s Telegram Mini App, where secure NearKit wallet actions and approvals are confirmed. Open it from NearKit’s bot in Telegram.
+        This page is NEARKITS’ Telegram Mini App, where secure NEARKITS wallet actions and approvals are confirmed. Open it from NEARKITS’ bot in Telegram.
         {botLink && (
           <span className="mt-5 block">
             <a href={botLink} className={buttonClass({ variant: 'primary', size: 'lg', block: true })}>
-              Open NearKit in Telegram
+              Open NEARKITS in Telegram
             </a>
           </span>
         )}
@@ -197,11 +197,11 @@ export default function TelegramApprovePage() {
         <h1 className="text-lg font-semibold">{title(view.request)}</h1>
         <Notice tone="ok">
           {view.request.kind === 'destination'
-            ? `Approved. ${view.request.target} can now receive withdrawals from this NearKit wallet. Go back to the chat and tap Continue.`
-            : `Approved. ${view.request.target} is now this NearKit wallet’s owner wallet.`}
+            ? `Approved. ${view.request.target} can now receive withdrawals from this NEARKITS wallet. Go back to the chat and tap Continue.`
+            : `Approved. ${view.request.target} is now this NEARKITS wallet’s owner wallet.`}
         </Notice>
         <Button variant="secondary" size="lg" block onClick={() => webApp()?.close()}>
-          Back to NearKit
+          Back to NEARKITS
         </Button>
       </Shell>
     )
@@ -215,10 +215,10 @@ export default function TelegramApprovePage() {
       <h1 className="text-lg font-semibold">{title(request)}</h1>
       <p className="text-sm leading-6 text-fg-2">
         {request.kind === 'destination'
-          ? 'This NearKit wallet has no owner wallet, so your Telegram account approves where it may send funds. Approve only an address you typed yourself.'
-          : 'This NearKit wallet has no owner wallet yet. The wallet below becomes its owner for good: withdrawals then go only to it, or to addresses it approves.'}
+          ? 'This NEARKITS wallet has no owner wallet, so your Telegram account approves where it may send funds. Approve only an address you typed yourself.'
+          : 'This NEARKITS wallet has no owner wallet yet. The wallet below becomes its owner for good: withdrawals then go only to it, or to addresses it approves.'}
       </p>
-      <Field label={`NearKit wallet${walletName ? ` · ${walletName}` : ''}`}>{request.accountId}</Field>
+      <Field label={`NEARKITS wallet${walletName ? ` · ${walletName}` : ''}`}>{request.accountId}</Field>
       <Field label={request.kind === 'destination' ? 'Withdrawal address' : 'Owner wallet'}>{request.target}</Field>
       <Field label="Network">NEAR {request.network}</Field>
       {view.step === 'review' && view.error && <Notice tone="neg">{view.error}</Notice>}
@@ -236,7 +236,7 @@ export default function TelegramApprovePage() {
           </Button>
         </div>
       )}
-      <p className="text-xs leading-5 text-fg-3">Telegram signs your approval for your account only. NearKit’s servers can’t approve anything without it.</p>
+      <p className="text-xs leading-5 text-fg-3">Telegram signs your approval for your account only. NEARKITS’ servers can’t approve anything without it.</p>
     </Shell>
   )
 }

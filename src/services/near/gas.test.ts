@@ -58,7 +58,7 @@ describe('gas of a transaction, exactly as mainnet charges it (nearcore tx_cost)
     expect(txGas({ actions: [transfer(1n)] })).toEqual(implicit)
   })
 
-  it('a NearKit wallet changing its own keys: a full-access AddKey, a DeleteKey', () => {
+  it('a NEARKITS wallet changing its own keys: a full-access AddKey, a DeleteKey', () => {
     const wallet = 'a'.repeat(64)
     expect(txGas({ receiverId: wallet, actions: [{ kind: 'add-key', publicKey: 'ed25519:x' }] })).toEqual({
       burnt: FEES.receipt.send + FEES.addFullAccessKey.send,

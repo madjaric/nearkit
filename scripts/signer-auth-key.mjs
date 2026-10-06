@@ -15,7 +15,7 @@ if (present.length) {
 }
 const key = randomBytes(32).toString('base64')
 for (const f of files) {
-  const text = ['# SECRET. Signs requests between the NearKit app and its signer service. Never commit, share or print it.', `NEARKIT_SIGNER_AUTH_KEY=${key}`, ''].join('\n')
+  const text = ['# SECRET. Signs requests between the NEARKITS app and its signer service. Never commit, share or print it.', `NEARKIT_SIGNER_AUTH_KEY=${key}`, ''].join('\n')
   writeFileSync(f, (existsSync(f) ? '\n' : '') + text, { flag: existsSync(f) ? 'a' : 'wx', mode: 0o600 })
   try {
     chmodSync(f, 0o600)

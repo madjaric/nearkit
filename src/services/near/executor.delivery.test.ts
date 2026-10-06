@@ -154,7 +154,7 @@ describe('delivery-based success', () => {
     const result = await h.executor.run(plan, null, (p) => seen.push(p))
 
     expect(result.phase).toBe('success')
-    expect(result.txs[0]).toMatchObject({ phase: 'success', hash: HASH, note: 'Received 912.43759 NEARLY · NearKit fee 0.004 wNEAR', settling: true })
+    expect(result.txs[0]).toMatchObject({ phase: 'success', hash: HASH, note: 'Received 912.43759 NEARLY · NEARKITS fee 0.004 wNEAR', settling: true })
     expect(phases(seen)).not.toContain('processing')
     expect(phases(seen)).not.toContain('failed')
 
@@ -162,7 +162,7 @@ describe('delivery-based success', () => {
     const reportedBefore = seen.length
     finalAvailable = true
     await vi.waitFor(() => expect(h.updates.at(-1)?.txs[0]?.settling).toBe(false))
-    expect(h.updates.at(-1)?.txs[0]).toMatchObject({ phase: 'success', note: 'Received 912.43759 NEARLY · NearKit fee 0.004 wNEAR' })
+    expect(h.updates.at(-1)?.txs[0]).toMatchObject({ phase: 'success', note: 'Received 912.43759 NEARLY · NEARKITS fee 0.004 wNEAR' })
     expect(seen.length).toBe(reportedBefore)
     expect(h.statusCalls.some((c) => c.waitUntil === 'FINAL')).toBe(true)
   })
@@ -202,7 +202,7 @@ describe('wallet errors after broadcast', () => {
     const result = await h.executor.run(swapPlan(plannedFrom(incident)), null, (p) => seen.push(p))
 
     expect(result.phase).toBe('success')
-    expect(result.txs[0]).toMatchObject({ phase: 'success', hash: HASH, note: 'Received 912.43759 NEARLY · NearKit fee 0.004 wNEAR' })
+    expect(result.txs[0]).toMatchObject({ phase: 'success', hash: HASH, note: 'Received 912.43759 NEARLY · NEARKITS fee 0.004 wNEAR' })
     const processing = seen.find((p) => p.txs[0]?.phase === 'processing')
     expect(processing?.txs[0]?.note).toBe(PROCESSING_NOTE)
     expect(processing?.txs[0]?.error).toBeNull()

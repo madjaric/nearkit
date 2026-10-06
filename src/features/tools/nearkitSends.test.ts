@@ -150,7 +150,7 @@ describe('sending the reviewed lines', () => {
   })
 })
 
-describe('Consolidate: one line from each of several NearKit wallets, into one destination', () => {
+describe('Consolidate: one line from each of several NEARKITS wallets, into one destination', () => {
   const into = [
     { from: { walletId: 'srv-1', label: 'Main', accountId: 'main.near' }, to: 'dest.near', amount: '5' },
     { from: { walletId: 'srv-2', label: 'Degen', accountId: 'degen.near' }, to: 'dest.near', amount: '7' },

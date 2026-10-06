@@ -10,7 +10,7 @@ export const GAS_RESERVE_LABEL = 'Gas reserve (refunded)'
 /** Shown right under the reserve. */
 export const GAS_RESERVE_NOTE = 'Temporarily held while the transaction runs. Unused gas is refunded automatically.'
 
-export const GAS_RESERVE_NOT_FEE = 'This is not an additional NearKit fee.'
+export const GAS_RESERVE_NOT_FEE = 'This is not an additional NEARKITS fee.'
 
 export const GAS_RESERVE_TOOLTIP = `NEAR temporarily holds the attached gas amount while the transaction runs. Unused gas is automatically refunded to your wallet. ${GAS_RESERVE_NOT_FEE}`
 

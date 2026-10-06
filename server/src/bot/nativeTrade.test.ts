@@ -22,7 +22,7 @@ const setNear = (h: Harness, account: string, yocto: bigint) => {
   a.amount = yocto
 }
 
-describe('Buy from the NearKit wallet, entirely in Telegram', () => {
+describe('Buy from the NEARKITS wallet, entirely in Telegram', () => {
   it('buy by ticker: a compact quote, one Confirm, the result read from chain', async () => {
     const h = await walletBot()
     const w = await h.funded(3n * ONE)
@@ -37,11 +37,11 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
       'You pay <b>0.1 NEAR</b>',
       'You receive <b>≈ 0.4 USDT</b>',
       'Minimum 0.398 USDT · 1% slippage',
-      'NearKit fee none on testnet',
+      'NEARKITS fee none on testnet',
       'Actual network fee ≈',
       'Registration 0.0025 NEAR',
       'Gas reserve (refunded) <b>',
-      'Temporarily held while the transaction runs. Unused gas is refunded automatically. This is not an additional NearKit fee.',
+      'Temporarily held while the transaction runs. Unused gas is refunded automatically. This is not an additional NEARKITS fee.',
       'available in all, gas reserve included',
       'Route NEAR → USDT · Rhea',
     ])
@@ -101,7 +101,7 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     const h = await walletBot()
     await h.funded(ONE / 5n)
     await h.say('/buy singularty.nearlytrade.near')
-    expect(h.last()?.text).toContain('This belongs to NEAR mainnet while NearKit is using testnet.')
+    expect(h.last()?.text).toContain('This belongs to NEAR mainnet while NEARKITS is using testnet.')
     await h.say('/buy USDT 1')
     expect(h.last()?.text).toContain('Not enough NEAR for this trade plus gas.')
     // The amount screen says up front that a buy needs NEAR for gas besides the amount.
@@ -110,12 +110,12 @@ describe('Buy from the NearKit wallet, entirely in Telegram', () => {
     await h.say('/cancel')
     // Enough for the amount, not for the gas held upfront: the quote says so, and Confirm sends nothing.
     await h.say('/buy USDT 0.1')
-    expect(h.last()?.text).toContain('⚠️ Your NearKit wallet has 0.2 NEAR. Deposit at least')
+    expect(h.last()?.text).toContain('⚠️ Your NEARKITS wallet has 0.2 NEAR. Deposit at least')
     await h.press(h.button('Confirm buy'))
     const refused = h.last()?.text ?? ''
     expect(refused).toContain('Buy failed')
     expect(refused).toMatch(
-      /This buy needs [\d.]+ NEAR available and your NearKit wallet has 0\.2 NEAR: 0\.1 NEAR to swap, [\d.]+ NEAR for one-time registrations and a [\d.]+ NEAR gas reserve, which NEAR holds while the swap runs and refunds automatically, all but the actual network fee \(not a NearKit fee\)/,
+      /This buy needs [\d.]+ NEAR available and your NEARKITS wallet has 0\.2 NEAR: 0\.1 NEAR to swap, [\d.]+ NEAR for one-time registrations and a [\d.]+ NEAR gas reserve, which NEAR holds while the swap runs and refunds automatically, all but the actual network fee \(not a NEARKITS fee\)/,
     )
     expect(refused).toContain('Deposit at least')
     expect(refused).toContain('Nothing was sent.')
@@ -173,14 +173,14 @@ describe('NEAR a buy needs: its steps one after another, gas refunded in between
     const text = h.last()?.text ?? ''
     expect(text).toContain('Buy failed')
     expect(text).toMatch(
-      /The next step needs [\d.]+ NEAR available and your NearKit wallet has [\d.]+ NEAR, so it wasn’t sent\. Earlier steps went through; see the transactions\./,
+      /The next step needs [\d.]+ NEAR available and your NEARKITS wallet has [\d.]+ NEAR, so it wasn’t sent\. Earlier steps went through; see the transactions\./,
     )
     expect(landed(h).map((s) => s.tx.receiverId)).toEqual([USDT])
     expect(await h.custody.store.txsOf(id)).toHaveLength(1)
   })
 })
 
-describe('Sell from the NearKit wallet', () => {
+describe('Sell from the NEARKITS wallet', () => {
   it('sell by ticker with 50% and 100%: exact token amounts, NEAR delivered unwrapped', async () => {
     const h = await walletBot()
     const w = await h.funded(ONE, 10_000_000n)
@@ -257,7 +257,7 @@ describe('quote freshness', () => {
     expect((await h.custody.store.intent(first.slice('cx:ok:'.length)))?.status).toBe('cancelled')
   })
 
-  it('the quote carries NearKit’s canonical fee rate, charged only where a fee account runs (not on testnet)', async () => {
+  it('the quote carries NEARKITS’ canonical fee rate, charged only where a fee account runs (not on testnet)', async () => {
     const h = await walletBot()
     await h.funded(3n * ONE)
     await h.say('/buy USDT 1')
@@ -291,7 +291,7 @@ describe('failures on chain', () => {
     expect(h.chain.tokens.get(WRAP)?.balances.get(w.accountId)).toBe(0n)
   })
 
-  it('positions afterwards come from chain: the NearKit wallet’s new token is there', async () => {
+  it('positions afterwards come from chain: the NEARKITS wallet’s new token is there', async () => {
     const h = await walletBot()
     await h.funded(3n * ONE)
     await h.say('/buy USDT 1')

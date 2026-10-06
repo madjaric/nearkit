@@ -58,8 +58,8 @@ async function webApp(options: Parameters<typeof walletBot>[0] = {}) {
   return { h, call, signIn, toAlice, noticeToAlice }
 }
 
-describe('signing in to NearKit web', () => {
-  it('the bot sends a one-time link that opens NearKit web’s wallets, and signs in once', async () => {
+describe('signing in to NEARKITS web', () => {
+  it('the bot sends a one-time link that opens NEARKITS web’s wallets, and signs in once', async () => {
     const { h, call } = await webApp()
     await h.say('/web')
     expect(h.last()?.text).toMatch(/one-time sign-in link/i)
@@ -88,13 +88,13 @@ describe('signing in to NearKit web', () => {
     await expect(call('/api/web/wallets', { session: a })).rejects.toMatchObject({ status: 401 })
     const b = await signIn()
     await h.press('web:out')
-    expect(h.last()?.text).toMatch(/Signed out of NearKit web/)
+    expect(h.last()?.text).toMatch(/Signed out of NEARKITS web/)
     await expect(call('/api/web/wallets', { session: b })).rejects.toMatchObject({ status: 401 })
   })
 })
 
-describe('NearKit wallets on the web', () => {
-  it('lists the user’s NearKit wallets with name, address and owner state', async () => {
+describe('NEARKITS wallets on the web', () => {
+  it('lists the user’s NEARKITS wallets with name, address and owner state', async () => {
     const { h, call, signIn } = await webApp()
     const w = await h.funded(2n * 10n ** 24n)
     const token = await signIn()
@@ -106,7 +106,7 @@ describe('NearKit wallets on the web', () => {
     })
   })
 
-  it('creates a NearKit wallet from the web with its name, with no /link: executable at once, announced in Telegram, no key material', async () => {
+  it('creates a NEARKITS wallet from the web with its name, with no /link: executable at once, announced in Telegram, no key material', async () => {
     const { call, signIn, toAlice, h } = await webApp({ link: false })
     const token = await signIn()
     const r = await call('/api/web/wallets/create', { session: token, name: 'Degen 1', createKey: 'web-key-000001' })
@@ -120,7 +120,7 @@ describe('NearKit wallets on the web', () => {
     const stored = await h.custody?.store.ownedWallet(ALICE.id, String(created.id))
     expect(stored).toMatchObject({ label: 'Degen 1', ownerAccount: null, status: 'active' })
     expect(toAlice()).toMatch(/Degen 1/)
-    expect(toAlice()).toMatch(/NearKit web/)
+    expect(toAlice()).toMatch(/NEARKITS web/)
     // The same Create press twice makes one wallet.
     const again = await call('/api/web/wallets/create', { session: token, name: 'Degen 1', createKey: 'web-key-000001' })
     expect((again.wallet as Record<string, unknown>).id).toBe(created.id)
@@ -136,7 +136,7 @@ describe('NearKit wallets on the web', () => {
     const short = shortAccount(accountId)
     expect(short).toMatch(/^[0-9a-f]{6}…[0-9a-f]{4}$/)
     const notice = noticeToAlice()
-    expect(notice?.text).toContain('NearKit wallet created on NearKit web')
+    expect(notice?.text).toContain('NEARKITS wallet created on NEARKITS web')
     // 1. The shortened address is there to read, as plain text: no <code> (Telegram copies monospace on tap) and no link.
     expect(notice?.text).toContain(`<b>Test 09</b> ${short}`)
     expect(notice?.text).not.toContain(`<code>${short}</code>`)
@@ -153,7 +153,7 @@ describe('NearKit wallets on the web', () => {
     expect(notice?.buttons.map((b) => [b.text, b.data ?? b.copy])).toEqual([
       ['📋 Copy address', accountId],
       ['👛 My wallets', 'cw:list'],
-      ['🚪 Sign out of NearKit web everywhere', 'web:out'],
+      ['🚪 Sign out of NEARKITS web everywhere', 'web:out'],
     ])
   })
 
@@ -178,7 +178,7 @@ describe('NearKit wallets on the web', () => {
     await h.press('cw:list')
     expect(h.last()?.text).toMatch(/Test 03/)
     await h.press('web:out')
-    expect(h.last()?.text).toMatch(/Signed out of NearKit web/)
+    expect(h.last()?.text).toMatch(/Signed out of NEARKITS web/)
     await expect(call('/api/web/wallets', { session: token })).rejects.toMatchObject({ status: 401 })
   })
 

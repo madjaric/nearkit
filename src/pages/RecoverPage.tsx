@@ -63,10 +63,10 @@ function ListPanel({ apiUrl, onExport }: { apiUrl: string; onExport: (wallet: st
   })
   return (
     <Panel>
-      <PanelHeader title="Your NearKit wallets" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
+      <PanelHeader title="Your NEARKITS wallets" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
       <PanelBody className="flex flex-col gap-4">
         <p className="text-sm text-fg-2">
-          Connect the wallet you linked when you created your NearKit wallets (their owner) and sign a message: NearKit shows which NearKit wallets answer to it. Signing is free
+          Connect the wallet you linked when you created your NEARKITS wallets (their owner) and sign a message: NEARKITS shows which NEARKITS wallets answer to it. Signing is free
           and moves nothing. Telegram is not needed.
         </p>
         {!session ? (
@@ -99,7 +99,7 @@ function ListPanel({ apiUrl, onExport }: { apiUrl: string; onExport: (wallet: st
               )}
             </Field>
             <Button variant="primary" size="lg" block loading={list.isPending} disabled={list.isPending || ownerError !== null || !owner} onClick={() => list.mutate(owner)}>
-              <span className="break-all">Sign to show the NearKit wallets of {owner}</span>
+              <span className="break-all">Sign to show the NEARKITS wallets of {owner}</span>
             </Button>
           </>
         )}
@@ -107,7 +107,7 @@ function ListPanel({ apiUrl, onExport }: { apiUrl: string; onExport: (wallet: st
         {list.isSuccess &&
           (list.data.wallets.length === 0 ? (
             <p className="break-words text-sm text-fg-2">
-              {`No NearKit wallet answers to ${list.data.ownerAccount} on this network. A NearKit wallet answers to the wallet it was created with (its owner): if ${list.data.ownerAccount} is itself a NearKit wallet (its exported key imported into a wallet app, say), connect its owner instead.`}
+              {`No NEARKITS wallet answers to ${list.data.ownerAccount} on this network. A NEARKITS wallet answers to the wallet it was created with (its owner): if ${list.data.ownerAccount} is itself a NEARKITS wallet (its exported key imported into a wallet app, say), connect its owner instead.`}
             </p>
           ) : (
             <ul className="divide-y divide-line-soft rounded-sm border border-line-soft">
@@ -162,7 +162,7 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
     },
     [reset],
   )
-  const header = <PanelHeader title="Export NearKit wallet key" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
+  const header = <PanelHeader title="Export NEARKITS wallet key" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
 
   if (secret) {
     return (
@@ -170,7 +170,7 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
         {header}
         <PanelBody className="flex flex-col gap-4">
           <Notice tone="neg">
-            Anyone who has this key controls <span className="num text-fg">{wallet}</span> and everything in it. Don’t share it, screenshot it or paste it into a chat. NearKit
+            Anyone who has this key controls <span className="num text-fg">{wallet}</span> and everything in it. Don’t share it, screenshot it or paste it into a chat. NEARKITS
             never asks for it.
           </Notice>
           <div>
@@ -219,7 +219,7 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
       {header}
       <PanelBody className="flex flex-col gap-4">
         <Lines>
-          <Line label="NearKit wallet">
+          <Line label="NEARKITS wallet">
             <span className="num break-all">{wallet}</span>
           </Line>
           {c && (
@@ -230,7 +230,7 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
           <Line label="Network">{caps.networkLabel}</Line>
         </Lines>
         <Notice tone="warn">
-          Only continue on a device you trust. Your owner wallet signs a message, not a transaction: free, nothing moves. The key is sealed by NearKit’s signer to this page and
+          Only continue on a device you trust. Your owner wallet signs a message, not a transaction: free, nothing moves. The key is sealed by NEARKITS’ signer to this page and
           shown here once; nothing in between can read it.
         </Notice>
         {!c ? (
@@ -246,7 +246,7 @@ function ExportPanel({ apiUrl, wallet, onBack }: { apiUrl: string; wallet: strin
         {prepare.isError && <Failure error={prepare.error} />}
         {exported.isError && <Failure error={exported.error} />}
         <Button variant="ghost" size="sm" onClick={onBack}>
-          All my NearKit wallets
+          All my NEARKITS wallets
         </Button>
       </PanelBody>
     </Panel>
@@ -269,7 +269,7 @@ function ApprovePanel({ apiUrl, wallet, destination }: { apiUrl: string; wallet:
       <PanelHeader title="Approve a withdrawal destination" actions={<Tag tone="neutral">{caps.networkLabel}</Tag>} />
       <PanelBody className="flex flex-col gap-4">
         <Lines>
-          <Line label="From NearKit wallet">
+          <Line label="From NEARKITS wallet">
             <span className="num break-all">{wallet}</span>
           </Line>
           <Line label="Destination">
@@ -283,12 +283,12 @@ function ApprovePanel({ apiUrl, wallet, destination }: { apiUrl: string; wallet:
         </Lines>
         {approved.isSuccess ? (
           <p className="text-sm text-fg" role="status">
-            Approved. Go back to where you started the send and review it again: Review on NearKit web, or Continue in Telegram.
+            Approved. Go back to where you started the send and review it again: Review on NEARKITS web, or Continue in Telegram.
           </p>
         ) : (
           <>
             <Notice tone="warn">
-              Only approve a destination you asked for yourself. Withdrawals from this NearKit wallet go only to its owner wallet and to destinations it approved: someone who got
+              Only approve a destination you asked for yourself. Withdrawals from this NEARKITS wallet go only to its owner wallet and to destinations it approved: someone who got
               into your Telegram can’t send your funds anywhere else.
             </Notice>
             {!c ? (
@@ -316,9 +316,9 @@ function HowPanel() {
       <PanelHeader title="How recovery works" />
       <ol className="divide-y divide-line-soft">
         {[
-          ['Your wallet is the owner.', 'Each NearKit wallet answers to the wallet you linked when you created it. Export, destinations and the backup key need its signature.'],
+          ['Your wallet is the owner.', 'Each NEARKITS wallet answers to the wallet you linked when you created it. Export, destinations and the backup key need its signature.'],
           ['No Telegram needed.', 'This page works on its own: connect the owner wallet and sign. Telegram only hears afterwards that something happened.'],
-          ['The key stays between NearKit’s signer and you.', 'An exported key is sealed to this page, shown once and never stored. NearKit never asks for your seed phrase.'],
+          ['The key stays between NEARKITS’ signer and you.', 'An exported key is sealed to this page, shown once and never stored. NEARKITS never asks for your seed phrase.'],
         ].map(([title, text], i) => (
           <li key={title} className="flex items-start gap-4 px-4 py-3">
             <span className="num mt-0.5 text-xs text-fg-4">{String(i + 1).padStart(2, '0')}</span>
@@ -344,14 +344,14 @@ export default function RecoverPage() {
     <Page>
       <PageHeader
         title="Recover"
-        description="Your NearKit wallets answer to your own wallet. Export a key or approve a withdrawal destination here with its signature, with or without Telegram."
+        description="Your NEARKITS wallets answer to your own wallet. Export a key or approve a withdrawal destination here with its signature, with or without Telegram."
       />
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[480px_minmax(0,1fr)]">
         {ENV.services !== 'near' || !apiUrl ? (
           <Panel>
             <PanelHeader title="Recover" />
             <PanelBody>
-              <p className="text-sm text-fg-2">This NearKit build isn’t connected to a NearKit server, so there are no NearKit wallets to recover here.</p>
+              <p className="text-sm text-fg-2">This NEARKITS build isn’t connected to a NEARKITS server, so there are no NEARKITS wallets to recover here.</p>
             </PanelBody>
           </Panel>
         ) : target.kind === 'export' ? (

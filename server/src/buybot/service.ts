@@ -135,7 +135,7 @@ if (process.argv[1] && /buybot\.(js|ts)$/.test(process.argv[1])) {
     process.on('SIGINT', () => void stop())
     process.on('SIGTERM', () => void stop())
   } catch (e) {
-    boot.error('NearKit buybot failed to start', { error: e })
+    boot.error('NEARKITS buybot failed to start', { error: e })
     process.exit(1)
   }
 }

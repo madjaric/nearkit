@@ -147,10 +147,10 @@ export default function PositionsPage() {
   const caps = useCapabilities()
   const description =
     caps.mode === 'demo'
-      ? 'Every token held across your NearKit wallets, valued at demo prices against your average entry.'
+      ? 'Every token held across your NEARKITS wallets, valued at demo prices against your average entry.'
       : caps.prices
-        ? 'Every token held across your NearKit wallets, valued at Rhea prices, with cost basis and PnL from your on-chain history (average cost).'
-        : `Every token held across your NearKit wallets on ${caps.networkLabel.toLowerCase()}. Testnet tokens have no USD price: each row’s details show PnL in NEAR.`
+        ? 'Every token held across your NEARKITS wallets, valued at Rhea prices, with cost basis and PnL from your on-chain history (average cost).'
+        : `Every token held across your NEARKITS wallets on ${caps.networkLabel.toLowerCase()}. Testnet tokens have no USD price: each row’s details show PnL in NEAR.`
   return (
     <Page>
       <PageHeader title="Positions" description={description} />

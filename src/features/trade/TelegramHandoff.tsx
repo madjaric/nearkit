@@ -37,9 +37,9 @@ export function HandoffBanner({ id, report }: { id: string; report: HandoffRepor
           <Tag tone="neutral">Telegram</Tag>
         </p>
         <p className="text-xs leading-5 text-fg-3">
-          Review the trade below and sign it in your wallet. NearKit quotes again right before you sign. Once it is confirmed on chain, the result is sent back to the bot.
+          Review the trade below and sign it in your wallet. NEARKITS quotes again right before you sign. Once it is confirmed on chain, the result is sent back to the bot.
         </p>
-        {!ENV.apiUrl && <p className="text-xs text-warn">This NearKit build isn’t connected to the bot server, so the result can’t be sent back to Telegram.</p>}
+        {!ENV.apiUrl && <p className="text-xs text-warn">This NEARKITS build isn’t connected to the bot server, so the result can’t be sent back to Telegram.</p>}
         {info.isError && <p className="text-xs text-warn">{describeError(info.error).message}</p>}
         {info.data && info.data.status !== 'open' && <p className="text-xs text-fg-3">This trade was already reported to Telegram ({info.data.status}).</p>}
         {mismatch && (

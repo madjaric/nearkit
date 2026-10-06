@@ -96,7 +96,7 @@ export default function ScannerPage() {
       <Panel>
         <EmptyState title="Scan a token contract" action={<Suggestions onPick={submit} />}>
           {real
-            ? `Paste a NEP-141 contract or a listed symbol. NearKit reads supply, metadata and upgrade keys from ${net} and marks every figure that comes from an indexer instead. Try one:`
+            ? `Paste a NEP-141 contract or a listed symbol. NEARKITS reads supply, metadata and upgrade keys from ${net} and marks every figure that comes from an indexer instead. Try one:`
             : 'Paste a contract or symbol to read its supply, holder concentration, creator holdings, liquidity and contract permissions. The demo scanner reads sample contracts. Try one:'}
         </EmptyState>
       </Panel>
@@ -142,7 +142,7 @@ export default function ScannerPage() {
     body = (
       <Panel>
         <EmptyState title={`No demo scan data for ${listed.symbol}`} action={<Suggestions onPick={submit} />}>
-          The demo scanner only reports on sample contracts, so it never shows invented figures for a real token. Run NearKit on a network to scan real contracts.
+          The demo scanner only reports on sample contracts, so it never shows invented figures for a real token. Run NEARKITS on a network to scan real contracts.
         </EmptyState>
       </Panel>
     )

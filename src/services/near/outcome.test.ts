@@ -249,7 +249,7 @@ describe('swapDelivered: the output reached the user, before the settlement call
     expect(v?.phase).toBe('success')
     expect(v?.swap?.received).toEqual({ token: NEARLY, raw: '912437590771706887485' })
     expect(v?.swap?.appFee).toEqual({ token: 'wrap.near', raw: '4000000000000000000000', recipient: 'nearkitfee.near' })
-    expect(v?.note).toBe('Received 912.43759 NEARLY · NearKit fee 0.004 wNEAR')
+    expect(v?.note).toBe('Received 912.43759 NEARLY · NEARKITS fee 0.004 wNEAR')
     // The final classifier can't say yet: the last callbacks haven't run.
     expect(classifyOutcome(partial, planOf(incident)).phase).toBe('unknown')
   })
@@ -341,12 +341,12 @@ describe('classifyOutcome: direct swaps on the DCL exchange', () => {
     expect(classifyOutcome(without, planOf(sell)).phase).toBe('unknown')
   })
 
-  it('reports NearKit’s fee from the plan’s own transfer, carried by the same transaction', () => {
+  it('reports NEARKITS’ fee from the plan’s own transfer, carried by the same transaction', () => {
     const r = withFee(buy)
     const v = classifyOutcome(r, planOf(r), { describeToken: singNames })
     expect(v.phase).toBe('success')
     expect(v.swap?.appFee).toEqual({ token: 'wrap.near', raw: '5000000000000000000000', recipient: 'nearkitfee.near' })
-    expect(v.note).toMatch(/^Received 69,099\.416 SINGULARTY · NearKit fee 0\.005 wNEAR$/)
+    expect(v.note).toMatch(/^Received 69,099\.416 SINGULARTY · NEARKITS fee 0\.005 wNEAR$/)
   })
 })
 
@@ -391,7 +391,7 @@ describe('swapDelivered: a direct DCL swap reached the user, before the exchange
     expect(swapDelivered(upTo(sell, logged('Withdraw 6466620529704459818356932 NEAR')), planOf(sell), { token: 'near', recipient: seller })).toBeNull()
   })
 
-  it('carries NearKit’s fee from the plan, and the final classifier agrees', () => {
+  it('carries NEARKITS’ fee from the plan, and the final classifier agrees', () => {
     const r = withFee(buy)
     const v = swapDelivered(
       upTo(r, (o) => o.outcome.executor_id === SING),

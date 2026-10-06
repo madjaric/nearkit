@@ -6,7 +6,7 @@ const DIGEST = 'vVmfsy7_EOvYV1bUzufrNWV66n0fl92XVUcTOHa02CY'
 const initData = (startParam: string) => new URLSearchParams({ auth_date: '1790000000', start_param: startParam, user: '{"id":101}', signature: 'x', hash: 'y' }).toString()
 const hashOf = (data: string) => `#${new URLSearchParams({ tgWebAppData: data, tgWebAppVersion: '8.0', tgWebAppPlatform: 'ios' }).toString()}`
 
-describe('the launch Telegram hands NearKit’s Mini App', () => {
+describe('the launch Telegram hands NEARKITS’ Mini App', () => {
   it('is read from the address Telegram opened: its signed data, and the link’s start parameter in it', () => {
     const data = initData(DIGEST)
     expect(readTelegramLaunch(hashOf(data), '')).toEqual({ initData: data, startParam: DIGEST })

@@ -143,7 +143,7 @@ describe('buybot pipeline on the transaction index', () => {
     expect(text).not.toMatch(/market cap/i)
     expect(text).toContain('👥 Holders 286,262 (NearBlocks)')
     expect(text).toContain(`📄 CA <code>${SING}</code>`)
-    expect(text).toContain('⚡ NearKit')
+    expect(text).toContain('⚡ NEARKITS')
     // Paid in NEAR: the NEAR value is the amount itself, not repeated as an estimate.
     expect(text).not.toContain('≈')
     expect(posts[0]?.buttons).toEqual([

@@ -10,13 +10,13 @@ const ONE = 10n ** 24n
 const REG = 1_250_000_000_000_000_000_000n
 const WALLET = 'f'.repeat(64)
 
-describe('the gas reserve, as NearKit names it', () => {
-  it('is a reserve that is refunded, explained as held and refunded, and never a NearKit fee', () => {
+describe('the gas reserve, as NEARKITS names it', () => {
+  it('is a reserve that is refunded, explained as held and refunded, and never a NEARKITS fee', () => {
     expect(GAS_RESERVE_LABEL).toBe('Gas reserve (refunded)')
     expect(GAS_RESERVE_NOTE).toBe('Temporarily held while the transaction runs. Unused gas is refunded automatically.')
-    expect(GAS_RESERVE_NOT_FEE).toBe('This is not an additional NearKit fee.')
+    expect(GAS_RESERVE_NOT_FEE).toBe('This is not an additional NEARKITS fee.')
     expect(GAS_RESERVE_TOOLTIP).toBe(
-      'NEAR temporarily holds the attached gas amount while the transaction runs. Unused gas is automatically refunded to your wallet. This is not an additional NearKit fee.',
+      'NEAR temporarily holds the attached gas amount while the transaction runs. Unused gas is automatically refunded to your wallet. This is not an additional NEARKITS fee.',
     )
     expect(GLOSSARY.gasReserveRefunded).toEqual({ term: GAS_RESERVE_LABEL, text: GAS_RESERVE_TOOLTIP })
   })
@@ -52,7 +52,7 @@ describe('the gas reserve, as NearKit names it', () => {
     expect(GLOSSARY.gasReserve.term).toBe('Minimum wallet reserve')
     expect(GLOSSARY.gasReserve.term).not.toBe(GAS_RESERVE_LABEL)
     expect(GLOSSARY.gasReserve.text).toContain(`${GAS_RESERVE_NEAR} NEAR`)
-    expect(GLOSSARY.gasReserve.text).toMatch(/NearKit keeps available in each wallet/)
+    expect(GLOSSARY.gasReserve.text).toMatch(/NEARKITS keeps available in each wallet/)
     expect(GLOSSARY.gasReserve.text).toMatch(/not the temporary gas reserve/)
   })
 

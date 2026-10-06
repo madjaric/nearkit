@@ -1,6 +1,6 @@
 import { cn } from '@/lib/cn'
 
-/** The NearKit mark: an instrument screen with the wordmark's slash as its trace. */
+/** The NEARKITS mark: an instrument screen with an accent slash as its trace. */
 export function LogoMark({ size = 20, className }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true" className={cn('shrink-0', className)}>
@@ -10,19 +10,15 @@ export function LogoMark({ size = 20, className }: { size?: number; className?: 
   )
 }
 
-/** Text wordmark: NEAR/KIT, set extended like a silkscreened panel name. */
+/** Text wordmark: NEARKITS, set extended like a silkscreened panel name; the mark beside it carries the accent. */
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span
       className={cn('inline-flex select-none items-baseline text-[15px] font-bold leading-none tracking-[0.07em] text-fg', className)}
       style={{ fontStretch: '118%' }}
-      aria-label="NearKit"
+      aria-label="NEARKITS"
     >
-      <span aria-hidden="true">NEAR</span>
-      <span aria-hidden="true" className="mx-[1px] text-accent">
-        /
-      </span>
-      <span aria-hidden="true">KIT</span>
+      <span aria-hidden="true">NEARKITS</span>
     </span>
   )
 }

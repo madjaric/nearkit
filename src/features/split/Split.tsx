@@ -463,7 +463,7 @@ export function Split() {
               <SimulationNote
                 real={
                   source && executesViaNearKit(source)
-                    ? `NearKit’s server sends each line from ${source.label} (no wallet prompt), to its owner wallet or addresses approved for it.`
+                    ? `NEARKITS’ server sends each line from ${source.label} (no wallet prompt), to its owner wallet or addresses approved for it.`
                     : undefined
                 }
               />

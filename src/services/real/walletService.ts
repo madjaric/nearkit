@@ -268,7 +268,7 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
       const error = accountIdError(accountId)
       if (error) throw new NearKitError('INVALID_ACCOUNT', error)
       if (isForeignToNetwork(accountId, ctx.network.id))
-        throw new NearKitError('NETWORK_MISMATCH', `${accountId} belongs to another network; NearKit is on ${ctx.network.label.toLowerCase()}`)
+        throw new NearKitError('NETWORK_MISMATCH', `${accountId} belongs to another network; NEARKITS is on ${ctx.network.label.toLowerCase()}`)
       if ((await wallets()).some((w) => w.accountId === accountId)) throw new NearKitError('INVALID_ACCOUNT', `${accountId} is already in your wallets`)
       const state = await accountState(ctx.rpc, accountId, 'final')
       if (!state.exists && accountKind(accountId) === 'named') throw new NearKitError('INVALID_ACCOUNT', `${accountId} does not exist on ${ctx.network.label.toLowerCase()}`)

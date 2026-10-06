@@ -48,7 +48,7 @@ function FeeLines({ fee, demo }: { fee: FeeDisclosure; demo: boolean }) {
       <Line label={`${fee.label} (${pct(fee.bps)})`} emphasis>
         {fee.charged || demo ? `${g(fee.amount.display)} ${fee.token.symbol}` : 'Not charged'}
       </Line>
-      {fee.charged && fee.received && <Line label={`NearKit receives (${pct(fee.received.bps)})`}>{`${g(fee.received.amount.display)} ${fee.token.symbol}`}</Line>}
+      {fee.charged && fee.received && <Line label={`NEARKITS receives (${pct(fee.received.bps)})`}>{`${g(fee.received.amount.display)} ${fee.token.symbol}`}</Line>}
       {fee.charged && fee.routerShare && (
         <Line label={`${fee.routerShare.party} keeps (${pct(fee.routerShare.bps)})`}>{`${g(fee.routerShare.amount.display)} ${fee.token.symbol}`}</Line>
       )}
@@ -122,7 +122,7 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
         {storage && <Line label="Storage deposits">{`${g(plan.totals.storage.display)} NEAR`}</Line>}
         {upfront && <GasReserveLine value={`≈ ${formatUnitsUp(BigInt(plan.totals.upfrontNear.raw), 24, 4, { group: true })} NEAR`} />}
         <Line label="Transactions">{`${plan.transactions.length} in ${plan.groups.length} ${plan.groups.length === 1 ? 'approval' : 'approvals'}`}</Line>
-        {plan.fee ? <FeeLines fee={plan.fee} demo={plan.mode === 'demo'} /> : !swap && <Line label="NearKit fee">None on transfers</Line>}
+        {plan.fee ? <FeeLines fee={plan.fee} demo={plan.mode === 'demo'} /> : !swap && <Line label="NEARKITS fee">None on transfers</Line>}
       </Lines>
 
       {plan.warnings.length > 0 && (

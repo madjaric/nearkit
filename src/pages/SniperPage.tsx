@@ -251,7 +251,7 @@ function Sniper() {
               <Line label="Total" emphasis>
                 {formatNumber(total, 2, 4)} NEAR
               </Line>
-              <Line label={`NearKit fee (${NEARKIT_FEE_LABEL})`}>{formatNumber((total * NEARKIT_FEE_BPS) / 10_000, 2, 4)} NEAR</Line>
+              <Line label={`NEARKITS fee (${NEARKIT_FEE_LABEL})`}>{formatNumber((total * NEARKIT_FEE_BPS) / 10_000, 2, 4)} NEAR</Line>
               <Line label={<Term term="networkFee">Network fee (est.)</Term>}>{formatNumber(funded * NETWORK_FEE_NEAR_PER_TX, 4, 4)} NEAR</Line>
               <Line label="Trigger">{trigger === 'at-time' && at ? formatDateTime(at) : TRIGGER_WORDS[trigger]}</Line>
               <Line label="Priority">
@@ -270,7 +270,7 @@ function Sniper() {
                 Save config
               </Button>
               {touched && blocker && <p className="text-xs text-neg">{blocker}</p>}
-              <Tip content="Arming needs a service that watches launches and signs for you. NearKit doesn't run one yet." className="w-full">
+              <Tip content="Arming needs a service that watches launches and signs for you. NEARKITS doesn't run one yet." className="w-full">
                 <span className="flex w-full items-center gap-2">
                   <Button size="md" variant="secondary" disabled className="min-w-0 flex-1">
                     Arm sniper

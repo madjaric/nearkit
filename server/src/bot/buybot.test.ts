@@ -111,7 +111,7 @@ describe('/buybot', () => {
   it('pauses alerts when removed from the group and greets when added back', async () => {
     const h = await bot()
     const cfg = await addToken(h)
-    const me = { id: 1111111111, is_bot: true, first_name: 'NearKit' }
+    const me = { id: 1111111111, is_bot: true, first_name: 'NEARKITS' }
     await h.app.handle({
       update_id: 1,
       my_chat_member: { chat: GROUP, from: ALICE, date: 0, old_chat_member: { status: 'member', user: me }, new_chat_member: { status: 'kicked', user: me } },

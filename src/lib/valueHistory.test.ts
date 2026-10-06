@@ -25,7 +25,7 @@ describe('portfolio value history, as this browser saw it', () => {
     ])
   })
 
-  it('1D: every sample of the last 24 hours, and nothing invented for the time NearKit was closed', () => {
+  it('1D: every sample of the last 24 hours, and nothing invented for the time NEARKITS was closed', () => {
     const now = T0 + 3 * DAY
     const list = seen([
       [now - 30 * HOUR, 90],

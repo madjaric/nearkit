@@ -145,13 +145,13 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
   }
 
   const recipient = raw.NEARKIT_SIGNER_RECIPIENT?.trim() ?? ''
-  if (!/^[a-z0-9.-]{1,253}$/.test(recipient)) issue('NEARKIT_SIGNER_RECIPIENT', 'The NearKit web app’s host name, e.g. nearkit.vercel.app')
+  if (!/^[a-z0-9.-]{1,253}$/.test(recipient)) issue('NEARKIT_SIGNER_RECIPIENT', 'The NEARKITS web app’s host name, e.g. nearkit.vercel.app')
   else if (mainnet && LOCAL_HOSTS.has(recipient)) issue('NEARKIT_SIGNER_RECIPIENT', 'A local host name is not a production web app')
 
   const feeRecipient = blank(raw.NEARKIT_FEE_RECIPIENT) ? null : raw.NEARKIT_FEE_RECIPIENT.trim()
   const feeProblem = feeRecipientProblem(networkId, feeRecipient)
   if (feeProblem) issue('NEARKIT_FEE_RECIPIENT', feeProblem)
-  if (!mainnet && feeRecipient) issue('NEARKIT_FEE_RECIPIENT', 'Testnet charges no NearKit fee: leave it empty')
+  if (!mainnet && feeRecipient) issue('NEARKIT_FEE_RECIPIENT', 'Testnet charges no NEARKITS fee: leave it empty')
 
   const urls = (blank(raw.NEARKIT_SIGNER_RPC_URLS) ? [...NETWORKS[networkId].rpcUrls] : raw.NEARKIT_SIGNER_RPC_URLS.split(',')).map((u) => u.trim()).filter(Boolean)
   for (const u of urls) {
@@ -195,7 +195,7 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
   const botRaw = raw.NEARKIT_SIGNER_TELEGRAM_BOT_ID?.trim()
   if (!blank(botRaw)) {
     const env = blank(raw.NEARKIT_SIGNER_TELEGRAM_ENV) ? 'production' : raw.NEARKIT_SIGNER_TELEGRAM_ENV.trim()
-    if (!/^\d{5,16}$/.test(botRaw)) issue('NEARKIT_SIGNER_TELEGRAM_BOT_ID', 'The numeric id of NearKit’s bot: the digits before ":" in its token (not secret)')
+    if (!/^\d{5,16}$/.test(botRaw)) issue('NEARKIT_SIGNER_TELEGRAM_BOT_ID', 'The numeric id of NEARKITS’ bot: the digits before ":" in its token (not secret)')
     else if (env !== 'production' && env !== 'test') issue('NEARKIT_SIGNER_TELEGRAM_ENV', 'Expected "production" (default) or "test" (Telegram’s test servers)')
     else telegram = { botId: Number(botRaw), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS[env]) as Uint8Array }
   }

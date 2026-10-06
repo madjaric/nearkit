@@ -44,7 +44,7 @@ const POLL_MS = 1_500
 /** How long one send is followed; past it the batch starts nothing more (it may still be running). */
 const SEND_WAIT_MS = 3 * 60_000
 export const NOT_SENT = 'Not sent: the batch stopped before this line.'
-const STILL_RUNNING = 'Still running on NearKit’s server: check this wallet’s activity before sending again. Nothing after it was started.'
+const STILL_RUNNING = 'Still running on NEARKITS’ server: check this wallet’s activity before sending again. Nothing after it was started.'
 
 const messageOf = (e: unknown) => (e instanceof Error && e.message ? e.message : describeError(e).message)
 const finished = (s: WebLegStatus) => s === 'done' || s === 'failed' || s === 'cancelled' || s === 'expired'

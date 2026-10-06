@@ -56,7 +56,7 @@ describe('activity: a transaction still processing on chain', () => {
     expect(r.status).toBe('pending')
   })
 
-  it('without a hash (NearKit closed while looking for it) becomes unknown once the run is gone', async () => {
+  it('without a hash (NEARKITS closed while looking for it) becomes unknown once the run is gone', async () => {
     const ctx = ctxWith(async (h) => successOutcome(h, 'bottest.near', 'wrap.near'), 60 * 60_000)
     const r = await reconcile(ctx, record([swapTx({ hash: null })], { status: 'pending', checkedAt: 0 }), new Set())
     expect(r.txs[0]?.phase).toBe('unknown')

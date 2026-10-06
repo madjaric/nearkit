@@ -31,7 +31,7 @@ export async function startFakeTelegram({ token, username = 'NearKitTestBot' }) 
       const ok = (result) => reply(200, { ok: true, result })
       switch (method) {
         case 'getMe':
-          return ok({ id: 424242, is_bot: true, first_name: 'NearKit Test', username })
+          return ok({ id: 424242, is_bot: true, first_name: 'NEARKITS Test', username })
         case 'getWebhookInfo':
           return ok({ url: '', pending_update_count: 0 })
         case 'getUpdates': {

@@ -50,7 +50,8 @@ export interface SmartxQuote {
 }
 
 const unavailable = (message: string, detail?: string) => new NearKitError('QUOTE_UNAVAILABLE', message, detail ? { detail } : {})
-const rejected = (message: string, detail?: string) => new NearKitError('QUOTE_REJECTED', `NearKit refused Rhea’s route: ${message}. Nothing was signed.`, detail ? { detail } : {})
+const rejected = (message: string, detail?: string) =>
+  new NearKitError('QUOTE_REJECTED', `NEARKITS refused Rhea’s route: ${message}. Nothing was signed.`, detail ? { detail } : {})
 
 const INT = /^\d+$/
 const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -91,7 +92,7 @@ export function parseSmartxResponse(json: unknown, hint?: SmartxPairHint): Smart
     const words = typeof json.result_message === 'string' ? json.result_message.trim() : ''
     if (code === 1008 && !words)
       throw unavailable(
-        `Rhea’s aggregator has no route for ${pairLabel(hint)} right now (Rhea code 1008). It answers the same whatever the amount, in either direction, so this isn’t about the amount: Rhea doesn’t route this token at the moment, and NearKit trades only through Rhea’s aggregator. Try again later.`,
+        `Rhea’s aggregator has no route for ${pairLabel(hint)} right now (Rhea code 1008). It answers the same whatever the amount, in either direction, so this isn’t about the amount: Rhea doesn’t route this token at the moment, and NEARKITS trades only through Rhea’s aggregator. Try again later.`,
       )
     throw unavailable(`Rhea’s aggregator refused this quote (code ${code ?? '?'}${words ? `: ${words}` : ''}). Try again in a moment.`)
   }
@@ -226,7 +227,7 @@ const SLIPPAGE_TOLERANCE_PPM = 1_000n
 
 function onlyKeys(o: Record<string, unknown>, allowed: ReadonlySet<string>, where: string): void {
   const extra = Object.keys(o).filter((k) => !allowed.has(k))
-  if (extra.length) throw rejected(`${where} carries fields NearKit doesn't recognize (${extra.join(', ')})`)
+  if (extra.length) throw rejected(`${where} carries fields NEARKITS doesn't recognize (${extra.join(', ')})`)
 }
 
 function big(value: unknown, what: string): bigint {
@@ -335,9 +336,9 @@ export function checkSmartxRoute(quote: SmartxQuote, decoded: unknown, exp: Rout
 
   const fee = d.app_fee_rate === undefined || d.app_fee_rate === null || d.app_fee_rate === 0 ? null : d.app_fee_rate
   if (exp.appFeePpm === null) {
-    if (fee !== null || (d.app_fee_recipient !== undefined && d.app_fee_recipient !== null)) throw rejected('it carries a fee NearKit did not request')
+    if (fee !== null || (d.app_fee_recipient !== undefined && d.app_fee_recipient !== null)) throw rejected('it carries a fee NEARKITS did not request')
   } else {
-    if (fee !== exp.appFeePpm) throw rejected('its fee rate differs from the NearKit fee', `app_fee_rate ${String(fee)}, expected ${exp.appFeePpm}`)
+    if (fee !== exp.appFeePpm) throw rejected('its fee rate differs from the NEARKITS fee', `app_fee_rate ${String(fee)}, expected ${exp.appFeePpm}`)
     if (d.app_fee_recipient !== exp.appFeeRecipient) throw rejected('its fee goes to another account', `app_fee_recipient ${String(d.app_fee_recipient)}`)
   }
 

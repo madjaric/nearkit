@@ -329,7 +329,7 @@ await step(
     if (/rel="canonical"/.test(html)) throw new Error('the served HTML names a canonical')
     if (html.includes('vercel.app')) throw new Error('the served HTML names vercel.app')
     const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)?.[1] ?? '{}')
-    if (ld.url !== 'https://nearkits.com/' || ld.name !== 'NearKit') throw new Error(`JSON-LD: ${JSON.stringify(ld)}`)
+    if (ld.url !== 'https://nearkits.com/' || ld.name !== 'NEARKITS') throw new Error(`JSON-LD: ${JSON.stringify(ld)}`)
     const robots = await fetch(BASE + '/robots.txt')
     const robotsText = await robots.text()
     if (!robots.ok || !robotsText.includes('Sitemap: https://nearkits.com/sitemap.xml')) throw new Error(`robots.txt: ${robots.status} ${robotsText.slice(0, 200)}`)

@@ -68,7 +68,7 @@ describe.each(TEST_ENGINES)(
       expect((await r.attribute(CAROL, code)).result).toBe('not-new')
     })
 
-    it('a user who already linked a wallet or has a NearKit wallet is not new', async () => {
+    it('a user who already linked a wallet or has a NEARKITS wallet is not new', async () => {
       const { code } = await r.link(ALICE, 'b')
       await join(BOB)
       await link(BOB, 'bob.near')
@@ -94,7 +94,7 @@ describe.each(TEST_ENGINES)(
       expect(results.filter((x) => x.result === 'attributed')).toHaveLength(1)
     })
 
-    it('earns 20% of what NearKit received, once per trade, only for fees that reached the production account', async () => {
+    it('earns 20% of what NEARKITS received, once per trade, only for fees that reached the production account', async () => {
       await join(BOB)
       await r.attribute(BOB, (await r.link(ALICE, 'b')).code)
       // 400 raw received = 0.40% of a 100 000 raw trade: 80 to Alice, 320 NearKit's.

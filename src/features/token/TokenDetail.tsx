@@ -79,7 +79,7 @@ export function TokenDetail({ tokenId }: { tokenId: string }) {
             </Link>
           }
         >
-          {lookup.error ? describeError(lookup.error).message : `NearKit can't find a token named ${tokenId}.`}
+          {lookup.error ? describeError(lookup.error).message : `NEARKITS can't find a token named ${tokenId}.`}
         </EmptyState>
       </Panel>
     )
@@ -199,7 +199,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
     price && (price.state === 'unavailable' || price.state === 'not-applicable')
       ? price.reason
       : market.isError
-        ? 'The market sources aren’t answering; NearKit asks again shortly.'
+        ? 'The market sources aren’t answering; NEARKITS asks again shortly.'
         : ''
 
   const chartNote = (): string => {
@@ -336,7 +336,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           <SendTokenButton token={token} label={`Send ${token.symbol}`} />
           {!native && nearkitWallets && (
             <span className="text-xs text-fg-3">
-              With NearKit wallets:{' '}
+              With NEARKITS wallets:{' '}
               <Link className="text-fg-2 underline-offset-2 hover:underline" to={`/multi-trade?side=buy&token=${encodeURIComponent(token.id)}`}>
                 Multi buy
               </Link>{' '}
@@ -417,7 +417,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           )}
           {history.isError && (
             <p className="text-xs text-warn" role="alert">
-              Price history can’t be read right now ({describeError(history.error).message}). NearKit asks again shortly.
+              Price history can’t be read right now ({describeError(history.error).message}). NEARKITS asks again shortly.
             </p>
           )}
           {view && view.points.length > 0 && <p className="text-xs text-fg-3">{chartNote()}</p>}
@@ -435,7 +435,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             <Skeleton className="h-24 w-full" />
           </div>
         ) : activity.isError ? (
-          <p className="px-4 py-6 text-center text-sm text-fg-3">Recent trades can’t be read right now. NearKit asks again shortly.</p>
+          <p className="px-4 py-6 text-center text-sm text-fg-3">Recent trades can’t be read right now. NEARKITS asks again shortly.</p>
         ) : !activity.data || activity.data.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-fg-3">No recent trading activity available.</p>
         ) : (
@@ -547,7 +547,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
                   <AccountText id={wallet.accountId} className="text-xs text-fg-4" />
                   <CopyButton value={wallet.accountId} label={`Copy ${wallet.label} account`} className="size-5" />
                   {!canExecute(wallet) && <Tag tone="soon">Watch only</Tag>}
-                  {executesViaNearKit(wallet) && <Tag>NearKit</Tag>}
+                  {executesViaNearKit(wallet) && <Tag>NEARKITS</Tag>}
                 </span>
                 <span className="num text-fg-2">{formatAmount(holding.amount, 2)}</span>
               </li>

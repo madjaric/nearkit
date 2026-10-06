@@ -146,9 +146,9 @@ export function NearKitSendsModal({
       description={
         wallet
           ? perLine
-            ? `From ${senders} NearKit wallets · NearKit’s server signs and sends each line from its own wallet; nothing is signed in this browser.`
-            : `From ${wallet.label} · NearKit’s server signs and sends each line; nothing is signed in this browser.`
-          : `Into ${into.label} (${formatAccount(into.accountId)}) · NearKit’s server sends from each NearKit wallet, with that wallet’s own key; nothing is signed in this browser.`
+            ? `From ${senders} NEARKITS wallets · NEARKITS’ server signs and sends each line from its own wallet; nothing is signed in this browser.`
+            : `From ${wallet.label} · NEARKITS’ server signs and sends each line; nothing is signed in this browser.`
+          : `Into ${into.label} (${formatAccount(into.accountId)}) · NEARKITS’ server sends from each NEARKITS wallet, with that wallet’s own key; nothing is signed in this browser.`
       }
       footer={
         phase === 'review' ? (
@@ -188,9 +188,9 @@ export function NearKitSendsModal({
           <p role="alert" className="text-sm text-fg-2">
             {wallet
               ? perLine
-                ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved yet for the wallet sending to it. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
-                : `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
-              : `${into.label} isn’t approved yet for ${needs} of these NearKit wallets. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve it once for each (the links open in a new tab), then review again.`}
+                ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved yet for the wallet sending to it. A NEARKITS wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+                : `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NEARKITS wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+              : `${into.label} isn’t approved yet for ${needs} of these NEARKITS wallets. A NEARKITS wallet sends only to its owner wallet and to addresses approved for it: approve it once for each (the links open in a new tab), then review again.`}
           </p>
         )}
         {phase === 'done' && (

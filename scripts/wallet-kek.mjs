@@ -14,7 +14,7 @@ if (has) {
   process.exit(0)
 }
 const text = [
-  '# SECRET. Encrypts NearKit trading-wallet keys (testnet). Never commit, share or print it.',
+  '# SECRET. Encrypts NEARKITS trading-wallet keys (testnet). Never commit, share or print it.',
   '# Losing it makes every stored wallet key unreadable.',
   `NEARKIT_WALLET_KEK=${randomBytes(32).toString('base64')}`,
   '',

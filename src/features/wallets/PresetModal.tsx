@@ -113,7 +113,7 @@ function PresetForm({ preset, onClose, wallets, onSaved }: Omit<PresetModalProps
                           Watch only
                         </Tag>
                       )}
-                      {executesViaNearKit(w) && <Tag title="A NearKit wallet: NearKit executes its trades, with no wallet prompt.">NearKit</Tag>}
+                      {executesViaNearKit(w) && <Tag title="A NEARKITS wallet: NEARKITS executes its trades, with no wallet prompt.">NEARKITS</Tag>}
                     </span>
                     <span className="flex gap-2 text-[11px] text-fg-4">
                       <AccountText id={w.accountId} />

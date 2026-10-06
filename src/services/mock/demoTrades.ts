@@ -17,7 +17,7 @@ function rawFromNumber(value: number, decimals: number): bigint {
 
 function demoFee(amountNear: number): FeeDisclosure {
   return {
-    label: 'NearKit fee',
+    label: 'NEARKITS fee',
     bps: NEARKIT_FEE_BPS,
     amount: amountValue(rawFromNumber(amountNear, 24), 24),
     token: NEAR_REF,

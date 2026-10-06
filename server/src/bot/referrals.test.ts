@@ -30,8 +30,8 @@ describe('invites in Telegram', () => {
   it('a new user who starts with the link is attributed once; the referrer hears that someone joined, not who', async () => {
     const { h, referrals, code } = await bot()
     await h.say(`/start ref_${code}`, BOB)
-    expect(h.fake.messages().some((m) => m.chatId === BOB.id && m.text.includes('You joined NearKit with an invite'))).toBe(true)
-    const toAlice = h.fake.messages().filter((m) => m.chatId === ALICE.id && m.text.includes('Someone new joined NearKit'))
+    expect(h.fake.messages().some((m) => m.chatId === BOB.id && m.text.includes('You joined NEARKITS with an invite'))).toBe(true)
+    const toAlice = h.fake.messages().filter((m) => m.chatId === ALICE.id && m.text.includes('Someone new joined NEARKITS'))
     expect(toAlice).toHaveLength(1)
     expect(toAlice[0]?.text).not.toContain('Bob')
     expect((await referrals.store.attribution(BOB.id))?.referrerUserId).toBe(ALICE.id)

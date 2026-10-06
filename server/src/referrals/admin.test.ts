@@ -69,7 +69,7 @@ describe('the owner’s referral payouts', () => {
       expect(await run(['paid', id, 'tx1', 'fees.testnet'])).toBe(1)
       expect(out.at(-1)).toMatch(/already paid/)
       expect(await run(['summary'])).toBe(0)
-      expect(out.at(-1)).toBe(`${USDT}: earned 800000 · paid 800000 · requested 0 · available 0 · NearKit net 3200000 (raw units)`)
+      expect(out.at(-1)).toBe(`${USDT}: earned 800000 · paid 800000 · requested 0 · available 0 · NEARKITS net 3200000 (raw units)`)
       expect(await run(['reject', 'nope', 'reason'])).toBe(1)
       expect(await run(['nonsense'])).toBe(2)
     } finally {

@@ -242,14 +242,14 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     try {
       const s = JSON.parse(raw) as Partial<NearKitWebSession>
       if (typeof s.token !== 'string' || typeof s.expiresAt !== 'number' || s.expiresAt <= now()) return null
-      return { token: s.token, expiresAt: s.expiresAt, userName: typeof s.userName === 'string' ? s.userName : 'NearKit user' }
+      return { token: s.token, expiresAt: s.expiresAt, userName: typeof s.userName === 'string' ? s.userName : 'NEARKITS user' }
     } catch {
       return null
     }
   }
 
-  const unavailable = () => new LinkRequestError(0, 'unavailable', 'This NearKit build has no NearKit server, so NearKit wallets aren’t available here.')
-  const signedOut = () => new LinkRequestError(401, 'session', 'Sign in to NearKit web first: send /web to the NearKit bot in Telegram.')
+  const unavailable = () => new LinkRequestError(0, 'unavailable', 'This NEARKITS build has no NEARKITS server, so NEARKITS wallets aren’t available here.')
+  const signedOut = () => new LinkRequestError(401, 'session', 'Sign in to NEARKITS web first: send /web to the NEARKITS bot in Telegram.')
 
   /** A call with the session; a session the server ended is forgotten here at once. */
   async function call<T>(path: string, body: Record<string, unknown>): Promise<T> {

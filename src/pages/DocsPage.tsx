@@ -71,7 +71,7 @@ export default function DocsPage() {
   const network = caps.networkLabel.toLowerCase()
   return (
     <Page>
-      <PageHeader title="Documentation" description="How NearKit works, what runs for real and what doesn't yet, and the terms used across the app." />
+      <PageHeader title="Documentation" description="How NEARKITS works, what runs for real and what doesn't yet, and the terms used across the app." />
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
         <nav aria-label="On this page" className="lg:sticky lg:top-16">
           <ol className="flex flex-wrap gap-x-4 gap-y-1 lg:flex-col">
@@ -89,10 +89,10 @@ export default function DocsPage() {
         <Panel className="max-w-[860px]">
           <div className="flex flex-col gap-10 px-5 py-6 sm:px-8 sm:py-8">
             <p className="max-w-[68ch] text-base leading-7 text-fg-2">
-              NearKit is a trading terminal and wallet toolkit for NEAR: trade, split and gather tokens across many wallets, automate entries, and read contracts before you buy.{' '}
+              NEARKITS is a trading terminal and wallet toolkit for NEAR: trade, split and gather tokens across many wallets, automate entries, and read contracts before you buy.{' '}
               {demo
                 ? 'This build is the demo: sample data, and nothing is signed or sent.'
-                : `This build runs on NEAR ${network}. You sign every transaction in your own wallet, and NearKit reports success only after the chain confirms it.`}
+                : `This build runs on NEAR ${network}. You sign every transaction in your own wallet, and NEARKITS reports success only after the chain confirms it.`}
             </p>
 
             <Section id="status" title="What works">
@@ -126,16 +126,16 @@ export default function DocsPage() {
 
             <Section id="fees" title="Fees">
               <p>
-                On mainnet NearKit charges <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> on each trade. It is collected inside the swap by Rhea’s aggregator as an app
-                fee, never as a separate transfer: of the <span className="num text-fg">{NEARKIT_FEE_LABEL}</span>, NearKit receives{' '}
+                On mainnet NEARKITS charges <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> on each trade. It is collected inside the swap by Rhea’s aggregator as an app
+                fee, never as a separate transfer: of the <span className="num text-fg">{NEARKIT_FEE_LABEL}</span>, NEARKITS receives{' '}
                 <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span> and Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>. Rhea also charges
                 its own <span className="num text-fg">0.10%</span> protocol fee on every swap. The fee comes out of the first NEAR, USDC or USDT the route touches, which is usually
                 the NEAR side. Every review shows the exact amount before you sign.
               </p>
-              <p>Batch send, Split and Consolidate carry no NearKit fee. Testnet trades are not charged, and the demo charges nothing.</p>
+              <p>Batch send, Split and Consolidate carry no NEARKITS fee. Testnet trades are not charged, and the demo charges nothing.</p>
               <p>
                 Network fees are paid to NEAR per transaction. Each transaction also needs a gas reserve: NEAR holds the attached gas while it runs and refunds what it doesn’t use
-                automatically, so only the actual network fee is spent, and it is not a NearKit fee. Token contracts may charge a one-time storage deposit (often{' '}
+                automatically, so only the actual network fee is spent, and it is not a NEARKITS fee. Token contracts may charge a one-time storage deposit (often{' '}
                 <span className="num text-fg">{STORAGE_DEPOSIT_NEAR} NEAR</span>, read from each contract) the first time an account holds their token. MAX leaves the minimum
                 wallet reserve, <span className="num text-fg">{GAS_RESERVE_NEAR} NEAR</span>, in a wallet for gas; that is separate from a transaction’s gas reserve.
               </p>
@@ -158,28 +158,28 @@ export default function DocsPage() {
 
             <Section id="pnl" title="Positions and PnL">
               <p>
-                PnL comes from each account’s own history on chain: every buy and sell NearKit can read, whether or not it was made in NearKit. Cost is the{' '}
+                PnL comes from each account’s own history on chain: every buy and sell NEARKITS can read, whether or not it was made in NEARKITS. Cost is the{' '}
                 <span className="text-fg">average cost</span> per token and account. NEAR figures are exact; USD figures use NEAR’s price in the hour of each trade. Fees and gas
                 are inside each trade’s value.
               </p>
               <p>
-                NearKit never guesses a cost. Tokens that arrived by transfer, or through a swap from another token, have no known cost and are left out of cost and PnL. When the
-                history NearKit can read doesn’t explain a balance, the figures are marked <span className="text-fg">partial</span> and say why.
+                NEARKITS never guesses a cost. Tokens that arrived by transfer, or through a swap from another token, have no known cost and are left out of cost and PnL. When the
+                history NEARKITS can read doesn’t explain a balance, the figures are marked <span className="text-fg">partial</span> and say why.
               </p>
             </Section>
 
             <Section id="automation" title="Automation">
               <p>
                 DCA plans, copy-trade rules, sniper configs and limit orders can all be created and managed now. They are saved as drafts in this browser (in standby in the demo):
-                nothing watches prices or wallets, and nothing executes. That needs a keeper service NearKit doesn’t run yet.
+                nothing watches prices or wallets, and nothing executes. That needs a keeper service NEARKITS doesn’t run yet.
               </p>
             </Section>
 
             <Section id="scanner" title="Scanner indicators">
               <p>
-                The scanner never labels a token safe or unsafe. In real mode every figure says how NearKit knows it: <span className="text-fg">verified</span> (read from the chain
-                by NearKit), <span className="text-fg">derived</span> (from NearBlocks or Rhea, which can lag), or <span className="text-fg">unknown</span> (public data can’t say,
-                such as whether a contract can mint). The demo grades sample contracts like this:
+                The scanner never labels a token safe or unsafe. In real mode every figure says how NEARKITS knows it: <span className="text-fg">verified</span> (read from the
+                chain by NEARKITS), <span className="text-fg">derived</span> (from NearBlocks or Rhea, which can lag), or <span className="text-fg">unknown</span> (public data
+                can’t say, such as whether a contract can mint). The demo grades sample contracts like this:
               </p>
               <Table label="Scanner grading">
                 <thead>

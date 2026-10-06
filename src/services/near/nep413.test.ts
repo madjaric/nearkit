@@ -45,7 +45,7 @@ describe('NEP-413 payload', () => {
 })
 
 describe('NEP-413 signatures', () => {
-  const payload = { message: 'Link Telegram @alice to NearKit', nonce, recipient: 'nearkit.vercel.app' }
+  const payload = { message: 'Link Telegram @alice to NEARKITS', nonce, recipient: 'nearkit.vercel.app' }
 
   it('accepts a signature by the key, in base64 or base58', async () => {
     const { pair, publicKey } = await keypair()

@@ -150,7 +150,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     const f = feeSplit(r)
     if (!f || !r.fee) {
       return {
-        label: 'NearKit fee',
+        label: 'NEARKITS fee',
         bps: NEARKIT_FEE_BPS,
         amount: amountValue(0n, r.tokenIn.decimals),
         token: r.tokenIn,
@@ -165,28 +165,28 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     const d = f.token.decimals
     if (r.fee.transfer) {
       return {
-        label: 'NearKit fee',
+        label: 'NEARKITS fee',
         bps: NEARKIT_FEE_BPS,
         amount: amountValue(f.split.app, d),
         token: f.token,
         charged: true,
         recipient: r.fee.recipient,
-        received: { bps: NEARKIT_FEE_BPS, amount: amountValue(f.split.app, d), party: 'NearKit' },
+        received: { bps: NEARKIT_FEE_BPS, amount: amountValue(f.split.app, d), party: 'NEARKITS' },
         routerShare: null,
         routerFee: null,
         estimated: false,
-        note: `Transferred from your ${f.token.symbol} to ${r.fee.recipient} in the same transaction as the swap, before the exchange receives the rest. NearKit receives all of it; the exchange's pool fee is in the rate.`,
+        note: `Transferred from your ${f.token.symbol} to ${r.fee.recipient} in the same transaction as the swap, before the exchange receives the rest. NEARKITS receives all of it; the exchange's pool fee is in the rate.`,
       }
     }
     const shareBps = (NEARKIT_FEE_BPS * r.fee.routerShareBps) / 10_000
     return {
-      label: 'NearKit fee',
+      label: 'NEARKITS fee',
       bps: NEARKIT_FEE_BPS,
       amount: amountValue(f.split.app, d),
       token: f.token,
       charged: true,
       recipient: r.fee.recipient,
-      received: { bps: NEARKIT_FEE_BPS - shareBps, amount: amountValue(f.split.nearkit, d), party: 'NearKit' },
+      received: { bps: NEARKIT_FEE_BPS - shareBps, amount: amountValue(f.split.nearkit, d), party: 'NEARKITS' },
       routerShare: { bps: shareBps, amount: amountValue(f.split.router, d), party: 'Rhea' },
       routerFee: { bps: r.fee.protocolPpm / 100, amount: amountValue(f.split.protocol, d), party: 'Rhea protocol' },
       estimated: f.estimated,
@@ -273,7 +273,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       w.push(`This route crosses two exchanges. If the second one misses its minimum, you keep the intermediate token instead of ${r.tokenOut.symbol}, and no fee is charged.`)
     if (r.fee?.transfer)
       w.push(
-        `This route goes to the exchange directly. The NearKit fee leaves with the swap's own transaction; if the exchange then refunds the swap (the price moved past your slippage), the fee is not refunded.`,
+        `This route goes to the exchange directly. The NEARKITS fee leaves with the swap's own transaction; if the exchange then refunds the swap (the price moved past your slippage), the fee is not refunded.`,
       )
     if (r.tax?.inBps) w.push(`${r.tokenIn.symbol} takes a ${r.tax.inBps / 100}% tax on tokens entering its DCL pool; the quote is for what the pool receives after it.`)
     if (r.tax?.outBps) w.push(`${r.tokenOut.symbol} takes a ${r.tax.outBps / 100}% tax on tokens leaving its DCL pool; the amounts shown are after it.`)
@@ -303,11 +303,11 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     const w: string[] = []
     if (withRhea.length)
       w.push(
-        `This swap also registers NearKit’s fee account (${recipient}) with Rhea for the token the fee is taken in: ${nearText(sumRaw(withRhea.map((a) => BigInt(a.deposit))))} NEAR, one time.`,
+        `This swap also registers NEARKITS’ fee account (${recipient}) with Rhea for the token the fee is taken in: ${nearText(sumRaw(withRhea.map((a) => BigInt(a.deposit))))} NEAR, one time.`,
       )
     if (onToken.length)
       w.push(
-        `This swap also registers NearKit’s fee account (${recipient}) on ${r.tokenIn.symbol}’s contract, so it can receive the fee: ${nearText(sumRaw(onToken.map((a) => BigInt(a.deposit))))} NEAR, one time.`,
+        `This swap also registers NEARKITS’ fee account (${recipient}) on ${r.tokenIn.symbol}’s contract, so it can receive the fee: ${nearText(sumRaw(onToken.map((a) => BigInt(a.deposit))))} NEAR, one time.`,
       )
     return w
   }
@@ -361,7 +361,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         ...feeAccountWarning(r, leg.txs),
         ...registrationWarnings(leg.txs, HIGH_REGISTRATION_YOCTO),
       ]
-      if (!signing.has(wallet.accountId)) warnings.push(`${wallet.accountId} is not connected right now. NearKit asks you to connect it in your wallet before signing.`)
+      if (!signing.has(wallet.accountId)) warnings.push(`${wallet.accountId} is not connected right now. NEARKITS asks you to connect it in your wallet before signing.`)
       const verb =
         r.tokenIn.contract === null ? `Buy ${r.tokenOut.symbol}` : r.tokenOut.contract === null ? `Sell ${r.tokenIn.symbol}` : `Swap ${r.tokenIn.symbol} for ${r.tokenOut.symbol}`
       return {
@@ -524,12 +524,12 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const elsewhere = planned.map((p) => p.wallet.accountId).filter((id) => !signing.has(id))
       const warnings = [
         ...(await busyWarning(first)),
-        'Each wallet’s swap is separate, signed one wallet after another. There is no all-or-nothing execution: if one fails or the quote expires, NearKit stops there. Wallets already done keep their swaps; the rest are not sent.',
+        'Each wallet’s swap is separate, signed one wallet after another. There is no all-or-nothing execution: if one fails or the quote expires, NEARKITS stops there. Wallets already done keep their swaps; the rest are not sent.',
         ...warningsFor(first),
         ...(await lookalikeWarnings([first.tokenIn, first.tokenOut])),
         ...new Set(planned.flatMap((p) => feeAccountWarning(p.route, p.txs))),
         ...registrationWarnings(transactions, HIGH_REGISTRATION_YOCTO),
-        ...(elsewhere.length ? [`NearKit asks you to connect ${elsewhere.join(', ')} in your wallet when their turn comes.`] : []),
+        ...(elsewhere.length ? [`NEARKITS asks you to connect ${elsewhere.join(', ')} in your wallet when their turn comes.`] : []),
       ]
       // One summary for the review: totals across wallets, the first wallet's route, the worst impact.
       const impacts = await Promise.all(planned.map((p) => impactOf(p.route)))

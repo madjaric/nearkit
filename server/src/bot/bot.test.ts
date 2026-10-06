@@ -17,12 +17,12 @@ async function bot(extra: BotModule[] = []) {
 }
 
 describe('onboarding', () => {
-  it('/start is short: NearKit, the wallet (none yet), the network and the no-seed-phrase rule, then the menu', async () => {
+  it('/start is short: NEARKITS, the wallet (none yet), the network and the no-seed-phrase rule, then the menu', async () => {
     const h = await bot()
     await h.say('/start')
     const m = h.last()
     expect(m?.chatId).toBe(ALICE.id)
-    expect(m?.text).toContain('<b>NearKit</b> · NEAR trading')
+    expect(m?.text).toContain('<b>NEARKITS</b> · NEAR trading')
     expect(m?.text).toContain('No wallet linked yet')
     expect(m?.text).toContain('Testnet beta')
     expect(m?.text).toMatch(/never asks for your seed phrase/)
@@ -47,7 +47,7 @@ describe('onboarding', () => {
     expect(text).toContain('/link')
     expect(text).toContain('/settings')
     expect(text).not.toContain('/buy')
-    expect(text).toContain('No NearKit fee on testnet')
+    expect(text).toContain('No NEARKITS fee on testnet')
     expect(text).toMatch(/never asks for your seed phrase/)
   })
 
@@ -71,7 +71,7 @@ describe('onboarding', () => {
 })
 
 describe('linking', () => {
-  it('/link sends a one-time link to the NearKit web app, never the code in text', async () => {
+  it('/link sends a one-time link to the NEARKITS web app, never the code in text', async () => {
     const h = await bot()
     await h.say('/link')
     const m = h.last()
@@ -228,10 +228,10 @@ describe('robustness', () => {
       },
     ])
     await h.say('/boom')
-    expect(h.last()?.text).toContain('Something went wrong on NearKit’s side')
+    expect(h.last()?.text).toContain('Something went wrong on NEARKITS’ side')
     expect(h.last()?.text).not.toContain('database exploded')
     await h.say('/help')
-    expect(h.last()?.text).toContain('NearKit · help')
+    expect(h.last()?.text).toContain('NEARKITS · help')
   })
 
   it('stops messaging a user who blocked the bot', async () => {

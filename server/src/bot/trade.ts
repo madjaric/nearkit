@@ -260,7 +260,7 @@ async function chooseWallet(ctx: BotCtx, state: Required<TradeState>, token: Tok
   )
   const back = await ctx.deps.store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
   await ctx.show(
-    `👛 ${bold(`${state.side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}`)} from which NearKit wallet?`,
+    `👛 ${bold(`${state.side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}`)} from which NEARKITS wallet?`,
     keyboard(...wallets.map((w, i) => [btn(`${w.id === state.walletId ? '✅ ' : ''}${w.slot}. ${walletName(w)}`, `tr:use:${ids[i]}`)]), [btn('« Back', `tr:ref:${back}`)]),
   )
 }
@@ -282,12 +282,12 @@ function quoteText(ctx: BotCtx, side: Side, token: TokenListing, amountIn: strin
     `You receive ${bold(`≈ ${out} ${outSymbol}`)}`,
     `Minimum ${esc(`${min} ${outSymbol}`)} · ${q.request.slippagePct}% slippage`,
     `Price impact ${q.priceImpactPct === null ? `${UNKNOWN} (no prices on ${esc(ctx.deps.config.network.id)})` : esc(formatPct(q.priceImpactPct, { decimals: 2 }))}`,
-    `NearKit fee ${esc(fee)}`,
+    `NEARKITS fee ${esc(fee)}`,
     ...(f.charged && f.routerFeeBps !== null ? [`Rhea fee ${esc(`${(f.routerFeeBps / 100).toFixed(2)}%`)} · pool fees are in the rate`] : []),
     `Actual network fee ≈ ${esc(q.networkFeeNear.toFixed(4))} NEAR`,
     `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     '',
-    `⏱ Quote for ${seconds}s. NearKit quotes again right before you sign in your wallet.`,
+    `⏱ Quote for ${seconds}s. NEARKITS quotes again right before you sign in your wallet.`,
   ].join('\n')
 }
 
@@ -352,10 +352,10 @@ async function quoteAndConfirm(ctx: BotCtx, state: Required<TradeState> & { amou
     slippagePct: request.slippagePct,
   })
   const again = await store.putCallback(state, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
-  const tip = ctx.deps.custody ? '\n\n💡 A NearKit wallet trades right here, without the browser: 👛 Wallet.' : ''
+  const tip = ctx.deps.custody ? '\n\n💡 A NEARKITS wallet trades right here, without the browser: 👛 Wallet.' : ''
   await ctx.reply(
     quoteText(ctx, state.side, token, state.amount, quote) + tip,
-    keyboard([urlBtn('✍️ Confirm & sign in NearKit', url)], [btn('🔄 Refresh', `tr:again:${again}`), btn('✖ Cancel', 'tr:cancel')]),
+    keyboard([urlBtn('✍️ Confirm & sign in NEARKITS', url)], [btn('🔄 Refresh', `tr:again:${again}`), btn('✖ Cancel', 'tr:cancel')]),
   )
 }
 

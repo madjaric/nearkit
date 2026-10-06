@@ -22,7 +22,7 @@ describe('trade handoff IDs', () => {
   })
 })
 
-describe('NearKit API calls', () => {
+describe('NEARKITS API calls', () => {
   const fetchReturning = (status: number, body: unknown) =>
     (async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(url), body: JSON.parse(String(init?.body)) as unknown })

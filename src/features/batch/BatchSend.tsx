@@ -131,7 +131,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
       <Line label="Total amount" emphasis>
         {`${totalText} ${symbol}`}
       </Line>
-      <Line label="From">{ownShare ? (source?.label ?? '—') : senders.length === 1 ? (walletOf(senders[0] ?? '')?.label ?? '—') : `${senders.length} NearKit wallets`}</Line>
+      <Line label="From">{ownShare ? (source?.label ?? '—') : senders.length === 1 ? (walletOf(senders[0] ?? '')?.label ?? '—') : `${senders.length} NEARKITS wallets`}</Line>
       <Line label="Balance after">
         {over ? <span className="text-neg">Insufficient</span> : ownShare ? `${formatAmount(balance - parsed.total, decimals)} ${symbol}` : 'Each wallet covers its lines'}
       </Line>
@@ -356,7 +356,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
               <SimulationNote
                 real={
                   source && executesViaNearKit(source)
-                    ? `NearKit’s server sends each line from ${ownShare ? source.label : 'its own NearKit wallet'} (no wallet prompt), to its owner wallet or addresses approved for it.`
+                    ? `NEARKITS’ server sends each line from ${ownShare ? source.label : 'its own NEARKITS wallet'} (no wallet prompt), to its owner wallet or addresses approved for it.`
                     : undefined
                 }
               />

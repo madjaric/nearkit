@@ -18,7 +18,7 @@ export function ConfigError({ issues }: { issues: readonly EnvIssue[] }) {
           </span>
         </header>
         <div className="flex flex-col gap-4 px-5 py-5">
-          <p className="text-sm text-fg-2">NearKit stopped before loading because this build’s configuration is invalid. Nothing was read from or sent to any network.</p>
+          <p className="text-sm text-fg-2">NEARKITS stopped before loading because this build’s configuration is invalid. Nothing was read from or sent to any network.</p>
           <ul className="flex flex-col divide-y divide-line-soft rounded-sm border border-line" aria-label="Configuration problems">
             {issues.map((i) => (
               <li key={i.key} className="flex flex-col gap-0.5 px-3 py-2.5">

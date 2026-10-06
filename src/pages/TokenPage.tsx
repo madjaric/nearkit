@@ -8,7 +8,7 @@ export default function TokenPage() {
     <Page>
       <PageHeader
         title="Token"
-        description="Its market: price, market cap, liquidity and volume from the sources that have them, real price history, and recent trades. Buy, Sell and Send open NearKit’s own flows."
+        description="Its market: price, market cap, liquidity and volume from the sources that have them, real price history, and recent trades. Buy, Sell and Send open NEARKITS’ own flows."
       />
       <TokenDetail key={id} tokenId={id} />
     </Page>

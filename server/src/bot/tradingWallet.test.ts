@@ -4,18 +4,18 @@ import { ALICE } from './testing'
 import { LINKED, ONE, REG, USDT, walletBot } from './walletTesting'
 
 describe('NearKit wallet: create, deposit, balance', () => {
-  it('offers a NearKit wallet with or without a linked wallet: linking is optional', async () => {
+  it('offers a NEARKITS wallet with or without a linked wallet: linking is optional', async () => {
     const unlinked = await walletBot({ link: false })
     await unlinked.say('/wallet')
     expect(unlinked.last()?.text).toContain('Linking your own NEAR wallet is optional')
-    expect(unlinked.button('Create NearKit wallet')).toMatch(/^cw:new:[A-Za-z0-9_-]{8,}$/)
+    expect(unlinked.button('Create NEARKITS wallet')).toMatch(/^cw:new:[A-Za-z0-9_-]{8,}$/)
 
     const h = await walletBot()
     await h.say('/wallet')
     expect(h.last()?.text).toContain('not created yet')
     expect(h.last()?.text).toContain(LINKED)
     // The button carries a one-time key: pressing it twice makes one wallet.
-    expect(h.button('Create NearKit wallet')).toMatch(/^cw:new:[A-Za-z0-9_-]{8,}$/)
+    expect(h.button('Create NEARKITS wallet')).toMatch(/^cw:new:[A-Za-z0-9_-]{8,}$/)
   })
 
   it('a server whose signer checks no Mini App approvals asks for a linked wallet first: a wallet with no owner wallet could never withdraw there', async () => {
@@ -32,7 +32,7 @@ describe('NearKit wallet: create, deposit, balance', () => {
   it('creating twice (a double tap, a replayed update) gives one wallet with the same address', async () => {
     const h = await walletBot()
     await h.say('/wallet')
-    const create = h.button('Create NearKit wallet')
+    const create = h.button('Create NEARKITS wallet')
     await Promise.all([h.press(create), h.press(create)])
     await h.press(create)
     const w = await h.wallet()
@@ -62,7 +62,7 @@ describe('NearKit wallet: create, deposit, balance', () => {
     expect(h.last()?.text).toContain('<b>2.00</b> NEAR')
     expect(h.last()?.text).toContain('Backup key: not added yet')
     await h.say('/start')
-    expect(h.last()?.text).toContain('NearKit wallet')
+    expect(h.last()?.text).toContain('NEARKITS wallet')
   })
 })
 
@@ -109,7 +109,7 @@ describe('NearKit wallet: withdraw', () => {
     for (const [input, why] of [
       ['Bob.Testnet', 'lowercase'],
       ['bob.near', 'is a NEAR mainnet account'],
-      [(await h.wallet())?.accountId as string, 'this NearKit wallet itself'],
+      [(await h.wallet())?.accountId as string, 'this NEARKITS wallet itself'],
       ['nobody-here.testnet', 'There is no account nobody-here.testnet'],
     ] as const) {
       await h.say(input)
@@ -222,7 +222,7 @@ describe('NearKit wallet: withdraw', () => {
     expect(left).toBeLessThan(10n ** 22n)
   })
 
-  it('positions and PnL include the NearKit wallet', async () => {
+  it('positions and PnL include the NEARKITS wallet', async () => {
     const h = await walletBot()
     const w = await h.funded(ONE)
     await h.say('/positions')

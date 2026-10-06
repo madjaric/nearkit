@@ -12,7 +12,7 @@ import { btn, documented, keyboard, urlBtn, type BotCtx, type BotModule } from '
 /** /web, and `/start web` (NearKit web's "Sign in with Telegram" button). */
 export async function startWeb(ctx: BotCtx): Promise<void> {
   const web = ctx.deps.web
-  if (!web || !ctx.deps.custody) return void (await ctx.reply('NearKit wallets aren’t available on this server.'))
+  if (!web || !ctx.deps.custody) return void (await ctx.reply('NEARKITS wallets aren’t available on this server.'))
   let code: string
   try {
     code = await web.issueCode(ctx.user.id)
@@ -25,12 +25,12 @@ export async function startWeb(ctx: BotCtx): Promise<void> {
   const minutes = Math.round(WEB_LOGIN_TTL_MS / 60_000)
   await ctx.reply(
     [
-      `🌐 ${bold('NearKit web')}`,
-      'Your NearKit wallets on the website: create more, buy, sell, Multi Buy and send, right there. Nothing needs confirming here.',
+      `🌐 ${bold('NEARKITS web')}`,
+      'Your NEARKITS wallets on the website: create more, buy, sell, Multi Buy and send, right there. Nothing needs confirming here.',
       '',
-      `This is a one-time sign-in link, valid for ${minutes} minutes. Don’t share it: it signs you in, and a signed-in browser can trade your NearKit wallets.`,
+      `This is a one-time sign-in link, valid for ${minutes} minutes. Don’t share it: it signs you in, and a signed-in browser can trade your NEARKITS wallets.`,
     ].join('\n'),
-    keyboard([urlBtn('🌐 Open NearKit web', url)], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),
+    keyboard([urlBtn('🌐 Open NEARKITS web', url)], [btn('🚪 Sign out of NEARKITS web everywhere', 'web:out')]),
   )
 }
 
@@ -39,7 +39,7 @@ async function signOutEverywhere(ctx: BotCtx): Promise<void> {
   if (!web) return ctx.answer()
   const n = await web.revokeAll(ctx.user.id)
   await ctx.answer()
-  await ctx.reply(`🚪 ${bold('Signed out of NearKit web')} on every browser${n ? ` (${n} ${n === 1 ? 'session' : 'sessions'})` : ''}.`)
+  await ctx.reply(`🚪 ${bold('Signed out of NEARKITS web')} on every browser${n ? ` (${n} ${n === 1 ? 'session' : 'sessions'})` : ''}.`)
 }
 
 export function webModule(): BotModule {

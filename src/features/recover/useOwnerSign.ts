@@ -14,7 +14,7 @@ export function useOwnerSign() {
   const services = useServices()
   const caps = useCapabilities()
   return async (c: OwnerChallenge, want: Omit<Parameters<typeof challengeProblem>[1], 'network' | 'recipient' | 'kind'>): Promise<Signed> => {
-    if (!caps.network) throw new Error('This NearKit build is not on a NEAR network.')
+    if (!caps.network) throw new Error('This NEARKITS build is not on a NEAR network.')
     const problem = await challengeProblem(c, { ...want, kind: c.kind, network: caps.network, recipient: window.location.hostname })
     if (problem) throw new Error(problem)
     const nonce = base64Decode(c.nonce)

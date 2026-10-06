@@ -53,12 +53,12 @@ async function buyScreen(h: Harness, token = 'USDT'): Promise<string> {
 async function newWallet(h: Harness): Promise<TradingWallet> {
   h.advance(10_000)
   await h.press('cw:list')
-  await h.press(h.button('New wallet') || h.button('Create NearKit wallet'))
+  await h.press(h.button('New wallet') || h.button('Create NEARKITS wallet'))
   return (await h.wallet()) as TradingWallet
 }
 
 describe('the Telegram BUY screen', () => {
-  it('shows the token, its live market, the NearKit wallet and its balance, then the amounts and quick actions; no fee text before the quote', async () => {
+  it('shows the token, its live market, the NEARKITS wallet and its balance, then the amounts and quick actions; no fee text before the quote', async () => {
     const h = await walletBot()
     const w = await h.funded(3n * ONE)
     serve(h, marketOf(USDT))
@@ -151,7 +151,7 @@ describe('the Telegram BUY screen', () => {
     expect(sends()).toBe(sent)
   })
 
-  it('switching wallet lists only the user’s own active NearKit wallets; the pick is the trade’s wallet and the selected one from then on', async () => {
+  it('switching wallet lists only the user’s own active NEARKITS wallets; the pick is the trade’s wallet and the selected one from then on', async () => {
     const h = await walletBot()
     const first = await h.funded(3n * ONE)
     const second = await newWallet(h)
@@ -169,7 +169,7 @@ describe('the Telegram BUY screen', () => {
     expect((await h.wallet())?.id).toBe(second.id)
   })
 
-  it('Chart opens NearKit’s token page, Copy CA copies the full contract, Close ends the flow', async () => {
+  it('Chart opens NEARKITS’ token page, Copy CA copies the full contract, Close ends the flow', async () => {
     const h = await walletBot()
     await h.funded(3n * ONE)
     serve(h, marketOf(USDT))

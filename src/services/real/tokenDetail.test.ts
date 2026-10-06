@@ -404,7 +404,7 @@ describe('market data: each figure from a source that has it, or why it’s miss
     expect(reads.coingecko).toBe(1)
   })
 
-  it('a token DEX Screener doesn’t index keeps the price NearKit’s own list has; everything else is missing, with why', async () => {
+  it('a token DEX Screener doesn’t index keeps the price NEARKITS’ own list has; everything else is missing, with why', async () => {
     const { services } = setup()
     const m = await services.tokens.getMarketData(SING)
     expect(m.priceUsd).toMatchObject({ state: 'known', value: 0.00567, source: 'Rhea’s price list' })
@@ -444,7 +444,7 @@ describe('market data: each figure from a source that has it, or why it’s miss
     expect(m.updatedAt).toBe(T0)
   })
 
-  it('a source that never answered: the price from NearKit’s own list if any, the rest missing with the reason', async () => {
+  it('a source that never answered: the price from NEARKITS’ own list if any, the rest missing with the reason', async () => {
     const { services } = setup({
       dex: () => {
         throw new Error('offline')

@@ -60,7 +60,7 @@ function NetworkPanel() {
             <Figures>{exec.enabled ? 'Enabled: you sign every transaction in your wallet.' : (exec.reason ?? 'Disabled in this build.')}</Figures>
           </p>
         </Row>
-        <Row label="RPC endpoints" hint="Where NearKit reads balances and checks transactions, in failover order.">
+        <Row label="RPC endpoints" hint="Where NEARKITS reads balances and checks transactions, in failover order.">
           <ol className="flex flex-col gap-1 pt-1">
             {caps.rpcUrls.map((url, i) => (
               <li key={url} className="num truncate text-xs text-fg-2" title={url}>
@@ -90,13 +90,13 @@ function FeesPanel() {
       <div className="p-4">
         {/* Labels keep one line; the sentences at right wrap. */}
         <Lines className="[&_dt]:shrink-0">
-          <Line label="NearKit fee" mono={false}>
+          <Line label="NEARKITS fee" mono={false}>
             <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> per trade
           </Line>
           {caps.mode === 'near' && t.feeCharged && (
             <>
               <Line label="Of which" mono={false}>
-                NearKit receives <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span>, Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>
+                NEARKITS receives <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span>, Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>
               </Line>
               <Line label="Rhea protocol fee" mono={false}>
                 <span className="num text-fg">0.10%</span> on every swap, Rhea’s own
@@ -107,7 +107,7 @@ function FeesPanel() {
             </>
           )}
           <Line label="Transfers" mono={false}>
-            No NearKit fee on Batch Send, Split or Consolidate
+            No NEARKITS fee on Batch Send, Split or Consolidate
           </Line>
           <Line label="Network fees" mono={false}>
             Paid to NEAR. A gas reserve is held while each transaction runs and refunded automatically
@@ -171,7 +171,7 @@ export default function SettingsPage() {
                   Minimum wallet reserve <InfoTip term="gasReserve" />
                 </span>
               }
-              hint="NearKit keeps this much NEAR available in each wallet: MAX never spends it. Not the temporary gas reserve a transaction holds while it runs."
+              hint="NEARKITS keeps this much NEAR available in each wallet: MAX never spends it. Not the temporary gas reserve a transaction holds while it runs."
             >
               <p className="pt-1 text-sm text-fg-2">
                 <Figures>{`${GAS_RESERVE_NEAR} NEAR per wallet`}</Figures>
@@ -186,7 +186,7 @@ export default function SettingsPage() {
             <Row label="Hide small balances" hint="Starts the Positions view with balances under $1 hidden.">
               <Switch checked={settings.hideDust} onChange={(v) => update({ hideDust: v })} label={settings.hideDust ? 'Hidden' : 'Shown'} ariaLabel="Hide small balances" />
             </Row>
-            <Row label="Theme" hint="NearKit is designed dark-first for long sessions.">
+            <Row label="Theme" hint="NEARKITS is designed dark-first for long sessions.">
               <p className="pt-1 text-sm text-fg-2">Dark</p>
             </Row>
           </div>
@@ -201,8 +201,8 @@ export default function SettingsPage() {
                 demo
                   ? 'The demo runs on a sample account.'
                   : session?.walletName
-                    ? `Signed in through ${session.walletName}. NearKit never sees your keys.`
-                    : 'Connect a NEAR wallet. NearKit never sees your keys.'
+                    ? `Signed in through ${session.walletName}. NEARKITS never sees your keys.`
+                    : 'Connect a NEAR wallet. NEARKITS never sees your keys.'
               }
             >
               {session ? (
@@ -226,7 +226,7 @@ export default function SettingsPage() {
                 </Button>
               )}
             </Row>
-            <Row label="Telegram" hint="Link the NearKit bot to this account with a one-time code.">
+            <Row label="Telegram" hint="Link the NEARKITS bot to this account with a one-time code.">
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" disabled>
                   Generate link code

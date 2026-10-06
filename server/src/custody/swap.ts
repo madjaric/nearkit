@@ -133,9 +133,9 @@ function fundsText(side: 'buy' | 'sell', need: bigint, nearIn: bigint, registrat
     ...(nearIn ? [`${formatUnits(nearIn, NEAR_DECIMALS)} NEAR to swap`] : []),
     ...(registration ? [`${formatUnitsUp(registration, NEAR_DECIMALS, 5)} NEAR for one-time registrations`] : []),
   ]
-  const gas = `a ${up(gasReserveYocto(need, nearIn, registration))} NEAR gas reserve, which NEAR holds while the swap runs and refunds automatically, all but the actual network fee (not a NearKit fee)`
+  const gas = `a ${up(gasReserveYocto(need, nearIn, registration))} NEAR gas reserve, which NEAR holds while the swap runs and refunds automatically, all but the actual network fee (not a NEARKITS fee)`
   return (
-    `This ${side} needs ${up(need)} NEAR available and your NearKit wallet has ${formatUnits(available, NEAR_DECIMALS, { maxFraction: 4 })} NEAR: ` +
+    `This ${side} needs ${up(need)} NEAR available and your NEARKITS wallet has ${formatUnits(available, NEAR_DECIMALS, { maxFraction: 4 })} NEAR: ` +
     `${parts.length ? `${parts.join(', ')} and ${gas}` : gas}. Deposit at least ${up(need - available)} NEAR more.`
   )
 }
@@ -307,9 +307,9 @@ export function createSwapService(near: ServerNear) {
       accountState(ctx.rpc, wallet.accountId, 'final'),
       r.tokenIn.contract ? ctx.reader.balanceOf(r.tokenIn.contract, wallet.accountId) : Promise.resolve(null),
     ])
-    if (!state.exists) throw new NearKitError('INSUFFICIENT_BALANCE', 'Your NearKit wallet has no NEAR yet. Deposit first.')
+    if (!state.exists) throw new NearKitError('INSUFFICIENT_BALANCE', 'Your NEARKITS wallet has no NEAR yet. Deposit first.')
     if (held !== null && held < r.amountIn)
-      throw new NearKitError('INSUFFICIENT_BALANCE', `Your NearKit wallet holds ${formatUnits(held, r.tokenIn.decimals, { maxFraction: 6 })} ${r.tokenIn.symbol}.`)
+      throw new NearKitError('INSUFFICIENT_BALANCE', `Your NEARKITS wallet holds ${formatUnits(held, r.tokenIn.decimals, { maxFraction: 6 })} ${r.tokenIn.symbol}.`)
     const nearIn = r.tokenIn.contract === null ? r.amountIn : 0n
     if (state.availableYocto < need) throw new NearKitError(nearIn ? 'INSUFFICIENT_BALANCE' : 'INSUFFICIENT_GAS', fundsText(side, need, nearIn, storage, state.availableYocto))
   }

@@ -42,7 +42,7 @@ describe('the sign-in link', () => {
   })
 })
 
-describe('NearKit web session', () => {
+describe('NEARKITS web session', () => {
   it('signs in once with the code, keeps the session per network, and sends it with every call', async () => {
     const storage = memoryStorage()
     const { calls, fetchImpl } = server({
@@ -67,7 +67,7 @@ describe('NearKit web session', () => {
     const storage = memoryStorage()
     const { fetchImpl } = server({
       '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Alice' } } }),
-      '/api/web/wallets': () => ({ status: 401, json: { error: { code: 'session', message: 'Your NearKit web session has ended.' } } }),
+      '/api/web/wallets': () => ({ status: 401, json: { error: { code: 'session', message: 'Your NEARKITS web session has ended.' } } }),
     })
     const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl, store: storage })
     await web.login(CODE)
@@ -87,7 +87,7 @@ describe('NearKit web session', () => {
     expect(web.session()).toBeNull()
   })
 
-  it('without a NearKit server there is no session and no wallet', async () => {
+  it('without a NEARKITS server there is no session and no wallet', async () => {
     const web = createNearKitWeb({ apiUrl: null, network: 'testnet', fetchImpl: server({}).fetchImpl, store: memoryStorage() })
     expect(web.available).toBe(false)
     expect(await web.wallets()).toBeNull()

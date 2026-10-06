@@ -35,11 +35,11 @@ export interface ExecutionPolicy {
 /** The mainnet safety switch and every other pre-signing guard, in one place. */
 export function assertExecutionAllowed(plan: OperationPlan, policy: ExecutionPolicy, now: number, { checkExpiry = true }: { checkExpiry?: boolean } = {}): void {
   if (plan.mode !== 'near') throw new NearKitError('EXECUTION_DISABLED', 'This plan is a simulation and cannot be signed')
-  if (plan.network !== policy.network) throw new NearKitError('NETWORK_MISMATCH', `This plan was built for ${plan.network}, but NearKit is running on ${policy.network}`)
+  if (plan.network !== policy.network) throw new NearKitError('NETWORK_MISMATCH', `This plan was built for ${plan.network}, but NEARKITS is running on ${policy.network}`)
   if (!policy.enabled) throw new NearKitError('EXECUTION_DISABLED', policy.reason ?? 'Execution is disabled in this build')
   if (plan.fee?.charged) {
-    if (!policy.feeRecipient) throw new NearKitError('EXECUTION_DISABLED', 'The NearKit fee account is not configured, so fee-bearing trades are blocked')
-    if (plan.fee.recipient !== policy.feeRecipient) throw new NearKitError('EXECUTION_DISABLED', 'The plan’s fee account does not match the configured NearKit fee account')
+    if (!policy.feeRecipient) throw new NearKitError('EXECUTION_DISABLED', 'The NEARKITS fee account is not configured, so fee-bearing trades are blocked')
+    if (plan.fee.recipient !== policy.feeRecipient) throw new NearKitError('EXECUTION_DISABLED', 'The plan’s fee account does not match the configured NEARKITS fee account')
   }
   if (checkExpiry && isExpired(plan, now)) throw new NearKitError('QUOTE_EXPIRED', 'This quote expired. Refresh it before signing.')
 }
@@ -135,8 +135,8 @@ const LOCATE_MS = 120_000
 const FOLLOW_MS = 30 * 60_000
 const MAX_POLLS = 2000
 
-export const PROCESSING_NOTE = 'Processing — NEAR network is taking longer than usual. NearKit keeps checking the chain; don’t send this again.'
-const STILL_PROCESSING_NOTE = 'Still processing on chain. NearKit keeps checking it in Activity; don’t send this again until it settles.'
+export const PROCESSING_NOTE = 'Processing — NEAR network is taking longer than usual. NEARKITS keeps checking the chain; don’t send this again.'
+const STILL_PROCESSING_NOTE = 'Still processing on chain. NEARKITS keeps checking it in Activity; don’t send this again until it settles.'
 
 const malformed = (why: string) => new NearKitError('TRANSACTION_FAILED', `This operation can't run: ${why}. Nothing was sent.`)
 
@@ -364,7 +364,7 @@ export function createExecutor(deps: ExecutorDeps): Executor {
               [txIndex]: {
                 phase: 'unknown',
                 error: errorInfo(toNearKitError(e)),
-                note: 'NearKit lost track of this transaction after it reached the wallet. Check the explorer before trying again.',
+                note: 'NEARKITS lost track of this transaction after it reached the wallet. Check the explorer before trying again.',
               },
             },
           )
@@ -518,7 +518,7 @@ export function createExecutor(deps: ExecutorDeps): Executor {
                 error: w && !w.ok ? walletErrorInfo(w.error) : null,
                 note:
                   w && !w.ok
-                    ? 'The wallet reported an error and NearKit couldn’t find the transaction on chain. Check your wallet activity before trying again.'
+                    ? 'The wallet reported an error and NEARKITS couldn’t find the transaction on chain. Check your wallet activity before trying again.'
                     : 'The wallet did not return a transaction hash. Check your wallet activity before trying again.',
               }),
             )

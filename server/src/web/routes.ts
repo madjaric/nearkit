@@ -74,7 +74,7 @@ interface LegInput {
 /** A trade's legs: 1 to MAX_ACTIVE_WALLETS_PER_USER, each a wallet once, with its amount. Anything else a leg carries is ignored. */
 function legsOf(body: unknown): LegInput[] {
   const raw = typeof body === 'object' && body !== null ? (body as Record<string, unknown>).legs : undefined
-  const bad = () => new HttpError(400, 'legs', `Choose 1 to ${MAX_ACTIVE_WALLETS_PER_USER} NearKit wallets, each once, each with an amount.`)
+  const bad = () => new HttpError(400, 'legs', `Choose 1 to ${MAX_ACTIVE_WALLETS_PER_USER} NEARKITS wallets, each once, each with an amount.`)
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ACTIVE_WALLETS_PER_USER) throw bad()
   const legs = raw.map((l: unknown): LegInput => {
     const o = typeof l === 'object' && l !== null ? (l as Record<string, unknown>) : {}
@@ -91,7 +91,7 @@ async function tokenOf(near: ServerNear, raw: string): Promise<{ contract: strin
   const contract = raw.trim().toLowerCase()
   if (contract === NATIVE_TOKEN_ID || accountIdError(contract)) throw new HttpError(400, 'token', 'That isn’t a token contract.')
   const meta = await near.ctx.reader.metadata(contract).catch(() => null)
-  if (!meta) throw new HttpError(400, 'token', 'NearKit can’t read that token from chain. Check the contract, or try again in a moment.')
+  if (!meta) throw new HttpError(400, 'token', 'NEARKITS can’t read that token from chain. Check the contract, or try again in a moment.')
   return { contract, symbol: meta.symbol, decimals: meta.decimals }
 }
 
@@ -122,7 +122,7 @@ const frozenError = (w: TradingWallet) =>
   new HttpError(
     409,
     'frozen',
-    `${walletName(w)} is frozen by NearKit for your protection: it doesn’t trade or send. Its owner wallet can still add the backup key or export the key.`,
+    `${walletName(w)} is frozen by NEARKITS for your protection: it doesn’t trade or send. Its owner wallet can still add the backup key or export the key.`,
   )
 
 /** A send's state for the web; `requoted`: something the review showed changed, so it must be reviewed again. */
@@ -136,13 +136,13 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
   /** The signed-in user; 401 for a missing, forged, expired or signed-out session. */
   const userOf = async (body: unknown): Promise<number> => {
     const userId = await deps.sessions.userOf(field(body, 'session', 64))
-    if (userId === null) throw new HttpError(401, 'session', 'Your NearKit web session has ended. Sign in again: send /web to the NearKit bot.')
+    if (userId === null) throw new HttpError(401, 'session', 'Your NEARKITS web session has ended. Sign in again: send /web to the NEARKITS bot.')
     return userId
   }
   /** One of the user's own active NearKit wallets; 403 for anything else. */
   const ownWallet = async (userId: number, walletId: string): Promise<TradingWallet> => {
     const w = await custody.store.ownedWallet(userId, walletId)
-    if (!w) throw new HttpError(403, 'not-executable', 'That isn’t one of your NearKit wallets. Watch-only and other accounts can’t be used here.')
+    if (!w) throw new HttpError(403, 'not-executable', 'That isn’t one of your NEARKITS wallets. Watch-only and other accounts can’t be used here.')
     return w
   }
   /** A kill switch for this kind of action, whatever the wallet; 409 when it's on. */
@@ -167,9 +167,9 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
   return {
     '/api/web/login': async (body) => {
       const s = await deps.sessions.redeem(field(body, 'code', 64))
-      if (!s) throw new HttpError(401, 'login', 'That sign-in link expired or was already used. Get a new one: send /web to the NearKit bot.')
+      if (!s) throw new HttpError(401, 'login', 'That sign-in link expired or was already used. Get a new one: send /web to the NEARKITS bot.')
       const user = await deps.store.getUser(s.userId)
-      return { token: s.token, expiresAt: s.expiresAt, user: { name: user?.firstName ?? 'NearKit user' } }
+      return { token: s.token, expiresAt: s.expiresAt, user: { name: user?.firstName ?? 'NEARKITS user' } }
     },
 
     '/api/web/logout': async (body) => {
@@ -195,7 +195,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
         linked: await deps.linkedAccount(userId),
         approvalsOn: deps.approvalsOn,
       })
-      if (owner === undefined) throw new HttpError(409, 'needs-link', 'This NearKit server needs an owner wallet for new NearKit wallets: link one in Telegram first (/link).')
+      if (owner === undefined) throw new HttpError(409, 'needs-link', 'This NEARKITS server needs an owner wallet for new NEARKITS wallets: link one in Telegram first (/link).')
       let created: { wallet: TradingWallet; created: boolean }
       try {
         // Web keys are namespaced: they never collide with a Telegram Create button's.
@@ -214,11 +214,11 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
           .notify(
             userId,
             [
-              `🆕 ${bold('NearKit wallet created on NearKit web')}`,
+              `🆕 ${bold('NEARKITS wallet created on NEARKITS web')}`,
               `${bold(walletName(wallet))} ${esc(shortAccount(wallet.accountId))}`,
-              'If this wasn’t you, sign out of NearKit web everywhere.',
+              'If this wasn’t you, sign out of NEARKITS web everywhere.',
             ].join('\n'),
-            keyboard([copyBtn('📋 Copy address', wallet.accountId), btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),
+            keyboard([copyBtn('📋 Copy address', wallet.accountId), btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NEARKITS web everywhere', 'web:out')]),
           )
           .catch(() => undefined)
       return { wallet: webWalletView(wallet) }
@@ -232,18 +232,18 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
         throw new HttpError(
           409,
           'funded',
-          `${walletName(wallet)} has been funded, so it can’t just be deleted: withdraw everything from it first, or add the backup key and remove NearKit’s access (Recover). Nothing was deleted.`,
+          `${walletName(wallet)} has been funded, so it can’t just be deleted: withdraw everything from it first, or add the backup key and remove NEARKITS’ access (Recover). Nothing was deleted.`,
         )
       // A security notice, like a creation's: nothing waits for it.
       await deps
         .notify(
           userId,
           [
-            `🗑 ${bold('NearKit wallet deleted on NearKit web')}`,
+            `🗑 ${bold('NEARKITS wallet deleted on NEARKITS web')}`,
             `${bold(walletName(wallet))} ${esc(shortAccount(wallet.accountId))}`,
-            'It was never funded, so nothing was lost. If this wasn’t you, sign out of NearKit web everywhere.',
+            'It was never funded, so nothing was lost. If this wasn’t you, sign out of NEARKITS web everywhere.',
           ].join('\n'),
-          keyboard([btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NearKit web everywhere', 'web:out')]),
+          keyboard([btn('👛 My wallets', 'cw:list')], [btn('🚪 Sign out of NEARKITS web everywhere', 'web:out')]),
         )
         .catch(() => undefined)
       return { deleted: true }
@@ -256,7 +256,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       if (!Array.isArray(raw) || raw.length > MAX_ACTIVE_WALLETS_PER_USER || raw.some((x) => typeof x !== 'string' || x.length > 64))
         throw new HttpError(400, 'bad-request', 'Missing or invalid "walletIds"')
       if (!(await custody.store.setDisplayOrder(userId, deps.network.id, raw as string[])))
-        throw new HttpError(400, 'bad-request', 'That isn’t exactly your NearKit wallets, each once. Nothing was changed.')
+        throw new HttpError(400, 'bad-request', 'That isn’t exactly your NEARKITS wallets, each once. Nothing was changed.')
       return { wallets: (await custody.store.activeWallets(userId, deps.network.id)).map(webWalletView) }
     },
 
@@ -427,7 +427,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
           throw new HttpError(
             409,
             'needs-approval',
-            `${to} isn’t approved for ${walletName(wallet)} yet. Its owner wallet approves an address once, with a signature on NearKit web.`,
+            `${to} isn’t approved for ${walletName(wallet)} yet. Its owner wallet approves an address once, with a signature on NEARKITS web.`,
             {
               kind: 'owner',
               owner: wallet.ownerAccount,
@@ -438,7 +438,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
         throw new HttpError(
           409,
           'needs-approval',
-          `${to} isn’t approved for ${walletName(wallet)} yet. This wallet has no owner wallet, so its Telegram account approves a new address once, in NearKit’s mini app (Telegram signs the approval).`,
+          `${to} isn’t approved for ${walletName(wallet)} yet. This wallet has no owner wallet, so its Telegram account approves a new address once, in NEARKITS’ mini app (Telegram signs the approval).`,
           { kind: 'telegram', url: custody.telegram.link(r) },
         )
       }

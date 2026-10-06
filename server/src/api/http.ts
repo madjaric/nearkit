@@ -92,7 +92,7 @@ export function createApiServer(options: ApiOptions): Server {
     const path = (req.url ?? '/').split('?')[0] ?? '/'
     let status = 500
     try {
-      if (origin && !allowed.has(origin)) throw new HttpError(403, 'origin', 'This origin may not call the NearKit API')
+      if (origin && !allowed.has(origin)) throw new HttpError(403, 'origin', 'This origin may not call the NEARKITS API')
       if (req.method === 'OPTIONS') {
         status = 204
         return send(res, 204, null, cors)
@@ -142,7 +142,7 @@ export function createApiServer(options: ApiOptions): Server {
           res,
           status,
           {
-            error: { code: err?.code ?? 'internal', message: err?.message ?? 'Something went wrong on NearKit’s side. Try again.', ...(err?.detail ? { detail: err.detail } : {}) },
+            error: { code: err?.code ?? 'internal', message: err?.message ?? 'Something went wrong on NEARKITS’ side. Try again.', ...(err?.detail ? { detail: err.detail } : {}) },
           },
           {
             ...cors,

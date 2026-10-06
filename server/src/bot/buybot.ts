@@ -219,7 +219,7 @@ async function configOf(ctx: BotCtx, bb: BuybotDeps, id: string): Promise<Buybot
 async function groupAdmin(ctx: BotCtx): Promise<BuybotDeps | null> {
   const bb = ctx.deps.buybot
   if (!bb) {
-    await ctx.reply('Buy alerts are switched off on this NearKit server.')
+    await ctx.reply('Buy alerts are switched off on this NEARKITS server.')
     return null
   }
   if (ctx.isPrivate) {
@@ -405,7 +405,7 @@ export function buybotModule(): BotModule {
       if (!deps.buybot || u.new_chat_member.user.id !== deps.me.id) return
       const status = u.new_chat_member.status
       if (status === 'left' || status === 'kicked') {
-        await deps.buybot.store.pauseChat(u.chat.id, 'NearKit was removed from the chat')
+        await deps.buybot.store.pauseChat(u.chat.id, 'NEARKITS was removed from the chat')
         deps.log.info('removed from chat; buy alerts paused', { chat: u.chat.id })
         return
       }
@@ -413,7 +413,7 @@ export function buybotModule(): BotModule {
         await deps.buybot.store.resumeChat(u.chat.id)
         if (u.chat.type === 'group' || u.chat.type === 'supergroup') {
           await deps.tg
-            .sendMessage(u.chat.id, `Hi! I’m the NearKit bot. Admins can set up buy alerts for a NEAR token with /buybot or /add. I never ask for keys or seed phrases.`)
+            .sendMessage(u.chat.id, `Hi! I’m the NEARKITS bot. Admins can set up buy alerts for a NEAR token with /buybot or /add. I never ask for keys or seed phrases.`)
             .catch(() => undefined)
         }
       }

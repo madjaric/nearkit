@@ -11,7 +11,7 @@ import type { OperationProgress } from '@/types/operations'
 export function useHandoffReport(id: string | null) {
   const report = useMutation({
     mutationFn: (hashes: string[]) => {
-      if (!ENV.apiUrl || !id) throw new Error('No NearKit bot server is connected to this build')
+      if (!ENV.apiUrl || !id) throw new Error('No NEARKITS bot server is connected to this build')
       return reportHandoff(ENV.apiUrl, id, hashes)
     },
   })

@@ -16,7 +16,7 @@ const trading = (network: 'mainnet' | 'testnet', recipient?: string) => {
   return { trading: ctx.capabilities.execution.trading, execution: ctx.capabilities.execution, policy: ctx.policy }
 }
 
-describe('the NearKit fee account in the web app', () => {
+describe('the NEARKITS fee account in the web app', () => {
   it('mainnet trades only with the production account; transfers work either way', () => {
     const ok = trading('mainnet', PRODUCTION_FEE_RECIPIENT)
     expect(ok.trading).toMatchObject({ enabled: true, reason: null, feeCharged: true, feeRecipient: PRODUCTION_FEE_RECIPIENT })

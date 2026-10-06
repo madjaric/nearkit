@@ -26,13 +26,13 @@ const freshOf = (h: Harness, account: string) => h.chain.tokens.get(FRESH)?.bala
 const nearOf = (h: Harness, account: string) => h.chain.accounts.get(account)?.amount ?? 0n
 const landed = (h: Harness) => h.chain.sent.filter((s) => s.mode === 'apply' || s.mode === 'timeout')
 
-describe('a token outside every list, routed on DCL directly, from the NearKit wallet in Telegram', () => {
+describe('a token outside every list, routed on DCL directly, from the NEARKITS wallet in Telegram', () => {
   it('buy by exact contract: quoted on the pair’s pool, the route says DCL, no fee on testnet, confirmed from chain', async () => {
     const h = await bot()
     const w = await h.funded(3n * ONE)
     await h.say(`/buy ${FRESH} 0.1`)
     const quote = h.last()?.text ?? ''
-    for (const part of ['🟢 <b>Buy FRESH</b>', 'You pay <b>0.1 NEAR</b>', 'You receive <b>≈ 99 FRESH</b>', 'NearKit fee none on testnet', 'Route NEAR → FRESH · DCL'])
+    for (const part of ['🟢 <b>Buy FRESH</b>', 'You pay <b>0.1 NEAR</b>', 'You receive <b>≈ 99 FRESH</b>', 'NEARKITS fee none on testnet', 'Route NEAR → FRESH · DCL'])
       expect(quote).toContain(part)
     await h.press(h.button('Confirm buy'))
     const result = h.last()?.text ?? ''

@@ -82,7 +82,7 @@ export function ValuePanel() {
         ) : points.length < 2 ? (
           <p className="py-16 text-center text-sm text-fg-3">
             {recorded
-              ? `No value history for the ${RANGES[range].window} yet. NearKit records your portfolio’s value while it is open, so the history builds up from now.`
+              ? `No value history for the ${RANGES[range].window} yet. NEARKITS records your portfolio’s value while it is open, so the history builds up from now.`
               : 'No value history for this account yet.'}
           </p>
         ) : view === 'chart' ? (

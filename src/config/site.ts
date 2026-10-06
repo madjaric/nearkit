@@ -39,5 +39,5 @@ export function sitemapXml(publicUrl: string): string {
 
 /** The site's name and home page for search engines (schema.org WebSite), as JSON-LD. */
 export function websiteJsonLd(publicUrl: string): string {
-  return JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebSite', name: 'NearKit', url: `${publicUrl}/` })
+  return JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebSite', name: 'NEARKITS', url: `${publicUrl}/` })
 }

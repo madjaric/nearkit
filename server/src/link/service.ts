@@ -73,12 +73,12 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
 
   async function liveRequest(code: string) {
     if (typeof code !== 'string' || code.length < 16 || code.length > 64 || !/^[A-Za-z0-9_-]+$/.test(code)) {
-      throw new LinkApiError(400, 'bad-code', 'This link code is not valid. Ask the NearKit bot for a new one with /link.')
+      throw new LinkApiError(400, 'bad-code', 'This link code is not valid. Ask the NEARKITS bot for a new one with /link.')
     }
     const req = await store.getLinkRequest(sha256Hex(code))
-    if (!req) throw new LinkApiError(404, 'unknown', 'This link code is unknown. Ask the NearKit bot for a new one with /link.')
-    if (req.usedAt !== null) throw new LinkApiError(409, 'used', 'This link code was already used. Ask the NearKit bot for a new one with /link.')
-    if (now() > req.expiresAt) throw new LinkApiError(410, 'expired', 'This link code expired. Ask the NearKit bot for a new one with /link.')
+    if (!req) throw new LinkApiError(404, 'unknown', 'This link code is unknown. Ask the NEARKITS bot for a new one with /link.')
+    if (req.usedAt !== null) throw new LinkApiError(409, 'used', 'This link code was already used. Ask the NEARKITS bot for a new one with /link.')
+    if (now() > req.expiresAt) throw new LinkApiError(410, 'expired', 'This link code expired. Ask the NEARKITS bot for a new one with /link.')
     if (req.network !== network) throw new LinkApiError(400, 'network', `This link code is for ${req.network}.`)
     return req
   }
@@ -119,7 +119,7 @@ export function createLinkService(deps: { store: Store; config: Pick<ServerConfi
 
     async confirm(input: LinkConfirmation): Promise<{ accountId: string; userId: number; previousUserId: number | null }> {
       const req = await liveRequest(input.code)
-      if (req.attempts >= MAX_CONFIRM_ATTEMPTS) throw new LinkApiError(429, 'locked', 'Too many attempts with this code. Ask the NearKit bot for a new one with /link.')
+      if (req.attempts >= MAX_CONFIRM_ATTEMPTS) throw new LinkApiError(429, 'locked', 'Too many attempts with this code. Ask the NEARKITS bot for a new one with /link.')
       await store.bumpLinkAttempt(req.codeHash)
 
       const accountId = typeof input.accountId === 'string' ? input.accountId.trim() : ''

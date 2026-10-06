@@ -217,7 +217,7 @@ let linkUrl = ''
 await step('the bot greets a new user and never asks for keys', async () => {
   const from = tg.sent.length
   say(TG_USER, '/start')
-  const m = await tg.waitFor(TG_USER.id, (x) => x.text.includes('<b>NearKit</b> · NEAR trading'), { from })
+  const m = await tg.waitFor(TG_USER.id, (x) => x.text.includes('<b>NEARKITS</b> · NEAR trading'), { from })
   if (!/never asks for your seed phrase/.test(m.text)) throw new Error('safety line missing')
 })
 
@@ -279,11 +279,11 @@ await step('a function-call key can’t prove ownership: nothing is linked', asy
   if (other.length) throw new Error('the other Telegram user was linked')
 })
 
-await step('a buy prepared in Telegram is signed in NearKit, checked on chain and reported back', async () => {
+await step('a buy prepared in Telegram is signed in NEARKITS, checked on chain and reported back', async () => {
   let from = tg.sent.length
   say(TG_USER, `/buy ${USDT} 1`)
   const quote = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.url?.includes('/swap?')), { from })
-  if (!quote.text.includes('NearKit fee none on testnet') || !quote.text.includes('Route NEAR')) throw new Error(`unexpected quote: ${quote.text.slice(0, 200)}`)
+  if (!quote.text.includes('NEARKITS fee none on testnet') || !quote.text.includes('Route NEAR')) throw new Error(`unexpected quote: ${quote.text.slice(0, 200)}`)
   const url = quote.buttons.find((b) => b.url?.includes('/swap?')).url
   // A properly formed transaction hash (32 bytes, base58): the server refuses anything else.
   const TX_HASH = b58(crypto.getRandomValues(new Uint8Array(32)))
@@ -344,7 +344,7 @@ await step('a token contract pasted on its own opens the buy flow at its amount 
   if (!help.text.includes('/help')) throw new Error(`a plain word did not get the help pointer: ${help.text.slice(0, 120)}`)
 })
 
-await step('a NearKit wallet is created in Telegram: one address even on a double tap, and /health says wallets are on', async () => {
+await step('a NEARKITS wallet is created in Telegram: one address even on a double tap, and /health says wallets are on', async () => {
   const health = await fetch(`http://127.0.0.1:${API_PORT}/health`).then((r) => r.json())
   if (health.wallets !== 'on') throw new Error(`wallets: ${health.wallets}`)
   if (health.signer !== 'ok') throw new Error(`signer: ${health.signer}`)
@@ -352,7 +352,7 @@ await step('a NearKit wallet is created in Telegram: one address even on a doubl
   let from = tg.sent.length
   say(TG_USER, '/wallet')
   const offer = await tg.waitFor(TG_USER.id, (x) => x.text.includes('not created yet'), { from })
-  const create = offer.buttons.find((b) => b.text.includes('Create NearKit wallet'))?.callback_data
+  const create = offer.buttons.find((b) => b.text.includes('Create NEARKITS wallet'))?.callback_data
   if (!create?.startsWith('cw:new:')) throw new Error(`no one-time Create button: ${create}`)
   from = tg.sent.length
   press(TG_USER, create)
@@ -389,7 +389,7 @@ const webApi = (path, body, session = true) =>
 let webLogin = ''
 let degenAddress = ''
 
-await step('NearKit web: /web sends a one-time sign-in link, and the site lists the NearKit wallets with no browser wallet', async () => {
+await step('NEARKITS web: /web sends a one-time sign-in link, and the site lists the NEARKITS wallets with no browser wallet', async () => {
   const from = tg.sent.length
   say(TG_USER, '/web')
   const m = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.url?.includes('/wallets#login=')), { from })
@@ -401,14 +401,14 @@ await step('NearKit web: /web sends a one-time sign-in link, and the site lists 
   await page.goto(webLogin, { waitUntil: 'networkidle' })
   await page.getByText('Signed in as Tess').waitFor()
   if (page.url().includes('#login=')) throw new Error('the sign-in code stayed in the address bar')
-  const table = page.getByRole('table', { name: 'NearKit wallets' })
+  const table = page.getByRole('table', { name: 'NEARKITS wallets' })
   await table.getByText('Main', { exact: true }).waitFor()
   await table.getByText('3.00').waitFor()
   if ((await page.getByRole('button', { name: 'Connect wallet' }).count()) === 0) throw new Error('the page claims a browser wallet is connected')
   await shot('tg-06-web-wallets')
 })
 
-await step('with only a NearKit web session (no browser wallet), Consolidate, Split and Batch Send open: NearKit wallets are their sources', async () => {
+await step('with only a NEARKITS web session (no browser wallet), Consolidate, Split and Batch Send open: NEARKITS wallets are their sources', async () => {
   const opens = async (path, ready) => {
     await page.goto(WEB + path, { waitUntil: 'networkidle' })
     await ready()
@@ -427,7 +427,7 @@ await step('with only a NearKit web session (no browser wallet), Consolidate, Sp
         .evaluateAll((os) => os.map((o) => o.value))
     ).includes(mainAddress)
   )
-    throw new Error('Split doesn’t offer the NearKit wallet as its source')
+    throw new Error('Split doesn’t offer the NEARKITS wallet as its source')
   await opens('/batch-send', () => page.getByLabel('Send from', { exact: true }))
   if ((await page.getByRole('button', { name: 'Connect wallet' }).count()) === 0) throw new Error('a browser wallet got connected on the way')
   await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
@@ -440,21 +440,21 @@ await step('a used sign-in link signs nobody in', async () => {
   await other.context().close()
 })
 
-await step('Create wallet on NearKit web: named, listed at once, announced in Telegram, no key on the page', async () => {
+await step('Create wallet on NEARKITS web: named, listed at once, announced in Telegram, no key on the page', async () => {
   const from = tg.sent.length
   await page.getByRole('button', { name: 'Create wallet' }).first().click()
-  const modal = page.getByRole('dialog', { name: 'Create a NearKit wallet' })
+  const modal = page.getByRole('dialog', { name: 'Create a NEARKITS wallet' })
   await modal.getByLabel('Name').fill('Degen 1')
   await modal.getByRole('button', { name: 'Create wallet' }).click()
   await page.getByText('Degen 1 created').waitFor()
-  await page.getByRole('table', { name: 'NearKit wallets' }).getByText('Degen 1', { exact: true }).waitFor()
-  await tg.waitFor(TG_USER.id, (x) => x.text.includes('NearKit wallet created on NearKit web') && x.text.includes('Degen 1'), { from })
+  await page.getByRole('table', { name: 'NEARKITS wallets' }).getByText('Degen 1', { exact: true }).waitFor()
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('NEARKITS wallet created on NEARKITS web') && x.text.includes('Degen 1'), { from })
   const list = await webApi('/api/web/wallets', {})
   const degen = list.json?.wallets?.find((w) => w.name === 'Degen 1')
   if (!degen || !/^[0-9a-f]{64}$/.test(degen.accountId)) throw new Error(`not listed: ${JSON.stringify(list.json)}`)
   degenAddress = degen.accountId
   // The notice shows the address shortened; its Copy address key carries the full id from the wallet record.
-  const notice = tg.sent.slice(from).find((x) => x.chatId === TG_USER.id && x.text.includes('NearKit wallet created on NearKit web'))
+  const notice = tg.sent.slice(from).find((x) => x.chatId === TG_USER.id && x.text.includes('NEARKITS wallet created on NEARKITS web'))
   if (!notice || notice.text.includes(degenAddress)) throw new Error('the notice shows the full address, or is missing')
   // The shortened address is plain text: nothing in the message copies it.
   if (!notice.text.includes(`${degenAddress.slice(0, 6)}…${degenAddress.slice(-4)}`) || /<code>|<pre>/.test(notice.text))
@@ -471,7 +471,7 @@ await step('Create wallet on NearKit web: named, listed at once, announced in Te
   await shot('tg-07-web-created')
 })
 
-await step('Rename on NearKit web changes the name only', async () => {
+await step('Rename on NEARKITS web changes the name only', async () => {
   await page.getByRole('button', { name: 'Rename Degen 1' }).first().click()
   const modal = page.getByRole('dialog', { name: 'Rename Degen 1' })
   await modal.getByLabel('Name').fill('Sniper A')
@@ -482,7 +482,7 @@ await step('Rename on NearKit web changes the name only', async () => {
   if (!w || w.accountId !== degenAddress) throw new Error('the rename changed more than the name')
 })
 
-await step('Order and delete on NearKit web: the server keeps the order; an empty wallet is deleted the bot’s way and Telegram is told', async () => {
+await step('Order and delete on NEARKITS web: the server keeps the order; an empty wallet is deleted the bot’s way and Telegram is told', async () => {
   const listed = async () => (await webApi('/api/web/wallets', {})).json?.wallets ?? []
   const names = async () => (await listed()).map((x) => x.name).join()
   const until = async (want) => {
@@ -494,7 +494,7 @@ await step('Order and delete on NearKit web: the server keeps the order; an empt
   await page.getByRole('button', { name: 'Move Sniper A up' }).first().click()
   await until('Sniper A,Main')
   await page.reload({ waitUntil: 'networkidle' })
-  await page.getByRole('table', { name: 'NearKit wallets' }).locator('tbody tr').first().getByText('Sniper A').waitFor()
+  await page.getByRole('table', { name: 'NEARKITS wallets' }).locator('tbody tr').first().getByText('Sniper A').waitFor()
   // An empty wallet, deleted through its confirmation.
   await webApi('/api/web/wallets/create', { name: 'Temp', createKey: 'e2e-manage-temp-0001' })
   await page.reload({ waitUntil: 'networkidle' })
@@ -503,20 +503,20 @@ await step('Order and delete on NearKit web: the server keeps the order; an empt
   await page.getByRole('dialog', { name: 'Delete Temp?' }).getByRole('button', { name: 'Delete wallet' }).click()
   await page.getByText('Temp deleted').waitFor()
   await until('Sniper A,Main')
-  await tg.waitFor(TG_USER.id, (x) => x.text.includes('NearKit wallet deleted on NearKit web') && x.text.includes('Temp'), { from })
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('NEARKITS wallet deleted on NEARKITS web') && x.text.includes('Temp'), { from })
   // Back to the order the steps after this one expect.
   await webApi('/api/web/wallets/order', { walletIds: [main.id, sniper.id] })
   await page.reload({ waitUntil: 'networkidle' })
   // The same keys on a phone (captured with --shots).
   if (SHOTS) {
     await page.setViewportSize({ width: 360, height: 800 })
-    await page.getByRole('list', { name: 'NearKit wallets' }).waitFor()
+    await page.getByRole('list', { name: 'NEARKITS wallets' }).waitFor()
     await shot('tg-11-wallets-360')
     await page.setViewportSize({ width: 1280, height: 900 })
   }
 })
 
-await step('Multi Buy across NearKit wallets runs from the web: the server quotes each wallet, Execute runs each one, and Telegram takes no part', async () => {
+await step('Multi Buy across NEARKITS wallets runs from the web: the server quotes each wallet, Execute runs each one, and Telegram takes no part', async () => {
   near.state.accounts.set(degenAddress, { amount: String(3n * ONE) })
   await page.goto(WEB + '/multi-trade', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Select all', exact: true }).click()
@@ -534,7 +534,7 @@ await step('Multi Buy across NearKit wallets runs from the web: the server quote
   await modal.getByText('Gas reserve (refunded)').first().waitFor()
   await modal.getByText('Temporarily held while the transaction runs. Unused gas is refunded automatically.').first().waitFor()
   await modal.getByText('Actual network fee (est.)').first().waitFor()
-  await modal.getByText('NearKit fee', { exact: true }).first().waitFor()
+  await modal.getByText('NEARKITS fee', { exact: true }).first().waitFor()
   if ((await modal.getByText('Network fee (est.)', { exact: true }).count()) !== 0) throw new Error('the review still labels a figure Network fee')
   await shot('tg-08-web-multi-review')
   await execute.click()
@@ -548,14 +548,14 @@ await step('Multi Buy across NearKit wallets runs from the web: the server quote
   await page.keyboard.press('Escape')
 })
 
-await step('a single Buy from a NearKit wallet in the normal trade ticket: no browser wallet to connect, no Telegram; NearKit runs it', async () => {
+await step('a single Buy from a NEARKITS wallet in the normal trade ticket: no browser wallet to connect, no Telegram; NEARKITS runs it', async () => {
   await page.goto(WEB + `/token/${USDT}`, { waitUntil: 'networkidle' })
   const from = tg.sent.length
   await page.locator('main').getByRole('button', { name: 'Buy USDT' }).click()
   const sheet = page.getByRole('dialog', { name: 'Trade ticket' })
   await sheet.getByLabel('Trade from wallet').waitFor()
-  if (await sheet.getByRole('button', { name: 'Connect wallet' }).count()) throw new Error('the ticket asks to connect a wallet for a NearKit wallet')
-  await sheet.getByText(/NearKit executes it from/).waitFor()
+  if (await sheet.getByRole('button', { name: 'Connect wallet' }).count()) throw new Error('the ticket asks to connect a wallet for a NEARKITS wallet')
+  await sheet.getByText(/NEARKITS executes it from/).waitFor()
   await sheet.getByPlaceholder('0.00').fill('0.1')
   // Two-step confirmation (the default): the first press arms, the second opens the review.
   await sheet.getByRole('button', { name: 'Buy USDT' }).click()
@@ -573,12 +573,12 @@ await step('a single Buy from a NearKit wallet in the normal trade ticket: no br
 })
 
 await step(
-  'Send from a NearKit wallet is reviewed and sent from the web; an unapproved address offers Approve & continue (the owner approves it right there, then the review); Telegram takes no part',
+  'Send from a NEARKITS wallet is reviewed and sent from the web; an unapproved address offers Approve & continue (the owner approves it right there, then the review); Telegram takes no part',
   async () => {
     near.state.accounts.set('friend.testnet', { amount: String(ONE) })
     near.state.accounts.set('friend3.testnet', { amount: String(ONE) })
     await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
-    await page.getByRole('table', { name: 'NearKit wallets' }).getByRole('button', { name: 'Send' }).first().click()
+    await page.getByRole('table', { name: 'NEARKITS wallets' }).getByRole('button', { name: 'Send' }).first().click()
     const modal = page.getByRole('dialog', { name: 'Send from Main' })
     const from = tg.sent.length
     // An address the owner wallet never approved: one way forward, Approve & continue (no competing Review).
@@ -614,7 +614,7 @@ await step(
     // The shortcut to one of the user's own NearKit wallets fills in its full account id, and that
     // address is reviewed like any other: here it isn't approved either, so nothing is sent.
     const sniper = (await webApi('/api/web/wallets', {})).json?.wallets?.find((x) => x.name === 'Sniper A')
-    await modal.getByLabel('Pick one of my NearKit wallets as the destination').selectOption(sniper.accountId)
+    await modal.getByLabel('Pick one of my NEARKITS wallets as the destination').selectOption(sniper.accountId)
     if ((await modal.getByLabel('To').inputValue()) !== sniper.accountId) throw new Error('the shortcut did not fill in the full account id')
     await modal.getByRole('button', { name: 'Review', exact: true }).click()
     await modal.getByText(new RegExp(`${sniper.accountId.slice(0, 6)}.*isn’t approved for Main yet`)).waitFor()
@@ -637,7 +637,7 @@ await step(
 )
 
 await step(
-  'Recover: the owner is whoever signs with a full-access key of the owner: no key reported or the NearKit wallet’s own exported key is refused before anything reaches the signer (never "Wallet connected"); the same account signing with the owner’s key, or the owner listed second, gets the approval through',
+  'Recover: the owner is whoever signs with a full-access key of the owner: no key reported or the NEARKITS wallet’s own exported key is refused before anything reaches the signer (never "Wallet connected"); the same account signing with the owner’s key, or the owner listed second, gets the approval through',
   async () => {
     const EVM = '0x52908400098527886E0F7030069857D2E4169EE7'
     // The NearKit wallet's own key, as a wallet app holds it after Recover exported it: a key of that wallet, not of its owner.
@@ -663,7 +663,7 @@ await step(
     await pick()
     await alert
       .getByText(
-        `Your wallet returned ${mainAddress}, not ${USER}, and didn’t say which key it signs with, so NearKit can’t tell whether it holds a key of ${USER}. Switch to ${USER} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`,
+        `Your wallet returned ${mainAddress}, not ${USER}, and didn’t say which key it signs with, so NEARKITS can’t tell whether it holds a key of ${USER}. Switch to ${USER} itself in your wallet; if it keeps returning the same account, remove NEARKITS from the wallet’s connected sites, then connect again.`,
       )
       .waitFor()
     await alert.getByText('What your wallet returned').click()
@@ -678,7 +678,7 @@ await step(
     await pick()
     await alert
       .getByText(
-        `Your wallet is connected as ${mainAddress}, your NearKit wallet itself: it signs with that wallet’s exported key (${MAIN_KEY}), which isn’t a key of ${USER}. Connect the wallet that holds ${USER}’s own key, then try again.`,
+        `Your wallet is connected as ${mainAddress}, your NEARKITS wallet itself: it signs with that wallet’s exported key (${MAIN_KEY}), which isn’t a key of ${USER}. Connect the wallet that holds ${USER}’s own key, then try again.`,
       )
       .waitFor()
     await alert.getByText('What your wallet returned').click()
@@ -701,7 +701,7 @@ await step(
     await rp.goto(`${WEB}/recover`, { waitUntil: 'networkidle' })
     await setWallet([mainAddress], { [mainAddress]: PUBLIC_KEY })
     await rp.getByLabel('Owner account').fill(USER)
-    await rp.getByRole('button', { name: `Sign to show the NearKit wallets of ${USER}` }).click()
+    await rp.getByRole('button', { name: `Sign to show the NEARKITS wallets of ${USER}` }).click()
     await rp.getByText(mainAddress).first().waitFor({ timeout: 15000 })
     await rp.context().close()
 
@@ -726,7 +726,7 @@ await step(
 )
 
 await step(
-  'Batch Send from a NearKit wallet: it is a source; each line is a web send under the custody rule (an unapproved line blocks the batch, with its approval link); a ready batch is sent by NearKit, nothing signed in the browser',
+  'Batch Send from a NEARKITS wallet: it is a source; each line is a web send under the custody rule (an unapproved line blocks the batch, with its approval link); a ready batch is sent by NEARKITS, nothing signed in the browser',
   async () => {
     near.state.accounts.set('friend4.testnet', { amount: String(ONE) })
     await page.goto(WEB + '/batch-send', { waitUntil: 'networkidle' })
@@ -748,14 +748,14 @@ await step(
     const before = await signed()
     await review.getByRole('button', { name: 'Send batch' }).click()
     await review.getByText(/^Sent [01] of 1\.$/).waitFor({ timeout: 60000 })
-    if ((await signed()) !== before) throw new Error('the browser wallet signed a NearKit wallet’s batch')
+    if ((await signed()) !== before) throw new Error('the browser wallet signed a NEARKITS wallet’s batch')
     // The footer's Close (the dialog's own × is named Close too).
     await review.getByRole('button', { name: 'Close' }).last().click()
   },
 )
 
 await step(
-  'Batch Send, Manual: each row sends from its own NearKit wallet (Send from until one is chosen); the preview and the review name each row’s wallet and NearKit’s server reviews each line from it; never a connected or watch-only account; Paste list unchanged',
+  'Batch Send, Manual: each row sends from its own NEARKITS wallet (Send from until one is chosen); the preview and the review name each row’s wallet and NEARKITS’ server reviews each line from it; never a connected or watch-only account; Paste list unchanged',
   async () => {
     near.state.accounts.set('friend5.testnet', { amount: String(ONE) })
     await page.goto(WEB + '/batch-send', { waitUntil: 'networkidle' })
@@ -780,11 +780,11 @@ await step(
     const rows = page.getByRole('table', { name: 'Batch preview' }).locator('tbody tr')
     await rows.nth(1).getByText('Sniper A').waitFor({ timeout: 15000 })
     if (!(await rows.nth(0).innerText()).includes('Main')) throw new Error(`preview row 1: ${await rows.nth(0).innerText()}`)
-    await page.getByText('2 NearKit wallets').waitFor()
+    await page.getByText('2 NEARKITS wallets').waitFor()
     await shot('tg-09c-batch-manual-per-row')
     await page.getByRole('button', { name: 'Send batch' }).click()
     const review = page.getByRole('dialog', { name: 'Review batch send' })
-    await review.getByText(/^From 2 NearKit wallets/).waitFor({ timeout: 15000 })
+    await review.getByText(/^From 2 NEARKITS wallets/).waitFor({ timeout: 15000 })
     for (let i = 0; i < 60 && (await review.getByText('Checking…').count()) > 0; i++) await new Promise((r) => setTimeout(r, 250))
     // Row 1 from Main to its owner: ready. Row 2 from Sniper A: reviewed as Sniper A (its approval link names Sniper A, not Main).
     const lines = review.locator('tbody tr')
@@ -808,7 +808,7 @@ await step(
 )
 
 await step(
-  'Consolidate gathers a token held across NearKit wallets (in no list, no price, known by its contract): offered first, both wallets are sources, NearKit’s server reviews each into the destination; Split puts what its source holds first, by that wallet’s own balance, and still finds the rest',
+  'Consolidate gathers a token held across NEARKITS wallets (in no list, no price, known by its contract): offered first, both wallets are sources, NEARKITS’ server reviews each into the destination; Split puts what its source holds first, by that wallet’s own balance, and still finds the rest',
   async () => {
     const GATHER = 'gather.tkn.testnet'
     near.state.accounts.set(GATHER, { amount: String(ONE), code: true })
@@ -856,7 +856,7 @@ await step(
     const before = await signed()
     await page.getByRole('button', { name: 'Consolidate', exact: true }).click()
     const review = page.getByRole('dialog', { name: 'Review consolidation' })
-    await review.getByText(/^Into .*NearKit’s server sends from each NearKit wallet/).waitFor({ timeout: 15000 })
+    await review.getByText(/^Into .*NEARKITS’ server sends from each NEARKITS wallet/).waitFor({ timeout: 15000 })
     await review.getByText(`${degenAddress.slice(0, 6)}…${degenAddress.slice(-4)}`).waitFor()
     // Reviewed by NearKit's server, wallet by wallet: every line ends ready or says how it gets approved.
     for (let i = 0; i < 60 && (await review.getByText('Checking…').count()) > 0; i++) await new Promise((r) => setTimeout(r, 250))
@@ -866,7 +866,7 @@ await step(
     if (into === USER && (await review.getByText('Ready').count()) < 1) throw new Error('Main can’t send to its own owner wallet')
     await shot('tg-12b-consolidate-review')
     await review.getByRole('button', { name: 'Cancel' }).click()
-    if ((await signed()) !== before) throw new Error('the browser wallet was asked to sign for NearKit wallets')
+    if ((await signed()) !== before) throw new Error('the browser wallet was asked to sign for NEARKITS wallets')
     await page.setViewportSize({ width: 375, height: 812 })
     await page.getByRole('button', { name: 'Token: GATHER' }).waitFor()
     await fits('Consolidate at 375px')
@@ -915,7 +915,7 @@ await step('a forged client gets nothing: a watch account, a made-up id or an ad
 await step('Sign out everywhere, from Telegram, ends the web session', async () => {
   const from = tg.sent.length
   press(TG_USER, 'web:out')
-  await tg.waitFor(TG_USER.id, (x) => x.text.includes('Signed out of NearKit web'), { from })
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('Signed out of NEARKITS web'), { from })
   await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Sign in with Telegram' }).first().waitFor({ timeout: 10000 })
   const list = await webApi('/api/web/wallets', {})
@@ -949,19 +949,19 @@ await step('the Mini App: a direct open from Telegram is a plain landing, outsid
   await tg.goto(address(plain), { waitUntil: 'networkidle' })
   await tg.getByRole('heading', { name: 'Telegram Mini App' }).waitFor()
   await tg
-    .getByText(/secure NearKit wallet actions and approvals/)
+    .getByText(/secure NEARKITS wallet actions and approvals/)
     .first()
     .waitFor()
   if ((await tg.getByRole('alert').count()) !== 0) throw new Error('a direct open showed an error')
-  await tg.getByRole('button', { name: 'Back to NearKit bot' }).click()
-  if ((await tg.evaluate(() => window.__nearkitClosed)) !== true) throw new Error('Back to NearKit bot did not close the Mini App')
+  await tg.getByRole('button', { name: 'Back to NEARKITS bot' }).click()
+  if ((await tg.evaluate(() => window.__nearkitClosed)) !== true) throw new Error('Back to NEARKITS bot did not close the Mini App')
   // Outside Telegram: no launch data at all.
   await tg.goto(WEB + '/tg', { waitUntil: 'networkidle' })
   await tg
-    .getByText(/Open it from NearKit’s bot in Telegram/)
+    .getByText(/Open it from NEARKITS’ bot in Telegram/)
     .first()
     .waitFor()
-  await tg.getByRole('link', { name: 'Open NearKit in Telegram' }).waitFor()
+  await tg.getByRole('link', { name: 'Open NEARKITS in Telegram' }).waitFor()
   if ((await tg.getByRole('alert').count()) !== 0) throw new Error('outside Telegram showed an error')
   if ((await tg.getByRole('button', { name: 'Approve' }).count()) !== 0) throw new Error('outside Telegram offered Approve')
   // An approval link: the digest Telegram signed is looked up with the server; an unknown one is refused and nothing is offered.
@@ -974,7 +974,7 @@ await step('the Mini App: a direct open from Telegram is a plain landing, outsid
   const refusal = tg.getByRole('alert')
   await refusal.waitFor({ timeout: 10000 })
   const reason = (await refusal.innerText()).trim()
-  if (/Open it from NearKit’s bot/.test(reason) || !/request|approval|Telegram/i.test(reason)) throw new Error(`Unexpected refusal: ${reason}`)
+  if (/Open it from NEARKITS’ bot/.test(reason) || !/request|approval|Telegram/i.test(reason)) throw new Error(`Unexpected refusal: ${reason}`)
   if ((await tg.getByRole('heading', { name: 'Telegram Mini App' }).count()) !== 0) throw new Error('an approval link showed the landing')
   if ((await tg.getByRole('button', { name: 'Approve' }).count()) !== 0) throw new Error('an unknown request offered Approve')
   await tg.close()

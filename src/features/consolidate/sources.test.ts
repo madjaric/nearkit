@@ -48,7 +48,7 @@ const TOKENS = [
 ]
 
 describe('who can be a source', () => {
-  it('every wallet that can act except the destination: NearKit wallets (not frozen) and the connected accounts; never a watch-only wallet', () => {
+  it('every wallet that can act except the destination: NEARKITS wallets (not frozen) and the connected accounts; never a watch-only wallet', () => {
     const pool = consolidatePool(WALLETS, A.id)
     expect(pool.nearkit.map((w) => w.id)).toEqual([B.id])
     expect(pool.browser.map((w) => w.id)).toEqual([CONNECTED.id])
@@ -67,8 +67,8 @@ describe('who can be a source', () => {
   })
 })
 
-describe('which family a run starts from (NearKit wallets or connected accounts, one at a time)', () => {
-  it('the one with more wallets holding the token; NearKit on a tie; the only one there is', () => {
+describe('which family a run starts from (NEARKITS wallets or connected accounts, one at a time)', () => {
+  it('the one with more wallets holding the token; NEARKITS on a tie; the only one there is', () => {
     const pool = consolidatePool([A, B, CONNECTED, wallet('me2.near', 'external')], 'dest.near')
     expect(defaultFamily(pool, (id) => id === A.id || id === B.id)).toBe('nearkit')
     expect(defaultFamily(pool, (id) => id === CONNECTED.id || id === 'me2.near')).toBe('browser')

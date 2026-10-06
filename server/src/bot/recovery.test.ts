@@ -69,8 +69,8 @@ async function intruder(h: Harness) {
   return k
 }
 
-describe('backup key: yours even without NearKit', () => {
-  it('adds your linked wallet’s key to the NearKit wallet, on chain', async () => {
+describe('backup key: yours even without NEARKITS', () => {
+  it('adds your linked wallet’s key to the NEARKITS wallet, on chain', async () => {
     const { h, linked } = await setup()
     const w = await h.funded(2n * ONE)
     await h.press('cr:show')
@@ -86,7 +86,7 @@ describe('backup key: yours even without NearKit', () => {
     expect(h.last()?.text).toContain('Backup key: your own wallet can control this one ✓')
   })
 
-  it('with the backup key, your own wallet moves the funds by itself: no NearKit involved', async () => {
+  it('with the backup key, your own wallet moves the funds by itself: no NEARKITS involved', async () => {
     const { h, linked } = await setup()
     const w = await h.funded(2n * ONE)
     await addBackup(h)
@@ -109,7 +109,7 @@ describe('backup key: yours even without NearKit', () => {
 })
 
 describe('export: in the web app, after the owner wallet signs', () => {
-  it('names the recovery page on the web address NearKit is configured with, never a fixed one', async () => {
+  it('names the recovery page on the web address NEARKITS is configured with, never a fixed one', async () => {
     const { h } = await setup()
     await h.funded(ONE)
     await h.press('cr:export')
@@ -197,7 +197,7 @@ describe('export: in the web app, after the owner wallet signs', () => {
 })
 
 describe('the web page checks what it is asked to sign', () => {
-  it('accepts NearKit’s real requests, and refuses one that was altered on the way', async () => {
+  it('accepts NEARKITS’ real requests, and refuses one that was altered on the way', async () => {
     const { h } = await setup()
     const w = await h.funded(ONE)
     const api = webApi(h)
@@ -222,7 +222,7 @@ describe('the web page checks what it is asked to sign', () => {
 })
 
 describe('recovery without Telegram', () => {
-  it('the owner wallet alone lists its NearKit wallets and exports one; Telegram only hears about it', async () => {
+  it('the owner wallet alone lists its NEARKITS wallets and exports one; Telegram only hears about it', async () => {
     const { h, linked } = await setup()
     const a = await h.funded(ONE)
     await h.press('cw:list')
@@ -301,7 +301,7 @@ describe('the owner, not whichever wallet is linked now', () => {
     })
     const sent = h.chain.rpcCalls('send_tx').length
     await h.press(`cx:ok:${forged.id}`)
-    expect(h.last()?.text).toContain('Only a key of the wallet this NearKit wallet was created with can be its backup key')
+    expect(h.last()?.text).toContain('Only a key of the wallet this NEARKITS wallet was created with can be its backup key')
     expect(h.chain.rpcCalls('send_tx')).toHaveLength(sent)
     expect(h.chain.keysOf(w.accountId)).toEqual([w.publicKey])
     await addBackup(h)
@@ -316,13 +316,13 @@ describe('the owner, not whichever wallet is linked now', () => {
     await h.press('cr:show')
     expect(h.last()?.text).toContain(`Another key also controls this wallet: <code>${stranger.publicKey.slice(0, 16)}…</code>`)
     await h.press('cr:revoke')
-    await h.press(h.button('Remove NearKit’s key'))
+    await h.press(h.button('Remove NEARKITS’ key'))
     expect(h.last()?.text).toContain(`no other key on this wallet is a full-access key of ${LINKED}`)
     expect(h.chain.keysOf(w.accountId)).toContain(w.publicKey)
     await addBackup(h)
     await h.press('cr:revoke')
-    await h.press(h.button('Remove NearKit’s key'))
-    expect(h.last()?.text).toContain('NearKit’s key was removed')
+    await h.press(h.button('Remove NEARKITS’ key'))
+    expect(h.last()?.text).toContain('NEARKITS’ key was removed')
     expect(h.chain.keysOf(w.accountId).sort()).toEqual([linked.publicKey, stranger.publicKey].sort())
   })
 
@@ -343,19 +343,19 @@ describe('the owner, not whichever wallet is linked now', () => {
   })
 })
 
-describe('removing NearKit’s access, and deleting an empty wallet', () => {
-  it('needs the backup key first; then NearKit’s key is deleted on chain and its copy erased', async () => {
+describe('removing NEARKITS’ access, and deleting an empty wallet', () => {
+  it('needs the backup key first; then NEARKITS’ key is deleted on chain and its copy erased', async () => {
     const { h, linked } = await setup()
     const w = await h.funded(2n * ONE)
     await h.press('cr:revoke')
-    await h.press(h.button('Remove NearKit’s key'))
+    await h.press(h.button('Remove NEARKITS’ key'))
     expect(h.last()?.text).toContain('Add your backup key first')
     expect(h.chain.keysOf(w.accountId)).toContain(w.publicKey)
     await addBackup(h)
     await h.press('cr:show')
-    await h.press(h.button('Remove NearKit’s access'))
-    await h.press(h.button('Remove NearKit’s key'))
-    expect(h.last()?.text).toContain('NearKit’s key was removed')
+    await h.press(h.button('Remove NEARKITS’ access'))
+    await h.press(h.button('Remove NEARKITS’ key'))
+    expect(h.last()?.text).toContain('NEARKITS’ key was removed')
     expect(h.chain.keysOf(w.accountId)).toEqual([linked.publicKey])
     expect(await h.custody.store.wallet(w.id)).toMatchObject({ status: 'revoked' })
     // The signer saw NearKit's key gone on chain and erased its copy.

@@ -50,7 +50,7 @@ export function readTelegramLaunch(hash: string, search: string): TelegramLaunch
 
 /** Why the page must not offer to approve `r`, or null when it is exactly the request the link names, on this network. */
 export async function telegramRequestProblem(r: TelegramRequestView, want: { digest: string; network: string }): Promise<string | null> {
-  if (r.network !== want.network) return `This request is for ${r.network}, but this NearKit runs on ${want.network}.`
+  if (r.network !== want.network) return `This request is for ${r.network}, but this NEARKITS runs on ${want.network}.`
   if (r.digest !== want.digest || (await telegramApprovalDigest(r)) !== want.digest)
     return 'This request doesn’t match the link you opened. Don’t approve it: start again in Telegram.'
   return null

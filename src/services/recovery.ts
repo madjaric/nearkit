@@ -69,12 +69,12 @@ export async function challengeProblem(
   want: { kind: OwnerChallenge['kind']; network: string; recipient: string; owner?: string; wallet?: string; destination?: string; recipientKey?: string },
 ): Promise<string | null> {
   const f = fieldsOf(c.message)
-  if (c.kind !== want.kind) return 'NearKit answered with a different kind of request.'
+  if (c.kind !== want.kind) return 'NEARKITS answered with a different kind of request.'
   if (c.recipient !== want.recipient) return `This request is for another site (${c.recipient}), not this one.`
-  if (f['Network'] !== want.network) return `This request is for ${f['Network'] ?? 'another network'}, but this NearKit runs on ${want.network}.`
+  if (f['Network'] !== want.network) return `This request is for ${f['Network'] ?? 'another network'}, but this NEARKITS runs on ${want.network}.`
   if (f['Request'] !== c.id || f['Owner wallet'] !== c.ownerAccount) return 'This request is malformed. Start again.'
   if (want.owner !== undefined && c.ownerAccount !== want.owner) return `This request is for ${c.ownerAccount}, not ${want.owner}.`
-  if (want.wallet !== undefined && (f['NearKit wallet'] !== want.wallet || c.accountId !== want.wallet)) return 'This request names another NearKit wallet.'
+  if (want.wallet !== undefined && (f['NearKit wallet'] !== want.wallet || c.accountId !== want.wallet)) return 'This request names another NEARKITS wallet.'
   if (want.destination !== undefined && (f['Destination'] !== want.destination || c.destination !== want.destination)) return 'This request names another destination.'
   if (want.recipientKey !== undefined && f['Browser key'] !== (await exportKeyFingerprint(want.recipientKey)))
     return 'This request would send the key to another browser. Nothing was signed.'

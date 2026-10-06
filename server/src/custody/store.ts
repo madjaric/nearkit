@@ -45,7 +45,7 @@ export interface TradingWallet {
 /** The user already has MAX_ACTIVE_WALLETS_PER_USER active wallets on this network. */
 export class ActiveWalletLimitError extends Error {
   constructor() {
-    super(`You can have at most ${MAX_ACTIVE_WALLETS_PER_USER} NearKit wallets at once. Delete or empty one first.`)
+    super(`You can have at most ${MAX_ACTIVE_WALLETS_PER_USER} NEARKITS wallets at once. Delete or empty one first.`)
     this.name = 'ActiveWalletLimitError'
   }
 }

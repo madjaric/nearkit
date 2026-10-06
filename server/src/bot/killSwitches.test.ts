@@ -41,14 +41,14 @@ describe('kill switches', () => {
     await h.custody.ops.set('trading', true, 'incident', 'test')
     // …is refused at Confirm, before anything is planned or signed.
     await h.press(confirm)
-    expect(h.last()?.text).toContain('Trading from NearKit wallets is paused')
+    expect(h.last()?.text).toContain('Trading from NEARKITS wallets is paused')
     expect(h.chain.sent).toHaveLength(0)
     // New quotes are refused too.
     h.advance(60_000)
     await h.say('/buy')
     await h.say('USDT')
     await h.press(h.button('0.1 NEAR'))
-    expect(h.last()?.text).toContain('Trading from NearKit wallets is paused')
+    expect(h.last()?.text).toContain('Trading from NEARKITS wallets is paused')
     // Withdrawing to the owner still works.
     await withdrawToOwner(h)
     expect(h.last()?.text).toContain('Withdrawal confirmed')
@@ -87,12 +87,12 @@ describe('kill switches', () => {
     await h.custody.store.setFrozen(w.id, 'suspicious activity')
     h.advance(60_000)
     await h.press('cw:wd')
-    expect(h.last()?.text).toContain('frozen by NearKit')
+    expect(h.last()?.text).toContain('frozen by NEARKITS')
     h.advance(60_000)
     await h.say('/buy')
     await h.say('USDT')
     await h.press(h.button('0.1 NEAR'))
-    expect(h.last()?.text).toContain('frozen by NearKit')
+    expect(h.last()?.text).toContain('frozen by NEARKITS')
     // The backup key hands control to the owner: still allowed.
     h.advance(60_000)
     await h.press(`cr:show:${w.id}`)
@@ -128,7 +128,7 @@ describe('kill switches', () => {
     await h.say('/buy')
     await h.say('USDT')
     await h.press(h.button('0.1 NEAR'))
-    expect(h.last()?.text).toContain('Trading from NearKit wallets is paused')
+    expect(h.last()?.text).toContain('Trading from NEARKITS wallets is paused')
     expect(h.chain.sent).toHaveLength(0)
     // Only trading: withdrawing to the owner still works.
     await withdrawToOwner(h)

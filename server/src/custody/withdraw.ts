@@ -91,8 +91,8 @@ export function checkDestinationSyntax(raw: string, network: NetworkConfig, wall
   const to = raw.trim()
   const why = accountIdError(to)
   if (why) throw invalid(`${why}. Send a NEAR account like alice.${network.id} or a 64-character address.`)
-  if (isForeignToNetwork(to, network.id)) throw invalid(`${to} is a NEAR ${network.id === 'testnet' ? 'mainnet' : 'testnet'} account. NearKit is on ${network.id}.`)
-  if (to === wallet.accountId) throw invalid('That is this NearKit wallet itself.')
+  if (isForeignToNetwork(to, network.id)) throw invalid(`${to} is a NEAR ${network.id === 'testnet' ? 'mainnet' : 'testnet'} account. NEARKITS is on ${network.id}.`)
+  if (to === wallet.accountId) throw invalid('That is this NEARKITS wallet itself.')
   if (asset !== NATIVE_TOKEN_ID && to === asset) throw invalid('That is the token’s own contract: tokens sent there are lost.')
   return to
 }
@@ -107,21 +107,21 @@ export async function reviewWithdraw(near: ServerNear, network: NetworkConfig, w
     const [dest, mine] = await Promise.all([accountState(rpc, input.to, 'final'), accountState(rpc, wallet.accountId, 'final')])
     const kind = accountKind(input.to)
     if (!dest.exists && kind === 'named') throw invalid(`There is no account ${input.to} on NEAR ${network.id}. Check the address.`)
-    if (!mine.exists) throw new NearKitError('INSUFFICIENT_BALANCE', 'Your NearKit wallet has no NEAR yet. Deposit first.')
+    if (!mine.exists) throw new NearKitError('INSUFFICIENT_BALANCE', 'Your NEARKITS wallet has no NEAR yet. Deposit first.')
     const fresh = !dest.exists
 
     if (input.asset === NATIVE_TOKEN_ID) {
       if (mine.availableYocto < amount + nearWithdrawUpfront(input.to)) {
         throw new NearKitError(
           'INSUFFICIENT_BALANCE',
-          `Your NearKit wallet has ${formatUnits(mine.availableYocto, NEAR_DECIMALS, { maxFraction: 4 })} NEAR available; withdrawing ${formatUnits(amount, NEAR_DECIMALS, { maxFraction: 6 })} also needs a little NEAR for the network fee.`,
+          `Your NEARKITS wallet has ${formatUnits(mine.availableYocto, NEAR_DECIMALS, { maxFraction: 4 })} NEAR available; withdrawing ${formatUnits(amount, NEAR_DECIMALS, { maxFraction: 6 })} also needs a little NEAR for the network fee.`,
         )
       }
       return { registration: null, fresh, feeNear: NEAR_FEE.toString() }
     }
 
     const held = await near.ctx.reader.balanceOf(input.asset, wallet.accountId)
-    if (held < amount) throw new NearKitError('INSUFFICIENT_BALANCE', `Your NearKit wallet holds ${formatUnits(held, input.decimals, { maxFraction: 6 })} ${input.symbol}.`)
+    if (held < amount) throw new NearKitError('INSUFFICIENT_BALANCE', `Your NEARKITS wallet holds ${formatUnits(held, input.decimals, { maxFraction: 6 })} ${input.symbol}.`)
     const status = (await storageStatus(rpc, input.asset, [input.to])).get(input.to)
     const registration = status === false ? await storageBoundsMin(rpc, input.asset) : null
     const need = tokenWithdrawUpfront(input.asset, input.to, amount, registration) + (registration ?? 0n)

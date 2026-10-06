@@ -162,7 +162,7 @@ export function createScanner(ctx: NearContext, market: Market) {
         value: null,
         kind: 'unknown',
         source: 'Not read yet',
-        note: 'NearKit does not read pool depth; a quote shows the price impact for your size',
+        note: 'NEARKITS does not read pool depth; a quote shows the price impact for your size',
       },
       {
         id: 'mint',

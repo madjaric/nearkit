@@ -58,10 +58,10 @@ export const TEST_ONLY_ACCOUNTS: readonly string[] = Object.freeze(['testone.nea
  * PRODUCTION_FEE_RECIPIENT.
  */
 export function feeRecipientProblem(network: 'mainnet' | 'testnet', recipient: string | null, production: string = PRODUCTION_FEE_RECIPIENT): string | null {
-  if (recipient && TEST_ONLY_ACCOUNTS.includes(recipient)) return `${recipient} is a test account; it never receives the NearKit fee`
+  if (recipient && TEST_ONLY_ACCOUNTS.includes(recipient)) return `${recipient} is a test account; it never receives the NEARKITS fee`
   if (network !== 'mainnet') return null
-  if (!recipient) return `The NearKit fee account is not configured (it must be ${production})`
-  if (recipient !== production) return `The NearKit fee account must be ${production}, not ${recipient}`
+  if (!recipient) return `The NEARKITS fee account is not configured (it must be ${production})`
+  if (recipient !== production) return `The NEARKITS fee account must be ${production}, not ${recipient}`
   return null
 }
 

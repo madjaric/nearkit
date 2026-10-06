@@ -53,7 +53,7 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     `You receive ${bold(`≈ ${fmt(BigInt(q.amountOut), outDecimals)} ${outSymbol}`)}`,
     `Minimum ${esc(`${fmt(BigInt(q.minOut), outDecimals)} ${outSymbol}`)} · ${p.slippagePct}% slippage`,
     `Price impact ${q.priceImpactPct === null ? `${UNKNOWN} (no prices on ${esc(deps.config.network.id)})` : esc(formatPct(q.priceImpactPct, { decimals: 2 }))}`,
-    `NearKit fee ${esc(fee)}`,
+    `NEARKITS fee ${esc(fee)}`,
     `Actual network fee ≈ ${esc(nearText(BigInt(q.networkFeeNear)))} NEAR`,
     ...(registration > 0n ? [`Registration ${esc(nearText(registration, 5))} NEAR · first time with a token here`] : []),
     ...(need !== null
@@ -64,14 +64,14 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
         ]
       : []),
     ...(need !== null && available !== null && available < need
-      ? [`⚠️ Your NearKit wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
+      ? [`⚠️ Your NEARKITS wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
       : []),
     ...(q.tax?.inBps ? [`Token tax ${taxPct(q.tax.inBps)}% on tokens entering the pool (${esc(p.symbol)}’s own), already in the figures`] : []),
     ...(q.tax?.outBps ? [`Token tax ${taxPct(q.tax.outBps)}% on tokens leaving the pool (${esc(p.symbol)}’s own), already in the figures`] : []),
     `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     ...(q.busy ? [`⚠️ ${esc(NETWORK_BUSY_WARNING)}`] : []),
     '',
-    `⏱ Valid for ${seconds}s. Right before sending, NearKit checks the price again; if you’d get less than the minimum, it asks you first.`,
+    `⏱ Valid for ${seconds}s. Right before sending, NEARKITS checks the price again; if you’d get less than the minimum, it asks you first.`,
   ].join('\n')
 }
 
@@ -87,7 +87,7 @@ export async function sendNativeQuote(ctx: BotCtx, params: SwapParams, againData
   const wallet = await flowWallet(ctx, walletId)
   if (!custody) return
   if (!wallet) {
-    await ctx.reply('That NearKit wallet is closed or not yours any more. Nothing was prepared.', keyboard([btn('👛 Wallet', 'cw:home')]))
+    await ctx.reply('That NEARKITS wallet is closed or not yours any more. Nothing was prepared.', keyboard([btn('👛 Wallet', 'cw:home')]))
     return
   }
   const blocked = await custody.ops.blocked(params.side, wallet)
@@ -138,7 +138,7 @@ async function tradeResult(deps: BotDeps, intent: Intent) {
         ...(wallet ? [`Wallet ${walletLine(wallet)}`] : []),
         p.side === 'buy' ? `Spent ${bold(near)}` : `Sold ${bold(token)}`,
         p.side === 'buy' ? `Received ${bold(token)}` : `Received ${bold(near)}`,
-        `NearKit fee ${esc(fee)}`,
+        `NEARKITS fee ${esc(fee)}`,
         ...(links ? [`Tx ${links}`] : []),
       ].join('\n')
     : [`❌ ${bold(p.side === 'buy' ? 'Buy failed' : 'Sell failed')}`, esc(r?.message ?? 'Nothing was sent.'), ...(links ? [`Tx ${links}`] : [])].join('\n')

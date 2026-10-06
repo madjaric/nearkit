@@ -82,7 +82,7 @@ describe('whether a wallet can sign for the owner: the owner account itself, or 
     )
     // On the page of that very NearKit wallet, with its own key: said as it is.
     expect(ownerControlProblem(r, OWNER, IMPLICIT)).toBe(
-      `Your wallet is connected as ${IMPLICIT}, your NearKit wallet itself: it signs with that wallet’s exported key (${WALLET_KEY}), which isn’t a key of ${OWNER}. Connect the wallet that holds ${OWNER}’s own key, then try again.`,
+      `Your wallet is connected as ${IMPLICIT}, your NEARKITS wallet itself: it signs with that wallet’s exported key (${WALLET_KEY}), which isn’t a key of ${OWNER}. Connect the wallet that holds ${OWNER}’s own key, then try again.`,
     )
   })
 
@@ -109,7 +109,7 @@ describe('whether a wallet can sign for the owner: the owner account itself, or 
     expect(r).toEqual({ ok: false, reason: 'no-key', account: IMPLICIT })
     expect(c.asked).toEqual([])
     expect(ownerControlProblem(r, OWNER)).toBe(
-      `Your wallet returned ${IMPLICIT}, not ${OWNER}, and didn’t say which key it signs with, so NearKit can’t tell whether it holds a key of ${OWNER}. Switch to ${OWNER} itself in your wallet; if it keeps returning the same account, remove NearKit from the wallet’s connected sites, then connect again.`,
+      `Your wallet returned ${IMPLICIT}, not ${OWNER}, and didn’t say which key it signs with, so NEARKITS can’t tell whether it holds a key of ${OWNER}. Switch to ${OWNER} itself in your wallet; if it keeps returning the same account, remove NEARKITS from the wallet’s connected sites, then connect again.`,
     )
   })
 
@@ -117,7 +117,7 @@ describe('whether a wallet can sign for the owner: the owner account itself, or 
     const r = refusal(await checkOwnerControl({ accounts: [IMPLICIT], keys: [{ accountId: IMPLICIT, publicKey: OWNER_KEY }] }, OWNER, down))
     expect(r).toEqual({ ok: false, reason: 'unchecked', account: IMPLICIT, publicKey: OWNER_KEY })
     expect(ownerControlProblem(r, OWNER)).toBe(
-      `NearKit couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}: the network didn’t answer. Nothing was signed. Try again in a moment.`,
+      `NEARKITS couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}: the network didn’t answer. Nothing was signed. Try again in a moment.`,
     )
   })
 
@@ -147,7 +147,7 @@ describe('whether a wallet can sign for the owner: the owner account itself, or 
     expect(ownerControlProblem(evm, OWNER)).toBe(
       `Your wallet returned an EVM address (${EVM}), not a NEAR account. Switch to the NEAR account ${OWNER} in your wallet, then try again.`,
     )
-    expect(ownerControlProblem({ ok: false, reason: 'none' }, OWNER)).toBe(`No NEAR account is connected. Connect ${OWNER}, the wallet this NearKit wallet was created with.`)
+    expect(ownerControlProblem({ ok: false, reason: 'none' }, OWNER)).toBe(`No NEAR account is connected. Connect ${OWNER}, the wallet this NEARKITS wallet was created with.`)
     expect(c.asked).toEqual([])
   })
 })
@@ -157,10 +157,10 @@ describe('the key a signature was made with: the decisive check', () => {
     expect(await signedKeyProblem(OWNER_KEY, OWNER, chain().permission)).toBeNull()
     for (const key of [WALLET_KEY, APP_KEY, 'not a key'])
       expect(await signedKeyProblem(key, OWNER, chain().permission)).toBe(
-        `Your wallet signed with ${key}, which isn’t a full-access key of ${OWNER}. NearKit didn’t use that signature.`,
+        `Your wallet signed with ${key}, which isn’t a full-access key of ${OWNER}. NEARKITS didn’t use that signature.`,
       )
     expect(await signedKeyProblem(OWNER_KEY, OWNER, down)).toBe(
-      `NearKit couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}, so it didn’t use that signature. Try again in a moment.`,
+      `NEARKITS couldn’t check on chain whether ${OWNER_KEY} is a key of ${OWNER}, so it didn’t use that signature. Try again in a moment.`,
     )
   })
 })

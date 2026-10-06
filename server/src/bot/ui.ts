@@ -49,7 +49,7 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
       // Rhea's and the router's refusals are already written for people, with the reason that fits (smartx.ts, swapRouting.ts).
       return /^(Rhea|No executable route|DCL)/.test(err.message) ? err.message : 'Quotes are unavailable right now. Try again in a moment.'
     case 'QUOTE_REJECTED':
-      return 'NearKit refused the route it was offered, so nothing was prepared. Try again in a moment.'
+      return 'NEARKITS refused the route it was offered, so nothing was prepared. Try again in a moment.'
     case 'QUOTE_EXPIRED':
       return 'That quote expired. Get a fresh one.'
     case 'SLIPPAGE_EXCEEDED':
@@ -59,7 +59,7 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
     case 'INSUFFICIENT_GAS':
       return 'Not enough NEAR left to pay for gas.'
     case 'NETWORK_MISMATCH':
-      return `This belongs to NEAR ${other} while NearKit is using ${opts.network}.`
+      return `This belongs to NEAR ${other} while NEARKITS is using ${opts.network}.`
     case 'INVALID_TOKEN':
     case 'INVALID_AMOUNT':
     case 'INVALID_ACCOUNT':
@@ -76,13 +76,13 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
 /** What NearKit's signer refused, in plain words (the signer's reasons are written for people). Null for anything else. */
 export function signerRefusalText(e: unknown): string | null {
   if (e instanceof DestinationNotApprovedError)
-    return `${e.destination} is not an approved destination for this NearKit wallet. Approve it with the owner wallet in NearKit web first.`
-  if (e instanceof PolicyViolation) return `${e.message.replace(/^NearKit refused to sign: /, 'NearKit’s signer refused this: ')}.`
-  if (e instanceof SignerPausedError) return 'NearKit’s signer is paused right now, so nothing can be signed. Try again later.'
-  if (e instanceof ChainUncertainError) return 'NearKit couldn’t confirm the wallet’s keys on NEAR right now (the RPC providers didn’t agree). Try again in a moment.'
-  if (e instanceof KmsUnavailableError || e instanceof SignerUnavailableError) return 'NearKit’s signer isn’t answering right now. Try again in a moment.'
+    return `${e.destination} is not an approved destination for this NEARKITS wallet. Approve it with the owner wallet in NEARKITS web first.`
+  if (e instanceof PolicyViolation) return `${e.message.replace(/^(?:NearKit|NEARKITS) refused to sign: /, 'NEARKITS’ signer refused this: ')}.`
+  if (e instanceof SignerPausedError) return 'NEARKITS’ signer is paused right now, so nothing can be signed. Try again later.'
+  if (e instanceof ChainUncertainError) return 'NEARKITS couldn’t confirm the wallet’s keys on NEAR right now (the RPC providers didn’t agree). Try again in a moment.'
+  if (e instanceof KmsUnavailableError || e instanceof SignerUnavailableError) return 'NEARKITS’ signer isn’t answering right now. Try again in a moment.'
   if (e instanceof AlreadySignedError) return e.message.replace(/ Nothing new was signed\.$/, '')
-  if (e instanceof KeyUnavailableError) return 'NearKit no longer holds this wallet’s key.'
+  if (e instanceof KeyUnavailableError) return 'NEARKITS no longer holds this wallet’s key.'
   return null
 }
 

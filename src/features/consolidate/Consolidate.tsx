@@ -148,7 +148,7 @@ export function Consolidate() {
                       reset()
                     }}
                     options={[
-                      { value: 'nearkit', label: 'NearKit' },
+                      { value: 'nearkit', label: 'NEARKITS' },
                       { value: 'browser', label: 'Connected' },
                     ]}
                   />
@@ -290,7 +290,7 @@ export function Consolidate() {
               <SimulationNote
                 real={
                   family === 'nearkit'
-                    ? `NearKit’s server sends from each NearKit wallet (no wallet prompt), into ${destination?.label ?? 'the destination'} only if it is that wallet’s owner wallet or an address approved for it.`
+                    ? `NEARKITS’ server sends from each NEARKITS wallet (no wallet prompt), into ${destination?.label ?? 'the destination'} only if it is that wallet’s owner wallet or an address approved for it.`
                     : undefined
                 }
               />

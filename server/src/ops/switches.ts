@@ -76,19 +76,19 @@ export class OpsSwitches {
    */
   async blocked(kind: IntentKind, wallet: Pick<TradingWallet, 'frozenAt'> | null): Promise<string | null> {
     if (wallet?.frozenAt && !ALLOWED_WHEN_FROZEN.includes(kind))
-      return 'This NearKit wallet is frozen by NearKit for your protection. Its owner wallet can still add the backup key or export the key in NearKit web.'
+      return 'This NEARKITS wallet is frozen by NEARKITS for your protection. Its owner wallet can still add the backup key or export the key in NEARKITS web.'
     const name = SWITCH_OF[kind]
     if (!name) return null
     let s: Record<SwitchName, SwitchState>
     try {
       s = await this.state()
     } catch {
-      return 'NearKit can’t confirm that this is allowed right now. Try again in a moment.'
+      return 'NEARKITS can’t confirm that this is allowed right now. Try again in a moment.'
     }
     if (!s[name].paused) return null
     return name === 'trading'
-      ? 'Trading from NearKit wallets is paused by NearKit right now. Withdrawals and recovery still work.'
-      : 'Withdrawals are paused by NearKit right now. Your owner wallet can still add the backup key or export the key in NearKit web.'
+      ? 'Trading from NEARKITS wallets is paused by NEARKITS right now. Withdrawals and recovery still work.'
+      : 'Withdrawals are paused by NEARKITS right now. Your owner wallet can still add the backup key or export the key in NEARKITS web.'
   }
 
   /** The engine's gate: the same rule, for an intent at Confirm. */

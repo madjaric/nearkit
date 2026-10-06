@@ -39,7 +39,7 @@ function summarize(record: unknown, params: Omit<SwapParams, 'amountIn' | 'slipp
   return handler.summarize(intent, wallet, [{ plan: planOf(result), hash: result.transaction.hash, result }])
 }
 
-describe('a NearKit wallet’s swap, judged from its final record', () => {
+describe('a NEARKITS wallet’s swap, judged from its final record', () => {
   it('a buy of a token that logs its transfers as text lines (BLACKDRAGON) is confirmed, with the tokens received and the NEAR paid', async () => {
     const r = await summarize(bdBuy, { side: 'buy', token: BLACKDRAGON, symbol: 'BLACKDRAGON', decimals: 24 }, 'blackdragonmeme.near')
     expect(r).toMatchObject({

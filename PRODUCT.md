@@ -49,11 +49,11 @@ The one place on NEAR where multi-wallet execution and wallet housekeeping (spli
 
 ## Brand Commitments
 
-- Name **NearKit**, token **$KIT**, tagline "The trading toolkit for NEAR."
+- Name **NEARKITS** (always written in capitals; formerly NearKit), token **$KIT**, tagline "The trading toolkit for NEAR."
 - Must feel like a serious trader tool: Bloomberg-terminal simplicity + modern crypto terminal + clean developer tooling, high information density, still approachable for retail.
 - Must not borrow the visual identity of Banana Gun, Maestro or Archery Tools (they inspire features only).
 - Dark-first. One distinctive accent used sparingly for active / connected / positive / primary action. Red only for sell / loss / danger. No generic purple-blue Web3 look, no neon-gradient overload, no glassmorphism, no giant rounded cards or pills, no gimmick or pixel fonts.
-- Wordmark is text-based (e.g. `NEAR/KIT`). No robots, lightning bolts, rockets, blockchain cubes, or AI sparkles.
+- Wordmark is text-based (`NEARKITS`), beside the slash mark. No robots, lightning bolts, rockets, blockchain cubes, or AI sparkles.
 
 ## Evidence on Hand
 

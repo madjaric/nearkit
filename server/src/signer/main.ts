@@ -33,6 +33,6 @@ try {
   process.on('SIGINT', () => void shutdown('SIGINT'))
   process.on('SIGTERM', () => void shutdown('SIGTERM'))
 } catch (e) {
-  boot.error('NearKit signer failed to start', { error: e })
+  boot.error('NEARKITS signer failed to start', { error: e })
   process.exit(1)
 }

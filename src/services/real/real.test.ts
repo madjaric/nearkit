@@ -279,7 +279,7 @@ describe('real transfers (testnet, fake chain)', () => {
     expect(wallet.signed).toEqual([])
   })
 
-  it('Split, Consolidate and Batch Send never carry a NearKit fee', async () => {
+  it('Split, Consolidate and Batch Send never carry a NEARKITS fee', async () => {
     const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']) })
     await services.wallets.getSession()
     await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
@@ -394,7 +394,7 @@ describe('tokens held across your wallets (listed by contract, priced or not)', 
     },
   })
 
-  it('lists a token held only in NearKit wallets once, by its contract, without a price; the connected account’s tokens too; never one only a watch-only wallet holds', async () => {
+  it('lists a token held only in NEARKITS wallets once, by its contract, without a price; the connected account’s tokens too; never one only a watch-only wallet holds', async () => {
     const { services } = setup({ network: 'mainnet', chain: chain(), session: session(['example.near']), nearkit: fakeNearKit(nearkitWallets()) })
     await services.wallets.addAccount({ accountId: 'bob.near', label: 'Bob' })
     const list = await services.tokens.listTokens()
@@ -526,7 +526,7 @@ describe('network busy warning (wrap.near’s shard)', () => {
 })
 
 describe('real swaps (mainnet aggregator, fake chain)', () => {
-  it('asks Rhea for NearKit’s 0.50% app fee and discloses the exact split: NearKit 0.40%, Rhea 0.10%, plus Rhea’s own 0.10%', async () => {
+  it('asks Rhea for NEARKITS’ 0.50% app fee and discloses the exact split: NEARKITS 0.40%, Rhea 0.10%, plus Rhea’s own 0.10%', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => DEADLINE - 120_000 })
     withQuote(chain)
     const plan = await services.trading.prepareSwap(swapRequest)
@@ -569,10 +569,10 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     const plan = await services.trading.prepareSwap(swapRequest)
     const progress = await run(plan)
     expect(progress.phase).toBe('success')
-    expect(progress.txs.at(-1)?.note).toMatch(/Received 1\.042766 NEAR · NearKit fee 0\.02 USDt/)
+    expect(progress.txs.at(-1)?.note).toMatch(/Received 1\.042766 NEAR · NEARKITS fee 0\.02 USDt/)
   })
 
-  it('registers NearKit’s fee account with Rhea when it is missing, as a disclosed storage cost', async () => {
+  it('registers NEARKITS’ fee account with Rhea when it is missing, as a disclosed storage cost', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(false), session: session(['example.near']), now: () => DEADLINE - 120_000 })
     withQuote(chain)
     const plan = await services.trading.prepareSwap(swapRequest)
@@ -581,7 +581,7 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
       { kind: 'call', method: 'tokens_storage_deposit', args: { user: 'fees.example.near', tokens: [USDT_MAIN] }, gas: '30000000000000', deposit: '5000000000000000000000' },
     ])
     expect(BigInt(plan.totals.storage.raw)).toBe(5_000_000_000_000_000_000_000n)
-    expect(plan.warnings.join(' ')).toMatch(/registers NearKit’s fee account \(fees\.example\.near\)/)
+    expect(plan.warnings.join(' ')).toMatch(/registers NEARKITS’ fee account \(fees\.example\.near\)/)
   })
 
   it('blocks fee-bearing trades when the fee account is not configured, without asking Rhea', async () => {
@@ -626,7 +626,7 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     expect(services.capabilities.execution).toMatchObject({ enabled: false, simulated: false })
   })
 
-  it('a multi sell of USDt quotes the NearKit fee in USDt, the token it is taken in, not as 0 NEAR', async () => {
+  it('a multi sell of USDt quotes the NEARKITS fee in USDt, the token it is taken in, not as 0 NEAR', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => DEADLINE - 120_000 })
     withQuote(chain)
     await services.wallets.getSession()
@@ -670,7 +670,7 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     chain.route('https://smartx.rhea.finance/swapMultiDexPath', () => smartxOldFee)
     await expect(services.trading.prepareSwap(swapRequest)).rejects.toMatchObject({
       code: 'QUOTE_REJECTED',
-      message: expect.stringMatching(/fee rate differs from the NearKit fee/),
+      message: expect.stringMatching(/fee rate differs from the NEARKITS fee/),
     })
     expect(wallet.signed).toHaveLength(0)
   })
@@ -800,7 +800,7 @@ describe('real swaps on mainnet through DCL directly (fake chain)', () => {
     ],
   })
 
-  it('routes a token Rhea does not index through its DCL pool, with no import: 0.50% to NearKit’s fee account first, the rest to the pool, in one transaction', async () => {
+  it('routes a token Rhea does not index through its DCL pool, with no import: 0.50% to NEARKITS’ fee account first, the rest to the pool, in one transaction', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain(), session: session(['example.near']) })
     rheaRefuses(chain)
     // Listed only because the wallet holds it (discovered): never imported, in no configured list.
@@ -838,17 +838,17 @@ describe('real swaps on mainnet through DCL directly (fake chain)', () => {
     const plan = await services.trading.prepareSwap(buyRequest)
     const progress = await run(plan)
     expect(progress.phase).toBe('success')
-    expect(progress.txs.at(-1)?.note).toBe('Received 17,730.9 SINGULARTY · NearKit fee 0.005 wNEAR')
+    expect(progress.txs.at(-1)?.note).toBe('Received 17,730.9 SINGULARTY · NEARKITS fee 0.005 wNEAR')
   })
 
-  it('registers NearKit’s fee account on the fee token when it is missing, as a disclosed one-time cost in the same transaction', async () => {
+  it('registers NEARKITS’ fee account on the fee token when it is missing, as a disclosed one-time cost in the same transaction', async () => {
     const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: dclChain({ feeRegistered: false }), session: session(['example.near']) })
     rheaRefuses(chain)
     const plan = await services.trading.prepareSwap(buyRequest)
     const actions = plan.transactions[0]?.actions ?? []
     expect(actions.map(method)).toEqual(['storage_deposit', 'near_deposit', 'ft_transfer', 'ft_transfer_call'])
     expect(actions[0]).toMatchObject({ args: { account_id: FEES, registration_only: true }, deposit: MIN_STORAGE.toString() })
-    expect(plan.warnings.join(' ')).toMatch(/registers NearKit’s fee account/)
+    expect(plan.warnings.join(' ')).toMatch(/registers NEARKITS’ fee account/)
   })
 
   it('sells for NEAR: the fee is 0.50% of the tokens sold, the exchange unwraps the wNEAR, no router share', async () => {
@@ -1159,7 +1159,7 @@ describe('wallet classes (real, fake chain)', () => {
     await expect(services.wallets.updatePreset(preset.id, { name: 'sniper', walletIds: ['alice.testnet', 'bob.testnet'] })).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' })
   })
 
-  it('lists the signed-in Telegram user’s NearKit wallets as NearKit wallets, then the connected and watched accounts', async () => {
+  it('lists the signed-in Telegram user’s NEARKITS wallets as NEARKITS wallets, then the connected and watched accounts', async () => {
     const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']), nearkit: fakeNearKit(nearkitWallets()) })
     await services.wallets.getSession()
     await services.wallets.addAccount({ accountId: 'bob.testnet', label: 'Bob' })
@@ -1172,7 +1172,7 @@ describe('wallet classes (real, fake chain)', () => {
     ])
   })
 
-  it('lists NearKit wallets with no wallet connected in the browser', async () => {
+  it('lists NEARKITS wallets with no wallet connected in the browser', async () => {
     const { services } = setup({ chain: testnetChain(), session: null, nearkit: fakeNearKit(nearkitWallets()) })
     expect((await services.wallets.listWallets()).map((w) => [w.accountId, w.source])).toEqual([
       [NK1, 'nearkit'],
@@ -1180,7 +1180,7 @@ describe('wallet classes (real, fake chain)', () => {
     ])
   })
 
-  it('an account watched before that turns out to be the user’s NearKit wallet is listed once, as a NearKit wallet', async () => {
+  it('an account watched before that turns out to be the user’s NEARKITS wallet is listed once, as a NEARKITS wallet', async () => {
     const list: NearKitWebWallet[] = []
     const { services } = setup({ chain: testnetChain(), session: session(['alice.testnet']), nearkit: fakeNearKit(list) })
     await services.wallets.getSession()
@@ -1190,12 +1190,12 @@ describe('wallet classes (real, fake chain)', () => {
     expect(again.filter((w) => w.accountId === NK2).map((w) => [w.label, w.source])).toEqual([['Degen 1', 'nearkit']])
   })
 
-  it('a NearKit wallet never signs in the browser: a swap, a Multi Buy plan or a Consolidate from it is refused before anything is signed', async () => {
+  it('a NEARKITS wallet never signs in the browser: a swap, a Multi Buy plan or a Consolidate from it is refused before anything is signed', async () => {
     const { services, wallet } = setup({ chain: testnetChain(), session: session(['alice.testnet']), nearkit: fakeNearKit(nearkitWallets()) })
     await services.wallets.getSession()
     const nearkitOnly = expect.objectContaining({
       code: 'NOT_EXECUTABLE',
-      message: expect.stringMatching(/NearKit wallet: NearKit's server executes its trades and sends, not a browser wallet/),
+      message: expect.stringMatching(/NEARKITS wallet: NEARKITS' server executes its trades and sends, not a browser wallet/),
     })
     await expect(services.trading.prepareSwap({ tokenIn: 'near', tokenOut: USDT, amountIn: '1', slippagePct: 0.5, walletId: NK1 })).rejects.toEqual(nearkitOnly)
     await expect(

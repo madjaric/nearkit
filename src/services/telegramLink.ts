@@ -45,7 +45,7 @@ export async function apiPost<T>(apiUrl: string, path: string, body: unknown, fe
   try {
     res = await fetchImpl(`${apiUrl}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   } catch {
-    throw new LinkRequestError(0, 'unreachable', 'The NearKit server can’t be reached right now. Try again in a moment.')
+    throw new LinkRequestError(0, 'unreachable', 'The NEARKITS server can’t be reached right now. Try again in a moment.')
   }
   let json: unknown = null
   try {
@@ -58,7 +58,7 @@ export async function apiPost<T>(apiUrl: string, path: string, body: unknown, fe
   throw new LinkRequestError(
     res.status,
     typeof err?.code === 'string' ? err.code : 'error',
-    typeof err?.message === 'string' ? err.message : `The NearKit server answered ${res.status}. Try again in a moment.`,
+    typeof err?.message === 'string' ? err.message : `The NEARKITS server answered ${res.status}. Try again in a moment.`,
     typeof err?.detail === 'object' && err.detail !== null && !Array.isArray(err.detail) ? (err.detail as Record<string, unknown>) : null,
   )
 }

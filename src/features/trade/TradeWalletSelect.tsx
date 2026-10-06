@@ -20,7 +20,7 @@ export function TradeWalletSelect({
   return (
     <Select selectSize="sm" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={className}>
       {nearkit.length > 0 && (
-        <optgroup label="NearKit wallets">
+        <optgroup label="NEARKITS wallets">
           {nearkit.map((w) => (
             <option key={w.id} value={w.id}>
               {w.label}

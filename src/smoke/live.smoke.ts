@@ -108,7 +108,7 @@ describe('mainnet (live, read-only)', () => {
     expect(route.routeTokens.at(-1)).toBe('usdt.tether-token.near')
   })
 
-  it('a quote at NearKit’s fee (NEARKIT_FEE_BPS) comes back signed with that app_fee_rate and passes the route checks', async () => {
+  it('a quote at NEARKITS’ fee (NEARKIT_FEE_BPS) comes back signed with that app_fee_rate and passes the route checks', async () => {
     // Pacing: Rhea answers burst requests with stale amounts.
     await new Promise((r) => setTimeout(r, 3_000))
     const request = { tokenIn: net.wrapContract, tokenOut: 'usdt.tether-token.near', amountIn: ONE, slippage: 0.005 }

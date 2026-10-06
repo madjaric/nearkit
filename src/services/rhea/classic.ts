@@ -36,7 +36,7 @@ export interface ClassicRoute {
 
 const INT = /^\d+$/
 const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
-const rejected = (message: string) => new NearKitError('QUOTE_REJECTED', `NearKit refused the route: ${message}. Nothing was signed.`)
+const rejected = (message: string) => new NearKitError('QUOTE_REJECTED', `NEARKITS refused the route: ${message}. Nothing was signed.`)
 
 export function findPathUrl(base: string, p: FindPathParams): string {
   const url = new URL(base)

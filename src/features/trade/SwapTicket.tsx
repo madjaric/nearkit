@@ -106,7 +106,7 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
 
   const reason =
     viaNearKit && !nearkitPair
-      ? 'NearKit wallets trade tokens against NEAR: pick NEAR on one side'
+      ? 'NEARKITS wallets trade tokens against NEAR: pick NEAR on one side'
       : !(amount > 0)
         ? 'Enter an amount'
         : spend.precisionError
@@ -266,7 +266,7 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
             {cta.label}
           </Button>
           <ArmStatus id={`${uid}-arm`} armedAt={armedAt} tone="buy" blocked={cta.reason} onCancel={disarm} />
-          {viaNearKit && <p className="text-xs text-fg-3">{`NearKit executes it from ${wallet?.label ?? 'this NearKit wallet'}: no wallet prompt.`}</p>}
+          {viaNearKit && <p className="text-xs text-fg-3">{`NEARKITS executes it from ${wallet?.label ?? 'this NEARKITS wallet'}: no wallet prompt.`}</p>}
         </div>
       </div>
       {nearkitRun && (

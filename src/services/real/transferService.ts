@@ -46,7 +46,7 @@ function checkRecipient(accountId: string, ctx: NearContext): string {
   const error = accountIdError(id)
   if (error) throw new NearKitError('INVALID_ACCOUNT', `${id || 'Recipient'}: ${error}`)
   if (isForeignToNetwork(id, ctx.network.id))
-    throw new NearKitError('NETWORK_MISMATCH', `${id} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} account; NearKit is on ${ctx.network.label.toLowerCase()}`)
+    throw new NearKitError('NETWORK_MISMATCH', `${id} is a ${ctx.network.id === 'mainnet' ? 'testnet' : 'mainnet'} account; NEARKITS is on ${ctx.network.label.toLowerCase()}`)
   return id
 }
 
@@ -237,8 +237,8 @@ export function createTransferService(ctx: NearContext, wallets: Pick<WalletServ
       if (elsewhere.length) {
         warnings.push(
           signers.length > 1
-            ? `This needs approvals from ${signers.length} accounts. When NearKit reaches ${listOf(elsewhere)}, it asks you to connect that account in your wallet.`
-            : `${elsewhere[0]} is not connected right now. NearKit asks you to connect it in your wallet before signing.`,
+            ? `This needs approvals from ${signers.length} accounts. When NEARKITS reaches ${listOf(elsewhere)}, it asks you to connect that account in your wallet.`
+            : `${elsewhere[0]} is not connected right now. NEARKITS asks you to connect it in your wallet before signing.`,
         )
       }
 

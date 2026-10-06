@@ -22,7 +22,7 @@ export function useNow(interval = 1000): number {
 
 export function usePageTitle(title: string): void {
   useEffect(() => {
-    document.title = title ? `${title} · NearKit` : 'NearKit — The trading toolkit for NEAR'
+    document.title = title ? `${title} · NEARKITS` : 'NEARKITS — The trading toolkit for NEAR'
   }, [title])
 }
 

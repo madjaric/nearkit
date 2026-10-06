@@ -64,6 +64,6 @@ export function executableWallet(wallets: readonly Wallet[], walletId: string, h
   if (!canExecute(wallet))
     throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is watch-only: it shows balances and activity, but can't trade or send. Connect it in your wallet to use it.`)
   if (how === 'browser' && !signsInBrowser(wallet))
-    throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is a NearKit wallet: NearKit's server executes its trades and sends, not a browser wallet.`)
+    throw new NearKitError('NOT_EXECUTABLE', `${wallet.label} is a NEARKITS wallet: NEARKITS' server executes its trades and sends, not a browser wallet.`)
   return wallet
 }

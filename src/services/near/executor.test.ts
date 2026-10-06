@@ -119,7 +119,7 @@ describe('executor', () => {
     const adapter = wallet(session, async (_, n) => outcomes(n))
     const p = plan([tx(0)], [[0]], {
       fee: {
-        label: 'NearKit fee',
+        label: 'NEARKITS fee',
         bps: 10,
         amount: { raw: '1', display: '1' },
         token: { id: 'near', symbol: 'NEAR', decimals: 24, contract: null },

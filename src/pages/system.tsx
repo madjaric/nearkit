@@ -12,7 +12,7 @@ export function BootScreen() {
     <div className="grid min-h-dvh place-items-center bg-canvas">
       <div className="flex items-center gap-3 text-sm text-fg-3">
         <LogoMark size={22} />
-        <span className="animate-ghost">Starting NearKit</span>
+        <span className="animate-ghost">Starting NEARKITS</span>
       </div>
     </div>
   )

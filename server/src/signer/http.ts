@@ -79,7 +79,7 @@ export function createSignerServer(o: SignerServerOptions): Server {
       if (!check.ok) {
         status = 401
         o.log.warn('signer request refused', { method, reason: check.reason })
-        return plain(res, 401, { error: { code: 'unauthorized', message: 'This request is not signed by NearKit' } })
+        return plain(res, 401, { error: { code: 'unauthorized', message: 'This request is not signed by NEARKITS' } })
       }
       // Once only, across every instance of the signer: a replayed request is refused.
       if (!(await o.store.firstUse(check.nonce, check.time + 2 * AUTH_WINDOW_MS))) {

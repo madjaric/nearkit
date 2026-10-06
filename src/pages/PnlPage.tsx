@@ -208,7 +208,7 @@ function Pnl() {
           <ReadoutSlot
             legend={
               <>
-                Gas paid <InfoTip>NEAR these accounts paid as gas across their history. Swap fees (NearKit’s {NEARKIT_FEE_LABEL}, Rhea’s) are inside each trade’s value.</InfoTip>
+                Gas paid <InfoTip>NEAR these accounts paid as gas across their history. Swap fees (NEARKITS’ {NEARKIT_FEE_LABEL}, Rhea’s) are inside each trade’s value.</InfoTip>
               </>
             }
             loading={loading}
@@ -402,7 +402,7 @@ function NotTracked() {
           </Link>
         }
       >
-        PnL needs the entry price of every trade, including trades made outside NearKit. NearKit doesn't guess it from balances, because a wrong PnL is worse than none. Positions
+        PnL needs the entry price of every trade, including trades made outside NEARKITS. NEARKITS doesn't guess it from balances, because a wrong PnL is worse than none. Positions
         show your live balances and their value.
       </EmptyState>
     </Panel>
@@ -413,7 +413,7 @@ export default function PnlPage() {
   const caps = useCapabilities()
   return (
     <Page>
-      <PageHeader title="PnL" description="Realized and unrealized performance across every NearKit wallet." />
+      <PageHeader title="PnL" description="Realized and unrealized performance across every NEARKITS wallet." />
       <RequireWallet feature="PnL">{caps.pnl ? <Pnl /> : <NotTracked />}</RequireWallet>
     </Page>
   )

@@ -25,7 +25,7 @@ async function bot() {
   return { h, owner }
 }
 
-describe('NearKit wallets with the separate signer service', { timeout: 60_000 }, () => {
+describe('NEARKITS wallets with the separate signer service', { timeout: 60_000 }, () => {
   it('creates, withdraws, approves and exports through the signer; the app’s database never holds a key', async () => {
     const { h, owner } = await bot()
     const w = (await h.funded(3n * ONE)) as TradingWallet

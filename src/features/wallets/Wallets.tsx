@@ -60,7 +60,7 @@ export function Wallets() {
   const real = caps.mode === 'near'
   const removeAccount = (w: WalletSnapshot) =>
     accounts.remove.mutate(w.id, {
-      onSuccess: () => toast.push({ title: `${w.label} removed`, detail: 'It no longer appears in NearKit. Nothing changed on chain.' }),
+      onSuccess: () => toast.push({ title: `${w.label} removed`, detail: 'It no longer appears in NEARKITS. Nothing changed on chain.' }),
       onError: (e) => toast.push({ tone: 'neg', title: 'Not removed', detail: describeError(e).message }),
     })
 
@@ -300,8 +300,8 @@ export function Wallets() {
           value={wallets.length}
           sub={
             real
-              ? `${nearkit.available ? `${custody.length} NearKit · ` : ''}${connected.length} connected · ${watched.length} watch-only`
-              : `1 main · ${Math.max(0, wallets.length - 1)} NearKit-managed`
+              ? `${nearkit.available ? `${custody.length} NEARKITS · ` : ''}${connected.length} connected · ${watched.length} watch-only`
+              : `1 main · ${Math.max(0, wallets.length - 1)} NEARKITS-managed`
           }
         />
         <ReadoutSlot
@@ -357,7 +357,7 @@ export function Wallets() {
           {walletTable(
             wallets,
             'Wallets',
-            <Tip content="The demo's wallets are sample accounts. With a real wallet, NearKit lists the accounts you connect and any you add to watch.">
+            <Tip content="The demo's wallets are sample accounts. With a real wallet, NEARKITS lists the accounts you connect and any you add to watch.">
               <span className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" icon={<Plus size={14} />} disabled>
                   Add wallet

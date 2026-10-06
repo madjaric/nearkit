@@ -31,14 +31,14 @@ export async function startLink(ctx: BotCtx) {
       bold('Link a NEAR account'),
       '',
       `1. Open the link below. It works once and expires in ${minutes} minutes.`,
-      `2. Connect your ${network} wallet in NearKit.`,
+      `2. Connect your ${network} wallet in NEARKITS.`,
       '3. Your wallet asks you to sign a message naming this Telegram account. Signing is free and moves no funds.',
       '',
       'Only open a link you asked for yourself. Never forward it.',
       '',
       SAFETY,
     ].join('\n'),
-    keyboard([urlBtn('🔗 Open NearKit to link', issued.url)]),
+    keyboard([urlBtn('🔗 Open NEARKITS to link', issued.url)]),
   )
 }
 
@@ -48,7 +48,7 @@ async function showAccounts(ctx: BotCtx) {
   const def = (await store.getSettings(ctx.user.id)).defaultAccount
   if (!links.length) {
     await ctx.show(
-      `No NEAR account is linked yet.\n\nLink one to trade and see positions here. You sign a free message in your wallet; NearKit never holds keys.`,
+      `No NEAR account is linked yet.\n\nLink one to trade and see positions here. You sign a free message in your wallet; NEARKITS never holds keys.`,
       keyboard([btn('🔗 Link wallet', 'acct:link')], [btn('« Menu', 'menu:home')]),
     )
     return

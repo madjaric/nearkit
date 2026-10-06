@@ -122,7 +122,7 @@ export async function startSignerService(o: SignerDepsOverrides & { env: Record<
   } else if (listenTls) tls = { cert: readFileSync(listenTls.certPath), key: readFileSync(listenTls.keyPath) }
   const server = createSignerServer({ core: s.core, store: s.store, authKey: config.authKey, log, now: o.now, tls })
   const port = await listen(server, config.listen.port, config.listen.host)
-  log.info('NearKit signer listening', {
+  log.info('NEARKITS signer listening', {
     network: config.network.id,
     url: `${tls ? 'https' : 'http'}://${config.listen.host}:${port}`,
     db: describeDatabase(config.database),
@@ -141,7 +141,7 @@ export async function startSignerService(o: SignerDepsOverrides & { env: Record<
       if (renewal) clearInterval(renewal)
       await new Promise<void>((resolve) => server.close(() => resolve()))
       await s.db.close()
-      log.info('NearKit signer stopped')
+      log.info('NEARKITS signer stopped')
     },
   }
 }

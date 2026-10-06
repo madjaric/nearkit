@@ -56,7 +56,7 @@ const probe = (width) => {
   }
   return {
     overflow: document.documentElement.scrollWidth - width,
-    splash: /Starting NearKit/.test(document.body.innerText) && !document.querySelector('main'),
+    splash: /Starting NEARKITS/.test(document.body.innerText) && !document.querySelector('main'),
     truncated,
     scrollers,
     collide,

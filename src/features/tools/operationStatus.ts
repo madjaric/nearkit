@@ -44,7 +44,7 @@ export function settledToast(plan: OperationPlan, progress: OperationProgress, n
     return {
       tone: 'warn',
       title: `Still processing · ${plan.title}`,
-      detail: 'NEAR network is taking longer than usual. NearKit keeps checking it in Activity; don’t send it again until it settles.',
+      detail: 'NEAR network is taking longer than usual. NEARKITS keeps checking it in Activity; don’t send it again until it settles.',
     }
   return { tone: 'neg', title: `Not completed · ${plan.title}`, detail: `${ok} of ${progress.txs.length} transactions confirmed. Review the results.` }
 }

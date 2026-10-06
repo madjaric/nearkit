@@ -60,7 +60,7 @@ async function webApp() {
   return { h, custody, call, refused, signIn, wallets, listed }
 }
 
-describe('deleting a NearKit wallet on NearKit web', () => {
+describe('deleting a NEARKITS wallet on NEARKITS web', () => {
   it('an empty wallet goes the bot’s way: deleted, its slot free for a new one, and Telegram is told', async () => {
     const { h, custody, call, signIn, wallets, listed } = await webApp()
     const token = await signIn()
@@ -74,7 +74,7 @@ describe('deleting a NearKit wallet on NearKit web', () => {
     const notice = h.fake
       .messages()
       .slice(from)
-      .find((m) => m.chatId === ALICE.id && m.text.includes('NearKit wallet deleted on NearKit web'))
+      .find((m) => m.chatId === ALICE.id && m.text.includes('NEARKITS wallet deleted on NEARKITS web'))
     expect(notice?.text).toContain(gone?.name)
     // Its slot is free again.
     const again = (await call('/api/web/wallets/create', { session: token, name: 'Again', createKey: 'web-manage-again' })).wallet as { slot: number }
@@ -102,7 +102,7 @@ describe('deleting a NearKit wallet on NearKit web', () => {
   })
 })
 
-describe('ordering NearKit wallets on NearKit web', () => {
+describe('ordering NEARKITS wallets on NEARKITS web', () => {
   it('the order the user sets is kept by the server and used everywhere: the web list, Telegram’s My wallets, a Multi Buy’s legs', async () => {
     const { h, call, signIn, wallets, listed } = await webApp()
     const token = await signIn()

@@ -56,7 +56,7 @@ export function createFakeTelegram(options: { token?: string; username?: string 
     }
     switch (method) {
       case 'getMe':
-        return ok({ id: 1111111111, is_bot: true, first_name: 'NearKit', username: options.username ?? 'NearKitBot' })
+        return ok({ id: 1111111111, is_bot: true, first_name: 'NEARKITS', username: options.username ?? 'NearKitBot' })
       case 'getUpdates': {
         const offset = Number(params.offset ?? 0)
         while (queue.length && (queue[0] as TgUpdate).update_id < offset) queue.shift()

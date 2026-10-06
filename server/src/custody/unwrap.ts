@@ -21,7 +21,7 @@ export function unwrapHandler(near: ServerNear): IntentHandler {
     async plan(intent, wallet) {
       const amount = BigInt((intent.params as unknown as UnwrapParams).amount)
       const [held, state] = await Promise.all([near.ctx.reader.balanceOf(wrap, wallet.accountId), accountState(near.ctx.rpc, wallet.accountId, 'final')])
-      if (held < amount) throw new NearKitError('INSUFFICIENT_BALANCE', `Your NearKit wallet holds ${formatUnits(held, NEAR_DECIMALS, { maxFraction: 6 })} wNEAR.`)
+      if (held < amount) throw new NearKitError('INSUFFICIENT_BALANCE', `Your NEARKITS wallet holds ${formatUnits(held, NEAR_DECIMALS, { maxFraction: 6 })} wNEAR.`)
       const upfront = estimateUpfrontYocto({ transactions: 1, actions: 1, attachedGas: GAS.NEAR_WITHDRAW, deposits: 1n })
       if (state.availableYocto < upfront) throw new NearKitError('INSUFFICIENT_GAS', 'Unwrapping needs a little NEAR for gas. Deposit some NEAR first.')
       return {
