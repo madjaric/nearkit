@@ -15,13 +15,13 @@ import { useTradeWallets } from '@/features/trade/useTradeWallets'
 import { HandoffBanner, RequestedToken } from '@/features/trade/TelegramHandoff'
 import { useHandoffReport } from '@/features/trade/useHandoffReport'
 import { cn } from '@/lib/cn'
-import { HIGH_SLIPPAGE, NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPrice, formatUsdCompact } from '@/lib/format'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
 import { executesViaNearKit, signsInBrowser } from '@/lib/wallets'
 import { useCapabilities, useHoldings, useTokens, useWallets } from '@/services/queries'
-import { readHandoffId } from '@/services/telegramLink'
+import { readPrefill, type Prefill } from '@/features/trade/swapPrefill'
 import type { TokenId, TokenListing } from '@/types/domain'
 
 const NEAR = NATIVE_TOKEN_ID
@@ -149,13 +149,6 @@ function WalletBalances({ fromId, toId, walletId, onPick }: { fromId: TokenId; t
   )
 }
 
-interface Prefill {
-  amount?: string
-  slippage?: number
-  /** A trade prepared in the Telegram bot. */
-  handoff: string | null
-}
-
 function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId; initialTo: TokenId; prefill: Prefill }) {
   const caps = useCapabilities()
   const [pair, setPair] = useState({ from: initialFrom, to: initialTo })
@@ -209,20 +202,6 @@ function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId;
       </div>
     </Page>
   )
-}
-
-/**
- * Amount and slippage from a link, only when they are exactly what the form would accept. A link
- * anyone can make never sets a high slippage: above HIGH_SLIPPAGE it is the user's to set, on the form.
- */
-function readPrefill(params: URLSearchParams): Prefill {
-  const amount = params.get('amount') ?? ''
-  const slippage = Number(params.get('slippage'))
-  return {
-    ...(/^\d{1,30}(\.\d{1,24})?$/.test(amount) ? { amount } : {}),
-    ...(params.has('slippage') && slippage > 0 && slippage <= HIGH_SLIPPAGE ? { slippage } : {}),
-    handoff: readHandoffId(params.get('tg')),
-  }
 }
 
 export default function SwapPage() {
