@@ -27,9 +27,12 @@ import type { BotTrade, RunState, VolumeBot, VolumeBotStore } from './store'
  */
 
 const TICK_MS = 2_000
-/** Longer than a step can take: quotes, then the engine's confirmation wait. */
+/** Longer than a step can take: quotes, then the engine's confirmation wait (it is renewed before a trade is sent). */
 const LEASE_MS = 3 * 60_000
+/** Bots stepped side by side each tick. */
 const BOTS_PER_TICK = 4
+/** How long a tick waits for one step: a slower one (a confirmation still on its way) holds only its own bot, under its lease. */
+const STEP_WAIT_MS = 90_000
 /** The small trade the market's buy and sell prices are read with. */
 const PROBE_NEAR = 0.1
 const MARKET_TTL_MS = 20_000
@@ -48,6 +51,8 @@ export interface VolumeBotRunnerDeps {
   notify?: (userId: number, text: string) => Promise<void>
   now?: () => number
   random?: () => number
+  /** How long a tick waits for one bot's step (tests shorten it). */
+  stepWaitMs?: number
 }
 
 const human = (raw: bigint | string, decimals: number) => Number(formatUnits(BigInt(raw), decimals))
@@ -213,7 +218,12 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
     const result = intent.result
     if (intent.status !== 'done' || !result?.ok) {
       st.health.consecutiveFailures += 1
-      await store.settleTrade(trade.id, { status: 'failed', message: result?.message ?? `The trade ended ${intent.status}.`, txHash: result?.hashes.at(-1) ?? null })
+      await store.settleTradeWithState(
+        trade.id,
+        { status: 'failed', message: result?.message ?? `The trade ended ${intent.status}.`, txHash: result?.hashes.at(-1) ?? null },
+        trade.runId,
+        st,
+      )
       await store.event(bot.id, 'trade-failed', result?.message ?? `A ${trade.side} ended ${intent.status}.`)
       return guardHealth(st.health, bot.config.risk)
     }
@@ -232,15 +242,12 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
     if (trade.side === 'buy') st.progress.boughtNear += nearMoved
     else st.progress.soldTokens += tokens
     st.health.consecutiveFailures = 0
-    await store.settleTrade(trade.id, {
-      status: 'confirmed',
-      nearRaw,
-      tokenRaw,
-      priceNear: price || trade.priceNear,
-      feeNear: fee,
-      gasNear: gas,
-      txHash: result.hashes.at(-1) ?? null,
-    })
+    await store.settleTradeWithState(
+      trade.id,
+      { status: 'confirmed', nearRaw, tokenRaw, priceNear: price || trade.priceNear, feeNear: fee, gasNear: gas, txHash: result.hashes.at(-1) ?? null },
+      trade.runId,
+      st,
+    )
     // What the quote promised against what arrived: the swap's own minimum guards it on chain; a worse fill pauses.
     const quoted = trade.nearRaw && trade.tokenRaw ? { near: human(trade.nearRaw, NEAR_DECIMALS), tokens: human(trade.tokenRaw, decimals) } : null
     return quoted
@@ -282,6 +289,14 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
     return { open, pause }
   }
 
+  /** Whether the bot may still send a trade now: running, and neither its switch nor trading paused by NEARKITS. */
+  async function stillTrading(botId: string): Promise<boolean> {
+    const current = await store.get(botId)
+    if (current?.status !== 'running') return false
+    const switches = await custody.ops.state().catch(() => null)
+    return switches !== null && !switches.volumebot.paused && !switches.trading.paused
+  }
+
   async function trade(
     bot: VolumeBot,
     runId: string,
@@ -317,6 +332,11 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
         return null
       }
       const tq = toTradeQuote(intent.side, quote, cfg.tokenDecimals)
+      // Stop, Emergency stop or Pause pressed while this step ran, or NEARKITS paused every bot: nothing more is sent.
+      if (!(await stillTrading(bot.id))) {
+        st.waiting = 'Stopped or paused before this trade was sent'
+        return null
+      }
       const created = await custody.store.createIntent({
         walletId: wallet.id,
         userId: bot.userId,
@@ -347,6 +367,8 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
       st.progress.inFlight += 1
       // Saved before anything is signed: a restart finds this trade and settles it from its intent.
       await store.saveRunState(runId, st)
+      // The lease runs from now for the whole confirmation wait: no other worker steps this bot meanwhile.
+      await store.claim(bot.id, deps.instanceId, LEASE_MS)
       let r: ExecuteResult
       try {
         r = await custody.engine.execute(created.id, bot.userId)
@@ -504,21 +526,36 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
   let ticking: Promise<void> | null = null
   let timer: ReturnType<typeof setInterval> | null = null
 
-  async function tick(): Promise<void> {
-    for (const bot of await store.due(BOTS_PER_TICK)) {
-      if (!(await store.claim(bot.id, deps.instanceId, LEASE_MS))) continue
-      try {
-        // Read again under the lease: a click may have paused or stopped it meanwhile.
-        const fresh = await store.get(bot.id)
-        if (fresh && (fresh.status === 'running' || fresh.status === 'stopping')) await step(fresh)
-      } catch (e) {
-        log.error('volume bot step failed', { bot: bot.id, error: e })
-        await store.event(bot.id, 'error', 'A step failed; it is tried again shortly').catch(() => undefined)
-        await store.setNextTick(bot.id, now() + RETRY_MS).catch(() => undefined)
-      } finally {
-        await store.release(bot.id, deps.instanceId).catch(() => undefined)
-      }
+  /** One bot's step under its lease, released when the step is over (however long it takes). */
+  async function leasedStep(bot: VolumeBot): Promise<void> {
+    try {
+      // Read again under the lease: a click may have paused or stopped it meanwhile.
+      const fresh = await store.get(bot.id)
+      if (fresh && (fresh.status === 'running' || fresh.status === 'stopping')) await step(fresh)
+    } catch (e) {
+      log.error('volume bot step failed', { bot: bot.id, error: e })
+      await store.event(bot.id, 'error', 'A step failed; it is tried again shortly').catch(() => undefined)
+      await store.setNextTick(bot.id, now() + RETRY_MS).catch(() => undefined)
+    } finally {
+      await store.release(bot.id, deps.instanceId).catch(() => undefined)
     }
+  }
+
+  /** Resolves when `work` does, or after `ms`, whichever comes first (the timer never outlives it). */
+  function within(work: Promise<void>, ms: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const wait = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+      timer.unref?.()
+    })
+    return Promise.race([work, wait]).finally(() => clearTimeout(timer))
+  }
+
+  async function tick(): Promise<void> {
+    const claimed: VolumeBot[] = []
+    for (const bot of await store.due(BOTS_PER_TICK)) if (await store.claim(bot.id, deps.instanceId, LEASE_MS)) claimed.push(bot)
+    // Side by side; a slow step holds only its own bot (its lease), never the next tick.
+    await Promise.all(claimed.map((bot) => within(leasedStep(bot), deps.stepWaitMs ?? STEP_WAIT_MS)))
   }
 
   return {

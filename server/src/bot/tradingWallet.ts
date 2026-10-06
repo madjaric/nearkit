@@ -449,6 +449,12 @@ async function reviewAndConfirm(ctx: BotCtx, flow: WithdrawInput & { walletId: s
     await ctx.reply(`⚠️ ${errorText(ctx, e)}\n\nSend another address, or /cancel.`, keyboard([btn('✖ Cancel', 'cw:home')]))
     return
   }
+  // Never into one of the user's own wallets that NEARKITS froze (its key may have left): NEARKITS web refuses it the same way.
+  const into = await siblingWallet(custody.store, w, flow.to)
+  if (into?.frozenAt) {
+    await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
+    return void (await ctx.show(`🧊 ${esc(walletName(into))} is frozen: NEARKITS doesn’t send into a frozen wallet. Nothing was prepared.`, keyboard(walletRow)))
+  }
   // A real, reachable address: now, is it the owner, or a destination the owner approved?
   if (!(await approvedDestination(ctx, w, flow.to))) return askApproval(ctx, w, flow, again)
   await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)

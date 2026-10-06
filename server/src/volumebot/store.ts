@@ -1,3 +1,4 @@
+import { MAX_LIVE_BOTS_PER_USER } from '@/lib/volumeBot/config'
 import { isUniqueViolation, type Database } from '../db/database'
 import { randomToken } from '../ids'
 import type { Book } from '@/lib/volumeBot/inventory'
@@ -167,7 +168,14 @@ export const LIVE: readonly BotStatus[] = ['running', 'paused', 'stopping']
 /** The states a bot can be started from (and edited in). */
 export const IDLE: readonly BotStatus[] = ['draft', 'stopped', 'completed']
 
-const inList = (list: readonly string[]) => list.map((s) => `'${s}'`).join(', ')
+/** A constant list of statuses for SQL (`IN (...)`): only plain status words ever reach the query text. */
+const inList = (list: readonly BotStatus[]) =>
+  list
+    .map((s) => {
+      if (!/^[a-z]+$/.test(s)) throw new Error(`not a bot status: ${s}`)
+      return `'${s}'`
+    })
+    .join(', ')
 
 export class VolumeBotStore {
   constructor(
@@ -178,6 +186,15 @@ export class VolumeBotStore {
   private async setWallets(botId: string, walletIds: readonly string[]): Promise<void> {
     await this.db.run('DELETE FROM volume_bot_wallets WHERE bot_id = ?', [botId])
     for (const w of walletIds) await this.db.run('INSERT INTO volume_bot_wallets (bot_id, wallet_id) VALUES (?, ?)', [botId, w])
+  }
+
+  /** Whether a live bot (running, paused or stopping) trades from this wallet. */
+  async usesWallet(walletId: string): Promise<boolean> {
+    const row = await this.db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM volume_bot_wallets w JOIN volume_bots b ON b.id = w.bot_id WHERE w.wallet_id = ? AND b.status IN (${inList(LIVE)})`,
+      [walletId],
+    )
+    return Number(row?.n ?? 0) > 0
   }
 
   async create(i: { userId: number; network: string; config: BotConfig }): Promise<VolumeBot> {
@@ -240,11 +257,16 @@ export class VolumeBotStore {
    * Starts a run: idle → running, with a fresh run and its state. `busy-token`: another live bot of
    * this user trades the token; `not-idle`: it is already live.
    */
-  async start(id: string, state: RunState): Promise<{ ok: true; runId: string } | { ok: false; reason: 'busy-token' | 'not-idle' }> {
+  async start(id: string, state: RunState): Promise<{ ok: true; runId: string } | { ok: false; reason: 'busy-token' | 'not-idle' | 'too-many' }> {
     const t = this.now()
     const runId = randomToken(12)
     try {
       return await this.db.tx(async () => {
+        const live = await this.db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM volume_bots WHERE user_id = (SELECT user_id FROM volume_bots WHERE id = ?) AND id <> ? AND status IN (${inList(LIVE)})`,
+          [id, id],
+        )
+        if (Number(live?.n ?? 0) >= MAX_LIVE_BOTS_PER_USER) return { ok: false as const, reason: 'too-many' as const }
         const n = await this.db.attempt(() =>
           this.db.run(
             `UPDATE volume_bots SET status = 'running', pause_code = NULL, pause_reason = NULL, next_tick_at = ?, started_at = ?, stopped_at = NULL, updated_at = ? WHERE id = ? AND status IN (${inList(IDLE)})`,
@@ -355,6 +377,14 @@ export class VolumeBotStore {
       [botId],
     )
     return r ? { id: r.id, startedAt: Number(r.started_at), state: JSON.parse(r.state) as RunState } : null
+  }
+
+  /** A trade settled together with the run state that counts it: a crash between the two never drops a fill from the books. */
+  async settleTradeWithState(id: number, patch: Parameters<VolumeBotStore['settleTrade']>[1], runId: string, state: RunState): Promise<void> {
+    await this.db.tx(async () => {
+      await this.settleTrade(id, patch)
+      await this.saveRunState(runId, state)
+    })
   }
 
   async saveRunState(runId: string, state: RunState): Promise<void> {

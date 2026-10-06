@@ -282,8 +282,9 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
 /**
  * Deleting a NEARKITS wallet: one that holds nothing of value, the bot's own way (src/lib/walletDust.ts):
  * never funded, or only NEAR dust (under 0.05 NEAR, what sending everything out leaves behind), and no
- * tokens. NEARKITS' server reads the chain, the signer reads it again and erases the key, the slot is
- * free again. A wallet holding 0.05 NEAR or more, or any token, stays.
+ * tokens. NEARKITS' server reads the chain; a never-funded wallet's key is erased (the signer reads the
+ * chain again first), a dust wallet's key stays sealed; the slot is free again. A wallet holding 0.05 NEAR
+ * or more, any token, a send on its way or a live Volume Bot stays.
  */
 function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWallet | null; snapshot: WalletSnapshot | undefined; onClose: () => void }) {
   const toast = useToast()
@@ -313,9 +314,9 @@ function DeleteWalletModal({ wallet, snapshot, onClose }: { wallet: NearKitWebWa
           ) : (
             <p className="text-sm text-fg-2">
               {dust > 0 ? (
-                <Figures>{`${wallet.name} holds only dust: ${formatAmount(dust, 6)} NEAR, under ${WALLET_DUST_NEAR} NEAR. Deleting it leaves that dust on chain, where nobody can move it once NEARKITS erases the key. Its slot is free for a new wallet.`}</Figures>
+                <Figures>{`${wallet.name} holds only dust: ${formatAmount(dust, 6)} NEAR, under ${WALLET_DUST_NEAR} NEAR. Deleting it leaves that dust on chain; NEARKITS keeps the wallet’s key sealed rather than erasing it. Its slot is free for a new wallet.`}</Figures>
               ) : (
-                `A wallet holding nothing (under ${WALLET_DUST_NEAR} NEAR of dust, and no tokens) can be deleted: NEARKITS checks the chain, erases its key and frees its slot for a new wallet.`
+                `A wallet holding nothing (under ${WALLET_DUST_NEAR} NEAR of dust, and no tokens) can be deleted: NEARKITS checks the chain and frees its slot for a new wallet.`
               )}
             </p>
           )}

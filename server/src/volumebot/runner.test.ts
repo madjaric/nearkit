@@ -102,6 +102,37 @@ describe('the guardian on chain', () => {
   })
 })
 
+describe('many bots on one worker', () => {
+  it('a step that hangs (a confirmation that never comes) holds only its own bot: the tick moves on and the next bot steps', async () => {
+    const a = await setup()
+    // A second bot of the same user, on its own wallet and token, due at the same time.
+    const w2 = await a.h.funded(20n * ONE)
+    const cfg = defaultBotConfig('accumulate', { id: 'wrap.testnet', symbol: 'wNEAR', decimals: 24 }, [w2.id])
+    cfg.risk.minLiquidityUsd = 0
+    const other = await a.bots.create({ userId: ALICE.id, network: 'testnet', config: cfg })
+    expect((await a.bots.start(other.id, freshRunState(a.h.deps.now()))).ok).toBe(true)
+    const hung = createVolumeBotRunner({
+      store: a.bots,
+      custody: {
+        ...a.h.custody,
+        swaps: { ...a.h.custody.swaps, quote: (params, wallet) => (params.token === USDT ? new Promise(() => {}) : a.h.custody.swaps.quote(params, wallet)) },
+      },
+      near: a.h.deps.near,
+      network: a.h.config.network,
+      log: silentLogger,
+      instanceId: 'test-2',
+      notify: async () => undefined,
+      now: a.h.deps.now,
+      random: () => 0.5,
+      stepWaitMs: 50,
+    })
+    await hung.tick()
+    // The USDT bot is still mid-step (its lease held); the other one stepped and asked for its next turn.
+    expect((await a.bots.get(other.id))?.nextTickAt).toBeGreaterThan(a.h.deps.now())
+    expect((await a.bots.due(10)).map((b) => b.id)).not.toContain(a.bot.id)
+  })
+})
+
 describe('accumulate, stop and restarts', () => {
   it('accumulates its budget in slices, then completes on its own', async () => {
     const { bots, bot, step } = await setup('accumulate', (c) => {
@@ -116,6 +147,28 @@ describe('accumulate, stop and restarts', () => {
     expect(trades.every((t) => t.side === 'buy' && t.status === 'confirmed')).toBe(true)
     const spent = trades.reduce((s, t) => s + BigInt(t.nearRaw ?? '0'), 0n)
     expect(spent).toBeLessThanOrEqual(ONE)
+  })
+
+  it('a stop pressed while a step is under way sends nothing from that step', async () => {
+    const { h, bots, bot, step } = await setup()
+    for (let i = 0; i < 5; i++) await step()
+    h.market.usdtPerNear = 4_200_000n // away from fair value: this step would buy
+    const quote = h.custody.swaps.quote.bind(h.custody.swaps)
+    let stopped = false
+    h.custody.swaps.quote = async (params, wallet) => {
+      const q = await quote(params, wallet)
+      // The trade's own quote (1 NEAR; the market probes are smaller): Emergency stop arrives just now.
+      if (!stopped && params.side === 'buy' && params.amountIn === '1') {
+        stopped = true
+        await bots.stop(bot.id, 'Emergency stop by its owner')
+      }
+      return q
+    }
+    const sent = h.chain.sent.length
+    await step()
+    expect(stopped).toBe(true)
+    expect(await bots.trades(bot.id)).toEqual([])
+    expect(h.chain.sent.length).toBe(sent)
   })
 
   it('stop: nothing new is sent, and it ends stopped', async () => {

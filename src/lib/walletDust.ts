@@ -2,9 +2,11 @@
  * Wallet dust: when a NEARKITS wallet may be deleted. Sending everything out of a wallet leaves a
  * little NEAR behind (the transaction's gas is held up front and its unused part is refunded after),
  * so "empty" can't mean zero. Below 0.05 NEAR the wallet holds dust: it may be deleted, and that dust
- * stays on chain where nobody can move it once the key is erased. At 0.05 NEAR and above it holds a
- * balance and is not deleted. Tokens are never dust: any token balance, or a token list that could
- * not be read in full, keeps the wallet. The web, the bot and the signer apply this same line.
+ * stays on chain. At 0.05 NEAR and above it holds a balance and is not deleted. Tokens are never dust:
+ * any token balance, or a token list that could not be read in full, keeps the wallet. The web and the
+ * bot apply this same line. Deleting closes the wallet; only a never-funded wallet's key is erased (by
+ * the signer, which reads the chain itself): a dust wallet's key stays sealed, so nothing that reaches
+ * it later is lost.
  */
 
 export const WALLET_DUST_NEAR = 0.05
@@ -22,7 +24,10 @@ export interface WalletHoldingsView {
   tokensKnown: boolean
 }
 
-export type DeletionVerdict = { ok: true; dustYocto: bigint } | { ok: false; reason: 'near' | 'tokens' | 'unknown' }
+/** Why a wallet isn't deleted: a balance, tokens, holdings that couldn't be read, a trade or send on its way, a live Volume Bot on it. */
+export type UndeletableReason = 'near' | 'tokens' | 'unknown' | 'busy' | 'bot'
+
+export type DeletionVerdict = { ok: true; dustYocto: bigint } | { ok: false; reason: UndeletableReason }
 
 export function deletionVerdict(v: WalletHoldingsView): DeletionVerdict {
   if (v.tokens.some((t) => t.raw > 0n)) return { ok: false, reason: 'tokens' }

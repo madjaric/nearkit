@@ -379,7 +379,7 @@ describe('removing NEARKITS’ access, and deleting an empty wallet', () => {
     expect((await h.wallet())?.status).toBe('active')
   })
 
-  it('a wallet left with dust (0.0075 NEAR) is offered for deletion, says the dust stays on chain, and is deleted', async () => {
+  it('a wallet left with dust (0.0075 NEAR) is offered for deletion, says the dust stays on chain, and is deleted with its key kept sealed', async () => {
     const h = await walletBot()
     await h.funded(7_500_000_000_000_000_000_000n)
     const w = await h.wallet()
@@ -389,5 +389,6 @@ describe('removing NEARKITS’ access, and deleting an empty wallet', () => {
     await h.press(h.button('Yes, delete it'))
     expect(h.last()?.text).toContain('only dust')
     expect(await h.custody.store.wallet(w?.id as string)).toMatchObject({ status: 'deleted' })
+    expect(await h.signerVault?.key('testnet', w?.accountId as string)).toMatchObject({ status: 'active' })
   })
 })

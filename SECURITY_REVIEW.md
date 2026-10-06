@@ -286,31 +286,29 @@ NearKit web and Telegram are two independent clients of the same NearKit wallets
 
 ## 5d. Sends between a user's own wallets, and deleting dust (2026-10-06)
 
-Two signer rules changed. Both are in `server/src/signer/core.ts` and covered by `server/src/signer/core.test.ts`.
+Two signer rules changed. Both are in `server/src/signer/core.ts` and covered by `server/src/signer/core.test.ts`. An independent review of the change (same day) narrowed both; this section describes the result.
 
-**Sibling sends (`siblingHolds` in `authorize`).** A withdrawal may go, with no approval, to another NEARKITS wallet under the same authority:
-- both wallets are bound to the same owner wallet; or
-- both have no owner and are sealed to the same Telegram account.
+**Sibling sends (`siblingHolds` in `authorize`).** A withdrawal may go, with no approval, to another NEARKITS wallet of the same Telegram user under the same authority:
+- both wallets are that user's and bound to the same owner wallet; or
+- both are that user's, have no owner and are sealed to the same Telegram account.
 
 It is refused in every other case:
+- to another user's wallet, even one bound to the same owner wallet (binding an owner proves nothing about who uses the wallet);
 - from a wallet with an owner to one without (owner-signed protection would become Telegram-only, R9);
 - to a wallet with another owner;
 - to a closed wallet;
-- to the wallet itself.
+- to the wallet itself;
+- when either key was sealed before bindings existed (v1, testnet legacy): its sealing proves no owner.
 
-The destination's `signer_keys` row is not trusted as stored. Its sealed key is opened under its own binding (v2 owner or v3 controller), and the key must be that account's own. A row edited to name this owner or this Telegram user therefore opens nothing (test: "a row edited in the signer's database…").
+The destination's `signer_keys` row is not trusted as stored. Its sealed key is opened under its own binding (v2 owner or v3 controller), and the key must be that account's own. A row edited to name this owner or this Telegram user therefore opens nothing (test: "a row edited in the signer's database…"). The opened seed lives only inside `withSeed` and is wiped there.
 
-Funds moved this way stay under exactly the same authority, so nothing becomes reachable that wasn't before. Outside addresses, other users' wallets and differently owned wallets keep the approval flow. The app (`siblingWallet`) and the bot mirror the rule only for the review; the signer decides. The app also refuses to send into a frozen wallet.
+Funds moved this way stay under exactly the same authority, so nothing becomes reachable that wasn't before. One consequence to know: an address approved for one of the user's wallets is reachable from their other wallets under the same owner through the first one (W2 → W1 → D). Outside addresses, other users' wallets and differently owned wallets keep the approval flow. The app (`siblingWallet`) and the bot mirror the rule only for the review; the signer decides. The app and the bot both refuse to send into a frozen wallet.
 
-**Dust deletion (`erase-key` with reason `deleted`).** A key is erased when the account is either:
-- never funded; or
-- holding under 0.05 NEAR (`WALLET_DUST_YOCTO`, `src/lib/walletDust.ts`) with nothing staked.
+**Deleting a wallet (`erase-key` with reason `deleted`).** Unchanged in what it erases: only a key whose account was never funded (it doesn't exist on chain). It now also reads, with its own RPC quorum, every token contract the app lists **and the network's known tokens**, and refuses if any holds a balance: tokens can be credited to an address that doesn't exist yet, and the signer no longer depends on the app's list for the tokens it knows.
 
-In both cases every token contract the app lists must read zero. The signer reads these with its own RPC quorum. The dust left on chain is recorded in the `key-erased` event.
+A wallet holding only dust (under 0.05 NEAR, `src/lib/walletDust.ts`) can be deleted in the app, but its key is **not erased**: the app closes the wallet (its slot is free) and the key stays sealed, so a token the app's indexer missed, or anything that reaches the address later, is never lost. The app refuses to delete a wallet with a trade or send in flight, or one a live Volume Bot trades from.
 
-A compromised app could leave tokens out of the list. That is within §2.4 (it can already trade into a token of its choosing); before this change, a never-funded wallet holding tokens could be erased with no check at all.
-
-Deploy order: the signer first. An older signer refuses an `erase-key` request that carries `tokens`.
+Deploy order: the signer first. An older signer refuses an `erase-key` request that carries `tokens` (the app sends the list only when it found a token, so the failure is a refused deletion, never a wrong one).
 
 ## 5. KMS: OpenBao on the VPS versus AWS KMS
 

@@ -3,7 +3,7 @@ import { gasPurchaseYocto } from '@/services/near/gas'
 import type { NearTransaction, TxAction } from '@/services/near/transaction'
 import { gasHeld } from '@/services/real/testing/fakeRuntime'
 import type { TradingWallet } from '../custody/store'
-import { deleteWallet, deletionOf, readWallet } from '../custody/wallets'
+import { createTradingWallet, deleteWallet, deletionOf, readWallet } from '../custody/wallets'
 import { maxNearWithdraw, nearWithdrawFee, nearWithdrawUpfront, tokenWithdrawActions, tokenWithdrawUpfront } from '../custody/withdraw'
 import { ownerKeypair } from '../signer/testing'
 import { ALICE } from './testing'
@@ -196,5 +196,19 @@ describe('withdrawals on chain with the reserve', () => {
     const usdt = h.chain.tokens.get(USDT)
     expect(usdt?.registered.has(BOB)).toBe(true)
     expect(usdt?.balances.get(BOB)).toBe(amount)
+  })
+})
+
+describe('sends into the user’s own wallets', () => {
+  it('Telegram refuses to send into one of the user’s own wallets that NEARKITS froze, before anything is prepared (as NEARKITS web does)', async () => {
+    const { h, w, owner } = await owned()
+    const { wallet: frozen } = await createTradingWallet(h.custody, ALICE.id, 'testnet', h.deps.now(), { accountId: LINKED, publicKey: owner.publicKey })
+    await h.custody.store.setFrozen(frozen.id, 'its key may have left')
+    await h.press('cw:wd')
+    await h.press(h.button('NEAR ·'))
+    await h.say('0.1')
+    await h.say(frozen.accountId)
+    expect(h.last()?.text).toMatch(/is frozen: NEARKITS doesn’t send into a frozen wallet/)
+    expect(await h.custody.store.inFlight(w.id)).toEqual([])
   })
 })

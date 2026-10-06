@@ -4,15 +4,17 @@ import type { Route } from '../api/http'
 import { ALICE } from '../bot/testing'
 import { telegramApprovalsOn } from '../bot/tradingWallet'
 import { linkedAccountOf } from '../bot/wallet'
+import { defaultBotConfig } from '@/lib/volumeBot/config'
 import { ONE, USDT, walletBot } from '../bot/walletTesting'
 import type { TgUser } from '../telegram/types'
+import { freshRunState } from '../volumebot/runner'
 import { webRoutes } from './routes'
 
 /**
- * Deleting and ordering NearKit wallets on NearKit web. Deleting is the bot's own path (only a
- * wallet that was never funded; the signer checks the chain itself before erasing its key; the
- * slot is free again). Ordering is how the user's wallets are listed everywhere; it changes no
- * wallet's account, key, owner, slot or funds.
+ * Deleting and ordering NearKit wallets on NearKit web. Deleting is the bot's own path (a wallet
+ * that was never funded, or holds only NEAR dust: the signer erases a never-funded wallet's key after
+ * checking the chain itself, a dust wallet keeps its key sealed; the slot is free again). Ordering is
+ * how the user's wallets are listed everywhere; it changes no wallet's account, key, owner, slot or funds.
  */
 
 const BOB: TgUser = { id: 202, is_bot: false, first_name: 'Bob', username: 'bob', language_code: 'en' }
@@ -33,6 +35,7 @@ async function webApp() {
     linkedAccount: (userId) => linkedAccountOf(h.store, userId, h.config.network.id),
     notify: (userId, html, markup) => h.app.notify(userId, html, markup),
     log: h.deps.log,
+    volumeBots: h.deps.volumeBots,
   })
   const call = (path: string, body: unknown) => (routes[path] as Route)(body, {} as IncomingMessage) as Promise<Record<string, unknown>>
   const refused = (path: string, body: unknown) =>
@@ -93,7 +96,7 @@ describe('deleting a NEARKITS wallet on NEARKITS web', () => {
     expect((await custody.store.wallet(funded as string))?.status).toBe('active')
   })
 
-  it('a wallet holding only dust (what sending everything leaves, under 0.05 NEAR) is deleted; the dust is named', async () => {
+  it('a wallet holding only dust (what sending everything leaves, under 0.05 NEAR) is deleted; the dust is named, and its key is kept sealed, never erased', async () => {
     const { h, custody, call, signIn, wallets } = await webApp()
     const token = await signIn()
     const created = await wallets(token, 3)
@@ -105,7 +108,8 @@ describe('deleting a NEARKITS wallet on NEARKITS web', () => {
       const from = h.fake.messages().length
       expect(await call('/api/web/wallets/delete', { session: token, walletId: empty })).toEqual({ deleted: true, dustYocto: dust.toString() })
       expect((await custody.store.wallet(empty as string))?.status).toBe('deleted')
-      expect(await h.signerVault?.key('testnet', w.accountId)).toMatchObject({ status: 'erased', eraseReason: 'deleted' })
+      // An account on chain keeps its key: anything that reaches it later is not lost.
+      expect(await h.signerVault?.key('testnet', w.accountId)).toMatchObject({ status: 'active', eraseReason: null })
       expect(
         h.fake
           .messages()
@@ -113,6 +117,28 @@ describe('deleting a NEARKITS wallet on NEARKITS web', () => {
           .find((m) => m.chatId === ALICE.id)?.text,
       ).toMatch(/held only dust/)
     }
+  })
+
+  it('nothing on its way and no live Volume Bot: a send in flight, or a bot trading from the wallet, keeps it', async () => {
+    const { h, custody, call, refused, signIn, wallets } = await webApp()
+    const token = await signIn()
+    const [, a, b] = await wallets(token, 2)
+    const wa = (await custody.store.wallet(a as string)) as { id: string; accountId: string; userId: number }
+    // A send from it was confirmed and hasn't settled.
+    const intent = await custody.store.createIntent({ walletId: wa.id, userId: wa.userId, chatId: 0, kind: 'withdraw', params: {}, quote: {}, ttlMs: 60_000 })
+    await custody.store.setStatus(intent.id, ['quoted'], 'confirmed')
+    expect((await refused('/api/web/wallets/delete', { session: token, walletId: a }))?.message).toMatch(/on its way/)
+    expect((await custody.store.wallet(a as string))?.status).toBe('active')
+    // A live Volume Bot trades from the other.
+    const bots = h.deps.volumeBots
+    if (!bots) throw new Error('the Volume Bot store must be on')
+    const bot = await bots.create({ userId: wa.userId, network: 'testnet', config: defaultBotConfig('market-maker', { id: USDT, symbol: 'USDT', decimals: 6 }, [b as string]) })
+    expect((await bots.start(bot.id, freshRunState(h.deps.now()))).ok).toBe(true)
+    expect((await refused('/api/web/wallets/delete', { session: token, walletId: b }))?.message).toMatch(/Volume Bot/)
+    // Stopped, it no longer holds the wallet.
+    await bots.stop(bot.id, 'test')
+    await bots.end(bot.id, 'stopped', 'test')
+    expect(await call('/api/web/wallets/delete', { session: token, walletId: b })).toEqual({ deleted: true, dustYocto: '0' })
   })
 
   it('exactly 0.05 NEAR is a balance, and a token balance of any size keeps the wallet', async () => {

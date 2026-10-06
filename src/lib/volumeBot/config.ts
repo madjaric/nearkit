@@ -14,6 +14,8 @@ export const MIN_EDGE_BPS = 10
 export const MIN_INTERVAL_SEC = 10
 /** Wallets one bot may trade from (an operational bound on the worker, not on money). */
 export const MAX_BOT_WALLETS = 20
+/** Live bots (running, paused or stopping) one user may have at once: the worker is shared, so one user never crowds out the rest. */
+export const MAX_LIVE_BOTS_PER_USER = 5
 /** TWAP periods: at least ten minutes, at most 30 days. */
 export const MIN_TWAP_SEC = 600
 export const MAX_TWAP_SEC = 30 * 86_400

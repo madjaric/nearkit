@@ -3,12 +3,11 @@ import { base58Decode, base58Encode, base64Decode, base64Encode } from '@/lib/en
 import { exportKeyFingerprint, sealExport } from '@/lib/exportCrypto'
 import { telegramApprovalDigest } from '@/lib/telegramApproval'
 import { accountKind, isForeignToNetwork } from '@/lib/validation'
-import { WALLET_DUST_YOCTO } from '@/lib/walletDust'
 import { parseEd25519PublicKey, verifyNep413 } from '@/services/near/nep413'
 import { deserializeSignedTransaction, serializeSignedTransaction, serializeTransaction, transactionDigest, type NearTransaction } from '@/services/near/transaction'
 import { generateKey, implicitAccountId, nearPublicKey, publicKeyOf, secretKeyText, signWithSeed } from '../custody/keys'
 import { checkPlan, PolicyViolation, type WalletOperation, type WalletTxPlan } from '../custody/policy'
-import { KeyUnavailableError, type Keyring } from '../custody/vault'
+import { KeyUnavailableError, parseSealed, type Keyring } from '../custody/vault'
 import { randomBytesArray, randomToken } from '../ids'
 import { silentLogger, type Logger } from '../log'
 import type { SignerChain } from './chain'
@@ -274,11 +273,16 @@ export function createSignerCore(deps: SignerDeps) {
    */
   async function siblingHolds(key: SignerKey, destination: string): Promise<boolean> {
     const dest = await store.key(network.id, destination)
-    if (!dest || dest.status !== 'active' || !dest.sealedKey || dest.accountId === key.accountId) return false
+    if (!dest || dest.status !== 'active' || !dest.sealedKey || !key.sealedKey || dest.accountId === key.accountId) return false
+    // The same Telegram user's, under the same owner wallet (or both under none): never another user's,
+    // whatever owner wallet it names. The owner (or the controlling account) is sealed into each key and
+    // proven by opening it below; a key sealed before bindings (v1) proves no owner, so it is never a sibling.
+    if (key.userId === null || dest.userId !== key.userId) return false
     const sameOwner = key.ownerAccount !== null && dest.ownerAccount === key.ownerAccount
-    const sameController = key.ownerAccount === null && dest.ownerAccount === null && key.userId !== null && dest.userId === key.userId
+    const sameController = key.ownerAccount === null && dest.ownerAccount === null
     if (!sameOwner && !sameController) return false
     try {
+      if (parseSealed(key.sealedKey).v === 1 || parseSealed(dest.sealedKey).v === 1) return false
       return await withSeed(dest, (seed) => implicitAccountId(publicKeyOf(seed)) === destination)
     } catch {
       return false
@@ -442,7 +446,7 @@ export function createSignerCore(deps: SignerDeps) {
       const b = obj(body, 'the request', ['accountId', 'reason'], ['tokens'])
       const accountId = str(b.accountId, 'accountId', 64)
       if (b.reason !== 'deleted' && b.reason !== 'revoked') throw new BadRequestError('malformed request: the reason is unknown')
-      // Deleted: the token contracts the app found the wallet may hold, each read again here.
+      // Deleted: the token contracts the app found the address may hold, read again here with the network's known tokens.
       const listed: unknown = b.tokens ?? []
       if (!Array.isArray(listed) || listed.length > 100) throw new BadRequestError('malformed request: tokens is not a list of up to 100 contracts')
       const tokens = listed.map((t: unknown, i) => str(t, `tokens[${i}]`, 64))
@@ -450,21 +454,19 @@ export function createSignerCore(deps: SignerDeps) {
       const key = await store.key(network.id, accountId)
       if (!key || key.status !== 'active') return { erased: false }
       // Checked on chain by a quorum of providers: a key is never erased while it still controls funds.
-      // A deleted wallet holds at most dust (under 0.05 NEAR, nothing staked) and none of its tokens;
-      // that dust stays on chain, out of anyone's reach.
-      let dust = 0n
       if (b.reason === 'deleted') {
-        const held = await chain.accountBalance(accountId)
-        if (held.exists && (held.locked > 0n || held.amount >= WALLET_DUST_YOCTO)) throw new PolicyViolation('the wallet holds 0.05 NEAR or more, so its key is not erased')
-        for (const contract of tokens)
+        // Only a wallet that was never funded. One that exists on chain keeps its key, even when it holds
+        // only dust: the app closes such a wallet without erasing anything, so nothing that arrives later is lost.
+        if (await chain.accountExists(accountId)) throw new PolicyViolation('the wallet exists on chain (it was funded), so its key is not erased')
+        // Tokens can be credited to an address that doesn't exist yet: none may be held, by the signer's own reading.
+        for (const contract of new Set([...tokens, ...network.knownTokens]))
           if ((await chain.tokenBalance(contract, accountId)) > 0n) throw new PolicyViolation(`the wallet holds ${contract} tokens, so its key is not erased`)
-        dust = held.amount
       } else {
         if (!(await chain.accountExists(accountId))) throw new PolicyViolation('the wallet does not exist on chain')
         if ((await chain.permission(accountId, key.publicKey)) !== 'missing') throw new PolicyViolation('NEARKITS’ key is still on the wallet, so its copy is not erased')
       }
       const erased = await store.eraseKey(network.id, accountId, b.reason)
-      if (erased) await store.event('key-erased', { network: network.id, accountId, detail: { reason: b.reason, ...(dust > 0n ? { dust: dust.toString() } : {}) } })
+      if (erased) await store.event('key-erased', { network: network.id, accountId, detail: { reason: b.reason } })
       return { erased }
     },
 

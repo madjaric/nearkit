@@ -1,7 +1,7 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import type { BotDetail, BotSummary } from '@/lib/volumeBot/api'
-import { parseBotConfig } from '@/lib/volumeBot/config'
+import { MAX_LIVE_BOTS_PER_USER, parseBotConfig } from '@/lib/volumeBot/config'
 import { pnlNear } from '@/lib/volumeBot/inventory'
 import { summarize, type TradeRecord } from '@/lib/volumeBot/metrics'
 import type { BotConfig } from '@/lib/volumeBot/types'
@@ -213,7 +213,9 @@ export function botRoutes(deps: BotApiDeps): Record<string, Route> {
           r.reason,
           r.reason === 'busy-token'
             ? `Another of your Volume Bots is live on ${b.config.tokenSymbol}: one bot per token, so two never trade it against each other. Stop that one first.`
-            : 'This bot is already running.',
+            : r.reason === 'too-many'
+              ? `You have ${MAX_LIVE_BOTS_PER_USER} live Volume Bots, the most at once. Stop one before starting another.`
+              : 'This bot is already running.',
         )
       await bots.event(b.id, 'started', 'Started on NEARKITS web')
       // A security notice, like a new wallet's: a stolen web session can't start trading unseen.

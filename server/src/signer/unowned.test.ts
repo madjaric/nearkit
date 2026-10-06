@@ -28,7 +28,6 @@ function fakeChain() {
   const chain: SignerChain = {
     permission: async (a, k) => perms.get(`${a}|${k}`) ?? 'missing',
     accountExists: async () => true,
-    accountBalance: async () => ({ exists: true, amount: 10n ** 24n, locked: 0n }),
     tokenBalance: async () => 0n,
     fullAccessKeys: async () => [],
   }

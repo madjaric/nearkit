@@ -61,12 +61,17 @@ export async function walletBot(
         'bob.testnet': { amount: ONE },
         [USDT]: { amount: ONE, code: true },
         [WRAP]: { amount: ONE, code: true },
+        // The network's other known tokens: the signer reads each one itself before it erases a key.
+        'usdc.itachicara.testnet': { amount: ONE, code: true },
+        'ref.fakes.testnet': { amount: ONE, code: true },
         [EXCHANGE]: { amount: 1000n * ONE, code: true },
         ...options.chain?.accounts,
       },
       tokens: {
         [USDT]: { symbol: 'USDT', name: 'Tether USD', decimals: 6, boundsMin: REG, balances: { [EXCHANGE]: 10n ** 15n, [LINKED]: 50_000_000n }, registered: [EXCHANGE, LINKED] },
         [WRAP]: { symbol: 'wNEAR', name: 'Wrapped NEAR', decimals: 24, boundsMin: REG, balances: { [EXCHANGE]: 1000n * ONE }, registered: [EXCHANGE] },
+        'usdc.itachicara.testnet': { symbol: 'USDC', name: 'USD Coin', decimals: 6, boundsMin: REG, balances: {}, registered: [] },
+        'ref.fakes.testnet': { symbol: 'REF', name: 'Ref Finance Token', decimals: 18, boundsMin: REG, balances: {}, registered: [] },
         ...options.chain?.tokens,
       },
       exchange: { contract: EXCHANGE, rate },

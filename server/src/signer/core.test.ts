@@ -29,7 +29,6 @@ function fakeChain() {
   const perms = new Map<string, AccessKeyPermission>()
   const accounts = new Set<string>()
   const keyLists = new Map<string, string[]>()
-  const balances = new Map<string, bigint>()
   const tokens = new Map<string, bigint>()
   let uncertain = false
   const chain: SignerChain = {
@@ -45,11 +44,6 @@ function fakeChain() {
       if (uncertain) throw new ChainUncertainError('NEAR RPC providers disagree')
       return [...(keyLists.get(a) ?? [])].sort()
     },
-    async accountBalance(a) {
-      if (uncertain) throw new ChainUncertainError('NEAR RPC providers disagree')
-      // An account that exists holds 1 NEAR unless a test says otherwise.
-      return accounts.has(a) ? { exists: true, amount: balances.get(a) ?? 10n ** 24n, locked: 0n } : { exists: false, amount: 0n, locked: 0n }
-    },
     async tokenBalance(c, a) {
       if (uncertain) throw new ChainUncertainError('NEAR RPC providers disagree')
       return tokens.get(`${c}|${a}`) ?? 0n
@@ -61,7 +55,6 @@ function fakeChain() {
     revoke: (a: string, k: string) => void perms.delete(`${a}|${k}`),
     exists: (a: string, yes = true) => void (yes ? accounts.add(a) : accounts.delete(a)),
     keys: (a: string, ks: string[]) => void keyLists.set(a, ks),
-    balance: (a: string, yocto: bigint) => void balances.set(a, yocto),
     token: (c: string, a: string, raw: bigint) => void tokens.set(`${c}|${a}`, raw),
     uncertain: (v: boolean) => void (uncertain = v),
   }
@@ -366,9 +359,9 @@ describe('owner-signed requests', () => {
 })
 
 describe('erasing keys', () => {
-  it('a never-funded wallet’s key is erased; one holding a balance is not', async () => {
+  it('a never-funded wallet’s key is erased; one that exists on chain is not', async () => {
     chain.exists(wallet.accountId)
-    await expect(signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).rejects.toThrow(/0\.05 NEAR or more/)
+    await expect(signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).rejects.toThrow(/exists on chain/)
     chain.exists(wallet.accountId, false)
     expect(await signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).toBe(true)
     expect(await vault.key('testnet', wallet.accountId)).toMatchObject({ status: 'erased', sealedKey: null, eraseReason: 'deleted' })
@@ -376,18 +369,18 @@ describe('erasing keys', () => {
     expect(await signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).toBe(false)
   })
 
-  it('a wallet holding only dust (under 0.05 NEAR) is erased; the dust it leaves is recorded', async () => {
+  it('a wallet holding only dust keeps its key: whatever list the app sends, an account on chain is never erased as deleted', async () => {
+    // The app closes a dust wallet without asking for this; a request for it anyway (a bug, a compromised app) changes nothing.
     chain.exists(wallet.accountId)
-    chain.balance(wallet.accountId, 7_500_000_000_000_000_000_000n) // 0.0075 NEAR
-    expect(await signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).toBe(true)
-    expect((await vault.recentEvents()).find((e) => e.kind === 'key-erased')?.detail).toMatchObject({ reason: 'deleted', dust: '7500000000000000000000' })
+    await expect(signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted', tokens: [] })).rejects.toThrow(/exists on chain/)
+    expect((await vault.key('testnet', wallet.accountId))?.status).toBe('active')
   })
 
-  it('exactly 0.05 NEAR, or any staked NEAR, keeps the key', async () => {
-    chain.exists(wallet.accountId)
-    chain.balance(wallet.accountId, 50_000_000_000_000_000_000_000n)
-    await expect(signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).rejects.toThrow(/0\.05 NEAR or more/)
-    chain.balance(wallet.accountId, 49_999_999_999_999_999_999_999n)
+  it('the network’s known tokens are read by the signer itself: a balance keeps the key even when the app lists no token', async () => {
+    chain.exists(wallet.accountId, false)
+    chain.token('wrap.testnet', wallet.accountId, 1n)
+    await expect(signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).rejects.toThrow(/holds wrap\.testnet tokens/)
+    chain.token('wrap.testnet', wallet.accountId, 0n)
     expect(await signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted' })).toBe(true)
   })
 
@@ -491,6 +484,12 @@ describe('sends between NEARKITS wallets under the same authority (no approval)'
     chain.exists(closed.accountId, false)
     expect(await signer.eraseKey({ accountId: closed.accountId, reason: 'deleted' })).toBe(true)
     await expect(toWallet(closed.accountId, 's3')).rejects.toThrow(DestinationNotApprovedError)
+  })
+
+  it('another Telegram user’s wallet bound to the same owner wallet is not a sibling: it still needs an approval', async () => {
+    // Binding an owner wallet proves nothing about who uses it: only the same user's wallets go without approval.
+    const notMine = await signer.createKey({ userId: 202, owner: { accountId: OWNER, publicKey: owner.publicKey } })
+    await expect(toWallet(notMine.accountId, 's11')).rejects.toThrow(DestinationNotApprovedError)
   })
 
   it('never from a wallet with an owner to one without (owner-signed protection is never handed to Telegram alone)', async () => {

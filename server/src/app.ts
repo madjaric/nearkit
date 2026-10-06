@@ -379,6 +379,7 @@ export async function startServer(options: { env: Record<string, string | undefi
             // Security notices only (a wallet created on the web); nothing waits for them.
             notify: async (userId, html, markup) => (bot ? bot.notify(userId, html, markup) : false),
             log,
+            volumeBots,
           })
         : {}),
       ...(custody && web && volumeBots

@@ -1,3 +1,4 @@
+import type { VolumeBotStore } from '../volumebot/store'
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/networks'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
@@ -65,6 +66,8 @@ export interface WebApiDeps {
   /** A message to the user in Telegram (security notices only); false when it couldn't be delivered. */
   notify: (userId: number, html: string, markup?: InlineKeyboard) => Promise<boolean>
   log: Logger
+  /** The Volume Bots, where they run: a wallet a live bot trades from isn't deleted. */
+  volumeBots?: Pick<VolumeBotStore, 'usesWallet'> | null
 }
 
 interface LegInput {
@@ -229,11 +232,12 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
     '/api/web/wallets/delete': async (body) => {
       const userId = await userOf(body)
       const wallet = await ownWallet(userId, field(body, 'walletId', 64))
-      const verdict = await deleteWallet(custody, deps.near, wallet)
+      const bots = deps.volumeBots
+      const verdict = await deleteWallet(custody, deps.near, wallet, bots ? { liveBot: (id) => bots.usesWallet(id) } : {})
       if (!verdict.ok) throw new HttpError(409, 'funded', `${undeletableText(walletName(wallet), verdict.reason)} Nothing was deleted.`, { reason: verdict.reason })
       const dust =
         verdict.dustYocto > 0n
-          ? `It held only dust (${formatUnits(verdict.dustYocto, NEAR_DECIMALS, { maxFraction: 6 })} NEAR), left on chain.`
+          ? `It held only dust (${formatUnits(verdict.dustYocto, NEAR_DECIMALS, { maxFraction: 6 })} NEAR), left on chain; its key stays sealed with NEARKITS.`
           : 'It was never funded, so nothing was lost.'
       // A security notice, like a creation's: nothing waits for it.
       await deps

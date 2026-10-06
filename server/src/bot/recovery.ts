@@ -235,10 +235,10 @@ async function offerDelete(ctx: BotCtx, walletId: string) {
   if (!verdict.ok) return ctx.show(esc(undeletableText('This wallet', verdict.reason)), keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], back))
   const left =
     verdict.dustYocto > 0n
-      ? `It holds only dust: ${code(formatUnits(verdict.dustYocto, NEAR_DECIMALS, { maxFraction: 6 }))} NEAR, under 0.05 NEAR. That dust stays on chain, where nobody can move it once the key is erased.`
-      : 'It was never funded, so nothing can be lost.'
+      ? `It holds only dust: ${code(formatUnits(verdict.dustYocto, NEAR_DECIMALS, { maxFraction: 6 }))} NEAR, under 0.05 NEAR. That dust stays on chain, and NEARKITS keeps the wallet’s key sealed rather than erasing it.`
+      : 'It was never funded, so nothing can be lost: NEARKITS erases its key.'
   await ctx.show(
-    `🗑 Delete the empty NEARKITS wallet ${walletLine(w)}?\n\n${left} NEARKITS erases its key, and its slot is free for a new wallet.`,
+    `🗑 Delete the empty NEARKITS wallet ${walletLine(w)}?\n\n${left} Its slot is then free for a new wallet.`,
     keyboard([btn('🗑 Yes, delete it', `cr:deleteyes:${w.id}`), btn('Keep it', 'cw:home')]),
   )
 }
@@ -251,13 +251,16 @@ async function deleteEmpty(ctx: BotCtx, walletId: string) {
   // Re-read now (a deposit may have arrived since the question); the signer checks the chain itself.
   let outcome: Awaited<ReturnType<typeof deleteWallet>>
   try {
-    outcome = await deleteWallet(custody, ctx.deps.near, w)
+    const bots = ctx.deps.volumeBots
+    outcome = await deleteWallet(custody, ctx.deps.near, w, bots ? { liveBot: (id) => bots.usesWallet(id) } : {})
   } catch (e) {
     return ctx.show(`⚠️ ${esc(walletErrorText(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'delete wallet' }))} Nothing was deleted.`, keyboard(back))
   }
-  if (!outcome.ok) return offerDelete(ctx, w.id)
+  if (!outcome.ok) return ctx.show(`${esc(undeletableText('This wallet', outcome.reason))} Nothing was deleted.`, keyboard([btn('🔐 Recovery', `cr:show:${w.id}`)], back))
   await ctx.show(
-    outcome.dustYocto > 0n ? '🗑 Deleted. It held only dust (under 0.05 NEAR), left on chain.' : '🗑 Deleted. It was never funded, so nothing was lost.',
+    outcome.dustYocto > 0n
+      ? '🗑 Deleted. It held only dust (under 0.05 NEAR), left on chain; its key stays sealed with NEARKITS.'
+      : '🗑 Deleted. It was never funded, so nothing was lost.',
     keyboard([newWalletButton(), btn('« Menu', 'menu:home')]),
   )
 }

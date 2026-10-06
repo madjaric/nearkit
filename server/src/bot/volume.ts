@@ -1,5 +1,6 @@
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
+import { MAX_LIVE_BOTS_PER_USER } from '@/lib/volumeBot/config'
 import { pnlNear } from '@/lib/volumeBot/inventory'
 import { bold, esc } from '../telegram/html'
 import { freshRunState } from '../volumebot/runner'
@@ -122,7 +123,11 @@ async function act(ctx: BotCtx, action: string, botId: string): Promise<void> {
       const r = await store.start(b.id, freshRunState(ctx.deps.now()))
       if (!r.ok)
         return void (await ctx.reply(
-          r.reason === 'busy-token' ? `Another of your bots is live on ${esc(b.config.tokenSymbol)}: stop it first (one bot per token).` : 'This bot is already running.',
+          r.reason === 'busy-token'
+            ? `Another of your bots is live on ${esc(b.config.tokenSymbol)}: stop it first (one bot per token).`
+            : r.reason === 'too-many'
+              ? `You have ${MAX_LIVE_BOTS_PER_USER} live Volume Bots, the most at once: stop one first.`
+              : 'This bot is already running.',
         ))
       await store.event(b.id, 'started', 'Started in Telegram')
       break

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { defaultBotConfig } from '@/lib/volumeBot/config'
+import { MAX_LIVE_BOTS_PER_USER, defaultBotConfig } from '@/lib/volumeBot/config'
 import { emptyBook } from '@/lib/volumeBot/inventory'
 import { CustodyStore } from '../custody/store'
 import type { Database } from '../db/database'
@@ -56,6 +56,19 @@ describe.each(TEST_ENGINES)(
       expect(await bots.start(a.id, state())).toEqual({ ok: false, reason: 'not-idle' })
       expect(await bots.start(b.id, state())).toEqual({ ok: false, reason: 'busy-token' })
       expect((await bots.get(b.id))?.status).toBe('draft')
+    })
+
+    it('a user has at most MAX_LIVE_BOTS_PER_USER live bots at once (each on its own token); another starts once one has stopped', async () => {
+      const tokens = Array.from({ length: MAX_LIVE_BOTS_PER_USER + 1 }, (_, i) => ({ id: `t${i}.testnet`, symbol: `T${i}`, decimals: 6 }))
+      const list = []
+      for (const t of tokens) list.push(await bots.create({ userId: USER, network: 'testnet', config: defaultBotConfig('market-maker', t, [walletId]) }))
+      for (const b of list.slice(0, MAX_LIVE_BOTS_PER_USER)) expect(await bots.start(b.id, state())).toMatchObject({ ok: true })
+      const last = list[MAX_LIVE_BOTS_PER_USER] as { id: string }
+      expect(await bots.start(last.id, state())).toEqual({ ok: false, reason: 'too-many' })
+      const first = list[0] as { id: string }
+      await bots.stop(first.id, 'test')
+      await bots.end(first.id, 'stopped', 'test')
+      expect(await bots.start(last.id, state())).toMatchObject({ ok: true })
     })
 
     it('pauses with its reason, resumes, stops through stopping, and ends the run', async () => {

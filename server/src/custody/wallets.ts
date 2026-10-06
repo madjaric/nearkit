@@ -1,4 +1,4 @@
-import { deletionVerdict, type DeletionVerdict } from '@/lib/walletDust'
+import { deletionVerdict, type DeletionVerdict, type UndeletableReason } from '@/lib/walletDust'
 import { RpcError } from '@/services/near/rpc'
 import { PolicyViolation } from './policy'
 import type { ServerNear } from '../near'
@@ -112,8 +112,8 @@ export async function ownerForNewWallet(
 
 /**
  * A button's key stays bound to the wallet it made, even once that wallet is closed:
- * never hand a closed wallet back as if it were usable (its key is erased, so NEAR sent
- * to it now would be out of reach).
+ * never hand a closed wallet back as if it were usable (nothing trades or sends from it
+ * any more, so NEAR sent to it now would sit out of the user's reach).
  */
 function live(wallet: TradingWallet, created: boolean): { wallet: TradingWallet; created: boolean } {
   if (wallet.status !== 'active') throw new WalletLimitError('used')
@@ -189,28 +189,51 @@ export function deletionOf(view: WalletView): DeletionVerdict {
 /**
  * Deletes a NEARKITS wallet that holds nothing of value: never funded, or only NEAR dust (under
  * 0.05 NEAR, what sending everything out leaves behind), and no tokens. The one way, for the bot's
- * 🗑 and NEARKITS web alike. The chain is read again now (a deposit may have just arrived); the
- * signer reads the balance and every token found itself before it erases the key; then the wallet
- * is closed, which frees its slot. Dust stays on chain, out of anyone's reach. A wallet holding
- * 0.05 NEAR or more, or any token, is never deleted here.
+ * 🗑 and NEARKITS web alike. Nothing may be on its way (a trade or send in flight, a live Volume Bot
+ * trading from it). The chain is read again now (a deposit may have just arrived), the network's
+ * known tokens directly too. Then the wallet is closed, which frees its slot: a never-funded wallet's
+ * key is erased by the signer, which checks the chain itself; a dust wallet's key stays sealed (its
+ * account exists on chain), so nothing that reaches it later is lost. A wallet holding 0.05 NEAR or
+ * more, or any token, is never deleted here.
  */
-export async function deleteWallet(c: Pick<CustodyDeps, 'signer' | 'store'>, near: ServerNear, wallet: TradingWallet): Promise<DeletionVerdict> {
+export async function deleteWallet(
+  c: Pick<CustodyDeps, 'signer' | 'store'>,
+  near: ServerNear,
+  wallet: TradingWallet,
+  opts: { liveBot?: (walletId: string) => Promise<boolean> } = {},
+): Promise<DeletionVerdict> {
+  if ((await c.store.inFlight(wallet.id)).length > 0) return { ok: false, reason: 'busy' }
+  if (opts.liveBot && (await opts.liveBot(wallet.id))) return { ok: false, reason: 'bot' }
   const view = await readWallet(near, wallet)
   const verdict = deletionOf(view)
   if (!verdict.ok) return verdict
+  // The network's known tokens, each read on chain: an indexer that lags never hides one of them.
+  for (const contract of near.ctx.network.knownTokens.filter((t) => !view.checkedTokens.includes(t))) {
+    const raw = await near.ctx.reader.balanceOf(contract, wallet.accountId).catch(() => null)
+    if (raw === null) return { ok: false, reason: 'unknown' }
+    if (raw > 0n) return { ok: false, reason: 'tokens' }
+  }
+  if (view.exists) {
+    await c.store.closeWallet(wallet.id, 'deleted', { reason: 'dust', dust: verdict.dustYocto.toString(), key: 'kept sealed' })
+    return verdict
+  }
   try {
     await c.signer.eraseKey({ accountId: wallet.accountId, reason: 'deleted', tokens: view.checkedTokens })
   } catch (e) {
     if (e instanceof PolicyViolation) return { ok: false, reason: /tokens/.test(e.message) ? 'tokens' : 'near' }
     throw e
   }
-  await c.store.closeWallet(wallet.id, 'deleted', verdict.dustYocto > 0n ? { reason: 'dust', dust: verdict.dustYocto.toString() } : { reason: 'never funded' })
+  await c.store.closeWallet(wallet.id, 'deleted', { reason: 'never funded' })
   return verdict
 }
 
 /** Why a wallet can't be deleted, in the words the web and the bot show. */
-export function undeletableText(name: string, reason: 'near' | 'tokens' | 'unknown'): string {
+export function undeletableText(name: string, reason: UndeletableReason): string {
   switch (reason) {
+    case 'busy':
+      return `${name} has a trade or send on its way, so it isn’t deleted. Try again once it has settled.`
+    case 'bot':
+      return `${name} trades for a live Volume Bot, so it isn’t deleted. Stop the bot first.`
     case 'near':
       return `${name} holds 0.05 NEAR or more, so it isn’t deleted. Send its NEAR out first: what sending everything leaves behind is dust (under 0.05 NEAR), and a wallet holding only dust can be deleted.`
     case 'tokens':
