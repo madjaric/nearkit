@@ -72,7 +72,7 @@ export function publicPages(): PageSeo[] {
     '/kit': { title: `${KIT.ticker}, the NEARKITS token · NEARKITS`, description: kitDescription(), name: KIT.ticker },
     '/telegram': {
       title: 'Telegram bot for NEAR trading · NEARKITS',
-      description: 'Link your NEAR account to the NEARKITS bot. Trades prepared in Telegram are signed here, in your own wallet, and the result is reported back.',
+      description: 'Trade NEAR tokens in Telegram: NEARKITS wallets buy and sell in the chat, signed by NEARKITS; a NEAR account you link signs its trades in your own wallet.',
       name: 'Telegram',
     },
     '/docs': {

@@ -19,7 +19,12 @@ export interface BotCommandDoc {
 export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'wallet', description: 'your NEARKITS wallet: balance, deposit, withdraw, recovery', section: 'Account', scope: 'private' },
   { name: 'deposit', description: 'the address to fund your NEARKITS wallet', section: 'Account', scope: 'private' },
-  { name: 'withdraw', description: 'send NEAR or tokens from your NEARKITS wallet to any address', section: 'Account', scope: 'private' },
+  {
+    name: 'withdraw',
+    description: 'send NEAR or tokens from your NEARKITS wallet to your owner wallet, your other NEARKITS wallets, or an address you approved',
+    section: 'Account',
+    scope: 'private',
+  },
   { name: 'link', description: 'link a NEAR account (you sign a free message in your wallet)', section: 'Account', scope: 'private' },
   { name: 'accounts', description: 'linked accounts and the default one', section: 'Account', scope: 'private' },
   { name: 'unlink', description: 'remove a linked account', section: 'Account', scope: 'private' },

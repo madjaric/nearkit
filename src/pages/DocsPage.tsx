@@ -4,7 +4,8 @@ import { ComingSoon, Kbd, Led, Tag } from '@/components/ui/Indicators'
 import { Panel } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
-import { TELEGRAM_BOT_LIVE } from '@/config/release'
+import { ENV } from '@/config/env'
+import { isComingSoon, TELEGRAM_BOT_LIVE } from '@/config/release'
 import { GLOSSARY } from '@/lib/glossary'
 import { useCapabilities } from '@/services/queries'
 
@@ -21,6 +22,9 @@ const SECTIONS = [
 
 type AreaState = 'live' | 'local' | 'drafts' | 'soon' | 'unlaunched'
 
+/** NEARKITS wallets (and the Volume Bot on them) run where this build names NEARKITS' server. */
+const CUSTODY: AreaState = ENV.services === 'near' && ENV.apiUrl ? 'live' : 'soon'
+
 /** Feature status in real mode; the demo simulates every live flow. */
 const STATUS: [string, AreaState][] = [
   ['Wallet connection (NEAR Connect)', 'live'],
@@ -32,9 +36,11 @@ const STATUS: [string, AreaState][] = [
   ['Scanner', 'live'],
   ['Positions', 'live'],
   ['PnL and cost basis', 'live'],
+  ['NEARKITS wallets (custodial: NEARKITS signs)', CUSTODY],
+  ['Volume Bot', CUSTODY],
   ['Wallet presets, watch accounts', 'local'],
-  ['Limit, take-profit and stop-loss orders', 'drafts'],
-  ['DCA, Copy trade, Sniper', 'drafts'],
+  ['Limit, take-profit and stop-loss orders', isComingSoon('/limit-orders') ? 'soon' : 'drafts'],
+  ['DCA, Copy trade, Sniper', isComingSoon('/dca') ? 'soon' : 'drafts'],
   ['Telegram bot', TELEGRAM_BOT_LIVE ? 'live' : 'soon'],
   ['$KIT', 'unlaunched'],
 ]
@@ -92,7 +98,7 @@ export default function DocsPage() {
               NEARKITS is a trading terminal and wallet toolkit for NEAR: trade, split and gather tokens across many wallets, automate entries, and read contracts before you buy.{' '}
               {demo
                 ? 'This build is the demo: sample data, and nothing is signed or sent.'
-                : `This build runs on NEAR ${network}. You sign every transaction in your own wallet, and NEARKITS reports success only after the chain confirms it.`}
+                : `This build runs on NEAR ${network}. A wallet you connect signs every transaction itself. NEARKITS wallets are custodial: NEARKITS holds their keys and signs their trades, the Volume Bot’s included. Either way, NEARKITS reports success only after the chain confirms it.`}
             </p>
 
             <Section id="status" title="What works">
@@ -170,8 +176,17 @@ export default function DocsPage() {
 
             <Section id="automation" title="Automation">
               <p>
-                DCA plans, copy-trade rules, sniper configs and limit orders can all be created and managed now. They are saved as drafts in this browser (in standby in the demo):
-                nothing watches prices or wallets, and nothing executes. That needs a keeper service NEARKITS doesn’t run yet.
+                The{' '}
+                <a href="/volume-bot" className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg">
+                  NEARKITS Volume Bot
+                </a>{' '}
+                runs on NEARKITS’ server and trades from your NEARKITS wallets: a market maker that trades only with an edge over its fair-value estimate, or TWAP accumulate and
+                distribute, inside the limits you set. It can lose money, and nothing promises volume or profit.
+              </p>
+              <p>
+                {isComingSoon('/limit-orders')
+                  ? 'Limit, take-profit and stop-loss orders, DCA, copy trading and the sniper are COMING SOON: nothing watches prices or wallets for them, and nothing executes them yet.'
+                  : 'DCA plans, copy-trade rules, sniper configs and limit orders can be created and managed now. They are saved as drafts in this browser (in standby in the demo): nothing watches prices or wallets, and nothing executes.'}
               </p>
             </Section>
 
