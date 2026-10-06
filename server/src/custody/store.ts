@@ -518,7 +518,8 @@ export class CustodyStore {
         return { ok: false, reason: 'expired', intent: await this.intent(id) }
       }
       const wallet = await this.wallet(intent.walletId)
-      if (!wallet || wallet.status !== 'active') return { ok: false, reason: 'wallet', intent }
+      // The wallet must be the confirming user's own too: an intent naming another user's wallet never runs.
+      if (!wallet || wallet.status !== 'active' || wallet.userId !== userId) return { ok: false, reason: 'wallet', intent }
       if ((await this.inFlight(intent.walletId)).length) return { ok: false, reason: 'busy', intent }
       const t = this.now()
       let moved: number

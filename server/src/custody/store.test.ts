@@ -190,6 +190,13 @@ describe('intents', () => {
     expect(await store.confirmIntent(late.id, USER)).toMatchObject({ ok: false, reason: 'expired', intent: { status: 'expired' } })
   })
 
+  it('an intent made out for someone else’s wallet never confirms, even for the user it names', async () => {
+    const { wallet: w } = await store.createWallet(wallet())
+    // A record written outside every checked path (a bug, or a direct database write): user 202, USER's wallet.
+    const forged = await store.createIntent({ walletId: w.id, userId: 202, chatId: 202, kind: 'buy', params: { token: 't' }, quote: { min: '1' }, ttlMs: 60_000 })
+    expect(await store.confirmIntent(forged.id, 202)).toMatchObject({ ok: false, reason: 'wallet' })
+  })
+
   it('one intent in flight per wallet', async () => {
     const { wallet: w } = await store.createWallet(wallet())
     const a = await intentFor(w.id)

@@ -3,6 +3,7 @@ import { botRoutes } from './volumebot/routes'
 import { createVolumeBotRunner } from './volumebot/runner'
 import { VolumeBotStore } from './volumebot/store'
 import type { Server } from 'node:http'
+import { API_LIMITS } from './api/limits'
 import { createApiServer, listen } from './api/http'
 import { handoffRoutes } from './api/handoffRoutes'
 import { linkRoutes } from './api/linkRoutes'
@@ -208,7 +209,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       signer,
       chain,
       handlers: {
-        withdraw: withdrawHandler({ near, network: config.network }),
+        withdraw: withdrawHandler({ near, network: config.network, store: cstore }),
         buy: swaps.handler,
         sell: swaps.handler,
         unwrap: unwrapHandler(near),
@@ -406,38 +407,7 @@ export async function startServer(options: { env: Record<string, string | undefi
           })
         : {}),
     },
-    limits: {
-      '/api/link/describe': 30,
-      '/api/link/confirm': 10,
-      '/api/handoff/describe': 30,
-      '/api/handoff/result': 20,
-      '/api/recovery/challenge': 20,
-      '/api/recovery/wallets': 10,
-      '/api/recovery/export': 5,
-      '/api/recovery/destination': 10,
-      '/api/telegram/request': 30,
-      '/api/telegram/approve': 10,
-      '/api/web/login': 10,
-      '/api/web/logout': 20,
-      '/api/web/wallets': 60,
-      '/api/web/wallets/create': 10,
-      '/api/web/wallets/rename': 20,
-      '/api/web/trade/quote': 20,
-      '/api/web/trade/execute': 20,
-      '/api/web/trade/cancel': 30,
-      '/api/web/trade/status': 120,
-      '/api/web/send/review': 20,
-      '/api/web/send/execute': 10,
-      '/api/web/send/status': 120,
-      '/api/web/bots': 60,
-      '/api/web/bots/save': 20,
-      '/api/web/bots/detail': 120,
-      '/api/web/bots/start': 10,
-      '/api/web/bots/pause': 20,
-      '/api/web/bots/resume': 20,
-      '/api/web/bots/stop': 20,
-      '/api/web/bots/delete': 10,
-    },
+    limits: API_LIMITS,
     // Public and secret-free: whether the bot and buy alerts run, the kill switches, the signer, and the boot count (see Store.recordBoot).
     health: () => ({
       bot: bot ? true : false,

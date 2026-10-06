@@ -8,7 +8,7 @@ import { storageBoundsMin, storageStatus } from '@/services/near/storage'
 import type { ServerNear } from '../near'
 import type { IntentHandler, PlanOutcome } from './engine'
 import type { WalletAction, WalletTxPlan } from './policy'
-import type { TradingWallet } from './store'
+import type { CustodyStore, TradingWallet } from './store'
 
 /**
  * Withdrawals from a trading wallet to any valid NEAR address on this network:
@@ -145,11 +145,14 @@ export async function reviewWithdraw(near: ServerNear, network: NetworkConfig, w
   }
 }
 
-export function withdrawHandler(deps: { near: ServerNear; network: NetworkConfig }): IntentHandler {
+export function withdrawHandler(deps: { near: ServerNear; network: NetworkConfig; store?: Pick<CustodyStore, 'walletByAccount'> }): IntentHandler {
   return {
     async plan(intent, wallet): Promise<PlanOutcome> {
       const input = intent.params as unknown as WithdrawInput
       const shown = intent.quote as unknown as WithdrawReview
+      // Checked again right before signing: a NEARKITS wallet frozen since the review takes nothing in.
+      const into = deps.store ? await deps.store.walletByAccount(deps.network.id, input.to) : null
+      if (into?.frozenAt) throw invalid(`${input.to} is a NEARKITS wallet NEARKITS has frozen: it doesn’t send into a frozen wallet`)
       const now = await reviewWithdraw(deps.near, deps.network, wallet, input)
       // Anything the user didn't see gets a new review first.
       if (now.registration !== shown.registration || now.fresh !== shown.fresh) return { kind: 'requote', quote: { ...now }, ttlMs: WITHDRAW_TTL_MS }

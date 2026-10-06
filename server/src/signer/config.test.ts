@@ -90,6 +90,21 @@ describe('the signer’s configuration fails closed', () => {
     expect(JSON.stringify(loadSignerConfig({ ...openbao, NEARKIT_OPENBAO_ADDR: 'http://openbao:8200' }).issues)).not.toContain('openbao-token-for-a-test')
   })
 
+  it('on mainnet OpenBao’s certificate is always pinned, TLS checks are never off, and Telegram’s test servers never approve', () => {
+    const openbao = {
+      ...mainnet,
+      NEARKIT_KMS_KEY_ARN: undefined,
+      NEARKIT_OPENBAO_ADDR: 'https://openbao:8200',
+      NEARKIT_OPENBAO_TOKEN: 'openbao-token-for-a-test',
+      NEARKIT_OPENBAO_TLS_PIN: ensureSignerTls(mkdtempSync(join(tmpdir(), 'nearkit-bao-pin2-'))).pin,
+    }
+    expect(keys(openbao)).toEqual([])
+    expect(keys({ ...openbao, NEARKIT_OPENBAO_TLS_PIN: undefined })).toEqual(['NEARKIT_OPENBAO_TLS_PIN'])
+    expect(keys({ ...mainnet, NODE_TLS_REJECT_UNAUTHORIZED: '0' })).toEqual(['NODE_TLS_REJECT_UNAUTHORIZED'])
+    expect(keys({ ...mainnet, NEARKIT_SIGNER_TELEGRAM_BOT_ID: '8881751072' })).toEqual([])
+    expect(keys({ ...mainnet, NEARKIT_SIGNER_TELEGRAM_BOT_ID: '8881751072', NEARKIT_SIGNER_TELEGRAM_ENV: 'test' })).toEqual(['NEARKIT_SIGNER_TELEGRAM_ENV'])
+  })
+
   it('an AWS secret for the KMS (a host outside AWS) is registered as a secret, so it is never logged', () => {
     const env = { ...mainnet, AWS_ACCESS_KEY_ID: 'test-access-key-id', AWS_SECRET_ACCESS_KEY: 'aws-secret-value-for-a-test', AWS_SESSION_TOKEN: 'aws-session-value-for-a-test' }
     expect(signerSecrets(env, loadSignerConfig(env).config)).toEqual(expect.arrayContaining(['aws-secret-value-for-a-test', 'aws-session-value-for-a-test']))

@@ -172,7 +172,7 @@ export async function botHarness(
       signer,
       chain: access,
       handlers: {
-        withdraw: withdrawHandler({ near, network: config.network }),
+        withdraw: withdrawHandler({ near, network: config.network, store: cstore }),
         buy: swaps.handler,
         sell: swaps.handler,
         unwrap: unwrapHandler(near),

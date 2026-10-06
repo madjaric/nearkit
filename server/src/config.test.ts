@@ -169,11 +169,28 @@ describe('trading wallets (custody)', () => {
       NEARKIT_MAINNET_CUSTODY: 'enabled',
       NEARKIT_SIGNER_URL: 'https://signer.internal',
       NEARKIT_SIGNER_AUTH_KEY: AUTH,
+      NEARKIT_SIGNER_TLS_PIN: ensureSignerTls(mkdtempSync(join(tmpdir(), 'nearkit-app-pin4-'))).pin,
       NEARKIT_DATABASE_URL: PG,
       NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
     })
     expect(ready.issues).toEqual([])
     expect(ready.config.custody).toMatchObject({ enabled: true, signer: { kind: 'remote', url: 'https://signer.internal' } })
+  })
+
+  it('on mainnet with the switch on, the app pins the signer’s certificate and never runs with TLS checks off', () => {
+    const pin = ensureSignerTls(mkdtempSync(join(tmpdir(), 'nearkit-app-pin2-'))).pin
+    const base = {
+      NEAR_NETWORK: 'mainnet',
+      NEARKIT_MAINNET_CUSTODY: 'enabled',
+      NEARKIT_SIGNER_URL: 'https://signer.internal',
+      NEARKIT_SIGNER_AUTH_KEY: AUTH,
+      NEARKIT_DATABASE_URL: PG,
+      NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
+      NEARKIT_WEB_URL: 'https://nearkits.com',
+    }
+    expect(keys(loadConfig({ ...base, NEARKIT_SIGNER_TLS_PIN: pin }).issues)).toEqual([])
+    expect(keys(loadConfig(base).issues)).toEqual(['NEARKIT_SIGNER_TLS_PIN'])
+    expect(keys(loadConfig({ ...base, NEARKIT_SIGNER_TLS_PIN: pin, NODE_TLS_REJECT_UNAUTHORIZED: '0' }).issues)).toEqual(['NODE_TLS_REJECT_UNAUTHORIZED'])
   })
 
   it('on mainnet with the switch on, owner signatures must name the real https web app', () => {
@@ -182,6 +199,7 @@ describe('trading wallets (custody)', () => {
       NEARKIT_MAINNET_CUSTODY: 'enabled',
       NEARKIT_SIGNER_URL: 'https://signer.internal',
       NEARKIT_SIGNER_AUTH_KEY: AUTH,
+      NEARKIT_SIGNER_TLS_PIN: ensureSignerTls(mkdtempSync(join(tmpdir(), 'nearkit-app-pin3-'))).pin,
       NEARKIT_DATABASE_URL: PG,
       NEARKIT_FEE_RECIPIENT: 'nearkitfee.near',
     }

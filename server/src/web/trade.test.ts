@@ -447,6 +447,20 @@ describe('the four kinds of destination for a NEARKITS wallet', () => {
     })
   })
 
+  it('a wallet frozen after the send was reviewed is not sent into either: refused before anything is signed', async () => {
+    const { call, signIn, wallets, account, custody } = await webApp()
+    const token = await signIn()
+    const [a, b] = await wallets(token, 1)
+    const reviewed = (await call('/api/web/send/review', { session: token, walletId: a, token: 'near', amount: '0.1', to: await account(b as string) })) as { intentId: string }
+    await custody.store.setFrozen(b as string, 'test')
+    await call('/api/web/send/execute', { session: token, intentId: reviewed.intentId })
+    await webRunsSettled()
+    const settled = await custody.store.intent(reviewed.intentId)
+    expect(settled?.status).toBe('failed')
+    expect(settled?.result?.message).toMatch(/frozen/)
+    expect(settled?.result?.hashes).toEqual([])
+  })
+
   it('a frozen wallet of the same user is not sent into', async () => {
     const { call, signIn, wallets, account, custody } = await webApp()
     const token = await signIn()

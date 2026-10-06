@@ -99,6 +99,8 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
     const pinRaw = raw.NEARKIT_OPENBAO_TLS_PIN
     const tlsPin = blank(pinRaw) ? null : parseTlsPin(pinRaw)
     if (!blank(pinRaw) && !tlsPin) issue('NEARKIT_OPENBAO_TLS_PIN', 'Must be OpenBao’s certificate: base64 of its DER')
+    // On mainnet the signer trusts OpenBao's own certificate only, never whatever the system's authorities vouch for.
+    if (mainnet && blank(pinRaw)) issue('NEARKIT_OPENBAO_TLS_PIN', 'On mainnet the signer pins OpenBao’s certificate: set NEARKIT_OPENBAO_TLS_PIN (base64 of its DER)')
     if (url && token) kek = { kind: 'openbao', addr: url.origin, mount, key, token, tlsPin }
   } else if (arn) {
     const parsed = parseKeyArn(arn)
@@ -197,8 +199,11 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
     const env = blank(raw.NEARKIT_SIGNER_TELEGRAM_ENV) ? 'production' : raw.NEARKIT_SIGNER_TELEGRAM_ENV.trim()
     if (!/^\d{5,16}$/.test(botRaw)) issue('NEARKIT_SIGNER_TELEGRAM_BOT_ID', 'The numeric id of NEARKITS’ bot: the digits before ":" in its token (not secret)')
     else if (env !== 'production' && env !== 'test') issue('NEARKIT_SIGNER_TELEGRAM_ENV', 'Expected "production" (default) or "test" (Telegram’s test servers)')
+    else if (mainnet && env === 'test') issue('NEARKIT_SIGNER_TELEGRAM_ENV', 'On mainnet only Telegram’s production servers approve anything')
     else telegram = { botId: Number(botRaw), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS[env]) as Uint8Array }
   }
+
+  if (mainnet && raw.NODE_TLS_REJECT_UNAUTHORIZED?.trim() === '0') issue('NODE_TLS_REJECT_UNAUTHORIZED', 'On mainnet TLS certificates are always checked: remove this setting')
 
   const pausedRaw = raw.NEARKIT_SIGNER_PAUSED?.trim()
   if (!blank(pausedRaw) && pausedRaw !== 'true' && pausedRaw !== 'false') issue('NEARKIT_SIGNER_PAUSED', 'Expected "true" or "false"')

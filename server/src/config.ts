@@ -230,6 +230,10 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
       if (blank(raw.NEARKIT_DATABASE_URL)) issue('NEARKIT_DATABASE_URL', 'Mainnet custody needs PostgreSQL')
       if (!env.feeRecipient) issue('NEARKIT_FEE_RECIPIENT', 'Mainnet custody needs the production fee account')
       if (remote && remote.url.startsWith('http://')) issue('NEARKIT_SIGNER_URL', 'On mainnet the signer is reached over https:// (TLS)')
+      // Its own certificate, pinned: never whatever the system's authorities vouch for.
+      if (remote && remote.url.startsWith('https://') && !remote.tlsPin)
+        issue('NEARKIT_SIGNER_TLS_PIN', 'On mainnet the app pins the signer’s certificate: set NEARKIT_SIGNER_TLS_PIN (the signer logs it at start)')
+      if (raw.NODE_TLS_REJECT_UNAUTHORIZED?.trim() === '0') issue('NODE_TLS_REJECT_UNAUTHORIZED', 'On mainnet TLS certificates are always checked: remove this setting')
       // Owner signatures name the web app's host: on mainnet it is a real https host, never a local one.
       if (!web || web.protocol !== 'https:' || ['localhost', '127.0.0.1'].includes(web.hostname))
         issue('NEARKIT_WEB_URL', 'Mainnet custody needs the production web app’s https:// URL (owner signatures name its host)')

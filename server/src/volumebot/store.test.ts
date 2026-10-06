@@ -142,6 +142,20 @@ describe.each(TEST_ENGINES)(
       for (const [i, id] of ids.entries()) expect(rows.find((r) => r.id === id)?.intentId).toBe(`r${i}`)
     })
 
+    it('a stop is handled at once: the step that was running can’t push its tick back (by up to a day)', async () => {
+      const b = await make()
+      await bots.start(b.id, state())
+      await bots.stop(b.id, 'Stopped by its owner')
+      // The step that was under way ends by setting its next tick, a day out.
+      await bots.setNextTick(b.id, now + 86_400_000)
+      expect((await bots.get(b.id))?.nextTickAt).toBeLessThanOrEqual(now)
+      // A running bot still takes the tick it is given.
+      const c = await bots.create({ userId: USER, network: 'testnet', config: defaultBotConfig('market-maker', { id: 'other.testnet', symbol: 'O', decimals: 6 }, [walletId]) })
+      await bots.start(c.id, state())
+      await bots.setNextTick(c.id, now + 60_000)
+      expect((await bots.get(c.id))?.nextTickAt).toBe(now + 60_000)
+    })
+
     it('records runs, trades, events and metrics', async () => {
       const b = await make()
       const started = await bots.start(b.id, state())

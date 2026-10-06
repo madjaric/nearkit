@@ -389,7 +389,12 @@ export class VolumeBotStore {
   }
 
   async setNextTick(id: string, at: number): Promise<void> {
-    await this.db.run(`UPDATE volume_bots SET next_tick_at = ? WHERE id = ? AND status IN ('running', 'stopping')`, [at, id])
+    // A stopping bot's tick only ever comes sooner: the step that was running when Stop was
+    // pressed must not push its handling back by that step's own wait.
+    await this.db.run(
+      `UPDATE volume_bots SET next_tick_at = CASE WHEN status = 'stopping' AND next_tick_at IS NOT NULL AND next_tick_at < ? THEN next_tick_at ELSE ? END WHERE id = ? AND status IN ('running', 'stopping')`,
+      [at, at, id],
+    )
   }
 
   async currentRun(botId: string): Promise<{ id: string; startedAt: number; state: RunState } | null> {
