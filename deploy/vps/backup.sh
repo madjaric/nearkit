@@ -11,13 +11,21 @@ umask 077
 install -d -m 700 "$dir"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 cd /opt/nearkit
+# Each backup is taken on its own: one that fails (a database restarting) never skips the others,
+# and the run still ends as failed, so the timer's journal shows it.
+failed=0
+# Chained with && (errexit doesn't apply inside a function called with ||): a step that fails
+# stops this dump, and a dump that can't be listed is never kept as a backup.
+dump() {
+  local service=$1 user=$2 name=$3
+  local out="$dir/$name-$stamp.dump"
+  docker compose exec -T "$service" pg_dump -U "$user" -d "$name" --format=custom --compress=9 > "$out.partial" &&
+    docker compose exec -T "$service" pg_restore --list < "$out.partial" > /dev/null &&
+    mv "$out.partial" "$out"
+}
 for spec in app-db:nearkit:nearkit signer-db:nearkit_signer:nearkit_signer; do
   IFS=: read -r service user name <<<"$spec"
-  out="$dir/$name-$stamp.dump"
-  docker compose exec -T "$service" pg_dump -U "$user" -d "$name" --format=custom --compress=9 > "$out.partial"
-  # A dump that can't be listed is not a backup.
-  docker compose exec -T "$service" pg_restore --list < "$out.partial" > /dev/null
-  mv "$out.partial" "$out"
+  dump "$service" "$user" "$name" || { echo "backup FAILED: $name" >&2; failed=1; }
 done
 bao=$(docker compose ps -q openbao 2>/dev/null || true)
 if [ -n "$bao" ] && [ -s secrets/openbao_backup_token ]; then
@@ -37,4 +45,8 @@ fi
 find "$dir" \( -name '*.dump' -o -name '*.snap' \) -mmin +2880 ! -name '*T00*' -delete
 find "$dir" \( -name '*.dump' -o -name '*.snap' \) -mtime +30 -delete
 find "$dir" -name '*.partial' -mmin +60 -delete
+if [ "$failed" -ne 0 ]; then
+  echo "backup at $stamp INCOMPLETE: see the lines above" >&2
+  exit 1
+fi
 echo "backed up at $stamp"
