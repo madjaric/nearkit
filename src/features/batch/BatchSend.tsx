@@ -60,6 +60,8 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
   const caps = useCapabilities()
   const demo = caps.mode === 'demo'
   const example = batchExample(caps.network)
+  // A named account's suffix on this network, for the texts that say what a recipient may be.
+  const named = caps.network === 'testnet' ? '.testnet' : '.near'
   const [text, setText] = useState(demo ? example : '')
   const [manual, setManual] = useState<ManualRow[]>(() => initialManual(demo))
   const [fileNote, setFileNote] = useState<string | null>(null)
@@ -186,7 +188,8 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                 <Textarea aria-label="Batch list" value={text} onChange={(e) => setText(e.target.value)} rows={8} spellCheck={false} placeholder={example} />
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-fg-3">
-                    Format <span className="num text-fg-2">account,amount</span>. Commas, tabs or spaces work; # starts a comment.
+                    Recipient can be a <span className="num text-fg-2">{named}</span> account or a 64-character address. Format{' '}
+                    <span className="num text-fg-2">address,amount</span>. Commas, tabs or spaces work; # starts a comment.
                   </p>
                   <div className="flex items-center gap-1.5">
                     <input
@@ -220,6 +223,16 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                     </Button>
                   </p>
                 )}
+                {manual.length > 0 && (
+                  // What each column is (wide screens; on a phone the fields stack and name themselves).
+                  <div aria-hidden="true" className="hidden items-center gap-2 md:flex">
+                    <span className="w-6 shrink-0" />
+                    {perRowSources && <span className="legend w-48 shrink-0">From</span>}
+                    <span className="legend min-w-0 flex-1">Recipient</span>
+                    <span className="legend w-36 shrink-0">Amount</span>
+                    <span className="w-8 shrink-0" />
+                  </div>
+                )}
                 {manual.map((r, i) => {
                   const row = rowFor(i + 1)
                   const bad = row && row.status !== 'ok'
@@ -227,6 +240,11 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                     <div key={r.id} className="flex flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
                         <span className="num w-6 shrink-0 text-xs text-fg-4">{String(i + 1).padStart(2, '0')}</span>
+                        {perRowSources && (
+                          <span aria-hidden="true" className="legend shrink-0 md:hidden">
+                            From
+                          </span>
+                        )}
                         {perRowSources && (
                           <WalletSelect
                             label={`From, recipient ${i + 1}`}
@@ -242,7 +260,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                             inputSize="sm"
                             mono
                             aria-label={`Recipient ${i + 1}`}
-                            placeholder="account.near"
+                            placeholder={`alice${named} or address`}
                             value={r.account}
                             aria-invalid={row?.status === 'invalid-account'}
                             onChange={(e) => setManual((list) => list.map((m) => (m.id === r.id ? { ...m, account: e.target.value } : m)))}
@@ -267,10 +285,13 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                     </div>
                   )
                 })}
-                <div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setManual((list) => [...list, { id: (seq += 1), account: '', amount: '' }])}>
                     Add recipient
                   </Button>
+                  <p className="text-xs text-fg-3">
+                    Recipient can be a <span className="num text-fg-2">{named}</span> account or a 64-character address.
+                  </p>
                 </div>
               </div>
             )}
