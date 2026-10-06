@@ -14,6 +14,25 @@ export interface LinkDescription {
   expiresAt: number
 }
 
+const LINK_HEADER = 'NearKit: link this NEAR account to Telegram'
+const LINK_FOOTER = 'Only sign this if you asked the NearKit bot for this link yourself. Signing is free and moves no funds.'
+
+/**
+ * Why the link page must not have the wallet sign `d`, or null when it is exactly a link request
+ * (server/src/link/service.ts `linkMessage`) for this site and network. The API's answer is not
+ * trusted: an owner's request (an export, an approval) carries the same recipient, so a message of
+ * any other shape is never signed here.
+ */
+export function linkMessageProblem(d: LinkDescription, want: { network: string; recipient: string }): string | null {
+  if (d.recipient !== want.recipient) return `This request is for another site (${d.recipient}), not this one.`
+  const lines = d.message.split('\n')
+  if (lines.length !== 5 || lines[0] !== LINK_HEADER || !lines[1]?.startsWith('Telegram: ') || lines[3] !== '' || lines[4] !== LINK_FOOTER)
+    return 'This is not a link request. Nothing was signed: ask the bot for a new link with /link.'
+  if (lines[2] !== `Network: ${want.network}` || d.network !== want.network)
+    return `This request is for ${d.network === want.network ? lines[2]?.slice(9) : d.network}, but this NEARKITS runs on ${want.network}.`
+  return null
+}
+
 export interface LinkResult {
   accountId: string
   telegram: { name: string; username: string | null }

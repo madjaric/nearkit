@@ -161,6 +161,10 @@ export function useNearKitMutations() {
   const walletsChanged = () => Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
   return {
     login: useMutation({ mutationFn: (code: string) => s.nearkit.login(code), onSuccess: everything }),
+    /** A sign-in link's session, not yet this browser's: its owner sees whose account it is first. */
+    redeem: useMutation({ mutationFn: (code: string) => s.nearkit.redeem(code) }),
+    adopt: useMutation({ mutationFn: (session: NearKitWebSession) => s.nearkit.adopt(session), onSuccess: everything }),
+    discard: useMutation({ mutationFn: (session: NearKitWebSession) => s.nearkit.discard(session) }),
     logout: useMutation({ mutationFn: () => s.nearkit.logout(), onSuccess: everything }),
     create: useMutation({ mutationFn: ({ name, createKey }: { name: string; createKey: string }) => s.nearkit.createWallet(name, createKey), onSuccess: walletsChanged }),
     rename: useMutation({ mutationFn: ({ walletId, name }: { walletId: string; name: string }) => s.nearkit.renameWallet(walletId, name), onSuccess: walletsChanged }),

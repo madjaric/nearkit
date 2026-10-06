@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { confirmLink, describeLink, LinkRequestError, readHandoffId, readLinkCode, readRecoverCode } from './telegramLink'
+import { confirmLink, describeLink, LinkRequestError, readHandoffId, readLinkCode, readRecoverCode, linkMessageProblem } from './telegramLink'
 
 const code = 'Abc_DEF-123456789012345'
 
@@ -61,5 +61,30 @@ describe('export links from before /recover', () => {
     expect(readRecoverCode(`#link=${code}`)).toBeNull()
     expect(readRecoverCode('#recover=short')).toBeNull()
     expect(readLinkCode(`#recover=${code}`)).toBeNull()
+  })
+})
+
+describe('what the link page lets the wallet sign', () => {
+  const message = [
+    'NearKit: link this NEAR account to Telegram',
+    'Telegram: @tess (id 777)',
+    'Network: mainnet',
+    '',
+    'Only sign this if you asked the NearKit bot for this link yourself. Signing is free and moves no funds.',
+  ].join('\n')
+  const d = { telegram: { name: 'Tess', username: 'tess' }, network: 'mainnet', recipient: 'nearkits.com', message, nonce: 'n', expiresAt: 1 }
+  const want = { network: 'mainnet', recipient: 'nearkits.com' }
+
+  it('a link message for this site and network', () => {
+    expect(linkMessageProblem(d, want)).toBeNull()
+  })
+
+  it('anything else is never signed: an owner request, another site, another network, extra lines', () => {
+    const exportRequest = ['NearKit: export the key of a NearKit wallet', 'NearKit wallet: abc', 'Owner wallet: tess.near', 'Network: mainnet', '', 'x'].join('\n')
+    expect(linkMessageProblem({ ...d, message: exportRequest }, want)).toMatch(/not a link request/)
+    expect(linkMessageProblem({ ...d, recipient: 'app.example' }, want)).toMatch(/another site/)
+    expect(linkMessageProblem({ ...d, message: message.replace('Network: mainnet', 'Network: testnet') }, want)).toMatch(/testnet/)
+    expect(linkMessageProblem({ ...d, network: 'testnet' }, want)).toMatch(/testnet/)
+    expect(linkMessageProblem({ ...d, message: message.replace('\n\n', '\nDestination: evil.near\n\n') }, want)).toMatch(/not a link request/)
   })
 })

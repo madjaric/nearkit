@@ -69,8 +69,11 @@ function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
   const unused = () => Promise.reject(new Error('not used here'))
   return {
     available: true,
-    session: () => ({ token: 'T'.repeat(43), expiresAt: Date.now() + 60_000, userName: 'Alice' }),
+    session: () => ({ token: 'T'.repeat(43), expiresAt: Date.now() + 60_000, userName: 'Alice', userHandle: null }),
     login: unused,
+    redeem: unused,
+    adopt: unused,
+    discard: unused,
     logout: async () => undefined,
     wallets: async () => ({ wallets: [...list], limit: 10, canCreate: list.length < 10 }),
     createWallet: unused,

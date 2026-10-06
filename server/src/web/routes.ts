@@ -173,7 +173,8 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       const s = await deps.sessions.redeem(field(body, 'code', 64))
       if (!s) throw new HttpError(401, 'login', 'That sign-in link expired or was already used. Get a new one: send /web to the NEARKITS bot.')
       const user = await deps.store.getUser(s.userId)
-      return { token: s.token, expiresAt: s.expiresAt, user: { name: user?.firstName ?? 'NEARKITS user' } }
+      // The @username too: the page shows whose account a link opens before it signs in.
+      return { token: s.token, expiresAt: s.expiresAt, user: { name: user?.firstName ?? 'NEARKITS user', username: user?.username ?? null } }
     },
 
     '/api/web/logout': async (body) => {

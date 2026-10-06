@@ -42,6 +42,40 @@ describe('the sign-in link', () => {
   })
 })
 
+describe('a sign-in link someone else sent', () => {
+  const OTHER = 'O'.repeat(43)
+  const setup = (existing: boolean) => {
+    const storage = memoryStorage()
+    if (existing) storage.set('nearkit:web-session:testnet', JSON.stringify({ token: TOKEN, expiresAt: Date.now() + 60_000, userName: 'Alice', userHandle: 'alice' }))
+    const { calls, fetchImpl } = server({
+      '/api/web/login': () => ({ status: 200, json: { token: OTHER, expiresAt: Date.now() + 60_000, user: { name: 'Alice', username: 'mallory' } } }),
+      '/api/web/logout': () => ({ status: 200, json: { ok: true } }),
+    })
+    return { calls, web: createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl, store: storage }) }
+  }
+
+  it('is read without signing in: the browser keeps its session until its owner says whose account this is', async () => {
+    const { web } = setup(true)
+    const pending = await web.redeem(CODE)
+    expect(pending).toMatchObject({ userName: 'Alice', userHandle: 'mallory' })
+    expect(web.session()).toMatchObject({ token: TOKEN, userHandle: 'alice' })
+  })
+
+  it('refused: the link’s session is ended on the server, and the browser’s own session stays', async () => {
+    const { web, calls } = setup(true)
+    await web.discard(await web.redeem(CODE))
+    expect(calls.filter((c) => c.path === '/api/web/logout').map((c) => c.body.session)).toEqual([OTHER])
+    expect(web.session()?.token).toBe(TOKEN)
+  })
+
+  it('accepted: it replaces the session, and the replaced one is ended on the server', async () => {
+    const { web, calls } = setup(true)
+    await web.adopt(await web.redeem(CODE))
+    expect(web.session()?.token).toBe(OTHER)
+    expect(calls.filter((c) => c.path === '/api/web/logout').map((c) => c.body.session)).toEqual([TOKEN])
+  })
+})
+
 describe('NEARKITS web session', () => {
   it('signs in once with the code, keeps the session per network, and sends it with every call', async () => {
     const storage = memoryStorage()

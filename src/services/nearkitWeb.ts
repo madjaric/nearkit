@@ -18,6 +18,8 @@ export interface NearKitWebSession {
   token: string
   expiresAt: number
   userName: string
+  /** The Telegram @username the session belongs to, when the account has one. */
+  userHandle: string | null
 }
 
 export interface NearKitWebWallet {
@@ -126,6 +128,15 @@ export interface NearKitWeb {
   readonly available: boolean
   session(): NearKitWebSession | null
   login(code: string): Promise<NearKitWebSession>
+  /**
+   * Redeems a sign-in link's code without signing this browser in: the link may be someone
+   * else's, so its owner first sees whose account it opens (`adopt` or `discard`).
+   */
+  redeem(code: string): Promise<NearKitWebSession>
+  /** Signs in with a redeemed session; the one it replaces is ended on the server. */
+  adopt(s: NearKitWebSession): Promise<void>
+  /** Ends a redeemed session on the server, unused; this browser keeps its own. */
+  discard(s: NearKitWebSession): Promise<void>
   /** Ends the session on the server when it can, and here always. */
   logout(): Promise<void>
   /** Null when signed out. */
@@ -257,13 +268,30 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     try {
       const s = JSON.parse(raw) as Partial<NearKitWebSession>
       if (typeof s.token !== 'string' || typeof s.expiresAt !== 'number' || s.expiresAt <= now()) return null
-      return { token: s.token, expiresAt: s.expiresAt, userName: typeof s.userName === 'string' ? s.userName : 'NEARKITS user' }
+      return {
+        token: s.token,
+        expiresAt: s.expiresAt,
+        userName: typeof s.userName === 'string' ? s.userName : 'NEARKITS user',
+        userHandle: typeof s.userHandle === 'string' ? s.userHandle : null,
+      }
     } catch {
       return null
     }
   }
 
   const unavailable = () => new LinkRequestError(0, 'unavailable', 'This NEARKITS build has no NEARKITS server, so NEARKITS wallets aren’t available here.')
+
+  async function redeem(code: string): Promise<NearKitWebSession> {
+    if (!apiUrl) throw unavailable()
+    const r = await apiPost<{ token: string; expiresAt: number; user: { name: string; username?: string | null } }>(apiUrl, '/api/web/login', { code }, fetchImpl)
+    return { token: r.token, expiresAt: r.expiresAt, userName: r.user.name, userHandle: typeof r.user.username === 'string' ? r.user.username : null }
+  }
+
+  async function adopt(s: NearKitWebSession): Promise<void> {
+    const replaced = session()
+    save(s)
+    if (apiUrl && replaced && replaced.token !== s.token) await apiPost(apiUrl, '/api/web/logout', { session: replaced.token }, fetchImpl).catch(() => undefined)
+  }
   const signedOut = () => new LinkRequestError(401, 'session', 'Sign in to NEARKITS web first: send /web to the NEARKITS bot in Telegram.')
 
   /** A call with the session; a session the server ended is forgotten here at once. */
@@ -284,11 +312,16 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     session,
 
     async login(code) {
-      if (!apiUrl) throw unavailable()
-      const r = await apiPost<{ token: string; expiresAt: number; user: { name: string } }>(apiUrl, '/api/web/login', { code }, fetchImpl)
-      const s: NearKitWebSession = { token: r.token, expiresAt: r.expiresAt, userName: r.user.name }
-      save(s)
+      const s = await redeem(code)
+      await adopt(s)
       return s
+    },
+
+    redeem,
+    adopt,
+
+    async discard(s) {
+      if (apiUrl) await apiPost(apiUrl, '/api/web/logout', { session: s.token }, fetchImpl).catch(() => undefined)
     },
 
     async logout() {

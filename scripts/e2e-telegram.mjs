@@ -404,8 +404,13 @@ await step('NEARKITS web: /web sends a one-time sign-in link, and the site lists
   near.state.accounts.set(mainAddress, { amount: String(3n * ONE) })
   page = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet' })
   await page.goto(webLogin, { waitUntil: 'networkidle' })
-  await page.getByText('Signed in as Tess').waitFor()
+  // A link can be anyone's: the page names its Telegram account and signs in only once confirmed.
+  const ask = page.getByRole('dialog', { name: 'Sign in to NEARKITS web?' })
+  await ask.getByText('Tess (@tester)').waitFor()
   if (page.url().includes('#login=')) throw new Error('the sign-in code stayed in the address bar')
+  await shot('tg-06a-web-sign-in-confirm')
+  await ask.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByText('Signed in as Tess').waitFor()
   const table = page.getByRole('table', { name: 'NEARKITS wallets' })
   await table.getByText('Main', { exact: true }).waitFor()
   await table.getByText('3.00').waitFor()
@@ -443,6 +448,18 @@ await step('a used sign-in link signs nobody in', async () => {
   await other.goto(webLogin, { waitUntil: 'networkidle' })
   await other.getByText(/expired or was already used/).waitFor()
   await other.context().close()
+})
+
+await step('a sign-in link someone else sent names their account; refused, the browser keeps its own session', async () => {
+  const from = tg.sent.length
+  say(TG_OTHER, '/web')
+  const m = await tg.waitFor(TG_OTHER.id, (x) => x.buttons.some((b) => b.url?.includes('/wallets#login=')), { from })
+  await page.goto(m.buttons.find((b) => b.url?.includes('#login=')).url, { waitUntil: 'networkidle' })
+  const ask = page.getByRole('dialog', { name: 'Sign in to NEARKITS web?' })
+  await ask.getByText('Other (@other)').waitFor()
+  await ask.getByText(/You’re signed in as Tess/).waitFor()
+  await ask.getByRole('button', { name: 'Not my account' }).click()
+  await page.getByRole('table', { name: 'NEARKITS wallets' }).getByText('Main', { exact: true }).waitFor()
 })
 
 await step('Create wallet on NEARKITS web: named, listed at once, announced in Telegram, no key on the page', async () => {

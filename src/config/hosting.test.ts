@@ -46,6 +46,29 @@ describe('hosting (vercel.json)', () => {
     expect(vercel.trailingSlash).toBe(false)
   })
 
+  it('every address but the Mini App can’t be framed, and keeps its security headers; only /tg is framed, by Telegram Web only', () => {
+    // Header sources are path-to-regexp with regex groups: matched as regexes here.
+    const headersFor = (path: string) => vercel.headers.filter((h) => new RegExp(`^${h.source.replace(/:[a-z]+/gi, '[^/]+')}$`).test(path)).flatMap((h) => h.headers ?? [])
+    const value = (path: string, key: string) =>
+      headersFor(path)
+        .filter((x) => x.key.toLowerCase() === key.toLowerCase())
+        .map((x) => x.value)
+    for (const p of ['/', '/swap', '/wallets', '/token/abc.near', '/app.html', '/404.html', '/assets/a.js', '/tg/x', '/tg/a/b', '/tgx', '/nope']) {
+      expect(value(p, 'Content-Security-Policy').join(' '), p).toContain("frame-ancestors 'none'")
+      expect(value(p, 'X-Frame-Options'), p).toEqual(['DENY'])
+      expect(value(p, 'Cross-Origin-Opener-Policy'), p).toEqual(['same-origin-allow-popups'])
+      expect(value(p, 'X-Content-Type-Options'), p).toEqual(['nosniff'])
+    }
+    expect(value('/tg', 'Content-Security-Policy').join(' ')).toContain('frame-ancestors https://web.telegram.org')
+    expect(value('/tg', 'Content-Security-Policy').join(' ')).not.toContain("frame-ancestors 'none'")
+    expect(value('/tg', 'X-Frame-Options')).toEqual([])
+    // No plugins and no <base> hijack anywhere; no camera, microphone or location for anything on the page.
+    for (const p of ['/', '/tg', '/tg/x', '/wallets']) {
+      expect(value(p, 'Content-Security-Policy').join(' '), p).toMatch(/object-src 'none'; base-uri 'none'/)
+      expect(value(p, 'Permissions-Policy').join(' '), p).toMatch(/camera=\(\), microphone=\(\), geolocation=\(\)/)
+    }
+  })
+
   it('sends noindex for every private and COMING SOON page, the shell and the 404 page, and never for a public one', () => {
     for (const p of [...PRIVATE_PATHS, ...BETA_COMING_SOON, '/app.html', '/404.html']) expect(noindexed(p), p).toBe(true)
     for (const p of publicPages()) expect(noindexed(p.path), p.path).toBe(false)

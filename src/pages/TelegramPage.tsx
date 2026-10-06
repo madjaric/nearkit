@@ -17,7 +17,7 @@ import { useNow } from '@/lib/hooks'
 import { useServices } from '@/services/context'
 import { describeError } from '@/services/errors'
 import { useCapabilities, useSession } from '@/services/queries'
-import { confirmLink, describeLink, readLinkCode, readRecoverCode, type LinkDescription } from '@/services/telegramLink'
+import { confirmLink, describeLink, linkMessageProblem, readLinkCode, readRecoverCode, type LinkDescription } from '@/services/telegramLink'
 import { useConnectPrompt } from '@/state/contexts'
 
 const BOT_URL = ENV.telegramBot ? `https://t.me/${ENV.telegramBot}` : null
@@ -47,7 +47,11 @@ function LinkPanel({ code, apiUrl }: { code: string; apiUrl: string }) {
     mutationFn: async (d: LinkDescription) => {
       const nonce = base64Decode(d.nonce)
       if (!nonce || nonce.length !== 32) throw new Error('This link request is malformed. Ask the bot for a new link with /link.')
+      // Only a link request for this site and network is ever signed here, whatever the API answered.
+      const problem = linkMessageProblem(d, { network: caps.network ?? 'unknown', recipient: window.location.hostname })
+      if (problem) throw new Error(problem)
       const signed = await services.wallets.signMessage({ message: d.message, recipient: d.recipient, nonce })
+      if (session && signed.accountId !== session.accountId) throw new Error(`Your wallet signed as ${signed.accountId}, not ${session.accountId}. Nothing was linked.`)
       return confirmLink(apiUrl, { code, accountId: signed.accountId, publicKey: signed.publicKey, signature: signed.signature })
     },
     // The code is used up: drop it from the address bar so a reload doesn't retry it.
@@ -220,7 +224,7 @@ export default function TelegramPage() {
       <PageHeader
         title="Telegram"
         status={TELEGRAM_BOT_LIVE ? undefined : <ComingSoon />}
-        description="Link your NEAR account to the NEARKITS bot. Trades prepared in Telegram are signed here, in your own wallet: the bot never holds keys."
+        description="Trade NEAR tokens from Telegram. NEARKITS wallets buy and sell right in the chat: they are custodial, so NEARKITS holds their keys and signs their trades. A NEAR account you link with /link keeps its keys in your own wallet, which signs its trades here."
       />
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[440px_minmax(0,1fr)]">
