@@ -132,6 +132,9 @@ export function NearKitSendsModal({
   const blocked = states.filter((st) => st.kind === 'error').length
   const sent = states.filter((st) => st.kind === 'sent').length
   const fees = states.reduce((sum, st) => (st.kind === 'ready' ? sum + BigInt(st.review.feeNear) : sum), 0n)
+  // Lines that name their own wallet (Consolidate, or a Manual batch across NearKit wallets) show it; a batch's lines show where they go.
+  const perLine = lines.some((l) => l.from)
+  const senders = new Set(lines.map((l) => l.from?.walletId)).size
 
   return (
     <Modal
@@ -142,7 +145,9 @@ export function NearKitSendsModal({
       title={title}
       description={
         wallet
-          ? `From ${wallet.label} · NearKit’s server signs and sends each line; nothing is signed in this browser.`
+          ? perLine
+            ? `From ${senders} NearKit wallets · NearKit’s server signs and sends each line from its own wallet; nothing is signed in this browser.`
+            : `From ${wallet.label} · NearKit’s server signs and sends each line; nothing is signed in this browser.`
           : `Into ${into.label} (${formatAccount(into.accountId)}) · NearKit’s server sends from each NearKit wallet, with that wallet’s own key; nothing is signed in this browser.`
       }
       footer={
@@ -182,7 +187,9 @@ export function NearKitSendsModal({
         {needs > 0 && phase === 'review' && (
           <p role="alert" className="text-sm text-fg-2">
             {wallet
-              ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+              ? perLine
+                ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved yet for the wallet sending to it. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+                : `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
               : `${into.label} isn’t approved yet for ${needs} of these NearKit wallets. A NearKit wallet sends only to its owner wallet and to addresses approved for it: approve it once for each (the links open in a new tab), then review again.`}
           </p>
         )}
@@ -195,7 +202,8 @@ export function NearKitSendsModal({
           <Table label={title}>
             <thead className="sticky top-0 bg-panel">
               <tr>
-                <Th>{wallet ? 'To' : 'From'}</Th>
+                {perLine && <Th>From</Th>}
+                {wallet && <Th>To</Th>}
                 <Th align="right">Amount</Th>
                 <Th>Status</Th>
               </tr>
@@ -203,19 +211,22 @@ export function NearKitSendsModal({
             <tbody>
               {lines.map((line, i) => (
                 <Tr key={`${line.to}-${i}`}>
-                  <Td className="whitespace-normal">
-                    {line.from ? (
-                      <>
-                        <span className="block text-xs text-fg-2">{line.from.label}</span>
-                        <span className="num block text-xs text-fg">{formatAccount(line.from.accountId)}</span>
-                      </>
-                    ) : (
-                      <>
-                        {line.label && line.label !== line.to && <span className="block text-xs text-fg-2">{line.label}</span>}
-                        <span className="num block break-all text-xs text-fg">{line.to}</span>
-                      </>
-                    )}
-                  </Td>
+                  {perLine && (
+                    <Td className="whitespace-normal">
+                      {line.from && (
+                        <>
+                          <span className="block text-xs text-fg-2">{line.from.label}</span>
+                          <span className="num block text-xs text-fg">{formatAccount(line.from.accountId)}</span>
+                        </>
+                      )}
+                    </Td>
+                  )}
+                  {wallet && (
+                    <Td className="whitespace-normal">
+                      {line.label && line.label !== line.to && <span className="block text-xs text-fg-2">{line.label}</span>}
+                      <span className="num block break-all text-xs text-fg">{line.to}</span>
+                    </Td>
+                  )}
                   <Td align="right" mono className="whitespace-nowrap text-fg">{`${line.amount} ${symbol}`}</Td>
                   <Td className={cn('text-xs')}>{states[i] && <LineStatus state={states[i]} to={line.to} />}</Td>
                 </Tr>
@@ -225,7 +236,7 @@ export function NearKitSendsModal({
         </div>
         {phase === 'review' && fees > 0n && (
           <p className="text-xs text-fg-3">
-            <Figures>{`Network fees about ${formatUnits(fees, NEAR_DECIMALS, { maxFraction: 6 })} NEAR, paid by ${wallet ? wallet.label : 'each wallet that sends'}. Amounts are in ${symbol} (${decimals} decimals).`}</Figures>
+            <Figures>{`Network fees about ${formatUnits(fees, NEAR_DECIMALS, { maxFraction: 6 })} NEAR, paid by ${wallet && !perLine ? wallet.label : 'each wallet that sends'}. Amounts are in ${symbol} (${decimals} decimals).`}</Figures>
           </p>
         )}
       </div>

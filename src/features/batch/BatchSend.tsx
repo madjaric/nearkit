@@ -11,22 +11,26 @@ import { InfoTip, Term } from '@/components/ui/Help'
 import { Amount } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
+import { formatUnits } from '@/lib/amounts'
 import { batchExample, parseBatchList, type BatchRow } from '@/lib/batch'
 import { cn } from '@/lib/cn'
 import { NETWORK_FEE_NEAR_PER_TX, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
 import { formatAmount, formatNumber } from '@/lib/format'
 import { executesViaNearKit } from '@/lib/wallets'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
-import { useBalance, useCapabilities, usePlanners, useRawBalance, useTokens } from '@/services/queries'
+import { useBalance, useCapabilities, useHoldings, usePlanners, useRawBalance, useTokens } from '@/services/queries'
 import { NearKitSendsModal } from '../tools/NearKitSendsModal'
 import { OperationModal } from '../tools/OperationModal'
 import { useSourceWallet } from '../tools/useSource'
+import { nearkitLines, rowSource, totalsBySource } from './rowSources'
 
 type Mode = 'paste' | 'manual'
 interface ManualRow {
   id: number
   account: string
   amount: string
+  /** The NearKit wallet this row sends from; unset: Send from (rowSources.ts). */
+  from?: string
 }
 
 let seq = 3
@@ -66,12 +70,31 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
   const decimals = tokenId === NATIVE_TOKEN_ID ? 2 : 0
   const balance = useBalance(sourceId, tokenId)
   const rawBalance = useRawBalance(sourceId, tokenId)
+  const { data: holdings = [] } = useHoldings()
+  // Manual rows of a batch on NearKit wallets may each name the NearKit wallet they send from
+  // (never watch-only or frozen); with a single NearKit wallet there is nothing to choose.
+  const nearkitPool = signers.filter(executesViaNearKit)
+  const perRowSources = mode === 'manual' && source !== undefined && executesViaNearKit(source) && nearkitPool.length > 1
+  const rowSourceId = (line: number) => (perRowSources ? rowSource(manual[line - 1]?.from, sourceId, nearkitPool) : sourceId)
+  const walletOf = (id: string) => signers.find((w) => w.id === id)
 
   // Manual rows run through the same parser; blank rows become comments so line numbers map to rows.
   const input = mode === 'paste' ? text : manual.map((r) => (r.account.trim() || r.amount.trim() ? `${r.account.trim()},${r.amount.trim()}` : '#')).join('\n')
   // Amounts are validated against the token's own decimals and totalled exactly.
   const parsed = parseBatchList(input, token ? { decimals: token.decimals } : {})
-  const over = rawBalance !== null && parsed.totalRaw !== null ? parsed.totalRaw > BigInt(rawBalance) : parsed.total > balance + 1e-9
+  // Every wallet must hold its own share: one share (Send from) unless Manual rows name other NearKit wallets.
+  const shares =
+    perRowSources && token
+      ? totalsBySource(
+          parsed.valid.map((r) => ({ source: rowSourceId(r.line), amountText: r.amountText ?? '0' })),
+          token.decimals,
+        )
+      : null
+  const rawOf = (id: string) => BigInt(holdings.find((h) => h.walletId === id && h.tokenId === tokenId)?.raw ?? '0')
+  const short = shares ? [...shares].find(([id, need]) => need > rawOf(id)) : undefined
+  const over = shares ? short !== undefined : rawBalance !== null && parsed.totalRaw !== null ? parsed.totalRaw > BigInt(rawBalance) : parsed.total > balance + 1e-9
+  const senders = shares && shares.size > 0 ? [...shares.keys()] : [sourceId]
+  const ownShare = senders.length === 1 && senders[0] === sourceId
   const totalText = parsed.totalText ?? formatAmount(parsed.total, decimals)
   const issue =
     parsed.rows.length === 0
@@ -80,9 +103,11 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
         ? 'No valid lines to send'
         : parsed.invalidCount > 0
           ? `Fix ${parsed.invalidCount} invalid ${parsed.invalidCount === 1 ? 'line' : 'lines'} before sending`
-          : over
-            ? `The batch needs ${totalText} ${symbol}; ${source?.label ?? 'the wallet'} holds ${formatAmount(balance, decimals)}`
-            : null
+          : short && token
+            ? `The batch needs ${formatUnits(short[1], token.decimals, { maxFraction: 6 })} ${symbol} from ${walletOf(short[0])?.label ?? 'a wallet'}; it holds ${formatUnits(rawOf(short[0]), token.decimals, { maxFraction: 6 })}`
+            : over
+              ? `The batch needs ${totalText} ${symbol}; ${source?.label ?? 'the wallet'} holds ${formatAmount(balance, decimals)}`
+              : null
 
   const rowFor = (line: number) => parsed.rows.find((r) => r.line === line)
 
@@ -106,8 +131,10 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
       <Line label="Total amount" emphasis>
         {`${totalText} ${symbol}`}
       </Line>
-      <Line label="From">{source?.label ?? '—'}</Line>
-      <Line label="Balance after">{over ? <span className="text-neg">Insufficient</span> : `${formatAmount(balance - parsed.total, decimals)} ${symbol}`}</Line>
+      <Line label="From">{ownShare ? (source?.label ?? '—') : senders.length === 1 ? (walletOf(senders[0] ?? '')?.label ?? '—') : `${senders.length} NearKit wallets`}</Line>
+      <Line label="Balance after">
+        {over ? <span className="text-neg">Insufficient</span> : ownShare ? `${formatAmount(balance - parsed.total, decimals)} ${symbol}` : 'Each wallet covers its lines'}
+      </Line>
     </Lines>
   )
 
@@ -189,31 +216,43 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                   const bad = row && row.status !== 'ok'
                   return (
                     <div key={r.id} className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
                         <span className="num w-6 shrink-0 text-xs text-fg-4">{String(i + 1).padStart(2, '0')}</span>
-                        <Input
-                          inputSize="sm"
-                          mono
-                          aria-label={`Recipient ${i + 1}`}
-                          placeholder="account.near"
-                          value={r.account}
-                          aria-invalid={row?.status === 'invalid-account'}
-                          onChange={(e) => setManual((list) => list.map((m) => (m.id === r.id ? { ...m, account: e.target.value } : m)))}
-                          className="min-w-0 flex-1"
-                        />
-                        <AmountInput
-                          aria-label={`Amount ${i + 1}`}
-                          value={r.amount}
-                          onValueChange={(v) => setManual((list) => list.map((m) => (m.id === r.id ? { ...m, amount: v } : m)))}
-                          unit={symbol}
-                          placeholder="0"
-                          aria-invalid={row?.status === 'invalid-amount'}
-                          size="sm"
-                          className="w-36 shrink-0"
-                        />
-                        <IconButton label={`Remove recipient ${i + 1}`} size="sm" tone="danger" onClick={() => setManual((list) => list.filter((m) => m.id !== r.id))}>
-                          <Trash2 size={14} />
-                        </IconButton>
+                        {perRowSources && (
+                          <WalletSelect
+                            label={`From, recipient ${i + 1}`}
+                            size="sm"
+                            value={rowSource(r.from, sourceId, nearkitPool)}
+                            onChange={(id) => setManual((list) => list.map((m) => (m.id === r.id ? { ...m, from: id } : m)))}
+                            wallets={nearkitPool}
+                            className="min-w-0 flex-1 md:w-48 md:flex-none"
+                          />
+                        )}
+                        <div className={cn('flex min-w-0 items-center gap-2', perRowSources ? 'basis-full pl-8 md:basis-auto md:flex-1 md:pl-0' : 'flex-1')}>
+                          <Input
+                            inputSize="sm"
+                            mono
+                            aria-label={`Recipient ${i + 1}`}
+                            placeholder="account.near"
+                            value={r.account}
+                            aria-invalid={row?.status === 'invalid-account'}
+                            onChange={(e) => setManual((list) => list.map((m) => (m.id === r.id ? { ...m, account: e.target.value } : m)))}
+                            className="min-w-0 flex-1"
+                          />
+                          <AmountInput
+                            aria-label={`Amount ${i + 1}`}
+                            value={r.amount}
+                            onValueChange={(v) => setManual((list) => list.map((m) => (m.id === r.id ? { ...m, amount: v } : m)))}
+                            unit={symbol}
+                            placeholder="0"
+                            aria-invalid={row?.status === 'invalid-amount'}
+                            size="sm"
+                            className="w-36 shrink-0"
+                          />
+                          <IconButton label={`Remove recipient ${i + 1}`} size="sm" tone="danger" onClick={() => setManual((list) => list.filter((m) => m.id !== r.id))}>
+                            <Trash2 size={14} />
+                          </IconButton>
+                        </div>
                       </div>
                       {bad && <p className={cn('pl-8 text-xs', row.status === 'duplicate' ? 'text-warn' : 'text-neg')}>{row.message}</p>}
                     </div>
@@ -243,6 +282,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                   <thead className="sticky top-0 z-[1] bg-panel">
                     <tr>
                       <Th className="w-16">Line</Th>
+                      {perRowSources && <Th>From</Th>}
                       <Th>Recipient</Th>
                       <Th align="right">Amount</Th>
                       <Th align="right">Status</Th>
@@ -254,6 +294,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                         <Td mono className="text-xs text-fg-4">
                           {row.line}
                         </Td>
+                        {perRowSources && <Td className="text-xs text-fg-2">{walletOf(rowSourceId(row.line))?.label ?? '—'}</Td>}
                         <Td>
                           {row.account ? (
                             <AccountText id={row.account} className={row.status === 'invalid-account' ? 'text-neg' : 'text-fg'} />
@@ -276,6 +317,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
                     <div className="min-w-0">
                       <span className="num mr-2 text-xs text-fg-4">{row.line}</span>
                       {row.account ? <AccountText id={row.account} className="text-sm text-fg" /> : <span className="text-fg-4">—</span>}
+                      {perRowSources && <p className="mt-0.5 text-xs text-fg-3">{`from ${walletOf(rowSourceId(row.line))?.label ?? '—'}`}</p>}
                       {row.status !== 'ok' && <p className={cn('mt-0.5 text-xs', row.status === 'duplicate' ? 'text-warn' : 'text-neg')}>{row.message}</p>}
                     </div>
                     <span className="num shrink-0 text-sm text-fg">{row.amount !== null ? formatAmount(row.amount, decimals) : '—'}</span>
@@ -314,7 +356,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
               <SimulationNote
                 real={
                   source && executesViaNearKit(source)
-                    ? `NearKit’s server sends each line from ${source.label} (no wallet prompt), to its owner wallet or addresses approved for it.`
+                    ? `NearKit’s server sends each line from ${ownShare ? source.label : 'its own NearKit wallet'} (no wallet prompt), to its owner wallet or addresses approved for it.`
                     : undefined
                 }
               />
@@ -331,7 +373,10 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
           asset={tokenId}
           symbol={symbol}
           decimals={token.decimals}
-          lines={parsed.valid.map((r) => ({ to: r.account, amount: r.amountText ?? '' }))}
+          lines={nearkitLines(
+            parsed.valid.map((r) => ({ to: r.account, amount: r.amountText ?? '', source: walletOf(rowSourceId(r.line)) ?? source })),
+            source,
+          )}
           onClose={() => setConfirming(false)}
         />
       )}

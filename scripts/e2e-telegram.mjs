@@ -755,6 +755,59 @@ await step(
 )
 
 await step(
+  'Batch Send, Manual: each row sends from its own NearKit wallet (Send from until one is chosen); the preview and the review name each row’s wallet and NearKit’s server reviews each line from it; never a connected or watch-only account; Paste list unchanged',
+  async () => {
+    near.state.accounts.set('friend5.testnet', { amount: String(ONE) })
+    await page.goto(WEB + '/batch-send', { waitUntil: 'networkidle' })
+    await page.getByLabel('Send from', { exact: true }).selectOption(mainAddress)
+    // Paste list: one source, no per-row wallet, exactly as before.
+    if ((await page.getByRole('combobox', { name: /^From, recipient/ }).count()) !== 0) throw new Error('Paste list offers a per-row wallet')
+    await page.getByRole('tab', { name: 'Manual' }).click()
+    const from1 = page.getByLabel('From, recipient 1', { exact: true })
+    await from1.waitFor()
+    // Only NearKit wallets (never the connected account or a watch-only one); a row follows Send from.
+    const offered = await from1.locator('option').evaluateAll((os) => os.map((o) => o.value))
+    if ([...offered].sort().join() !== [mainAddress, degenAddress].sort().join()) throw new Error(`a row offers ${offered.join(', ')}`)
+    if ((await from1.inputValue()) !== mainAddress) throw new Error('a new row doesn’t follow Send from')
+    await page.getByLabel('Recipient 1', { exact: true }).fill(USER)
+    await page.getByLabel('Amount 1', { exact: true }).fill('0.1')
+    await page.getByRole('button', { name: 'Add recipient' }).click()
+    await page.getByLabel('From, recipient 2', { exact: true }).selectOption(degenAddress)
+    await page.getByLabel('Recipient 2', { exact: true }).fill('friend5.testnet')
+    await page.getByLabel('Amount 2', { exact: true }).fill('0.1')
+    if ((await from1.inputValue()) !== mainAddress) throw new Error('choosing row 2’s wallet changed row 1')
+    // The preview names each row's wallet.
+    const rows = page.getByRole('table', { name: 'Batch preview' }).locator('tbody tr')
+    await rows.nth(1).getByText('Sniper A').waitFor({ timeout: 15000 })
+    if (!(await rows.nth(0).innerText()).includes('Main')) throw new Error(`preview row 1: ${await rows.nth(0).innerText()}`)
+    await page.getByText('2 NearKit wallets').waitFor()
+    await shot('tg-09c-batch-manual-per-row')
+    await page.getByRole('button', { name: 'Send batch' }).click()
+    const review = page.getByRole('dialog', { name: 'Review batch send' })
+    await review.getByText(/^From 2 NearKit wallets/).waitFor({ timeout: 15000 })
+    for (let i = 0; i < 60 && (await review.getByText('Checking…').count()) > 0; i++) await new Promise((r) => setTimeout(r, 250))
+    // Row 1 from Main to its owner: ready. Row 2 from Sniper A: reviewed as Sniper A (its approval link names Sniper A, not Main).
+    const lines = review.locator('tbody tr')
+    if (!/Main[\s\S]*Ready/.test(await lines.nth(0).innerText())) throw new Error(`review line 1: ${await lines.nth(0).innerText()}`)
+    if (!(await lines.nth(1).innerText()).includes('Sniper A')) throw new Error(`review line 2: ${await lines.nth(1).innerText()}`)
+    const approve = await lines
+      .nth(1)
+      .getByRole('link', { name: /^Approve with / })
+      .getAttribute('href')
+    if (!approve?.includes(`approve=${degenAddress}`) || !approve.includes('to=friend5.testnet')) throw new Error(`row 2 was reviewed for another wallet: ${approve}`)
+    if (await review.getByRole('button', { name: 'Send batch' }).isEnabled()) throw new Error('a batch with a line that needs approval could be sent')
+    await shot('tg-09d-batch-manual-review')
+    await review.getByRole('button', { name: 'Cancel' }).click()
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.getByLabel('From, recipient 2', { exact: true }).waitFor()
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    if (wide > 1) throw new Error(`Batch Send Manual scrolls sideways by ${wide}px at 375px`)
+    await shot('tg-09e-batch-manual-375')
+    await page.setViewportSize({ width: 1280, height: 900 })
+  },
+)
+
+await step(
   'Consolidate gathers a token held across NearKit wallets (in no list, no price, known by its contract): offered first, both wallets are sources, NearKit’s server reviews each into the destination; Split puts what its source holds first, by that wallet’s own balance, and still finds the rest',
   async () => {
     const GATHER = 'gather.tkn.testnet'
@@ -781,7 +834,10 @@ await step(
     // ── Consolidate ──
     await page.goto(WEB + '/consolidate', { waitUntil: 'networkidle' })
     const dest = page.getByLabel('Destination', { exact: true })
-    const into = (await dest.locator('option').evaluateAll((os) => os.map((o) => o.value))).includes(USER) ? USER : mainAddress
+    // The connected account is listed once its wallet session is restored: wait for it before choosing.
+    const userListed = async () => (await dest.locator('option').evaluateAll((os) => os.map((o) => o.value))).includes(USER)
+    for (let i = 0; i < 40 && !(await userListed()); i++) await new Promise((r) => setTimeout(r, 250))
+    const into = (await userListed()) ? USER : mainAddress
     await dest.selectOption(into)
     // It opens on what the sources hold most of: the unlisted, unpriced token, by its contract.
     await page.getByRole('button', { name: 'Token: GATHER' }).waitFor({ timeout: 20000 })
