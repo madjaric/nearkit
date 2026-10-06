@@ -41,8 +41,8 @@ export interface TokenListing extends Token {
   market: MarketQuote | null
 }
 
-/** A token screen's chart window, looking back from now. */
-export type ChartRange = '1H' | '4H' | '1D' | '1W' | '1M'
+/** A token screen's chart window, looking back from now. `ALL`: the earliest history its source keeps. */
+export type ChartRange = '1H' | '4H' | '1D' | '1W' | '1M' | 'ALL'
 
 /** One observed USD price: from a history source, or seen live by this page. */
 export interface PricePoint {

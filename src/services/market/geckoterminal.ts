@@ -96,15 +96,26 @@ export async function fetchGtOhlcv(fetchImpl: typeof fetch, baseUrl: string, poo
   return (await fetchGtHistory(fetchImpl, baseUrl, pool, candles, currency)).points
 }
 
-/** The same request, read both ways: the closes and the full candles. */
+/** The symbols of a candle answer's pool, from its own `meta` (null when it doesn't say). */
+export function parseGtMarket(json: unknown): { base: string | null; quote: string | null } {
+  const meta = isRecord(json) && isRecord(json.meta) ? json.meta : null
+  const symbol = (side: unknown) => (isRecord(side) && typeof side.symbol === 'string' && side.symbol ? side.symbol : null)
+  return { base: symbol(meta?.base), quote: symbol(meta?.quote) }
+}
+
+/**
+ * The same request, read both ways: the closes and the full candles. `token`: price the candles as
+ * this token (GeckoTerminal's `token=` parameter), whichever side of the pool it is on.
+ */
 export async function fetchGtHistory(
   fetchImpl: typeof fetch,
   baseUrl: string,
   pool: string,
   candles: GtCandles,
   currency: 'usd' | 'token' = 'usd',
-): Promise<{ points: PricePoint[]; candles: Candle[] }> {
-  const url = `${baseUrl}/pools/${pool}/ohlcv/${candles.timeframe}?aggregate=${candles.aggregate}&limit=${candles.limit}&currency=${currency}`
+  token?: string,
+): Promise<{ points: PricePoint[]; candles: Candle[]; market: { base: string | null; quote: string | null } }> {
+  const url = `${baseUrl}/pools/${pool}/ohlcv/${candles.timeframe}?aggregate=${candles.aggregate}&limit=${candles.limit}&currency=${currency}${token ? `&token=${encodeURIComponent(token)}` : ''}`
   const json = await getMarketJson(fetchImpl, url).catch(unanswered)
-  return { points: parseGtOhlcv(json), candles: parseGtCandles(json) }
+  return { points: parseGtOhlcv(json), candles: parseGtCandles(json), market: parseGtMarket(json) }
 }

@@ -22,9 +22,11 @@ export const CHART_RANGES = {
   '1D': { windowMs: 24 * HOUR_MS, coinbase: 900, gecko: { timeframe: 'minute', aggregate: 15, limit: 96 } },
   '1W': { windowMs: 7 * 24 * HOUR_MS, coinbase: 3600, gecko: { timeframe: 'hour', aggregate: 1, limit: 168 } },
   '1M': { windowMs: 30 * 24 * HOUR_MS, coinbase: 21600, gecko: { timeframe: 'hour', aggregate: 4, limit: 180 } },
+  // Everything GeckoTerminal's public API keeps (180 days); a young market is drawn finer (tokenMarket.ts).
+  ALL: { windowMs: 180 * 24 * HOUR_MS, coinbase: 86400, gecko: { timeframe: 'day', aggregate: 1, limit: 1000 } },
 } as const satisfies Record<
   ChartRange,
-  { windowMs: number; coinbase: 60 | 300 | 900 | 3600 | 21600; gecko: { timeframe: 'minute' | 'hour' | 'day'; aggregate: number; limit: number } }
+  { windowMs: number; coinbase: 60 | 300 | 900 | 3600 | 21600 | 86400; gecko: { timeframe: 'minute' | 'hour' | 'day'; aggregate: number; limit: number } }
 >
 
 /**

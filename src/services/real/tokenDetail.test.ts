@@ -54,6 +54,8 @@ interface SetupOptions {
   /** GeckoTerminal's candles (default: none). */
   ohlcv?: (url: URL) => unknown
   coingecko?: () => unknown
+  /** CoinGecko's market chart of a token by its contract (default: not listed, a 404). */
+  cgChart?: (token: string, url: URL) => unknown
 }
 
 function setup(opts: SetupOptions = {}) {
@@ -75,7 +77,12 @@ function setup(opts: SetupOptions = {}) {
     return opts.candles ? opts.candles(url) : []
   })
   const lastSegment = (url: URL) => decodeURIComponent(url.pathname.split('/').at(-1) ?? '')
-  const reads = { account: [] as string[], transactions: 0, dex: [] as string[], gt: [] as string[], ohlcv: [] as string[], coingecko: 0 }
+  const reads = { account: [] as string[], transactions: 0, dex: [] as string[], gt: [] as string[], ohlcv: [] as string[], coingecko: 0, cgChart: [] as string[] }
+  chain.route('https://api.coingecko.com/api/v3/coins/near-protocol/contract/', (url) => {
+    const token = decodeURIComponent(url.pathname.split('/')[6] ?? '')
+    reads.cgChart.push(url.pathname.slice(url.pathname.indexOf('/contract/')) + url.search)
+    return opts.cgChart ? opts.cgChart(token, url) : new Response('{"error":"coin not found"}', { status: 404 })
+  })
   chain.route('https://api.dexscreener.com/token-pairs/v1/near/', (url) => {
     reads.dex.push(lastSegment(url))
     return opts.dex ? opts.dex(lastSegment(url)) : []
@@ -231,25 +238,86 @@ describe('price history for the chart', () => {
       since: 1790616798000,
     })
     expect(h?.candles).toHaveLength(6)
-    // The day in fifteen-minute candles, of the deepest pair DEX Screener lists.
-    expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/minute?aggregate=15&limit=96&currency=usd`])
+    // The day in fifteen-minute candles, of the deepest pair DEX Screener lists, priced as this token (whichever side of the pair it is).
+    expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/minute?aggregate=15&limit=96&currency=usd&token=${SING}`])
   })
 
   it('each window asks GeckoTerminal for its candle: 1H by the minute, 4H by five, 1W by the hour, 1M by four hours', async () => {
     const { services, reads } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty })
     for (const range of ['1H', '4H', '1W', '1M'] as const) await services.tokens.getPriceHistory(SING, range)
     expect(reads.ohlcv.map((u) => u.slice(u.indexOf('/ohlcv/')))).toEqual([
-      '/ohlcv/minute?aggregate=1&limit=60&currency=usd',
-      '/ohlcv/minute?aggregate=5&limit=48&currency=usd',
-      '/ohlcv/hour?aggregate=1&limit=168&currency=usd',
-      '/ohlcv/hour?aggregate=4&limit=180&currency=usd',
+      `/ohlcv/minute?aggregate=1&limit=60&currency=usd&token=${SING}`,
+      `/ohlcv/minute?aggregate=5&limit=48&currency=usd&token=${SING}`,
+      `/ohlcv/hour?aggregate=1&limit=168&currency=usd&token=${SING}`,
+      `/ohlcv/hour?aggregate=4&limit=180&currency=usd&token=${SING}`,
     ])
   })
 
-  it('a token with no indexed pair has no history source: null, and nothing is filled in', async () => {
+  it('a token no source indexes has no history: null, and nothing is filled in (never "since this page opened")', async () => {
     const { services, reads } = setup()
     expect(await services.tokens.getPriceHistory(SING, '1D')).toBeNull()
     expect(reads.ohlcv).toEqual([])
+  })
+
+  it('one provider: a token DEX Screener doesn’t index but GeckoTerminal does gets its deepest pool’s candles, named from GeckoTerminal’s own answer', async () => {
+    const { services, reads } = setup({ now: T1, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    const h = await services.tokens.getPriceHistory(SING, '1D')
+    expect(h).toMatchObject({ source: { name: 'GeckoTerminal', market: 'SINGULARTY/wNEAR on Rhea' }, candleSec: 900, since: null, volumeUnit: 'USD' })
+    expect(h?.candles).toHaveLength(6)
+    expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/minute?aggregate=15&limit=96&currency=usd&token=${SING}`])
+  })
+
+  it('several providers: DEX Screener’s pair is the market, its candles from GeckoTerminal; CoinGecko is not asked', async () => {
+    const { services, reads } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => gtOhlcv, cgChart: () => ({ prices: [[T1, 1]] }) })
+    expect((await services.tokens.getPriceHistory(SING, '1D'))?.source.name).toBe('GeckoTerminal')
+    expect(reads.cgChart).toEqual([])
+  })
+
+  it('no pool indexed, but CoinGecko lists the token: its prices as a line (no candles made up), named CoinGecko', async () => {
+    const { services, reads } = setup({
+      now: T1,
+      cgChart: () => ({
+        prices: [
+          [T1 - 3 * 3_600_000, 0.0002],
+          [T1 - 2 * 3_600_000, 0.00021],
+          [T1 - 3_600_000, 0.00022],
+        ],
+      }),
+    })
+    const h = await services.tokens.getPriceHistory(SING, '1D')
+    expect(h).toMatchObject({ source: { name: 'CoinGecko', market: 'SINGULARTY on CoinGecko' }, candles: [], volumeUnit: null })
+    expect(h?.points).toEqual([
+      { t: T1 - 3 * 3_600_000, usd: 0.0002 },
+      { t: T1 - 2 * 3_600_000, usd: 0.00021 },
+      { t: T1 - 3_600_000, usd: 0.00022 },
+    ])
+    expect(reads.cgChart).toEqual([`/contract/${SING}/market_chart?vs_currency=usd&days=1`])
+  })
+
+  it('All: the earliest history the source keeps, in candles as fine as the market’s age allows', async () => {
+    // SINGULARTY's pair began 2.6 days before T1: fifteen-minute candles cover all of it in one read.
+    const { services, reads } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    const h = await services.tokens.getPriceHistory(SING, 'ALL')
+    expect(h?.candleSec).toBe(900)
+    expect(h?.since).toBe(1790616798000)
+    expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/minute?aggregate=15&limit=1000&currency=usd&token=${SING}`])
+  })
+
+  it('All, for a market of unknown age: day candles first, finer ones when days are too few to draw', async () => {
+    const { services, reads } = setup({ now: T1, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    await services.tokens.getPriceHistory(SING, 'ALL')
+    expect(reads.ohlcv.map((u) => u.slice(u.indexOf('/ohlcv/'), u.indexOf('&currency')))).toEqual(['/ohlcv/day?aggregate=1&limit=1000', '/ohlcv/hour?aggregate=1&limit=1000'])
+  })
+
+  it('a history read is kept for a while: the same window again is not asked again (GeckoTerminal’s rate limit)', async () => {
+    const { services, reads, advance } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    await services.tokens.getPriceHistory(SING, '1W')
+    advance(30_000)
+    await services.tokens.getPriceHistory(SING, '1W')
+    expect(reads.ohlcv).toHaveLength(1)
+    advance(10 * 60_000)
+    await services.tokens.getPriceHistory(SING, '1W')
+    expect(reads.ohlcv).toHaveLength(2)
   })
 
   it('a failed history read is an error the screen shows, not an empty line', async () => {

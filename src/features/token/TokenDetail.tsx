@@ -51,7 +51,9 @@ import { SendTokenButton } from './SendToken'
  * quote decides that, in the ticket), and that it is in the user's own token list.
  */
 
-const RANGES: readonly ChartRange[] = ['1H', '4H', '1D', '1W', '1M']
+const RANGES: readonly ChartRange[] = ['1H', '4H', '1D', '1W', '1M', 'ALL']
+const rangeLabel = (r: ChartRange) => (r === 'ALL' ? 'All' : r)
+const rangeText = (r: ChartRange) => (r === 'ALL' ? 'all its history' : `last ${r}`)
 
 /** The token for a route id: listed, else read on chain by its contract (nothing saved). */
 export function TokenDetail({ tokenId }: { tokenId: string }) {
@@ -180,7 +182,8 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
   }, [token.id, price])
 
   const native = token.id === NATIVE_TOKEN_ID
-  const view = history.isError ? chartView(range, now, null, live) : history.data === undefined ? null : chartView(range, now, history.data, live)
+  // A refresh that fails keeps the history already read (its error is said below the chart); only with none at all is the line the observed one.
+  const view = history.data === undefined && !history.isError ? null : chartView(range, now, history.data ?? null, live)
   // The history source's own candles in this window (none made up): drawn as candles; without them, the line of observed prices.
   const windowStart = now - CHART_RANGES[range].windowMs
   const h = view?.source === 'history' ? history.data : undefined
@@ -211,14 +214,19 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
       const began =
         h.since !== null && h.since > start
           ? ` This market began ${formatDateTime(h.since)}.`
-          : view.partial && first
-            ? ` This window has data from ${formatDateTime(first.t)}.`
-            : ''
+          : range === 'ALL' && first
+            ? ` The earliest history ${h.source.name} keeps for it starts ${formatDateTime(first.t)}.`
+            : view.partial && first
+              ? ` This window has data from ${formatDateTime(first.t)}.`
+              : ''
+      if (h.candles.length === 0 && h.source.name !== 'CoinGecko' && h.points.filter((p) => p.t >= start).length === 0)
+        return `No trades on ${h.source.market} in this window: the line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}.`
+      if (h.candles.length === 0) return `${h.source.market}: prices from ${h.source.name}, then the live price this page sees. Nothing between two prices is filled in.${began}`
       return candles.length > 0
         ? `${h.source.market}: ${candleLabel(h.candleSec)} candles (open, high, low, close${h.volumeUnit ? `, volume in ${h.volumeUnit}` : ''}) from ${h.source.name}; the dashed line is the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
         : `${h.source.market}: ${candleLabel(h.candleSec)} candle closes from ${h.source.name}, then the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
     }
-    return `No market-history source covers ${token.symbol}${native ? '' : ' (no indexed pair)'}: the line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}. Nothing before that is drawn.`
+    return `History unavailable: no market-history source indexes ${token.symbol}${native ? '' : ' yet (no DEX pool on GeckoTerminal or DEX Screener, and not listed on CoinGecko)'}. The line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}: that is when this page started watching, not when the market began.`
   }
 
   const chartEmpty = (): string => {
@@ -380,7 +388,10 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
       </ReadoutStrip>
 
       <Panel>
-        <PanelHeader title="Price" actions={<Segmented label="Chart window" size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: r }))} />} />
+        <PanelHeader
+          title="Price"
+          actions={<Segmented label="Chart window" size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: rangeLabel(r) }))} />}
+        />
         <div className="flex flex-col gap-2 p-4">
           {!view ? (
             <Skeleton className="h-[300px] w-full" />
@@ -392,7 +403,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
               end={now}
               candleSec={h.candleSec}
               live={priceValue}
-              label={`${token.symbol} price, last ${range}`}
+              label={`${token.symbol} price, ${rangeText(range)}`}
               formatPrice={formatUsdPrice}
               formatTime={formatDateTime}
               formatAxis={axisTime(range)}
@@ -403,7 +414,8 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             <ValueTrace
               key={range}
               points={view.points.map((p) => ({ t: p.t, v: p.usd }))}
-              label={`${token.symbol} price, last ${range}`}
+              timeScale
+              label={`${token.symbol} price, ${rangeText(range)}`}
               formatValue={formatUsdPrice}
               formatTick={formatUsdPrice}
               formatTime={formatDateTime}
@@ -417,7 +429,9 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           )}
           {history.isError && (
             <p className="text-xs text-warn" role="alert">
-              Price history can’t be read right now ({describeError(history.error).message}). NEARKITS asks again shortly.
+              {history.data
+                ? `The last refresh of this history failed (${describeError(history.error).message}): what was read before stays. NEARKITS asks again shortly.`
+                : `Price history can’t be read right now (${describeError(history.error).message}). NEARKITS asks again shortly.`}
             </p>
           )}
           {view && view.points.length > 0 && <p className="text-xs text-fg-3">{chartNote()}</p>}

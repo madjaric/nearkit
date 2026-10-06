@@ -1,6 +1,6 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
-import { fetchCoinMarkets } from '@/services/market/coingecko'
+import { fetchCoinMarkets, fetchContractChart } from '@/services/market/coingecko'
 import { fetchDexPairs, mainPair, type DexPair } from '@/services/market/dexscreener'
 import { fetchGtHistory, fetchGtToken, type GtToken } from '@/services/market/geckoterminal'
 import { CHART_RANGES, fetchNearUsdHistory } from '@/services/near/candles'
@@ -22,6 +22,31 @@ import type { Market } from './market'
 
 /** How long a token's current figures are kept before they're read again. */
 export const MARKET_TTL_MS = 20_000
+/** How long a window's history is kept: a candle source's newest candle changes at most this often for it. */
+const HISTORY_TTL_MS: Record<ChartRange, number> = { '1H': 60_000, '4H': 120_000, '1D': 300_000, '1W': 600_000, '1M': 600_000, ALL: 600_000 }
+/** Which pool a token's history is read from, and that CoinGecko doesn't list it: kept this long. */
+const SOURCE_TTL_MS = 30 * 60_000
+const DAY_MS = 86_400_000
+
+/** CoinGecko's `days` for a window: its own granularity is then 5 minutes (1 day), hourly (up to 90) or daily. */
+const CG_DAYS: Record<ChartRange, number> = { '1H': 1, '4H': 1, '1D': 1, '1W': 7, '1M': 30, ALL: 365 }
+
+type Gecko = { timeframe: 'minute' | 'hour' | 'day'; aggregate: number; limit: number }
+const secondsOf = (g: Gecko) => (g.timeframe === 'minute' ? 60 : g.timeframe === 'hour' ? 3600 : 86_400) * g.aggregate
+
+/**
+ * ALL for a market of known age: the finest candles that cover it in one read of 1000 (GeckoTerminal
+ * keeps 180 days); unknown age: days first, hours when days are too few to draw.
+ */
+function allCandles(ageMs: number | null): Gecko {
+  if (ageMs === null) return { timeframe: 'day', aggregate: 1, limit: 1000 }
+  if (ageMs <= 10 * DAY_MS) return { timeframe: 'minute', aggregate: 15, limit: 1000 }
+  if (ageMs <= 41 * DAY_MS) return { timeframe: 'hour', aggregate: 1, limit: 1000 }
+  if (ageMs <= 166 * DAY_MS) return { timeframe: 'hour', aggregate: 4, limit: 1000 }
+  return { timeframe: 'day', aggregate: 1, limit: 1000 }
+}
+/** Day candles fewer than this don't draw a market: ALL asks again by the hour. */
+const FEW_DAYS = 14
 /** GeckoTerminal allows ~30 requests a minute per address: its token figures are read once a minute at most. */
 const GT_TOKEN_TTL_MS = 60_000
 
@@ -47,6 +72,9 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
   const snapshots = new Map<string, { at: number; value: Promise<TokenMarket> }>()
   const lastGood = new Map<string, TokenMarket>()
   const gtTokens = new Map<string, { at: number; value: Promise<GtToken | null> }>()
+  const histories = new Map<string, { at: number; value: Promise<PriceHistory | null> }>()
+  const cgUnlisted = new Map<string, number>()
+  const cgApi = config ? `${new URL(config.coingeckoMarkets).origin}/api/v3` : null
 
   const gtToken = (token: string): Promise<GtToken | null> => {
     if (!config) return Promise.resolve(null)
@@ -97,6 +125,63 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
       supply: { circulating: cg?.circulatingSupply ?? null, total: cg?.totalSupply ?? null, source: cg ? COINGECKO : null },
       pair: null,
       updatedAt: now,
+    }
+  }
+
+  /** The pool a token's candles are read from: DEX Screener's pair, else GeckoTerminal's deepest DEX pool (never an intents pseudo-pool). */
+  async function poolOf(tokenId: string): Promise<{ id: string; market: string | null; since: number | null } | null> {
+    const m = await api.get(tokenId)
+    if (m.pair) return { id: m.pair.id, market: `${m.pair.baseSymbol}/${m.pair.quoteSymbol} on ${m.pair.dex}`, since: m.pair.createdAt }
+    const gt = await gtToken(tokenId).catch(() => null)
+    const pool = gt?.topPools.find((p) => !p.startsWith('nep141:'))
+    return pool ? { id: pool, market: null, since: null } : null
+  }
+
+  async function readHistory(tokenId: string, range: ChartRange): Promise<PriceHistory | null> {
+    if (!config) return null
+    const r = CHART_RANGES[range]
+    const now = ctx.now()
+    if (tokenId === NATIVE_TOKEN_ID) {
+      if (!ctx.network.nearUsd) return null
+      const { points, candles } = await fetchNearUsdHistory(ctx.fetch, ctx.network.nearUsd.coinbase, { windowMs: r.windowMs, granularity: r.coinbase }, now)
+      return { points, candles, volumeUnit: 'NEAR', source: { name: COINBASE, market: 'NEAR/USD' }, candleSec: r.coinbase, since: null }
+    }
+    const pool = await poolOf(tokenId)
+    if (pool) {
+      let gecko: Gecko = range === 'ALL' ? allCandles(pool.since !== null ? now - pool.since : null) : r.gecko
+      let all = await fetchGtHistory(ctx.fetch, config.geckoterminal, pool.id, gecko, 'usd', tokenId)
+      if (range === 'ALL' && gecko.timeframe === 'day' && pool.since === null && all.candles.length < FEW_DAYS) {
+        gecko = { timeframe: 'hour', aggregate: 1, limit: 1000 }
+        all = await fetchGtHistory(ctx.fetch, config.geckoterminal, pool.id, gecko, 'usd', tokenId)
+      }
+      const candleMs = secondsOf(gecko) * 1000
+      const inWindow = (t: number) => t >= now - r.windowMs - candleMs && t <= now
+      const market = pool.market ?? (all.market.base && all.market.quote ? `${all.market.base}/${all.market.quote} on Rhea` : `pool ${pool.id}`)
+      return {
+        points: all.points.filter((p) => inWindow(p.t)),
+        candles: all.candles.filter((c) => inWindow(c.t)),
+        volumeUnit: 'USD',
+        source: { name: GECKO, market },
+        candleSec: secondsOf(gecko),
+        since: pool.since,
+      }
+    }
+    // No DEX pool indexed: CoinGecko's prices, when it lists the token.
+    if (!cgApi || (cgUnlisted.get(tokenId) ?? 0) > now) return null
+    const points = await fetchContractChart(ctx.fetch, cgApi, tokenId, CG_DAYS[range])
+    if (points === null) {
+      cgUnlisted.set(tokenId, now + SOURCE_TTL_MS)
+      return null
+    }
+    const symbol = (await market.listTokens([tokenId]).catch(() => [])).find((t) => t.id === tokenId)?.symbol ?? tokenId
+    const inWindow = (t: number) => t >= now - r.windowMs && t <= now
+    return {
+      points: points.filter((p) => inWindow(p.t)),
+      candles: [],
+      volumeUnit: null,
+      source: { name: COINGECKO, market: `${symbol} on CoinGecko` },
+      candleSec: CG_DAYS[range] <= 1 ? 300 : CG_DAYS[range] <= 90 ? 3600 : 86_400,
+      since: null,
     }
   }
 
@@ -260,32 +345,22 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
     },
 
     /**
-     * Real prices over the window: Coinbase's NEAR/USD closes for NEAR, GeckoTerminal's candles of
-     * the token's main pair otherwise. Null when no source has this token's history; a read that
-     * fails throws, so the screen can say so instead of drawing an empty line.
+     * Real prices over the window, from the earliest a source keeps, never from when this page
+     * opened: Coinbase's NEAR/USD candles for NEAR; otherwise GeckoTerminal's candles of the token's
+     * market (DEX Screener's deepest pair, or GeckoTerminal's own deepest pool when DEX Screener has
+     * none), priced as this token whichever side of the pool it is on; else CoinGecko's prices (a
+     * line, no candles) for a token it lists. Null when no source has history: the screen says so.
+     * Kept for a while (HISTORY_TTL_MS: the sources' rate limits); a read that fails throws.
      */
-    async history(tokenId: string, range: ChartRange): Promise<PriceHistory | null> {
-      if (!config) return null
-      const r = CHART_RANGES[range]
-      if (tokenId === NATIVE_TOKEN_ID) {
-        if (!ctx.network.nearUsd) return null
-        const { points, candles } = await fetchNearUsdHistory(ctx.fetch, ctx.network.nearUsd.coinbase, { windowMs: r.windowMs, granularity: r.coinbase }, ctx.now())
-        return { points, candles, volumeUnit: 'NEAR', source: { name: COINBASE, market: 'NEAR/USD' }, candleSec: r.coinbase, since: null }
-      }
-      const m = await api.get(tokenId)
-      if (!m.pair) return null
-      const unit = r.gecko.timeframe === 'minute' ? 60 : r.gecko.timeframe === 'hour' ? 3600 : 86400
-      const now = ctx.now()
-      const all = await fetchGtHistory(ctx.fetch, config.geckoterminal, m.pair.id, r.gecko)
-      const inWindow = (t: number) => t >= now - r.windowMs - unit * r.gecko.aggregate * 1000 && t <= now
-      return {
-        points: all.points.filter((p) => inWindow(p.t)),
-        candles: all.candles.filter((c) => inWindow(c.t)),
-        volumeUnit: 'USD',
-        source: { name: GECKO, market: `${m.pair.baseSymbol}/${m.pair.quoteSymbol} on ${m.pair.dex}` },
-        candleSec: unit * r.gecko.aggregate,
-        since: m.pair.createdAt,
-      }
+    history(tokenId: string, range: ChartRange): Promise<PriceHistory | null> {
+      if (!config) return Promise.resolve(null)
+      const key = `${tokenId}|${range}`
+      const hit = histories.get(key)
+      if (hit && ctx.now() - hit.at < HISTORY_TTL_MS[range]) return hit.value
+      const value = readHistory(tokenId, range)
+      histories.set(key, { at: ctx.now(), value })
+      value.catch(() => histories.delete(key))
+      return value
     },
   }
   return api
