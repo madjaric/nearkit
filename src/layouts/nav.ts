@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   BookOpen,
+  Bot,
   ChartLine,
   ChevronsRight,
   Coins,
@@ -72,6 +73,14 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Automation',
     items: [
+      // Runs on NEARKITS's server: a real build without one can't offer it (the demo's console explains it).
+      {
+        to: '/volume-bot/console',
+        label: 'Volume Bot',
+        icon: Bot,
+        soon: ENV.services === 'near' && !ENV.apiUrl,
+        keywords: ['trading bot', 'market maker', 'market making', 'twap', 'accumulate', 'distribute', 'automation'],
+      },
       { to: '/dca', label: 'DCA', icon: Repeat, keywords: ['recurring', 'schedule', 'dollar cost'] },
       { to: '/copy-trade', label: 'Copy Trade', icon: Copy, keywords: ['mirror', 'follow'] },
       { to: '/sniper', label: 'Sniper', icon: Crosshair, keywords: ['launch', 'snipe'] },
@@ -122,4 +131,5 @@ export const COMMANDS: { command: string; to: string; label: string }[] = [
   { command: '/copy', to: '/copy-trade', label: 'Copy trading rules' },
   { command: '/snipe', to: '/sniper', label: 'Sniper setup' },
   { command: '/scan', to: '/scanner', label: 'Scan a contract' },
+  { command: '/volume', to: '/volume-bot/console', label: 'Volume Bot' },
 ]

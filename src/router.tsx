@@ -9,6 +9,8 @@ const page = (load: () => Promise<{ default: ComponentType }>) => async () => ({
 export const router = createBrowserRouter([
   // NearKit's Telegram Mini App: its own page, without the app's navigation (Telegram shows it inside the chat).
   { path: 'tg', lazy: page(() => import('@/pages/TelegramApprovePage')), hydrateFallbackElement: <BootScreen />, errorElement: <RouteError /> },
+  // The Volume Bot's public page: its own layout, prerendered as static HTML by the build (src/prerender.tsx).
+  { path: 'volume-bot', lazy: page(() => import('@/pages/VolumeBotPage')), hydrateFallbackElement: <BootScreen />, errorElement: <RouteError /> },
   {
     element: <AppShell />,
     hydrateFallbackElement: <BootScreen />,
@@ -27,6 +29,7 @@ export const router = createBrowserRouter([
           { path: 'dca', lazy: page(() => import('@/pages/DcaPage')) },
           { path: 'copy-trade', lazy: page(() => import('@/pages/CopyTradePage')) },
           { path: 'sniper', lazy: page(() => import('@/pages/SniperPage')) },
+          { path: 'volume-bot/console', lazy: page(() => import('@/pages/VolumeBotConsolePage')) },
           { path: 'positions', lazy: page(() => import('@/pages/PositionsPage')) },
           { path: 'token/:id', lazy: page(() => import('@/pages/TokenPage')) },
           { path: 'pnl', lazy: page(() => import('@/pages/PnlPage')) },

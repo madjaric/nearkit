@@ -1,3 +1,5 @@
+import type { BotDetail, BotSummary } from '@/lib/volumeBot/api'
+import type { BotConfig } from '@/lib/volumeBot/types'
 import { apiPost, LinkRequestError } from './telegramLink'
 
 /**
@@ -130,7 +132,6 @@ export interface NearKitWeb {
   wallets(): Promise<NearKitWalletList | null>
   createWallet(name: string, createKey: string): Promise<NearKitWebWallet>
   renameWallet(walletId: string, name: string): Promise<NearKitWebWallet>
-  /** Deletes one of the user's NearKit wallets that was never funded (the server refuses a funded one). */
   /** Deletes a wallet holding nothing of value (never funded, or only NEAR dust); answers the dust left on chain, in yoctoNEAR. */
   deleteWallet(walletId: string): Promise<{ dustYocto: string }>
   /** Lists the user's NearKit wallets in this order (exactly their wallets, each once); returns them so. */
@@ -146,6 +147,17 @@ export interface NearKitWeb {
   /** Sends exactly what was reviewed. */
   executeSend(intentId: string): Promise<{ started: boolean }>
   sendStatus(intentId: string): Promise<WebSendStatus>
+  /** The user's Volume Bots on this network. */
+  bots(): Promise<BotSummary[]>
+  /** Creates a bot (no id) or changes a stopped one's configuration; nothing trades until Start. Refusals carry `detail.issues`, field by field. */
+  saveBot(config: BotConfig, botId?: string): Promise<BotSummary>
+  botDetail(botId: string): Promise<BotDetail>
+  startBot(botId: string): Promise<BotSummary>
+  pauseBot(botId: string): Promise<BotSummary>
+  resumeBot(botId: string): Promise<BotSummary>
+  /** Nothing new is sent from now on; trades already sent are settled, then it ends stopped. */
+  stopBot(botId: string, emergency: boolean): Promise<BotSummary>
+  deleteBot(botId: string): Promise<void>
   /** Called whenever the session starts or ends. */
   subscribe(listener: () => void): () => void
 }
@@ -328,6 +340,15 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     reviewSend: (input) => call<{ intentId: string; expiresAt: number; review: WebSendReview }>('/api/web/send/review', { ...input }),
     executeSend: (intentId) => call<{ started: boolean }>('/api/web/send/execute', { intentId }),
     sendStatus: (intentId) => call<WebSendStatus>('/api/web/send/status', { intentId }),
+
+    bots: async () => (await call<{ bots: BotSummary[] }>('/api/web/bots', {})).bots,
+    saveBot: async (config, botId) => (await call<{ bot: BotSummary }>('/api/web/bots/save', botId ? { config, botId } : { config })).bot,
+    botDetail: (botId) => call<BotDetail>('/api/web/bots/detail', { botId }),
+    startBot: async (botId) => (await call<{ bot: BotSummary }>('/api/web/bots/start', { botId })).bot,
+    pauseBot: async (botId) => (await call<{ bot: BotSummary }>('/api/web/bots/pause', { botId })).bot,
+    resumeBot: async (botId) => (await call<{ bot: BotSummary }>('/api/web/bots/resume', { botId })).bot,
+    stopBot: async (botId, emergency) => (await call<{ bot: BotSummary }>('/api/web/bots/stop', { botId, emergency })).bot,
+    deleteBot: async (botId) => void (await call<{ deleted: boolean }>('/api/web/bots/delete', { botId })),
 
     subscribe(listener) {
       listeners.add(listener)

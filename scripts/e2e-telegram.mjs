@@ -901,6 +901,71 @@ await step(
   },
 )
 
+await step(
+  'the Volume Bot console: configured on the web from NEARKITS wallets only, saved stopped, started with a review and a Telegram notice, paused and emergency-stopped',
+  async () => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(WEB + '/volume-bot/console', { waitUntil: 'networkidle' })
+    const setup = page.locator('section', { hasText: 'New Volume Bot' }).first()
+    await setup.waitFor({ timeout: 15000 })
+    // The checkbox is custom-drawn over a visually hidden input.
+    await setup.getByRole('checkbox', { name: /Main/ }).check({ force: true })
+    // The pool in this fake network reports no liquidity: the floor goes to 0 so the guardian has nothing to say about it.
+    await setup.getByLabel('Least pool liquidity', { exact: true }).fill('0')
+    await setup.getByRole('button', { name: 'Save bot' }).click()
+    await page.getByText('Volume Bot saved').waitFor({ timeout: 10000 })
+    await page.getByRole('heading', { name: /USDT · Market maker/ }).waitFor()
+    await page.getByText('Not started', { exact: true }).first().waitFor()
+    await shot('tg-13-volume-bot-saved')
+
+    // A watch account, someone else's wallet or a made-up id is refused by the server, whatever the page sends.
+    const saved = (await webApi('/api/web/bots', {})).json.bots[0]
+    const config = (await webApi('/api/web/bots/detail', { botId: saved.id })).json.config
+    for (const walletId of [USER, 'made-up-id']) {
+      const r = await webApi('/api/web/bots/save', { config: { ...config, walletIds: [walletId] } })
+      if (r.status !== 403) throw new Error(`a bot from ${walletId} got ${r.status}, not 403`)
+    }
+
+    const from = tg.sent.length
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
+    const review = page.getByRole('dialog', { name: 'Start the USDT bot?' })
+    await review.getByText('Largest trade').waitFor()
+    await shot('tg-13b-volume-bot-start-review')
+    await review.getByRole('button', { name: 'Start bot' }).click()
+    await page.getByText('Running', { exact: true }).first().waitFor({ timeout: 10000 })
+    await tg.waitFor(TG_USER.id, (x) => x.text.includes('Volume Bot started on NEARKITS web'), { from })
+    await shot('tg-13c-volume-bot-running')
+
+    await page.getByRole('button', { name: 'Pause', exact: true }).click()
+    await page.getByText('Paused', { exact: true }).first().waitFor({ timeout: 10000 })
+    const stopping = tg.sent.length
+    await page.getByRole('button', { name: 'Emergency stop', exact: true }).click()
+    const stop = page.getByRole('dialog', { name: 'Emergency stop?' })
+    await stop.getByRole('button', { name: 'Emergency stop' }).click()
+    await page
+      .getByText(/^(Stopping|Stopped)$/)
+      .first()
+      .waitFor({ timeout: 10000 })
+    // The worker settles the stop on its next step and tells the owner; the console shows it stopped.
+    await tg.waitFor(TG_USER.id, (x) => x.text.includes('stopped. Nothing more is sent'), { from: stopping, timeoutMs: 30000 })
+    await page.getByText('Stopped', { exact: true }).first().waitFor({ timeout: 15000 })
+
+    // Telegram's /volume shows the same bot.
+    const at = tg.sent.length
+    say(TG_USER, '/volume')
+    const card = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Volume Bot · USDT'), { from: at })
+    if (/ed25519:|seed phrase|private key/i.test(card.text)) throw new Error('/volume shows a key')
+
+    await page.setViewportSize({ width: 360, height: 780 })
+    await page.goto(WEB + '/volume-bot/console', { waitUntil: 'networkidle' })
+    await page.getByRole('heading', { name: /USDT · Market maker/ }).waitFor()
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    if (wide > 1) throw new Error(`the console scrolls sideways by ${wide}px at 360px`)
+    await shot('tg-13d-volume-bot-360')
+    await page.setViewportSize({ width: 1280, height: 900 })
+  },
+)
+
 await step('a forged client gets nothing: a watch account, a made-up id or an address is refused before any quote', async () => {
   const sentBefore = tg.sent.length
   for (const walletId of [USER, 'bottest.testnet', 'made-up-id', mainAddress]) {

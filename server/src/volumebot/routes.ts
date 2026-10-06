@@ -1,5 +1,6 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
+import type { BotDetail, BotSummary } from '@/lib/volumeBot/api'
 import { parseBotConfig } from '@/lib/volumeBot/config'
 import { pnlNear } from '@/lib/volumeBot/inventory'
 import { summarize, type TradeRecord } from '@/lib/volumeBot/metrics'
@@ -52,7 +53,7 @@ function tradeRecord(t: BotTrade, decimals: number): TradeRecord | null {
 }
 
 /** A bot as its list shows it: what it trades, how, its status and why, and its run's headline figures. */
-async function summaryOf(bots: VolumeBotStore, b: VolumeBot, now: number) {
+async function summaryOf(bots: VolumeBotStore, b: VolumeBot, now: number): Promise<BotSummary> {
   const run = await bots.currentRun(b.id)
   const trades = run ? await bots.tradesOfRun(run.id) : []
   const records = trades.flatMap((t) => tradeRecord(t, b.config.tokenDecimals) ?? [])
@@ -83,8 +84,6 @@ async function summaryOf(bots: VolumeBotStore, b: VolumeBot, now: number) {
     updatedAt: b.updatedAt,
   }
 }
-
-export type BotSummary = Awaited<ReturnType<typeof summaryOf>>
 
 export function botRoutes(deps: BotApiDeps): Record<string, Route> {
   const { custody, bots } = deps
@@ -172,7 +171,7 @@ export function botRoutes(deps: BotApiDeps): Record<string, Route> {
           }
         }),
       )
-      return {
+      const detail: BotDetail = {
         bot: await summaryOf(bots, b, deps.now()),
         config: b.config,
         metrics: summarize(records, deps.now()),
@@ -196,9 +195,10 @@ export function botRoutes(deps: BotApiDeps): Record<string, Route> {
           txHash: t.txHash,
           message: t.message,
         })),
-        events: await bots.events(b.id, 50),
+        events: (await bots.events(b.id, 50)).map(({ id, kind, code, message, at }) => ({ id, kind, code, message, at })),
         series: await bots.metrics(b.id, deps.now() - 7 * 86_400_000),
       }
+      return detail
     },
 
     '/api/web/bots/start': async (body) => {

@@ -128,3 +128,56 @@ describe('NEARKITS web session', () => {
     expect(storage.get('nearkit:web-session:testnet')).toBeNull()
   })
 })
+
+describe('the Volume Bot console calls', () => {
+  const signedIn = async (routes: Record<string, Handler>) => {
+    const s = server({ '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Alice' } } }), ...routes })
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl: s.fetchImpl, store: memoryStorage() })
+    await web.login(CODE)
+    return { web, calls: s.calls }
+  }
+  const summary = { id: 'b1', token: 'usdt.tether-token.near', symbol: 'USDt', strategy: 'market-maker', status: 'draft' }
+
+  it('lists, saves (a new bot without an id, an edit with one), and reads one bot, always with the session', async () => {
+    const { web, calls } = await signedIn({
+      '/api/web/bots': () => ({ status: 200, json: { bots: [summary] } }),
+      '/api/web/bots/save': (b) => ({ status: 200, json: { bot: { ...summary, id: b.botId ?? 'b2' } } }),
+      '/api/web/bots/detail': () => ({ status: 200, json: { bot: summary, trades: [], events: [], series: [] } }),
+    })
+    expect(await web.bots()).toEqual([summary])
+    const config = { strategy: 'market-maker' } as never
+    expect((await web.saveBot(config)).id).toBe('b2')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/bots/save', body: { session: TOKEN, config } })
+    expect((await web.saveBot(config, 'b1')).id).toBe('b1')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/bots/save', body: { session: TOKEN, config, botId: 'b1' } })
+    expect((await web.botDetail('b1')).bot).toEqual(summary)
+    expect(calls.at(-1)).toEqual({ path: '/api/web/bots/detail', body: { session: TOKEN, botId: 'b1' } })
+  })
+
+  it('start, pause, resume, stop and emergency stop name the bot; stop says which', async () => {
+    const { web, calls } = await signedIn({
+      '/api/web/bots/start': () => ({ status: 200, json: { bot: { ...summary, status: 'running' } } }),
+      '/api/web/bots/pause': () => ({ status: 200, json: { bot: { ...summary, status: 'paused' } } }),
+      '/api/web/bots/resume': () => ({ status: 200, json: { bot: { ...summary, status: 'running' } } }),
+      '/api/web/bots/stop': () => ({ status: 200, json: { bot: { ...summary, status: 'stopping' } } }),
+      '/api/web/bots/delete': () => ({ status: 200, json: { deleted: true } }),
+    })
+    expect((await web.startBot('b1')).status).toBe('running')
+    expect((await web.pauseBot('b1')).status).toBe('paused')
+    expect((await web.resumeBot('b1')).status).toBe('running')
+    await web.stopBot('b1', false)
+    expect(calls.at(-1)).toEqual({ path: '/api/web/bots/stop', body: { session: TOKEN, botId: 'b1', emergency: false } })
+    await web.stopBot('b1', true)
+    expect(calls.at(-1)?.body).toMatchObject({ emergency: true })
+    await web.deleteBot('b1')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/bots/delete', body: { session: TOKEN, botId: 'b1' } })
+  })
+
+  it('a configuration the server refuses comes back field by field', async () => {
+    const issues = [{ field: 'marketMaker.minEdgeBps', message: 'The edge over fair value is at least 0.1%' }]
+    const { web } = await signedIn({
+      '/api/web/bots/save': () => ({ status: 400, json: { error: { code: 'config', message: 'marketMaker.minEdgeBps: …', detail: { issues } } } }),
+    })
+    await expect(web.saveBot({} as never)).rejects.toMatchObject({ status: 400, code: 'config', detail: { issues } })
+  })
+})

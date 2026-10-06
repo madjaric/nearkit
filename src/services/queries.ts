@@ -49,6 +49,8 @@ export const qk = {
   copy: ['automation', 'copy'] as const,
   sniper: ['automation', 'sniper'] as const,
   nearkitWallets: (token: string | null) => ['wallets', 'nearkit', token] as const,
+  volumeBots: (token: string | null) => ['nearkit', 'bots', token] as const,
+  volumeBot: (token: string | null, botId: string | null) => ['nearkit', 'bots', token, botId] as const,
   tokenPrice: (id: string | null) => ['market', 'price', id] as const,
   priceHistory: (id: string | null, range: ChartRange) => ['market', 'history', id, range] as const,
   totalSupply: (id: string | null) => ['token-supply', id] as const,
