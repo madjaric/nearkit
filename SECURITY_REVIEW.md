@@ -42,7 +42,7 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 
 **What stops them:**
 - **Withdrawals:** only to the owner wallet or owner-approved destinations (`authorize` → `DestinationNotApprovedError`). Approving needs the owner wallet's signature in NearKit web; Telegram can't approve anything.
-- **Export:** never in Telegram. It needs an owner-signed request in NearKit web, and the key is sealed to that browser.
+- **Export:** never in Telegram. It needs an owner-signed request in NearKit web and is held 24 hours (§5e); the key is sealed to that browser. Telegram can release a held export sooner or cancel it, but can’t start one.
 - **Relinking:** the attacker can link their own wallet to the Telegram account, but existing wallets stay bound to the original owner. The owner is sealed into each key's envelope (AAD); a rewritten owner makes the key unopenable, not usable.
 - **New wallets:** they inherit the existing owner, not a newly linked wallet (fixed in this review, §3).
 - **Referral payouts:** only to a wallet linked at least 48 hours earlier (fixed in this review, §3).
@@ -63,7 +63,7 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 **What stops them:**
 - **Web trades are signed in the user's own wallet**, which shows each transaction. The web holds no key.
 - **The owner's wallet shows owner requests:** exports and approvals are NEP-413 messages whose recipient must be NearKit's configured host (the signer checks `recipient`). The message names every fact it authorizes: wallet, destination, browser key fingerprint, network, expiry.
-- **A lookalike site on another domain fails:** the signer checks the recipient, and the page refuses a request made for another site (`challengeProblem` in `src/services/recovery.ts`).
+- **A lookalike site on another domain:** a message it has signed for itself fails (the signer checks the recipient, and the page refuses a request made for another site, `challengeProblem` in `src/services/recovery.ts`). One that relays NEARKITS' own request does get a valid owner signature, because NEAR wallets don't check which site asked. So a signed export is held 24 hours and announced in Telegram, where the owner cancels it (§5e).
 
 **Remains (R5):**
 - A compromised **real** origin controls both the browser key and what the page shows. It can therefore phish an export or an approval from an owner who signs without reading, and propose malicious transactions for the wallet.
@@ -95,7 +95,7 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 
 **What stops them:**
 - **Withdrawals:** the signer refuses any destination the owner didn't sign for ("a compromised app that skips every check still can't withdraw…", `destinations.test.ts`).
-- **Exports:** they need a fresh owner signature over a message naming the browser key's fingerprint, and the result is sealed to that browser. The app relays only ciphertext it can't open.
+- **Exports:** they need a fresh owner signature over a message naming the browser key's fingerprint, and the result is sealed to that browser. The app relays only ciphertext it can't open. Each export is held 24 hours. The app can't release one sooner (that needs Telegram's signature), though it could withhold the Telegram notice (§5e).
 - **Backup key:** it must be a full-access key of the owner on chain.
 - **Revoke:** it only removes NearKit's key when another owner key is on the wallet, so a wallet is never left to nobody.
 - **Key erasure:** never while the wallet exists on chain (deleted) or still carries NearKit's key (revoked), checked by an RPC quorum.
@@ -141,9 +141,9 @@ The signer enforces its policy itself: `server/src/signer/core.ts` (`authorize`,
 
 - Every NearKit wallet has its own random key: an implicit account, with no seed phrase and no master or derivation.
 - A leaked key controls that wallet only.
-- The owner hears about every export in Telegram.
+- The wallet’s Telegram account hears about every export when it is requested (it can release it sooner or cancel it) and again when the key is collected.
 
-**Tests:** `multiWallet.test.ts` ("export is per wallet…"), `core.test.ts` ("export: sealed to the browser key…"), `custodySecrets.test.ts` (the key never reaches Telegram, logs, databases or the API in plain form).
+**Tests:** `multiWallet.test.ts` ("export is per wallet…"), `core.test.ts` ("export: sealed to the browser key…"), `export.test.ts` (held exports, §5e), `custodySecrets.test.ts` (the key never reaches Telegram, logs, databases or the API in plain form).
 
 **Remains:** after an export the key is the user's responsibility. If they suspect a leak, they move the funds.
 
@@ -309,6 +309,41 @@ Funds moved this way stay under exactly the same authority, so nothing becomes r
 A wallet holding only dust (under 0.05 NEAR, `src/lib/walletDust.ts`) can be deleted in the app, but its key is **not erased**: the app closes the wallet (its slot is free) and the key stays sealed, so a token the app's indexer missed, or anything that reaches the address later, is never lost. The app refuses to delete a wallet with a trade or send in flight, or one a live Volume Bot trades from.
 
 Deploy order: the signer first. An older signer refuses an `erase-key` request that carries `tokens` (the app sends the list only when it found a token, so the failure is a refused deletion, never a wrong one).
+
+## 5e. Key exports are held (2026-10-06, AUTH-05)
+
+**Why.** An owner's NEP-413 signature names NEARKITS' host as its recipient, but NEAR wallets don't check which site asked for it. A phishing site can request NEARKITS' own export challenge for its own browser key, show the message to the owner and get a valid signature. Before this change that signature alone released the key.
+
+**Now the signature only asks; the signer holds the export.**
+- **Held:** the export message the owner signs states `Held until` (the end of the signing window plus 24 hours) and `Collect by` (24 hours after that). Nothing is sealed before `Held until`.
+- **Told:** the app tells the wallet's Telegram account at once, with ✅ Release it now (NEARKITS' Mini App) and ❌ Cancel export. If the account can't be told (bot blocked, Telegram down, no bot running), the app cancels the export. It never relays a collection for an export it didn't announce.
+- **Released sooner:** only by the wallet's own Telegram account, in a Mini App launch Telegram signed for exactly this export, opened after the request, once. Its digest binds the request, wallet, network, browser key and deadline. The signer checks Telegram's signature itself; the app can't make one. The Mini App's own "Not me" only closes it, so a launch for cancelling never doubles as a release.
+- **Cancelled:** from the chat's button (only the wallet's Telegram account: the signer checks the user the app reports) or from the page that asked (it holds the export's ID). A cancel is final, works while the signer is paused, and empties the stored owner signature.
+- **Collected once:** by the browser that asked, while the export is open and in time. Before sealing, the signer verifies everything again:
+  - the owner's signature over the stored message;
+  - every field of that message (wallet, owner, network, request, browser key, both times);
+  - the signing key is still a full-access key of the owner on chain;
+  - the wallet still answers to that owner;
+  - and either the signed hold is over or Telegram's stored release holds.
+
+  A row edited in the signer database doesn't hold up.
+- **One open export per wallet,** kept by a unique index on open rows.
+- **Protocol gate:** the signer refuses an app that asks for an export without `held: true`, before the request is used. An older app can't release a key during a deploy.
+
+**Remains.**
+- An owner who signs on a phishing site and ignores the Telegram notice for 24 hours: the phishing site's browser can then collect the key. The hold buys time and the notice tells the owner; neither can stop an owner who reads neither what they sign nor their Telegram.
+- A compromised app could withhold the Telegram notice (the signer can't send Telegram messages). The hold still applies.
+- A compromised Telegram account can release an export early, but only one the owner wallet signed for: Telegram alone exports nothing.
+- A signer-database write can't skip the hold or forge a release, because both are verified again against the owner's and Telegram's signatures. It could revive a cancelled export only together with the owner's original signature, which the cancel wiped (compare SG-05 for destination revocations).
+
+**Tests:**
+- `server/src/signer/export.test.ts`: normal release, wrong Telegram user, wrong wallet, replay, expiry, cancellation, release after cancel, duplicate release, phishing relay, edited rows.
+- `server/src/signer/exportStore.test.ts`: one open export, and each step once, on SQLite, PGlite and PostgreSQL with two instances.
+- `server/src/bot/recovery.test.ts`: the notice and its buttons, cancel by another Telegram account, a notice that can't be delivered, the Recovery screen.
+- `server/src/api/api.test.ts`: another site's page can't reach the export routes.
+- `scripts/e2e-telegram.mjs`: the web flow end to end, in a browser.
+
+**Deploy order:** the signer first (migration v3 adds `signer_exports`; the new signer refuses an older app's export before anything is used), then the app, then the web.
 
 ## 5. KMS: OpenBao on the VPS versus AWS KMS
 

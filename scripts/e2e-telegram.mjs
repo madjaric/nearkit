@@ -6,7 +6,7 @@
 // fake network) and the page (request routing). Nothing touches a live network, and
 // the real bot token is never read (NEARKIT_ENV_FILE points nowhere).
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -104,10 +104,15 @@ if (build.status !== 0) process.exit(1)
 const data = mkdtempSync(join(tmpdir(), 'nearkit-e2e-tg-'))
 const serverLog = []
 const guard = pathToFileURL(join(ROOT, 'scripts', 'lib', 'fetch-guard.mjs')).href
-const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', guard, join(ROOT, 'dist-server', 'main.js')], {
+const clockShift = pathToFileURL(join(ROOT, 'scripts', 'lib', 'clock-shift.mjs')).href
+// The server's clock can be moved forward from here (an export's 24-hour hold): see shiftClock.
+const CLOCK_FILE = join(data, 'clock-offset-ms')
+writeFileSync(CLOCK_FILE, '0')
+const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', guard, '--import', clockShift, join(ROOT, 'dist-server', 'main.js')], {
   cwd: ROOT,
   env: {
     NEARKIT_E2E_FAKE_HTTP: RPC_URL,
+    NEARKIT_E2E_CLOCK_FILE: CLOCK_FILE,
     PATH: process.env.PATH,
     SYSTEMROOT: process.env.SYSTEMROOT,
     NEARKIT_ENV_FILE: join(data, 'no-such-file'),
@@ -1085,6 +1090,115 @@ await step('the Mini App: a direct open from Telegram is a plain landing, outsid
   if ((await tg.getByRole('button', { name: 'Approve' }).count()) !== 0) throw new Error('an unknown request offered Approve')
   await tg.close()
 })
+
+/** Moves the server's clock forward (scripts/lib/clock-shift.mjs reads it within 100 ms). */
+let clockOffset = 0
+const shiftClock = async (ms) => {
+  clockOffset += ms
+  writeFileSync(CLOCK_FILE, String(clockOffset))
+  await new Promise((r) => setTimeout(r, 300))
+}
+const b58decode = (text) => {
+  let n = 0n
+  for (const c of text) {
+    const i = B58.indexOf(c)
+    if (i < 0) throw new Error('not base58')
+    n = n * 58n + BigInt(i)
+  }
+  const bytes = []
+  while (n > 0n) {
+    bytes.unshift(Number(n & 255n))
+    n >>= 8n
+  }
+  for (const c of text) {
+    if (c !== '1') break
+    bytes.unshift(0)
+  }
+  return Uint8Array.from(bytes)
+}
+
+await step(
+  'Export (AUTH-05): the page warns first; the signed export is held and Telegram is told at once (Release it now, Cancel); Recover shows it waiting after a reload; the browser collects it once the hold is over; one cancelled in Telegram is never released',
+  async () => {
+    const ep = await newPage({ accounts: [USER], walletName: 'E2E Test Wallet', signingKey: { jwk, publicKey: PUBLIC_KEY } })
+    page = ep
+    await ep.goto(WEB + '/', { waitUntil: 'networkidle' })
+    await ep.evaluate((a) => sessionStorage.setItem('nearkit:e2e:session', JSON.stringify([a])), USER)
+    const request = async () => {
+      // Opened from Telegram's Export button, the page loads fresh (from /recover itself only the hash would change).
+      await ep.goto(WEB + '/', { waitUntil: 'networkidle' })
+      await ep.goto(`${WEB}/recover#wallet=${mainAddress}`, { waitUntil: 'networkidle' })
+      await ep.getByText(/This releases the wallet’s private key/).waitFor({ timeout: 15000 })
+      const prepare = ep.getByRole('button', { name: 'Prepare the export' })
+      if (await prepare.isEnabled()) throw new Error('the export can be prepared before the warning is acknowledged')
+      await ep.getByText('I understand: anyone with this key controls the wallet.').click()
+      await prepare.click()
+      // The message the owner wallet signs states the hold.
+      await ep.getByText(/Held until: /).waitFor({ timeout: 15000 })
+      const from = tg.sent.length
+      await ep.getByRole('button', { name: 'Sign to request the export' }).click()
+      const notice = await tg.waitFor(TG_USER.id, (x) => x.text.includes('Key export requested'), { from })
+      await ep.getByText(/NEARKITS holds it until/).waitFor({ timeout: 15000 })
+      return notice
+    }
+
+    // 1. Held, and the wallet's Telegram account is told at once, with both buttons, naming the browser key the page shows.
+    const notice = await request()
+    const release = notice.buttons.find((b) => b.text.includes('Release it now'))
+    const cancel = notice.buttons.find((b) => b.text.includes('Cancel export'))
+    if (!/^https:\/\/t\.me\/\w+\?startapp=[A-Za-z0-9_-]{43}$/.test(release?.url ?? '')) throw new Error(`Release it now links to ${release?.url}`)
+    if (!/^cr:xcancel:[A-Za-z0-9_-]{8,64}$/.test(cancel?.callback_data ?? '')) throw new Error(`Cancel export carries ${cancel?.callback_data}`)
+    const browserKey = (
+      await ep
+        .getByText(/^[0-9a-f]{4} [0-9a-f]{4} [0-9a-f]{4} [0-9a-f]{4}$/)
+        .first()
+        .innerText()
+    ).trim()
+    if (!notice.text.includes(browserKey)) throw new Error('Telegram names another browser key than the page shows')
+    if ((await ep.getByRole('button', { name: 'Collect the key' }).count()) !== 0) throw new Error('the key is offered while the export is held')
+
+    // 2. Recover lists it as waiting, from this browser's own store, after the page was left and reloaded.
+    await ep.goto(`${WEB}/recover`, { waitUntil: 'networkidle' })
+    const waiting = ep.getByRole('listitem').filter({ hasText: mainAddress })
+    await ep.getByText('Key exports from this browser').waitFor({ timeout: 15000 })
+    await waiting.getByText('Held', { exact: true }).waitFor({ timeout: 15000 })
+    await shot('tg-11a-export-held')
+
+    // 3. The hold runs out (the server's clock moves 25 hours on): the page offers the key, sealed to its own key.
+    await waiting.getByRole('button', { name: 'Open' }).click()
+    await shiftClock(25 * 60 * 60_000)
+    const collect = ep.getByRole('button', { name: 'Collect the key' })
+    await collect.waitFor({ timeout: 20000 })
+    await shot('tg-11b-export-ready')
+    const from = tg.sent.length
+    await collect.click()
+    await ep.getByRole('button', { name: 'Show the key' }).click()
+    const secret = (await ep.getByLabel('Private key', { exact: true }).innerText()).trim()
+    const raw = b58decode(secret.replace(/^ed25519:/, ''))
+    if (raw.length !== 64 || Buffer.from(raw.subarray(32)).toString('hex') !== mainAddress) throw new Error('the key shown isn’t this NEARKITS wallet’s key')
+    // Telegram hears that it was collected, and never sees the key.
+    await tg.waitFor(TG_USER.id, (x) => x.text.includes('was exported to the browser with the key'), { from })
+    if (tg.sent.some((m) => (m.text ?? '').includes(secret.slice(8)))) throw new Error('the key reached Telegram')
+    await ep.getByRole('button', { name: 'Done: hide the key' }).click()
+    // Collected: this browser forgot its key for that export.
+    await ep.goto(`${WEB}/recover`, { waitUntil: 'networkidle' })
+    if ((await ep.getByText('Key exports from this browser').count()) !== 0) throw new Error('a collected export is still listed as waiting')
+
+    // 4. Another export, cancelled with the button in Telegram: nothing is released, not even after its hold.
+    const second = await request()
+    const cancelData = second.buttons.find((b) => b.text.includes('Cancel export'))?.callback_data
+    const before = tg.sent.length
+    press(TG_USER, cancelData)
+    await tg.waitFor(TG_USER.id, (x) => x.text.includes('Export cancelled'), { from: before })
+    await shiftClock(25 * 60 * 60_000)
+    await ep.getByText('Cancelled in Telegram. Nothing was released.').waitFor({ timeout: 20000 })
+    if ((await ep.getByRole('button', { name: 'Collect the key' }).count()) !== 0) throw new Error('a cancelled export offers the key')
+    await shot('tg-11c-export-cancelled')
+    await ep.getByRole('button', { name: 'Forget it and start again' }).click()
+    await ep.getByText(/This releases the wallet’s private key/).waitFor()
+    await ep.context().close()
+  },
+)
 
 await step('no request left for a live network, and no token in the server log', async () => {
   if (near.state.external.length) throw new Error(`external requests: ${near.state.external.slice(0, 3).join(', ')}`)
