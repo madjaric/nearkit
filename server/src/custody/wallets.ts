@@ -169,6 +169,18 @@ export async function readWallet(near: ServerNear, wallet: TradingWallet): Promi
   }
 }
 
+/**
+ * Another NEARKITS wallet of the same user under the same authority as `wallet`: the same owner wallet,
+ * or both without one (controlled by the same Telegram account). Sends between them need no approval:
+ * the signer checks the same rule from its own sealed keys (siblingHolds) and decides; this is the
+ * app's copy, for the review. Never across owners, never from an owned wallet to an unowned one.
+ */
+export async function siblingWallet(store: Pick<CustodyStore, 'walletByAccount'>, wallet: TradingWallet, to: string): Promise<TradingWallet | null> {
+  const dest = await store.walletByAccount(wallet.network, to)
+  if (!dest || dest.id === wallet.id || dest.userId !== wallet.userId || dest.status !== 'active') return null
+  return (wallet.ownerAccount ? dest.ownerAccount === wallet.ownerAccount : dest.ownerAccount === null) ? dest : null
+}
+
 /** Whether a wallet may be deleted (src/lib/walletDust.ts): never funded, or holding only NEAR dust, and no tokens. */
 export function deletionOf(view: WalletView): DeletionVerdict {
   return deletionVerdict({ exists: view.exists, nearYocto: view.totalNear, lockedYocto: view.lockedNear ?? 0n, tokens: view.tokens, tokensKnown: view.tokensKnown })

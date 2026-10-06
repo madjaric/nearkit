@@ -475,3 +475,51 @@ describe('networks', () => {
     expect(ONE).toBeGreaterThan(0n)
   })
 })
+
+describe('sends between NEARKITS wallets under the same authority (no approval)', () => {
+  const toWallet = (accountId: string, intentId: string) => sign({ intentId, op: withdraw(accountId), plan: transfer(accountId, 5n) })
+
+  it('B: another wallet of the same owner wallet takes the send with no approval', async () => {
+    const sibling = await signer.createKey({ userId: 101, owner: { accountId: OWNER, publicKey: owner.publicKey } })
+    expect((await toWallet(sibling.accountId, 's1')).hash).toBeTruthy()
+  })
+
+  it('a wallet with another owner, or a closed one, still needs an approval', async () => {
+    const theirs = await signer.createKey({ userId: 101, owner: { accountId: 'mallory.testnet', publicKey: owner.publicKey } })
+    await expect(toWallet(theirs.accountId, 's2')).rejects.toThrow(DestinationNotApprovedError)
+    const closed = await signer.createKey({ userId: 101, owner: { accountId: OWNER, publicKey: owner.publicKey } })
+    chain.exists(closed.accountId, false)
+    expect(await signer.eraseKey({ accountId: closed.accountId, reason: 'deleted' })).toBe(true)
+    await expect(toWallet(closed.accountId, 's3')).rejects.toThrow(DestinationNotApprovedError)
+  })
+
+  it('never from a wallet with an owner to one without (owner-signed protection is never handed to Telegram alone)', async () => {
+    const telegramOnly = await signer.createKey({ userId: 101 })
+    await expect(toWallet(telegramOnly.accountId, 's4')).rejects.toThrow(DestinationNotApprovedError)
+  })
+
+  it('a row edited in the signer’s database to name this owner opens nothing: the destination’s key must open under its own binding', async () => {
+    const theirs = await signer.createKey({ userId: 202, owner: { accountId: 'mallory.testnet', publicKey: owner.publicKey } })
+    // Someone with write access to the signer's database relabels Mallory's wallet as this owner's.
+    await db.run('UPDATE signer_keys SET owner_account = ?, user_id = ? WHERE account_id = ?', [OWNER, 101, theirs.accountId])
+    await expect(toWallet(theirs.accountId, 's5')).rejects.toThrow(DestinationNotApprovedError)
+  })
+
+  it('wallets without an owner: another of the same Telegram account’s, yes; another account’s, no', async () => {
+    const mine = await signer.createKey({ userId: 101 })
+    const alsoMine = await signer.createKey({ userId: 101 })
+    const someoneElse = await signer.createKey({ userId: 303 })
+    const from = { accountId: mine.accountId, publicKey: mine.publicKey, network: 'testnet' }
+    const send = (to: string, intentId: string) => signer.sign({ wallet: from, intentId, step: 0, op: withdraw(to), plan: transfer(to, 5n), nonce: 42n, blockHash: BLOCK })
+    expect((await send(alsoMine.accountId, 's6')).hash).toBeTruthy()
+    await expect(send(someoneElse.accountId, 's7')).rejects.toThrow(DestinationNotApprovedError)
+    // …and never into a wallet bound to an owner wallet either: that is not "the same authority".
+    const owned = await signer.createKey({ userId: 101, owner: { accountId: OWNER, publicKey: owner.publicKey } })
+    await expect(send(owned.accountId, 's8')).rejects.toThrow(DestinationNotApprovedError)
+  })
+
+  it('A: an outside address still needs the owner’s approval; C: the owner wallet itself never does', async () => {
+    await expect(sign({ intentId: 's9', op: withdraw('bob.testnet'), plan: transfer('bob.testnet', 5n) })).rejects.toThrow(DestinationNotApprovedError)
+    expect((await sign({ intentId: 's10' })).hash).toBeTruthy()
+  })
+})

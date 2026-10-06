@@ -6,7 +6,7 @@ import { accountKind, isForeignToNetwork } from '@/lib/validation'
 import { WALLET_DUST_YOCTO } from '@/lib/walletDust'
 import { parseEd25519PublicKey, verifyNep413 } from '@/services/near/nep413'
 import { deserializeSignedTransaction, serializeSignedTransaction, serializeTransaction, transactionDigest, type NearTransaction } from '@/services/near/transaction'
-import { generateKey, implicitAccountId, nearPublicKey, secretKeyText, signWithSeed } from '../custody/keys'
+import { generateKey, implicitAccountId, nearPublicKey, publicKeyOf, secretKeyText, signWithSeed } from '../custody/keys'
 import { checkPlan, PolicyViolation, type WalletOperation, type WalletTxPlan } from '../custody/policy'
 import { KeyUnavailableError, type Keyring } from '../custody/vault'
 import { randomBytesArray, randomToken } from '../ids'
@@ -263,16 +263,40 @@ export function createSignerCore(deps: SignerDeps) {
     return launch.startParam === digest
   }
 
+  /**
+   * A destination that is another NEARKITS wallet under the same authority as this one: both bound to
+   * the same owner wallet, or both without one and sealed to the same Telegram account. Moving funds
+   * between them changes nothing about who can take them out, so it needs no approval. Never from a
+   * wallet with an owner to one without (owner-signed protection would become Telegram-only), never to
+   * a wallet with another owner, never to a closed one. The destination's row isn't taken on trust:
+   * its sealed key is opened under its own binding (its owner, or its Telegram account) and must be
+   * that very account's key, so a forged or edited row opens nothing.
+   */
+  async function siblingHolds(key: SignerKey, destination: string): Promise<boolean> {
+    const dest = await store.key(network.id, destination)
+    if (!dest || dest.status !== 'active' || !dest.sealedKey || dest.accountId === key.accountId) return false
+    const sameOwner = key.ownerAccount !== null && dest.ownerAccount === key.ownerAccount
+    const sameController = key.ownerAccount === null && dest.ownerAccount === null && key.userId !== null && dest.userId === key.userId
+    if (!sameOwner && !sameController) return false
+    try {
+      return await withSeed(dest, (seed) => implicitAccountId(publicKeyOf(seed)) === destination)
+    } catch {
+      return false
+    }
+  }
+
   async function authorize(key: SignerKey, op: WalletOperation, plan: readonly WalletTxPlan[], step: number): Promise<void> {
     switch (op.kind) {
       case 'withdraw-near':
       case 'withdraw-token':
         if (key.ownerAccount) {
           if (op.to === key.ownerAccount) return
+          if (await siblingHolds(key, op.to)) return
           if (!(await approvalHolds(key, op.to))) throw new DestinationNotApprovedError(op.to)
           return
         }
-        // No owner wallet: only addresses its Telegram account approved in the Mini App.
+        // No owner wallet: another wallet of its Telegram account, or addresses that account approved in the Mini App.
+        if (await siblingHolds(key, op.to)) return
         if (!(await telegramApprovalHolds(key, op.to))) throw new DestinationNotApprovedError(op.to)
         return
       case 'add-backup-key':

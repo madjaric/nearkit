@@ -86,6 +86,8 @@ export interface WebSendReview {
   amount: string
   to: string
   linked: boolean
+  /** The destination is another of the user's NEARKITS wallets under the same owner (its name): no approval is needed. */
+  sibling?: string | null
   feeNear: string
   registration: string | null
   fresh: boolean

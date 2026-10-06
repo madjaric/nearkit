@@ -356,7 +356,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
               <SimulationNote
                 real={
                   source && executesViaNearKit(source)
-                    ? `NEARKITS’ server sends each line from ${ownShare ? source.label : 'its own NEARKITS wallet'} (no wallet prompt), to its owner wallet or addresses approved for it.`
+                    ? `NEARKITS’ server sends each line from ${ownShare ? source.label : 'its own NEARKITS wallet'} (no wallet prompt), to its owner wallet, your other NEARKITS wallets under the same owner, or addresses approved for it.`
                     : undefined
                 }
               />

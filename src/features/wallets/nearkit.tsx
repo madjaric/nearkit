@@ -630,7 +630,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
           </Line>
           <Line label="To">
             <span className="num">{r.review.to}</span>
-            {r.review.linked ? ' · your linked wallet' : ''}
+            {r.review.linked ? ' · your linked wallet' : r.review.sibling ? ` · your NEARKITS wallet ${r.review.sibling} (same owner: no approval needed)` : ''}
           </Line>
           <Line label="Network fee (est.)">
             <Figures>{`${fee} NEAR`}</Figures>

@@ -9,8 +9,9 @@ export interface OwnWallet {
 
 /**
  * A shortcut for a send's destination: one of the user's own NearKit wallets, by name. It only
- * fills the field with that wallet's full account id; the address is still checked, reviewed and
- * (when the custody rules ask for it) approved like any other. Nothing is sent from here.
+ * fills the field with that wallet's full account id; the address is still checked and reviewed.
+ * A wallet under the same owner needs no approval (the signer checks it); one with another owner is
+ * approved like any other address. Nothing is sent from here.
  */
 export function OwnWalletPicker({ wallets, value, onPick, exclude }: { wallets: readonly OwnWallet[]; value: string; onPick: (accountId: string) => void; exclude?: string }) {
   const choices = wallets.filter((w) => w.accountId !== exclude)

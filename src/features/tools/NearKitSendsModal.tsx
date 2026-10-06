@@ -203,9 +203,9 @@ export function NearKitSendsModal({
           <p role="alert" className="text-sm text-fg-2">
             {wallet
               ? perLine
-                ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved yet for the wallet sending to it. A NEARKITS wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
-                : `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NEARKITS wallet sends only to its owner wallet and to addresses approved for it: approve each once (the link opens in a new tab), then review again.`
-              : `${into.label} isn’t approved yet for ${needs} of these NEARKITS wallets. A NEARKITS wallet sends only to its owner wallet and to addresses approved for it: approve it once for each (the links open in a new tab), then review again.`}
+                ? `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved yet for the wallet sending to it. A NEARKITS wallet sends only to its owner wallet, your other NEARKITS wallets under the same owner, or addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+                : `${needs} ${needs === 1 ? 'address isn’t' : 'addresses aren’t'} approved for ${wallet.label} yet. A NEARKITS wallet sends only to its owner wallet, your other NEARKITS wallets under the same owner, or addresses approved for it: approve each once (the link opens in a new tab), then review again.`
+              : `${into.label} isn’t approved yet for ${needs} of these NEARKITS wallets: it has another owner, or isn’t a NEARKITS wallet of yours. A NEARKITS wallet sends only to its owner wallet, your other NEARKITS wallets under the same owner, or addresses approved for it: approve it once for each (the links open in a new tab), then review again.`}
           </p>
         )}
         {phase === 'done' && (

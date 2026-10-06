@@ -294,7 +294,7 @@ export function Consolidate() {
               <SimulationNote
                 real={
                   family === 'nearkit'
-                    ? `NEARKITS’ server sends from each NEARKITS wallet (no wallet prompt), into ${destination?.label ?? 'the destination'} only if it is that wallet’s owner wallet or an address approved for it.`
+                    ? `NEARKITS’ server sends from each NEARKITS wallet (no wallet prompt), into ${destination?.label ?? 'the destination'}: another of your NEARKITS wallets under the same owner needs no approval; any other address only if it is that wallet’s owner wallet or approved for it.`
                     : undefined
                 }
               />

@@ -284,6 +284,34 @@ NearKit web and Telegram are two independent clients of the same NearKit wallets
 - A compromised real origin can read the session from storage and act as the user on NearKit web (R5).
 - Mitigations: 7-day sessions, "Sign out of NearKit web everywhere" in Telegram, one-time links that never touch a server log, rate limits.
 
+## 5d. Sends between a user's own wallets, and deleting dust (2026-10-06)
+
+Two signer rules changed. Both are in `server/src/signer/core.ts` and covered by `server/src/signer/core.test.ts`.
+
+**Sibling sends (`siblingHolds` in `authorize`).** A withdrawal may go, with no approval, to another NEARKITS wallet under the same authority:
+- both wallets are bound to the same owner wallet; or
+- both have no owner and are sealed to the same Telegram account.
+
+It is refused in every other case:
+- from a wallet with an owner to one without (owner-signed protection would become Telegram-only, R9);
+- to a wallet with another owner;
+- to a closed wallet;
+- to the wallet itself.
+
+The destination's `signer_keys` row is not trusted as stored. Its sealed key is opened under its own binding (v2 owner or v3 controller), and the key must be that account's own. A row edited to name this owner or this Telegram user therefore opens nothing (test: "a row edited in the signer's database…").
+
+Funds moved this way stay under exactly the same authority, so nothing becomes reachable that wasn't before. Outside addresses, other users' wallets and differently owned wallets keep the approval flow. The app (`siblingWallet`) and the bot mirror the rule only for the review; the signer decides. The app also refuses to send into a frozen wallet.
+
+**Dust deletion (`erase-key` with reason `deleted`).** A key is erased when the account is either:
+- never funded; or
+- holding under 0.05 NEAR (`WALLET_DUST_YOCTO`, `src/lib/walletDust.ts`) with nothing staked.
+
+In both cases every token contract the app lists must read zero. The signer reads these with its own RPC quorum. The dust left on chain is recorded in the `key-erased` event.
+
+A compromised app could leave tokens out of the list. That is within §2.4 (it can already trade into a token of its choosing); before this change, a never-funded wallet holding tokens could be erased with no check at all.
+
+Deploy order: the signer first. An older signer refuses an `erase-key` request that carries `tokens`.
+
 ## 5. KMS: OpenBao on the VPS versus AWS KMS
 
 What stays the same:

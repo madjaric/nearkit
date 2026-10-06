@@ -13,7 +13,7 @@ import { friendlyError } from '../bot/ui'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import type { Intent, IntentKind, TradingWallet } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
-import { createTradingWallet, deleteWallet, ownerForNewWallet, undeletableText, WalletLimitError, type CustodyDeps } from '../custody/wallets'
+import { createTradingWallet, deleteWallet, ownerForNewWallet, siblingWallet, undeletableText, WalletLimitError, type CustodyDeps } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import type { Store } from '../db/store'
 import { randomToken } from '../ids'
@@ -426,8 +426,11 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
         // Not enough NEAR is about the amount; anything else is about the address.
         throw new HttpError(400, /^INSUFFICIENT/.test(error.code) ? 'amount' : 'to', error.message)
       }
-      // The custody rule the signer enforces: the owner, or an address approved for this wallet.
-      const approved = to === wallet.ownerAccount || (await custody.signer.destinations(wallet.accountId)).destinations.some((d) => d.destination === to)
+      // The custody rule the signer enforces: the owner, another of the user's wallets under the same
+      // authority (same owner wallet, or both Telegram-controlled), or an address approved for this wallet.
+      const sibling = await siblingWallet(custody.store, wallet, to)
+      if (sibling?.frozenAt) throw new HttpError(409, 'frozen', `${walletName(sibling)} is frozen: NEARKITS doesn’t send into a frozen wallet. Nothing was prepared.`)
+      const approved = to === wallet.ownerAccount || sibling !== null || (await custody.signer.destinations(wallet.accountId)).destinations.some((d) => d.destination === to)
       if (!approved) {
         if (wallet.ownerAccount)
           throw new HttpError(
@@ -462,6 +465,7 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
           amount: input.amount,
           to,
           linked: input.linked,
+          sibling: sibling ? walletName(sibling) : null,
           feeNear: review.feeNear,
           registration: review.registration,
           fresh: review.fresh,

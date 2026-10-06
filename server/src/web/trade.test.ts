@@ -402,3 +402,59 @@ describe('Send from NEARKITS web: reviewed and executed on the web', () => {
     await expect(call('/api/web/send/execute', { session: token, intentId: mine.intentId })).rejects.toMatchObject({ status: 409, code: 'paused' })
   })
 })
+
+describe('the four kinds of destination for a NEARKITS wallet', () => {
+  it('B: Consolidate into another of the user’s wallets under the same owner needs no approval: each line reviews and sends', async () => {
+    const { h, call, signIn, wallets, account, near } = await webApp()
+    const token = await signIn()
+    // Main and two more wallets, all bound to the same owner wallet.
+    const [a, b, dest] = await wallets(token, 2)
+    h.chain.fund(await account(b as string), ONE)
+    const to = await account(dest as string)
+    const before = await near(dest as string)
+    for (const from of [a, b]) {
+      const r = await call('/api/web/send/review', { session: token, walletId: from, token: 'near', amount: '0.2', to })
+      expect(r.review).toMatchObject({ to, sibling: 'Degen 2' })
+      await call('/api/web/send/execute', { session: token, intentId: r.intentId })
+      await webRunsSettled()
+      expect(await call('/api/web/send/status', { session: token, intentId: r.intentId })).toMatchObject({ status: 'done' })
+    }
+    expect((await near(dest as string)) - before).toBe((2n * ONE) / 5n)
+  })
+
+  it('A: an outside address still needs the owner’s approval; C: the owner wallet (connected or not) needs none', async () => {
+    const { call, signIn, wallets } = await webApp()
+    const token = await signIn()
+    const [a] = await wallets(token, 0)
+    await expect(call('/api/web/send/review', { session: token, walletId: a, token: 'near', amount: '0.1', to: 'bob.testnet' })).rejects.toMatchObject({
+      status: 409,
+      code: 'needs-approval',
+    })
+    expect((await call('/api/web/send/review', { session: token, walletId: a, token: 'near', amount: '0.1', to: LINKED })).review).toMatchObject({ to: LINKED, sibling: null })
+  })
+
+  it('another user’s NEARKITS wallet is an outside address: approval needed', async () => {
+    const { call, signIn, wallets, custody } = await webApp()
+    const alice = await signIn()
+    const [a] = await wallets(alice, 0)
+    const bob = await signIn(BOB)
+    const r = await call('/api/web/wallets/create', { session: bob, name: 'Bobs', createKey: 'web-bob-0001' })
+    const bobs = (r.wallet as { accountId: string }).accountId
+    expect((await custody.store.walletByAccount('testnet', bobs))?.userId).toBe(BOB.id)
+    await expect(call('/api/web/send/review', { session: alice, walletId: a, token: 'near', amount: '0.1', to: bobs })).rejects.toMatchObject({
+      status: 409,
+      code: 'needs-approval',
+    })
+  })
+
+  it('a frozen wallet of the same user is not sent into', async () => {
+    const { call, signIn, wallets, account, custody } = await webApp()
+    const token = await signIn()
+    const [a, frozen] = await wallets(token, 1)
+    await custody.store.setFrozen(frozen as string, 'test')
+    await expect(call('/api/web/send/review', { session: token, walletId: a, token: 'near', amount: '0.1', to: await account(frozen as string) })).rejects.toMatchObject({
+      status: 409,
+      code: 'frozen',
+    })
+  })
+})

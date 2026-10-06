@@ -5,7 +5,7 @@ import { accountState } from '@/services/near/account'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import { ownerKeyNow } from '../custody/recovery'
 import type { Intent, TradingWallet } from '../custody/store'
-import { createTradingWallet, ownerForNewWallet, readWallet, WalletLimitError, type WalletView } from '../custody/wallets'
+import { createTradingWallet, ownerForNewWallet, readWallet, siblingWallet, WalletLimitError, type WalletView } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import { randomToken } from '../ids'
 import { bold, code, esc, plainText, shortAccount } from '../telegram/html'
@@ -359,11 +359,15 @@ export function withdrawReviewText(deps: BotDeps, input: WithdrawInput, review: 
   ].join('\n')
 }
 
-/** The wallet's owner, and destinations the owner approved (read from the signer, which enforces them). */
+/**
+ * The wallet's owner, another of the user's wallets under the same authority (siblingWallet), and
+ * destinations the owner approved (read from the signer, which enforces all of them).
+ */
 async function approvedDestination(ctx: BotCtx, w: TradingWallet, to: string): Promise<boolean> {
   if (w.ownerAccount && to === w.ownerAccount) return true
   const custody = ctx.deps.custody
   if (!custody) return false
+  if (await siblingWallet(custody.store, w, to)) return true
   return (await custody.signer.destinations(w.accountId)).destinations.some((d) => d.destination === to)
 }
 
