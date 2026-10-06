@@ -1,5 +1,9 @@
 import { MAX_BOT_WALLETS, MAX_TWAP_SEC, MIN_EDGE_BPS, MIN_INTERVAL_SEC, MIN_TWAP_SEC } from '@/lib/volumeBot/config'
 import { NEARKIT_FEE_LABEL, RHEA_APP_FEE_SHARE_LABEL } from '@/lib/fees'
+import { MAX_ACTIVE_WALLETS_PER_USER } from '@/lib/walletLimits'
+
+/** A bot trades from the user's own NEARKITS wallets: never more than a user can have. */
+const BOT_WALLETS = Math.min(MAX_BOT_WALLETS, MAX_ACTIVE_WALLETS_PER_USER)
 
 /**
  * The public Volume Bot page's words, kept apart so the page and its structured data (FAQPage)
@@ -27,8 +31,8 @@ const minutes = (sec: number) => Math.round(sec / 60)
 
 export const SPECS: { label: string; value: string; note: string }[] = [
   { label: 'Strategies', value: '3', note: 'Market maker · accumulate · distribute' },
-  { label: 'Wallets per bot', value: `Up to ${MAX_BOT_WALLETS}`, note: 'NEARKITS wallets only' },
-  { label: 'Least edge', value: `${(MIN_EDGE_BPS / 100).toFixed(2)}%`, note: 'Over fair value, after every fee' },
+  { label: 'Wallets per bot', value: `Up to ${BOT_WALLETS}`, note: 'Your own NEARKITS wallets only' },
+  { label: 'Minimum edge', value: `${(MIN_EDGE_BPS / 100).toFixed(2)}%`, note: 'Over fair value, after every fee' },
   { label: 'Fastest check', value: `${MIN_INTERVAL_SEC} s`, note: 'Between evaluations' },
 ]
 
@@ -63,7 +67,7 @@ export const FAQ: FaqEntry[] = [
   },
   {
     q: 'Which wallets can it trade from?',
-    a: `Only your own NEARKITS wallets, up to ${MAX_BOT_WALLETS} per bot. Watch-only accounts, wallets you connect in the browser and wallets NEARKITS has frozen are never used. Each trade comes from one wallet and settles there.`,
+    a: `Only your own NEARKITS wallets, up to ${BOT_WALLETS} per bot (all a user can have). Watch-only accounts, wallets you connect in the browser and wallets NEARKITS has frozen are never used. Each trade comes from one wallet and settles there.`,
   },
   {
     q: 'How do I stop it?',
@@ -72,6 +76,18 @@ export const FAQ: FaqEntry[] = [
   {
     q: 'Does it keep running when I close the page?',
     a: 'Yes. It runs on NEARKITS’s server, step by step under a lease so it is never run twice, and picks up where it was after a restart. NEARKITS tells you in Telegram when a bot starts and when the guardian pauses it.',
+  },
+  {
+    q: 'Will it make my token trend, or add liquidity to its pool?',
+    a: 'No. It swaps against the pools Rhea routes through and adds no liquidity to them. It has no volume target, and NEARKITS promises no trending spot, volume, liquidity, makers or profit: the volume the console shows is only what its own trades add up to.',
+  },
+  {
+    q: 'Do I need exchange API keys or a server of my own?',
+    a: 'No. It runs on NEARKITS’s server and trades from your NEARKITS wallets, whose keys NEARKITS holds for you (they are custodial). You set it up and watch it in the console on NEARKITS web; Telegram can pause, resume and stop it with /volume.',
+  },
+  {
+    q: 'What does it do when market data is missing?',
+    a: 'It doesn’t guess. With no fresh liquidity figure while you set a liquidity floor it pauses and says why; with no sell route, or a price impact it can’t measure, it waits instead of trading.',
   },
   {
     q: 'Which tokens can it trade?',

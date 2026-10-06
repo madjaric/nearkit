@@ -128,9 +128,9 @@ export default function VolumeBotPage() {
               <h1 className="mt-3 text-[length:clamp(1.75rem,5vw,2.75rem)] font-bold leading-[1.12] tracking-[-0.01em] text-fg" style={{ fontStretch: '108%' }}>
                 {VOLUME_BOT_TITLE}
               </h1>
-              <p className="mt-5 max-w-[62ch] text-lg leading-8 text-fg-2">
+              <p className="mt-5 max-w-[38rem] text-lg leading-8 text-fg-2">
                 <F>
-                  {`A trading bot that runs on NEARKITS’s server and trades from your NEARKITS wallets: a market maker that buys below fair value and sells above it only with an edge of at least ${(MIN_EDGE_BPS / 100).toFixed(2)}% after every fee, or TWAP accumulate and distribute over ${TWAP_RANGE}. Every trade takes the same route, checks and fee as one you make by hand.`}
+                  {`A trading bot that runs on NEARKITS’s server and trades from your NEARKITS wallets: a market maker that buys below its fair-value estimate and sells above it, only when the price after every fee beats that estimate by at least ${(MIN_EDGE_BPS / 100).toFixed(2)}%, or TWAP accumulate and distribute over ${TWAP_RANGE}. Every trade takes the same route, checks and fee as one you make by hand.`}
                 </F>
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
@@ -141,6 +141,9 @@ export default function VolumeBotPage() {
                   How it works
                 </a>
               </div>
+              <p className="mt-4 max-w-[38rem] text-sm leading-6 text-fg-3">
+                It can lose money. It swaps against Rhea’s existing pools and adds no liquidity to them, and NEARKITS promises no volume, profit, liquidity or returns.
+              </p>
               <p className="mt-6 text-xs text-fg-3">
                 Updated <time dateTime={VOLUME_BOT_UPDATED}>{UPDATED}</time>
               </p>
@@ -192,8 +195,8 @@ export default function VolumeBotPage() {
               <Section id="what">
                 <p>
                   A trading bot watches a market and places trades by rules you set, so you don’t have to sit at the screen. The NEARKITS Volume Bot is one for NEAR: you choose a
-                  token, a strategy, the wallets it may use and every limit, and it trades that token against NEAR through <Ref href={LINKS.rhea}>Rhea</Ref>, the main exchange on
-                  NEAR.
+                  token, a strategy, the wallets it may use and every limit, and it trades that token against NEAR through <Ref href={LINKS.rhea}>Rhea</Ref>, a decentralized
+                  exchange on NEAR.
                 </p>
                 <p>
                   It is not a separate wallet or a script you run. It runs on NEARKITS’s server and trades from your NEARKITS wallets through the same path as a trade you confirm
@@ -252,6 +255,7 @@ export default function VolumeBotPage() {
                     </>,
                   ]}
                 />
+                <p>TWAP (time-weighted average price) execution splits one order into slices spread over a period, so no single trade has to move the price much.</p>
                 <p>Trade size is fixed, drawn from a range, a share of the wallet or a share of the inventory, and can be capped at a share of the pool’s liquidity.</p>
               </Section>
 

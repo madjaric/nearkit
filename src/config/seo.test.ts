@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { FAQ } from '@/features/volumeBot/content'
 import { BETA_COMING_SOON } from './release'
-import { AI_CRAWLERS, headHtml, headTags, isNoindexPath, jsonLdText, llmsTxt, pageGraph, pageSeo, publicPages, PRIVATE_PATHS, robotsTxt, siteGraph } from './seo'
+import { AI_CRAWLERS, headHtml, headTags, isNoindexPath, jsonLdText, kitDescription, llmsTxt, pageGraph, pageSeo, publicPages, PRIVATE_PATHS, robotsTxt, siteGraph } from './seo'
 import { SITEMAP_PATHS } from './site'
 
 const URL = 'https://nearkits.com'
@@ -105,5 +105,43 @@ describe('crawler files', () => {
     const txt = llmsTxt(URL)
     expect(txt.startsWith('# NEARKITS\n\n> ')).toBe(true)
     for (const p of publicPages().filter((x) => x.path !== '/')) expect(txt).toContain(`(https://nearkits.com${p.path}): ${p.description}`)
+  })
+
+  it('llms.txt says who signs, where withdrawals go, the risks, what $KIT is and what is coming soon, and links the bot', () => {
+    const txt = llmsTxt(URL, 'NearKitBot')
+    expect(txt).toContain('[@NearKitBot](https://t.me/NearKitBot)')
+    expect(txt).toMatch(/NEARKITS wallets are custodial/)
+    expect(txt).toMatch(/owner wallet/)
+    expect(txt).toMatch(/can lose money/)
+    expect(txt).toContain(kitDescription())
+    expect(txt).toMatch(/Coming soon[^\n]*limit orders[^\n]*DCA[^\n]*copy trading[^\n]*sniper/i)
+    expect(llmsTxt(URL)).not.toContain('t.me/')
+  })
+})
+
+describe('structured data as one graph', () => {
+  it('every @id a page’s nodes refer to is a node of that page: no orphans, no dangling links', () => {
+    const URL2 = 'https://nearkits.com'
+    for (const p of publicPages()) {
+      const graph = [...siteGraph(URL2, 'NearKitBot'), ...pageGraph(URL2, p.path)] as Record<string, unknown>[]
+      const ids = new Set(graph.map((n) => n['@id']).filter(Boolean))
+      const refs: string[] = []
+      const walk = (v: unknown, top: boolean) => {
+        if (Array.isArray(v)) return v.forEach((x) => walk(x, false))
+        if (!v || typeof v !== 'object') return
+        const o = v as Record<string, unknown>
+        if (!top && typeof o['@id'] === 'string' && Object.keys(o).length === 1) refs.push(o['@id'])
+        for (const [k, x] of Object.entries(o)) if (k !== '@id') walk(x, false)
+      }
+      graph.forEach((n) => walk(n, true))
+      for (const r of refs) expect(ids.has(r), `${p.path}: ${r}`).toBe(true)
+    }
+    const bot = pageGraph(URL2, '/volume-bot') as Record<string, unknown>[]
+    expect(bot.map((n) => n['@id'])).toEqual([
+      'https://nearkits.com/volume-bot#webpage',
+      'https://nearkits.com/volume-bot#app',
+      'https://nearkits.com/volume-bot#breadcrumb',
+      'https://nearkits.com/volume-bot#faq',
+    ])
   })
 })

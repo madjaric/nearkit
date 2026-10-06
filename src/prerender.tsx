@@ -25,8 +25,9 @@ export const fileOf = (path: string) => (path === '/' ? 'index.html' : `${path.s
 
 /**
  * What a visitor without JavaScript (and a crawler that runs none) reads on an app page: its
- * heading, what it does, and every other public page. With JavaScript it is never shown; the app
- * renders the page itself.
+ * heading, what it does, and every other public page by name (their descriptions are their own
+ * pages': listed here too, every page would read alike). With JavaScript it is never shown; the
+ * app renders the page itself.
  */
 function NoScript({ page, pages }: { page: PageSeo; pages: PageSeo[] }) {
   const heading = page.path === '/' ? HOME_TITLE : page.title.replace(/ · NEARKITS$/, '')
@@ -44,7 +45,6 @@ function NoScript({ page, pages }: { page: PageSeo; pages: PageSeo[] }) {
                 <a href={p.path} className="text-fg underline">
                   {p.name}
                 </a>
-                <span className="text-fg-3">: {p.description}</span>
               </li>
             ))}
         </ul>
@@ -83,9 +83,17 @@ export function siteFiles(template: string, publicUrl: string): Record<string, s
   }
   // Every other route of the app (a token, the tools' insides): the site's head and no canonical, which the app sets as it renders.
   files['app.html'] = page(headHtml(publicUrl, '/app', bot))
-  files['404.html'] = page(headHtml(publicUrl, '/404', bot, { robots: 'noindex', title: 'Page not found · NEARKITS' }))
+  const notFound: PageSeo = {
+    path: '/404',
+    name: 'Not found',
+    title: 'Page not found · NEARKITS',
+    description: 'There is no page at this address. These are the pages NEARKITS has.',
+  }
+  files['404.html'] = page(headHtml(publicUrl, '/404', bot, { robots: 'noindex', title: notFound.title }), {
+    noscript: renderToStaticMarkup(<NoScript page={notFound} pages={pages} />),
+  })
   files['robots.txt'] = robotsTxt(publicUrl)
   files['sitemap.xml'] = sitemapXml(publicUrl)
-  files['llms.txt'] = llmsTxt(publicUrl)
+  files['llms.txt'] = llmsTxt(publicUrl, bot)
   return files
 }

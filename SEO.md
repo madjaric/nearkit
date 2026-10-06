@@ -14,17 +14,18 @@ nearkits.com as its canonical address).
 | `/volume-bot` | "NEAR trading bot", "market making on NEAR" | yes | `volume-bot.html`: whole page prerendered, no script |
 | `/kit` | The $KIT token (not launched: no price, contract or supply claimed) | yes | `kit.html` |
 | `/telegram`, `/docs` | Telegram bot, documentation | yes | `<path>.html` |
-| `/token/:id` | A token's page | yes (not in sitemap) | `app.html`; canonical set by the app |
+| `/token/:id` | A token's page | a token NEARKITS lists: yes (not in sitemap); one only looked up by its contract, or one that doesn't exist: **noindex** (set by the app) | `app.html`; head set by the app (`useTokenHead`) |
 | `/wallets`, `/positions`, `/pnl`, `/settings`, `/recover`, `/tg`, `/volume-bot/console` | Personal / app inside | **noindex** | `app.html` + `X-Robots-Tag: noindex` |
 | `/limit-orders`, `/dca`, `/copy-trade`, `/sniper` | COMING SOON in production | **noindex** | `app.html` + `X-Robots-Tag: noindex` |
-| anything else | — | — | `404.html` with status **404** |
+| anything else | — | — | `404.html` with status **404** (with a no-JavaScript summary linking every public page) |
+| `/<page>.html`, `/index.html` | — | — | **308** to the page's own address; `/favicon.ico` serves `favicon-48.png` |
 
 ## How it is built (one source of truth)
 
 - `src/config/seo.ts`: every public page's title, description and name; structured data
   (`Organization`, `WebSite` on every page; `WebPage` per public page; `SoftwareApplication` on `/` and
   `/volume-bot`; `BreadcrumbList` and `FAQPage` only on `/volume-bot`, where both are visible);
-  `robots.txt` (everyone allowed, AI crawlers named explicitly) and `llms.txt`.
+  `robots.txt` (everyone allowed, AI crawlers named explicitly) and `llms.txt` (the pages, the Telegram bot, and key facts: who signs, where withdrawals go, the risks, $KIT, what is coming soon).
 - `src/prerender.tsx` (run by `vite.config.ts` → `prerenderSite` after each build): writes each public
   page's HTML with its own head, `app.html`, `404.html`, `robots.txt`, `sitemap.xml`, `llms.txt`.
 - `useRouteMeta` (`src/lib/hooks.ts`): keeps the same head as the app navigates.
@@ -44,6 +45,9 @@ nearkits.com as its canonical address).
   `vercel.json` (the hosting test fails until both agree), then add it to `SITEMAP_PATHS` with an
   entry in `seo.ts`.
 - `VOLUME_BOT_UPDATED` (`src/features/volumeBot/content.ts`) changes whenever that page's content does.
+- An app page's `<noscript>` summary names its own page in full and every other page by name only, so no two pages read alike without JavaScript.
+- A token page is indexed only for a token NEARKITS lists: anyone can deploy a token and name it anything, and such a page must not become a page of this domain in search results.
+- Copy says who signs: wallets you connect sign their own transactions; NEARKITS wallets are custodial (NEARKITS signs). Never "the bot never holds keys".
 
 ## Owner to-dos (can't be done in code)
 

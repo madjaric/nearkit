@@ -15,7 +15,7 @@ import { canonicalUrl, SITEMAP_PATHS } from './site'
 export const SITE_NAME = 'NEARKITS'
 export const HOME_TITLE = 'NEARKITS — The trading toolkit for NEAR'
 export const HOME_DESCRIPTION =
-  'NEARKITS is the trading toolkit for NEAR: swap tokens through Rhea, trade from many wallets at once, split and batch-send tokens, run a trading bot and track PnL.'
+  'NEARKITS is the trading toolkit for NEAR: swap through Rhea, trade from many wallets at once, split and batch-send tokens, run a trading bot and track PnL.'
 
 /** The link-preview image (1200×630, public/og.png) and the square logo (public/icon-512.png). */
 export const OG_IMAGE = { path: '/og.png', width: 1200, height: 630, alt: 'NEARKITS, the trading toolkit for NEAR' }
@@ -29,7 +29,7 @@ export interface PageSeo {
   name: string
 }
 
-const kitDescription = () =>
+export const kitDescription = () =>
   KIT.status === 'live'
     ? `${KIT.ticker} is the token of NEARKITS, live on NEAR: its contract, where it trades and how to buy it.`
     : `${KIT.ticker} is the token of NEARKITS. It has not launched: no contract, price or supply is published until it does.`
@@ -40,7 +40,7 @@ export function publicPages(): PageSeo[] {
     '/': { title: HOME_TITLE, description: HOME_DESCRIPTION, name: 'Dashboard' },
     '/swap': {
       title: 'Swap NEAR tokens through Rhea · NEARKITS',
-      description: 'Swap any NEP-141 token on NEAR through Rhea. The route is quoted again right before you sign, and every fee is shown in the review.',
+      description: 'Swap NEP-141 tokens on NEAR through Rhea. The route is quoted again right before you sign, and every fee is shown in the review.',
       name: 'Swap',
     },
     '/multi-trade': {
@@ -64,7 +64,7 @@ export function publicPages(): PageSeo[] {
       name: 'Batch Send',
     },
     '/scanner': {
-      title: 'NEAR token scanner: contract facts and risk indicators · NEARKITS',
+      title: 'NEAR token scanner: contract risk indicators · NEARKITS',
       description: 'Contract facts and risk indicators for any NEAR token, read from chain and public indexers, each with its source. Indicators, never verdicts.',
       name: 'Scanner',
     },
@@ -124,7 +124,7 @@ export function siteGraph(publicUrl: string, telegramBot: string | null): Json[]
 }
 
 /** The page itself: written and published by NEARKITS, part of the site; with its date where the page shows one. */
-function webPage(publicUrl: string, path: string): Json {
+function webPage(publicUrl: string, path: string, links: Json = {}): Json {
   const page = pageSeo(path)
   return {
     '@type': 'WebPage',
@@ -136,16 +136,19 @@ function webPage(publicUrl: string, path: string): Json {
     author: { '@id': orgId(publicUrl) },
     publisher: { '@id': orgId(publicUrl) },
     ...(path === VOLUME_BOT_PATH ? { dateModified: VOLUME_BOT_UPDATED } : {}),
+    ...links,
   }
 }
 
 /** What describes this page itself (beyond the site): the page, the app on the home page, the Volume Bot with its breadcrumb and FAQ. */
 export function pageGraph(publicUrl: string, path: string): Json[] {
+  // Each node has its own @id, and the page names what it is about: one graph, no orphans.
   if (path === '/')
     return [
-      webPage(publicUrl, path),
+      webPage(publicUrl, path, { mainEntity: { '@id': `${publicUrl}/#app` } }),
       {
         '@type': 'SoftwareApplication',
+        '@id': `${publicUrl}/#app`,
         name: SITE_NAME,
         url: `${publicUrl}/`,
         applicationCategory: 'FinanceApplication',
@@ -154,11 +157,13 @@ export function pageGraph(publicUrl: string, path: string): Json[] {
         publisher: { '@id': orgId(publicUrl) },
       },
     ]
-  if (path === VOLUME_BOT_PATH)
+  if (path === VOLUME_BOT_PATH) {
+    const url = canonicalUrl(publicUrl, path)
     return [
-      webPage(publicUrl, path),
+      webPage(publicUrl, path, { mainEntity: { '@id': `${url}#app` }, breadcrumb: { '@id': `${url}#breadcrumb` } }),
       {
         '@type': 'SoftwareApplication',
+        '@id': `${url}#app`,
         name: 'NEARKITS Volume Bot',
         url: canonicalUrl(publicUrl, path),
         applicationCategory: 'FinanceApplication',
@@ -168,6 +173,7 @@ export function pageGraph(publicUrl: string, path: string): Json[] {
       },
       {
         '@type': 'BreadcrumbList',
+        '@id': `${url}#breadcrumb`,
         itemListElement: [
           { '@type': 'ListItem', position: 1, name: SITE_NAME, item: `${publicUrl}/` },
           { '@type': 'ListItem', position: 2, name: 'Volume Bot', item: canonicalUrl(publicUrl, path) },
@@ -175,9 +181,12 @@ export function pageGraph(publicUrl: string, path: string): Json[] {
       },
       {
         '@type': 'FAQPage',
+        '@id': `${url}#faq`,
+        isPartOf: { '@id': `${url}#webpage` },
         mainEntity: FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
       },
     ]
+  }
   return pageSeo(path) ? [webPage(publicUrl, path)] : []
 }
 
@@ -263,27 +272,48 @@ export function robotsTxt(publicUrl: string): string {
 }
 
 /** llms.txt: what NEARKITS is and its public pages, for AI assistants (llmstxt.org). */
-export function llmsTxt(publicUrl: string): string {
+/** The features COMING SOON in this build, by name (llms.txt states them plainly). */
+const COMING_SOON_NAMES: Record<string, string> = {
+  '/limit-orders': 'limit orders (take-profit, stop-loss)',
+  '/dca': 'DCA',
+  '/copy-trade': 'copy trading',
+  '/sniper': 'the sniper',
+}
+
+export function llmsTxt(publicUrl: string, telegramBot: string | null = null): string {
   const pages = publicPages()
   const line = (p: PageSeo) => `- [${p.name}](${canonicalUrl(publicUrl, p.path)}): ${p.description}`
-  const tools = pages.filter((p) => p.path !== '/' && p.path !== VOLUME_BOT_PATH && p.path !== '/docs')
-  const bot = pages.find((p) => p.path === VOLUME_BOT_PATH)
-  const docs = pages.find((p) => p.path === '/docs')
+  const apart = new Set(['/', VOLUME_BOT_PATH, '/docs', '/telegram', '/kit'])
+  const tools = pages.filter((p) => !apart.has(p.path))
+  const of = (path: string) => pages.filter((p) => p.path === path).map(line)
+  const soon = BETA_COMING_SOON.map((p) => COMING_SOON_NAMES[p]).filter((x): x is string => Boolean(x))
   return [
     `# ${SITE_NAME}`,
     '',
     `> ${HOME_DESCRIPTION}`,
     '',
-    `${SITE_NAME} is a web app at ${publicUrl}/ with a Telegram bot. It trades on NEAR through Rhea, from wallets you connect (you sign) or from NEARKITS wallets (NEARKITS executes). On mainnet each swap carries the ${NEARKIT_FEE_LABEL} NEARKITS fee, shown in its review.`,
+    `${SITE_NAME} is a web app at ${publicUrl}/${telegramBot ? ` with a Telegram bot, [@${telegramBot}](https://t.me/${telegramBot})` : ' with a Telegram bot'}. It trades on NEAR through Rhea, from wallets you connect (you sign) or from NEARKITS wallets (NEARKITS signs). On mainnet each swap carries the ${NEARKIT_FEE_LABEL} NEARKITS fee, shown in its review; Split, Consolidate and Batch Send carry none.`,
     '',
     '## Tools',
     ...tools.map(line),
     '',
     '## Automated trading',
-    ...(bot ? [line(bot)] : []),
+    ...of(VOLUME_BOT_PATH),
+    '',
+    '## Telegram and the token',
+    ...of('/telegram'),
+    ...of('/kit'),
     '',
     '## Documentation',
-    ...(docs ? [line(docs)] : []),
+    ...of('/docs'),
+    '',
+    '## Key facts',
+    '- NEARKITS wallets are custodial: NEARKITS holds their keys, in a separate signer that keeps each key encrypted under a key held in OpenBao, and signs their trades. Wallets you connect sign every transaction themselves.',
+    '- A NEARKITS wallet withdraws only to its owner wallet, to the same user’s other NEARKITS wallets, or to an address approved once: by the owner wallet’s signature, or in NEARKITS’ Telegram Mini App for a wallet with no owner wallet. Linking an owner wallet is optional.',
+    '- Whoever controls a user’s Telegram account or a signed-in NEARKITS web session can trade that user’s NEARKITS wallets, but not withdraw to an address that wasn’t approved.',
+    '- Trading can lose money: prices move, pools can lose liquidity, and fees and gas apply to every trade. NEARKITS promises no profit, volume, liquidity or returns.',
+    `- ${kitDescription()}`,
+    ...(soon.length ? [`- Coming soon (nothing runs or executes for them yet): ${soon.join(', ')}.`] : []),
     '',
   ].join('\n')
 }

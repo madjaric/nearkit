@@ -60,7 +60,7 @@ function Gate({ children }: { children: ReactNode }) {
                 </a>
               )}
               <Link to={VOLUME_BOT_PATH} className={buttonClass({ variant: 'ghost' })}>
-                How it works
+                How the Volume Bot works
               </Link>
             </span>
           }
@@ -157,7 +157,7 @@ export default function VolumeBotConsolePage() {
         description="Automated trading from your NEARKITS wallets: a market maker with an edge over fair value, or TWAP accumulate and distribute. Every figure is from executed trades."
         actions={
           <Link to={VOLUME_BOT_PATH} className={buttonClass({ variant: 'ghost', size: 'sm' })}>
-            How it works
+            How the Volume Bot works
           </Link>
         }
       />

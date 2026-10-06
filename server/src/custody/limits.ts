@@ -9,7 +9,7 @@
  * unique per user while active), so no race can open an 11th. A deleted or revoked
  * wallet frees its slot: over a lifetime a user may create any number.
  */
-export const MAX_ACTIVE_WALLETS_PER_USER = 10
+export { MAX_ACTIVE_WALLETS_PER_USER } from '@/lib/walletLimits'
 
 /** Wallets a user may create in a day: abuse protection (each is a key and a KMS call), not a trading limit. */
 export const MAX_WALLET_CREATIONS_PER_DAY = 10

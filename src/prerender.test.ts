@@ -60,10 +60,21 @@ describe('the prerendered site', () => {
     expect(files['index.html']).toContain('NEARKITS — The trading toolkit for NEAR</h1>')
   })
 
+  it('each app page reads as its own: the other pages are listed by name, never with their descriptions', () => {
+    const html = files['swap.html'] ?? ''
+    const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'))
+    for (const p of publicPages().filter((x) => x.path !== '/swap')) expect(noscript, p.path).not.toContain(p.description)
+  })
+
   it('the shell names no canonical address and is not indexed alone; the 404 page is never indexed', () => {
     expect(files['app.html']).not.toContain('rel="canonical"')
     expect(files['404.html']).toContain('<meta name="robots" content="noindex" />')
     expect(files['404.html']).toContain('<title>Page not found · NEARKITS</title>')
+    // Without JavaScript it still says so, and where to go.
+    const html = files['404.html'] ?? ''
+    const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'))
+    expect(noscript).toContain('Page not found')
+    for (const p of publicPages()) expect(noscript).toContain(`href="${p.path}"`)
   })
 
   it('refuses a template without its seo block or empty root', () => {

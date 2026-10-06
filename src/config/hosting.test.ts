@@ -69,6 +69,22 @@ describe('hosting (vercel.json)', () => {
     }
   })
 
+  it('a public page’s file name is never a second address: /swap.html, /index.html redirect to the page itself', () => {
+    const redirects = (vercel as unknown as { redirects?: { source: string; destination: string; permanent: boolean }[] }).redirects ?? []
+    const redirectOf = (path: string) => {
+      for (const r of redirects) {
+        const m = new RegExp(`^${r.source.replace(/[.]/g, '\\.')}$`).exec(path)
+        if (m) return { to: r.destination.replace(/\$(\d)/g, (_, i: string) => m[Number(i)] ?? ''), permanent: r.permanent }
+      }
+      return null
+    }
+    expect(redirectOf('/index.html')).toEqual({ to: '/', permanent: true })
+    for (const p of publicPages().filter((x) => x.path !== '/')) expect(redirectOf(`${p.path}.html`), p.path).toEqual({ to: p.path, permanent: true })
+    // The app's own files stay where they are (served by rewrites, never redirected).
+    for (const p of ['/app.html', '/404.html', '/swap', '/token/abc.near']) expect(redirectOf(p), p).toBeNull()
+    expect(rewriteOf('/favicon.ico')).toBe('/favicon-48.png')
+  })
+
   it('sends noindex for every private and COMING SOON page, the shell and the 404 page, and never for a public one', () => {
     for (const p of [...PRIVATE_PATHS, ...BETA_COMING_SOON, '/app.html', '/404.html']) expect(noindexed(p), p).toBe(true)
     for (const p of publicPages()) expect(noindexed(p.path), p.path).toBe(false)

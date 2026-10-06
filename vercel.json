@@ -5,54 +5,166 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/index.html",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/(swap|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs).html",
+      "destination": "/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
-    { "source": "/swap", "destination": "/swap.html" },
-    { "source": "/multi-trade", "destination": "/multi-trade.html" },
-    { "source": "/split", "destination": "/split.html" },
-    { "source": "/consolidate", "destination": "/consolidate.html" },
-    { "source": "/batch-send", "destination": "/batch-send.html" },
-    { "source": "/scanner", "destination": "/scanner.html" },
-    { "source": "/volume-bot", "destination": "/volume-bot.html" },
-    { "source": "/kit", "destination": "/kit.html" },
-    { "source": "/telegram", "destination": "/telegram.html" },
-    { "source": "/docs", "destination": "/docs.html" },
-    { "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg)", "destination": "/app.html" },
-    { "source": "/volume-bot/console", "destination": "/app.html" },
-    { "source": "/token/:id", "destination": "/app.html" }
+    {
+      "source": "/swap",
+      "destination": "/swap.html"
+    },
+    {
+      "source": "/multi-trade",
+      "destination": "/multi-trade.html"
+    },
+    {
+      "source": "/split",
+      "destination": "/split.html"
+    },
+    {
+      "source": "/consolidate",
+      "destination": "/consolidate.html"
+    },
+    {
+      "source": "/batch-send",
+      "destination": "/batch-send.html"
+    },
+    {
+      "source": "/scanner",
+      "destination": "/scanner.html"
+    },
+    {
+      "source": "/volume-bot",
+      "destination": "/volume-bot.html"
+    },
+    {
+      "source": "/kit",
+      "destination": "/kit.html"
+    },
+    {
+      "source": "/telegram",
+      "destination": "/telegram.html"
+    },
+    {
+      "source": "/docs",
+      "destination": "/docs.html"
+    },
+    {
+      "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/volume-bot/console",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/token/:id",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/favicon.ico",
+      "destination": "/favicon-48.png"
+    }
   ],
   "headers": [
     {
       "source": "/((?!tg$).*)",
       "headers": [
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'; object-src 'none'; base-uri 'none'" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), browsing-topics=()" }
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), browsing-topics=()"
+        }
       ]
     },
     {
       "source": "/tg",
       "headers": [
-        { "key": "Content-Security-Policy", "value": "frame-ancestors https://web.telegram.org; object-src 'none'; base-uri 'none'" },
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), browsing-topics=()" }
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors https://web.telegram.org; object-src 'none'; base-uri 'none'"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), browsing-topics=()"
+        }
       ]
     },
     {
       "source": "/(wallets|positions|pnl|settings|recover|tg|limit-orders|dca|copy-trade|sniper|app.html|404.html)",
-      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
     },
     {
       "source": "/volume-bot/console",
-      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
     },
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(brand/.*|og.png|favicon.svg|favicon-48.png|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
+        }
+      ]
     }
   ]
 }

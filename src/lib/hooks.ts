@@ -76,6 +76,37 @@ export function useRouteMeta(pathname: string, notFound = false): void {
   }, [pathname, notFound])
 }
 
+/**
+ * A token's page has no head of its own in the build: any contract can be asked for. Once the token
+ * is known, a token NEARKITS lists gets its own title and description; one only looked up by its
+ * contract (anyone can deploy a token and name it anything) and one that doesn't exist are never
+ * indexed, and name no canonical address.
+ */
+export function useTokenHead(kind: 'loading' | 'missing' | 'unlisted' | 'listed', symbol = '', name = ''): void {
+  useEffect(() => {
+    if (kind === 'loading') return
+    const apply = () => {
+      if (kind !== 'listed') {
+        headTag('name', 'robots', 'noindex')
+        headTag('link', 'canonical', null)
+        headTag('property', 'og:url', null)
+        return
+      }
+      const title = `${symbol} (${name}) on NEAR · NEARKITS`
+      const description = `${symbol} (${name}) on NEAR: its price, market cap, liquidity and volume where the sources have them, its price history and recent trades, with Buy, Sell and Send in NEARKITS.`
+      document.title = title
+      headTag('name', 'description', description)
+      headTag('property', 'og:title', title)
+      headTag('property', 'og:description', description)
+      headTag('name', 'twitter:title', title)
+      headTag('name', 'twitter:description', description)
+    }
+    // After the shell's head for this address: on a first render its effect runs after this one.
+    const t = window.setTimeout(apply, 0)
+    return () => window.clearTimeout(t)
+  }, [kind, symbol, name])
+}
+
 export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (notify) => {

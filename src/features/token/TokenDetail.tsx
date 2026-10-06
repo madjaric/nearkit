@@ -19,7 +19,7 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { cn } from '@/lib/cn'
 import { formatUnits, formatUnitsShown } from '@/lib/amounts'
 import { formatAccount, formatAgo, formatAmount, formatCompact, formatDateTime, formatUsdCompact, formatUsdPrice } from '@/lib/format'
-import { useNow } from '@/lib/hooks'
+import { useNow, useTokenHead } from '@/lib/hooks'
 import { canExecute, executesViaNearKit } from '@/lib/wallets'
 import { describeError } from '@/services/errors'
 import { CHART_RANGES } from '@/services/near/candles'
@@ -61,7 +61,9 @@ export function TokenDetail({ tokenId }: { tokenId: string }) {
   const listed = tokens.data?.find((t) => t.id === tokenId) ?? null
   const lookup = useTokenLookup(tokens.data && !listed && tokenId !== NATIVE_TOKEN_ID ? tokenId : null)
   const token: Token | null = listed ?? lookup.data ?? null
-  if (tokens.isPending || lookup.isFetching)
+  const loading = tokens.isPending || lookup.isFetching
+  useTokenHead(loading ? 'loading' : !token ? 'missing' : listed ? 'listed' : 'unlisted', token?.symbol, token?.name)
+  if (loading)
     return (
       <Panel className="p-5">
         <Skeleton className="h-8 w-48" />
