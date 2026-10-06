@@ -436,6 +436,7 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         equity_near DOUBLE PRECISION,
         pnl_near DOUBLE PRECISION,
         token_pct DOUBLE PRECISION,
+        inventory_tokens DOUBLE PRECISION,
         volume_near DOUBLE PRECISION NOT NULL,
         trades INTEGER NOT NULL,
         PRIMARY KEY (bot_id, at)

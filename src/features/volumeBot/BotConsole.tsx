@@ -6,14 +6,14 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Dialog'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Figures } from '@/components/ui/Figures'
-import { Segmented } from '@/components/ui/Form'
+import { Segmented, Select } from '@/components/ui/Form'
 import { Led, Skeleton, Tag } from '@/components/ui/Indicators'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/toast-context'
 import { cn } from '@/lib/cn'
-import { formatAgo, formatClock, formatDateTime, formatDuration, formatNumber, formatPct, MINUS } from '@/lib/format'
+import { formatAgo, formatClock, formatDateTime, formatDuration, formatNumber, formatPct, formatUntil, MINUS } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import type { BotDetail, BotMetricPoint } from '@/lib/volumeBot/api'
 import { GUARDIAN_LABEL } from '@/lib/volumeBot/risk'
@@ -33,17 +33,22 @@ const signedNear = (v: number | null) => (v === null || !Number.isFinite(v) ? '�
 const price = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : `${formatNumber(v, 0, v < 0.001 ? 10 : 6)} NEAR`)
 const tone = (v: number | null) => (v === null || v === 0 ? 'text-fg' : v > 0 ? 'text-pos' : 'text-neg')
 
-type ChartKey = 'price' | 'pnl' | 'volume' | 'exposure'
-const CHARTS: Record<ChartKey, { label: string; of: (p: BotMetricPoint) => number | null; format: (v: number) => string; empty: string }> = {
+type ChartKey = 'price' | 'pnl' | 'volume' | 'inventory' | 'exposure' | 'trades'
+type ChartSpec = { label: string; of: (p: BotMetricPoint) => number | null; format: (v: number) => string; empty: string }
+const CHART_KEYS: ChartKey[] = ['price', 'pnl', 'volume', 'inventory', 'exposure', 'trades']
+const chartsFor = (symbol: string): Record<ChartKey, ChartSpec> => ({
   price: { label: 'Price', of: (p) => p.priceNear, format: (v) => price(v), empty: 'The price the bot reads, about once a minute while it runs.' },
   pnl: { label: 'PnL', of: (p) => p.pnlNear, format: (v) => signedNear(v), empty: 'Realized and unrealized, from its own trades at the price of the moment.' },
-  volume: { label: 'Volume', of: (p) => p.volumeNear, format: (v) => near(v, 2), empty: 'Executed volume of this run: confirmed trades only.' },
+  volume: { label: 'Volume', of: (p) => p.volumeNear, format: (v) => near(v, 2), empty: 'Executed volume of this run, cumulative: confirmed trades only.' },
+  inventory: { label: 'Inventory', of: (p) => p.inventoryTokens, format: (v) => `${formatNumber(v, 0, 4)} ${symbol}`, empty: 'The tokens the bot holds across its wallets.' },
   exposure: { label: 'Exposure', of: (p) => p.tokenPct, format: (v) => formatPct(v, { decimals: 1 }), empty: 'The share of the bot’s value held in the token.' },
-}
+  trades: { label: 'Trades', of: (p) => p.trades, format: (v) => formatNumber(v, 0, 0), empty: 'Confirmed trades of this run, as they add up.' },
+})
 
 function Charts({ detail }: { detail: BotDetail }) {
   const [chart, setChart] = useState<ChartKey>('price')
-  const spec = CHARTS[chart]
+  const charts = chartsFor(detail.bot.symbol)
+  const spec = charts[chart]
   const points = runPoints(detail.series, detail.bot.startedAt).flatMap((p) => {
     const v = spec.of(p)
     return v === null || !Number.isFinite(v) ? [] : [{ t: p.at, v }]
@@ -54,13 +59,21 @@ function Charts({ detail }: { detail: BotDetail }) {
         title="Run"
         meta={points.length > 0 ? `${points.length} point${points.length === 1 ? '' : 's'}` : undefined}
         actions={
-          <Segmented<ChartKey>
-            label="Chart"
-            size="sm"
-            value={chart}
-            onChange={setChart}
-            options={(Object.keys(CHARTS) as ChartKey[]).map((k) => ({ value: k, label: CHARTS[k].label }))}
-          />
+          <>
+            {/* The switcher fits a wide panel; a narrow one gets the same choice as a menu. */}
+            <div className="hidden lg:block">
+              <Segmented<ChartKey> label="Chart" size="sm" value={chart} onChange={setChart} options={CHART_KEYS.map((k) => ({ value: k, label: charts[k].label }))} />
+            </div>
+            <div className="lg:hidden">
+              <Select selectSize="sm" aria-label="Chart" className="w-36" value={chart} onChange={(e) => setChart(e.target.value as ChartKey)}>
+                {CHART_KEYS.map((k) => (
+                  <option key={k} value={k}>
+                    {charts[k].label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </>
         }
       />
       <div className="p-4">
@@ -88,20 +101,19 @@ function Readouts({ detail, now }: { detail: BotDetail; now: number }) {
   const { bot, metrics } = detail
   const exposure = detail.series.at(-1)?.tokenPct ?? null
   return (
-    <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-      <ReadoutSlot
-        className="col-span-2 md:col-span-1"
-        legend="Volume (run)"
-        value={formatNumber(metrics.volumeNear, 0, 4)}
-        unit="NEAR"
-        sub={`${formatNumber(metrics.volume24hNear, 0, 2)} NEAR in 24h`}
-        size="lg"
-      />
+    <ReadoutStrip cols="grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+      <ReadoutSlot legend="Volume (run)" value={formatNumber(metrics.volumeNear, 0, 4)} unit="NEAR" sub={`${formatNumber(metrics.volume24hNear, 0, 2)} NEAR in 24h`} size="lg" />
       <ReadoutSlot
         legend="PnL"
         value={<span className={tone(bot.pnlNear)}>{signedNear(bot.pnlNear).replace(' NEAR', '')}</span>}
         unit={bot.pnlNear === null ? undefined : 'NEAR'}
-        sub={bot.pnlNear === null ? 'After its first market read' : 'Realized + unrealized'}
+        sub={
+          bot.pnlNear === null
+            ? 'After its first market read'
+            : bot.roiPct !== null
+              ? `${formatPct(bot.roiPct, { signed: true, decimals: 2 })} of its starting value`
+              : 'Realized + unrealized'
+        }
       />
       <ReadoutSlot
         legend="Trades"
@@ -109,6 +121,7 @@ function Readouts({ detail, now }: { detail: BotDetail; now: number }) {
         sub={metrics.successRate === null ? 'None attempted' : `${metrics.failed} failed · ${formatPct(metrics.successRate * 100, { decimals: 0 })} succeeded`}
       />
       <ReadoutSlot legend="Exposure" value={exposure === null ? '—' : formatPct(exposure, { decimals: 1 })} sub="Of its value in the token" />
+      <ReadoutSlot legend="Fees" value={formatNumber(metrics.feesNear, 0, 4)} unit="NEAR" sub={`Gas ${formatNumber(metrics.gasNear, 0, 4)} NEAR`} />
       <ReadoutSlot
         legend="Runtime"
         value={bot.startedAt === null ? '—' : formatDuration(bot.runtimeSec * 1000)}
@@ -150,14 +163,47 @@ function MarketPanel({ detail, now }: { detail: BotDetail; now: number }) {
   )
 }
 
+/** What the bot really did in this run: executed trades only. */
+function AnalyticsPanel({ detail }: { detail: BotDetail }) {
+  const m = detail.metrics
+  return (
+    <Panel>
+      <PanelHeader title="Analytics" meta="This run" />
+      <div className="p-4">
+        <Lines>
+          <Line label="Buy volume">{near(m.buyVolumeNear, 4)}</Line>
+          <Line label="Sell volume">{near(m.sellVolumeNear, 4)}</Line>
+          <Line label="Volume in USD">{m.volumeUsd === null ? 'Unknown' : `$${formatNumber(m.volumeUsd, 2, 2)}`}</Line>
+          <Line label="Average trade">{near(m.avgTradeNear, 4)}</Line>
+          <Line label="Average interval">{m.avgIntervalSec === null ? '—' : formatDuration(m.avgIntervalSec * 1000)}</Line>
+          <Line label="Success rate">{m.successRate === null ? '—' : formatPct(m.successRate * 100, { decimals: 0 })}</Line>
+          <Line label="Failed">{String(m.failed)}</Line>
+          <Line label="ROI">{detail.bot.roiPct === null ? '—' : formatPct(detail.bot.roiPct, { signed: true, decimals: 2 })}</Line>
+        </Lines>
+      </div>
+    </Panel>
+  )
+}
+
 function RiskPanel({ detail }: { detail: BotDetail }) {
   const r = detail.config.risk
   const h = detail.health
+  const b = detail.bot
   const lamp = (n: number, limit: number) => <Led tone={n === 0 ? 'on' : n >= limit ? 'neg' : 'warn'} />
+  const tripped = b.status === 'paused' && b.pauseCode && b.pauseCode !== 'owner'
+  const state = tripped
+    ? { tone: 'warn' as const, text: `Paused: ${GUARDIAN_LABEL[b.pauseCode as GuardianCode] ?? b.pauseReason ?? 'see the log'}` }
+    : b.status === 'running'
+      ? { tone: 'on' as const, text: 'Watching every step' }
+      : { tone: 'off' as const, text: 'Idle while the bot is not running' }
   return (
     <Panel>
       <PanelHeader title="Guardian" />
       <div className="flex flex-col gap-3 p-4">
+        <p className={cn('flex items-center gap-2 text-sm', tripped ? 'text-warn' : 'text-fg-2')}>
+          <Led tone={state.tone} size={8} />
+          <Figures>{state.text}</Figures>
+        </p>
         <Lines>
           <Line label={<span className="flex items-center gap-2">{lamp(h?.consecutiveFailures ?? 0, r.maxConsecutiveFailures)} Failures in a row</span>}>
             {`${h?.consecutiveFailures ?? 0} of ${r.maxConsecutiveFailures}`}
@@ -172,10 +218,20 @@ function RiskPanel({ detail }: { detail: BotDetail }) {
           <Line label="Max slippage · impact">{`${r.maxSlippageBps / 100}% · ${r.maxPriceImpactBps / 100}%`}</Line>
           <Line label="Abnormal move">{`${r.maxPriceMovePct}%`}</Line>
           <Line label="Liquidity floor">{`$${formatNumber(r.minLiquidityUsd, 0, 0)}`}</Line>
+          <Line label="Max spread">{`${r.maxSpreadBps / 100}%`}</Line>
+          <Line label="Gas kept per wallet">{near(r.gasReserveNear, 2)}</Line>
+          <Line label="Most in token (a wallet · all)">{`${r.maxWalletExposurePct}% · ${r.maxAggregateExposurePct}%`}</Line>
         </Lines>
       </div>
     </Panel>
   )
+}
+
+/** A bot wallet's state: it trades, NEARKITS froze it (nothing trades from it), or it was closed. */
+function WalletState({ wallet }: { wallet: BotDetail['wallets'][number] }) {
+  if (wallet.frozen) return <Tag tone="warn">Frozen</Tag>
+  if (wallet.accountId === null) return <Tag tone="neutral">Closed</Tag>
+  return <Tag tone="neutral">Active</Tag>
 }
 
 function Wallets({ detail }: { detail: BotDetail }) {
@@ -194,16 +250,15 @@ function Wallets({ detail }: { detail: BotDetail }) {
                 <Th align="right">Exposure</Th>
                 <Th align="right">PnL</Th>
                 <Th align="right">Trades</Th>
+                <Th align="right">Volume</Th>
+                <Th>Status</Th>
               </tr>
             </thead>
             <tbody>
               {detail.wallets.map((w) => (
                 <Tr key={w.walletId}>
                   <Td>
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-fg">{w.name}</span>
-                      {w.frozen && <Tag tone="warn">Frozen</Tag>}
-                    </span>
+                    <span className="truncate text-fg">{w.name}</span>
                   </Td>
                   <Td align="right" mono>
                     {w.near === null ? '—' : formatNumber(w.near, 0, 4)}
@@ -220,6 +275,12 @@ function Wallets({ detail }: { detail: BotDetail }) {
                   <Td align="right" mono>
                     {w.trades}
                   </Td>
+                  <Td align="right" mono>
+                    {formatNumber(w.volumeNear, 0, 2)}
+                  </Td>
+                  <Td>
+                    <WalletState wallet={w} />
+                  </Td>
                 </Tr>
               ))}
             </tbody>
@@ -229,7 +290,10 @@ function Wallets({ detail }: { detail: BotDetail }) {
           {detail.wallets.map((w) => (
             <li key={w.walletId} className="flex flex-col gap-2 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <span className="truncate text-sm text-fg">{w.name}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm text-fg">{w.name}</span>
+                  <WalletState wallet={w} />
+                </span>
                 <span className={cn('num text-sm', tone(w.pnlNear))}>{signedNear(w.pnlNear)}</span>
               </div>
               <dl className="grid grid-cols-3 gap-2 text-xs">
@@ -243,7 +307,7 @@ function Wallets({ detail }: { detail: BotDetail }) {
                 </div>
                 <div className="text-right">
                   <dt className="legend">Trades</dt>
-                  <dd className="num mt-0.5 text-fg-2">{w.trades}</dd>
+                  <dd className="num mt-0.5 text-fg-2">{`${w.trades} · ${formatNumber(w.volumeNear, 0, 2)} NEAR`}</dd>
                 </div>
               </dl>
             </li>
@@ -293,6 +357,7 @@ function Trades({ detail }: { detail: BotDetail }) {
                 <Th align="right">NEAR</Th>
                 <Th align="right">{symbol}</Th>
                 <Th align="right">Price</Th>
+                <Th align="right">Impact</Th>
                 <Th>Status</Th>
                 <Th align="right">
                   <span className="sr-only">Transaction</span>
@@ -316,6 +381,9 @@ function Trades({ detail }: { detail: BotDetail }) {
                   <Td align="right" mono>
                     {t.priceNear === null ? '—' : formatNumber(t.priceNear, 0, 8)}
                   </Td>
+                  <Td align="right" mono>
+                    {t.impactBps === null ? '—' : formatPct(t.impactBps / 100, { decimals: 2 })}
+                  </Td>
                   <Td title={t.message ?? undefined}>{status(t.status)}</Td>
                   <Td align="right">{tx(t.txHash)}</Td>
                 </Tr>
@@ -337,7 +405,10 @@ function Trades({ detail }: { detail: BotDetail }) {
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3 text-xs text-fg-2">
-                <span className="num">{t.status === 'submitted' ? 'Settling…' : `${formatNumber(t.near, 0, 4)} NEAR · ${formatNumber(t.tokens, 0, 4)} ${symbol}`}</span>
+                <span className="num">
+                  {t.status === 'submitted' ? 'Settling…' : `${formatNumber(t.near, 0, 4)} NEAR · ${formatNumber(t.tokens, 0, 4)} ${symbol}`}
+                  {t.impactBps !== null && ` · impact ${formatPct(t.impactBps / 100, { decimals: 2 })}`}
+                </span>
                 <span className="num text-fg-3">{formatClock(t.at)}</span>
               </div>
               {t.message && t.status === 'failed' && <p className="text-xs text-fg-3">{t.message}</p>}
@@ -379,7 +450,7 @@ function Activity({ detail }: { detail: BotDetail }) {
 /** Confirmation before something consequential: starting real trading, an emergency stop, deleting. */
 type Confirm = 'start' | 'emergency' | 'delete' | null
 
-function BotHead({ detail, onEdit, onDeleted }: { detail: BotDetail; onEdit: () => void; onDeleted: () => void }) {
+function BotHead({ detail, now, onEdit, onDeleted }: { detail: BotDetail; now: number; onEdit: () => void; onDeleted: () => void }) {
   const toast = useToast()
   const caps = useCapabilities()
   const m = useVolumeBotMutations()
@@ -435,7 +506,7 @@ function BotHead({ detail, onEdit, onDeleted }: { detail: BotDetail; onEdit: () 
             </p>
             {bot.status === 'running' && bot.waiting && (
               <p className="mt-1 text-xs text-fg-3">
-                <Figures>{`Now: ${bot.waiting}`}</Figures>
+                <Figures>{`Now: ${bot.waiting}${bot.nextTickAt !== null ? ` · next check ${formatUntil(bot.nextTickAt, now)}` : ''}`}</Figures>
               </p>
             )}
           </div>
@@ -600,7 +671,7 @@ export function BotConsole({ botId, onEdit, onDeleted }: { botId: string; onEdit
   const d = detail.data
   return (
     <div className="flex flex-col gap-4">
-      <BotHead detail={d} onEdit={() => onEdit(d)} onDeleted={onDeleted} />
+      <BotHead detail={d} now={now} onEdit={() => onEdit(d)} onDeleted={onDeleted} />
       <Readouts detail={d} now={now} />
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-4">
@@ -610,6 +681,7 @@ export function BotConsole({ botId, onEdit, onDeleted }: { botId: string; onEdit
         </div>
         <aside className="flex min-w-0 flex-col gap-4">
           <MarketPanel detail={d} now={now} />
+          <AnalyticsPanel detail={d} />
           <RiskPanel detail={d} />
           <Activity detail={d} />
         </aside>

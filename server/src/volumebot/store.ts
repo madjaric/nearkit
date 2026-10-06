@@ -82,6 +82,8 @@ export interface BotMetricPoint {
   equityNear: number | null
   pnlNear: number | null
   tokenPct: number | null
+  /** The bot's token inventory across its wallets, in whole tokens. */
+  inventoryTokens: number | null
   volumeNear: number
   trades: number
 }
@@ -458,8 +460,8 @@ export class VolumeBotStore {
 
   async addMetric(botId: string, m: BotMetricPoint): Promise<void> {
     await this.db.run(
-      'INSERT INTO volume_bot_metrics (bot_id, at, price_near, equity_near, pnl_near, token_pct, volume_near, trades) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
-      [botId, m.at, m.priceNear, m.equityNear, m.pnlNear, m.tokenPct, m.volumeNear, m.trades],
+      'INSERT INTO volume_bot_metrics (bot_id, at, price_near, equity_near, pnl_near, token_pct, inventory_tokens, volume_near, trades) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
+      [botId, m.at, m.priceNear, m.equityNear, m.pnlNear, m.tokenPct, m.inventoryTokens, m.volumeNear, m.trades],
     )
   }
 
@@ -471,15 +473,20 @@ export class VolumeBotStore {
         equity_near: number | null
         pnl_near: number | null
         token_pct: number | null
+        inventory_tokens: number | null
         volume_near: number
         trades: number
-      }>('SELECT at, price_near, equity_near, pnl_near, token_pct, volume_near, trades FROM volume_bot_metrics WHERE bot_id = ? AND at >= ? ORDER BY at', [botId, since])
+      }>('SELECT at, price_near, equity_near, pnl_near, token_pct, inventory_tokens, volume_near, trades FROM volume_bot_metrics WHERE bot_id = ? AND at >= ? ORDER BY at', [
+        botId,
+        since,
+      ])
     ).map((r) => ({
       at: Number(r.at),
       priceNear: num(r.price_near),
       equityNear: num(r.equity_near),
       pnlNear: num(r.pnl_near),
       tokenPct: num(r.token_pct),
+      inventoryTokens: num(r.inventory_tokens),
       volumeNear: Number(r.volume_near),
       trades: Number(r.trades),
     }))

@@ -498,7 +498,16 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
     if (st.lastMetricAt === null || now() - st.lastMetricAt >= METRIC_EVERY_MS) {
       const done = (await store.tradesOfRun(run.id)).filter((t) => t.status === 'confirmed')
       const volume = done.reduce((s, t) => s + (t.nearRaw ? human(t.nearRaw, NEAR_DECIMALS) : 0), 0)
-      await store.addMetric(bot.id, { at: now(), priceNear: market.midNear, equityNear: equity, pnlNear: pnl, tokenPct: inv.tokenPct, volumeNear: volume, trades: done.length })
+      await store.addMetric(bot.id, {
+        at: now(),
+        priceNear: market.midNear,
+        equityNear: equity,
+        pnlNear: pnl,
+        tokenPct: inv.tokenPct,
+        inventoryTokens: inv.tokens,
+        volumeNear: volume,
+        trades: done.length,
+      })
       st.lastMetricAt = now()
     }
 

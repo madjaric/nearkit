@@ -26,7 +26,7 @@ describe('the status lamp', () => {
 })
 
 describe('the run’s chart points', () => {
-  const p = (at: number): BotMetricPoint => ({ at, priceNear: 1, equityNear: 1, pnlNear: 0, tokenPct: 50, volumeNear: 0, trades: 0 })
+  const p = (at: number): BotMetricPoint => ({ at, priceNear: 1, equityNear: 1, pnlNear: 0, tokenPct: 50, inventoryTokens: 10, volumeNear: 0, trades: 0 })
   it('are the current run’s only: an earlier run’s figures never join its line', () => {
     expect(runPoints([p(1), p(5), p(9)], 5).map((x) => x.at)).toEqual([5, 9])
     expect(runPoints([p(1), p(5)], null)).toEqual([])

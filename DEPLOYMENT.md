@@ -77,6 +77,7 @@ Every server process fails closed on its configuration: a missing or doubtful cr
 | `NEARKIT_MAINNET_CUSTODY` | `off` until go-live, then `enabled` | With `enabled`, the signer URL (https), Postgres, the fee account and an https web URL are all required |
 | `NEARKIT_WALLET_KEK` | **unset** | Testnet only; refused on mainnet |
 | `BUYBOT_RUNNER` | `separate` | The app keeps the groups' `/buybot` settings; the buy bot posts |
+| `NEARKIT_VOLUMEBOT_RUNNER` | `app` (default) or `off` | The Volume Bot's worker runs in the app process (no second holder of the signer credential). Each bot is stepped under a database lease, so several app instances never double up. `npm run ops -- pause volumebot <reason>` pauses every bot at once; manual trading goes on |
 | `NEAR_RPC_URL` | two or more mainnet providers | Checked at start |
 
 ### 3.2 Signer (`server/.env.signer.example`)
@@ -169,6 +170,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 |---|---|---|---|
 | Trading | `npm run ops -- pause trading <reason>` | New quotes and Confirms of Buy/Sell from NearKit wallets | Withdrawals, deposits, unwrap, backup key, export, revoke |
 | Withdrawals | `npm run ops -- pause withdrawals <reason>` | Every withdrawal from NearKit wallets | Trading, backup key, owner-signed export (web) |
+| Volume Bots | `npm run ops -- pause volumebot <reason>` | Every Volume Bot: each pauses with the reason "Paused by NEARKITS", nothing new is sent; Start and Resume are refused | Manual trading, withdrawals, everything else |
 | One wallet | `npm run ops -- freeze <wallet or account> <reason>` | That wallet's trades and withdrawals | Its backup key, revoke, unwrap, export |
 | Signer (from the app) | `npm run ops -- signer-pause <reason>` | Every signature, export, approval and erasure | Everything read-only. Only the signer's operator resumes |
 | Signer (on its host) | `npm run signer:admin -- pause/resume <reason>`, `NEARKIT_SIGNER_PAUSED=true`, or the pause file | Same | Same |

@@ -30,6 +30,10 @@ export interface BotSummary {
   volumeNear: number
   /** Realized and unrealized, at the last price read; null before the first read. */
   pnlNear: number | null
+  /** PnL over the value the run started with, in %; null until both are known. */
+  roiPct: number | null
+  /** When the worker looks at it next (a running bot). */
+  nextTickAt: number | null
   priceNear: number | null
   inFlight: number
   lastTradeAt: number | null
@@ -82,6 +86,8 @@ export interface BotMetricPoint {
   equityNear: number | null
   pnlNear: number | null
   tokenPct: number | null
+  /** The bot's token inventory across its wallets, in whole tokens. */
+  inventoryTokens: number | null
   volumeNear: number
   trades: number
 }

@@ -132,8 +132,8 @@ describe.each(TEST_ENGINES)(
       expect((await bots.trades(b.id))[0]).toMatchObject({ status: 'confirmed', nearRaw: '1000', tokenRaw: '99', txHash: 'h', priceNear: 0.01 })
       await bots.event(b.id, 'guardian', 'Abnormal price movement', 'abnormal-price')
       expect((await bots.events(b.id))[0]).toMatchObject({ kind: 'guardian', code: 'abnormal-price' })
-      await bots.addMetric(b.id, { at: now, priceNear: 0.01, equityNear: 10, pnlNear: 0, tokenPct: 50, volumeNear: 1, trades: 1 })
-      expect(await bots.metrics(b.id, 0)).toEqual([{ at: now, priceNear: 0.01, equityNear: 10, pnlNear: 0, tokenPct: 50, volumeNear: 1, trades: 1 }])
+      await bots.addMetric(b.id, { at: now, priceNear: 0.01, equityNear: 10, pnlNear: 0, tokenPct: 50, inventoryTokens: 40, volumeNear: 1, trades: 1 })
+      expect(await bots.metrics(b.id, 0)).toEqual([{ at: now, priceNear: 0.01, equityNear: 10, pnlNear: 0, tokenPct: 50, inventoryTokens: 40, volumeNear: 1, trades: 1 }])
       now += 40 * 86_400_000
       await bots.prune()
       expect(await bots.metrics(b.id, 0)).toEqual([])

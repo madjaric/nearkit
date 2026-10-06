@@ -555,6 +555,7 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
         equity_near REAL,
         pnl_near REAL,
         token_pct REAL,
+        inventory_tokens REAL,
         volume_near REAL NOT NULL,
         trades INTEGER NOT NULL,
         PRIMARY KEY (bot_id, at)

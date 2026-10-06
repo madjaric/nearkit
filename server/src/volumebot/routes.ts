@@ -78,6 +78,8 @@ async function summaryOf(bots: VolumeBotStore, b: VolumeBot, now: number): Promi
     failed: metrics.failed,
     volumeNear: metrics.volumeNear,
     pnlNear: pnl,
+    roiPct: pnl !== null && st?.equity.startNear ? (pnl / st.equity.startNear) * 100 : null,
+    nextTickAt: b.status === 'running' ? b.nextTickAt : null,
     priceNear: price,
     inFlight: trades.filter((t) => t.status === 'submitted').length,
     lastTradeAt: st?.progress.lastTradeAt ?? null,
