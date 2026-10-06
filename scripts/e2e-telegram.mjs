@@ -454,6 +454,8 @@ await step('a sign-in link someone else sent names their account; refused, the b
   const from = tg.sent.length
   say(TG_OTHER, '/web')
   const m = await tg.waitFor(TG_OTHER.id, (x) => x.buttons.some((b) => b.url?.includes('/wallets#login=')), { from })
+  // Opened from Telegram, a link is a page load: leave /wallets first, or the browser only changes the hash.
+  await page.goto(WEB + '/swap', { waitUntil: 'networkidle' })
   await page.goto(m.buttons.find((b) => b.url?.includes('#login=')).url, { waitUntil: 'networkidle' })
   const ask = page.getByRole('dialog', { name: 'Sign in to NEARKITS web?' })
   await ask.getByText('Other (@other)').waitFor()
