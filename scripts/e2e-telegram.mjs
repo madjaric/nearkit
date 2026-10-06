@@ -611,13 +611,16 @@ await step(
     await modal.getByRole('button', { name: 'Review', exact: true }).click()
     await modal.getByText(/friend\.testnet isn’t approved for Main yet/).waitFor()
     await modal.getByRole('button', { name: 'Approve & continue' }).waitFor()
-    // The shortcut to one of the user's own NearKit wallets fills in its full account id, and that
-    // address is reviewed like any other: here it isn't approved either, so nothing is sent.
+    // The shortcut to one of the user's own NEARKITS wallets fills in its full account id. Under the same
+    // owner wallet it needs no approval: the review goes straight through and names it.
     const sniper = (await webApi('/api/web/wallets', {})).json?.wallets?.find((x) => x.name === 'Sniper A')
     await modal.getByLabel('Pick one of my NEARKITS wallets as the destination').selectOption(sniper.accountId)
     if ((await modal.getByLabel('To').inputValue()) !== sniper.accountId) throw new Error('the shortcut did not fill in the full account id')
     await modal.getByRole('button', { name: 'Review', exact: true }).click()
-    await modal.getByText(new RegExp(`${sniper.accountId.slice(0, 6)}.*isn’t approved for Main yet`)).waitFor()
+    await modal.getByText('Check the address: transfers can’t be undone.').waitFor()
+    await modal.getByText(/your NEARKITS wallet Sniper A \(same owner: no approval needed\)/).waitFor()
+    if ((await modal.getByRole('button', { name: 'Approve & continue' }).count()) !== 0) throw new Error('a wallet under the same owner asked for an approval')
+    await modal.getByRole('button', { name: 'Back' }).click()
     // The owner wallet: the review, then Send, right here.
     await modal.getByLabel('To').fill(USER)
     await modal.getByRole('button', { name: 'Review', exact: true }).click()
@@ -883,9 +886,9 @@ await step(
     const at = (symbol) => order.findIndex((t) => isToken(t, symbol))
     const gather = order[at('GATHER')] ?? ''
     if (!/5,000|5K/.test(gather) || /12,000|12K/.test(gather)) throw new Error(`Split shows GATHER as ${gather}: Main alone holds 5,000`)
-    // The selected token stays first; then what Main holds, by its own balance (no prices on this
-    // network: 5,000 GATHER before 3 NEAR); then what it doesn't hold (USDT).
-    if (!isToken(order[0], 'wNEAR') || !/Selected/.test(order[0] ?? '') || !(at('GATHER') < at('NEAR') && at('NEAR') < at('USDT')))
+    // NEARKITS' one order: the selected token first, then NEAR, then what Main holds (by its own
+    // balance), then what it doesn't hold (USDT).
+    if (!isToken(order[0], 'wNEAR') || !/Selected/.test(order[0] ?? '') || !(at('NEAR') < at('GATHER') && at('GATHER') < at('USDT')))
       throw new Error(`Split's picker: ${order.join(' | ')}`)
     await page.getByRole('textbox', { name: 'Search tokens' }).fill('wnear')
     if (!isToken((await options(split))[0], 'wNEAR')) throw new Error('search no longer finds a token Main doesn’t hold')

@@ -397,8 +397,10 @@ await step('PnL: cursor handle moves with the keyboard', async () => {
 
 await step('$KIT and Telegram show placeholders, no invented stats', async () => {
   await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Trade $KIT' }).click()
-  await visible(page, 'Trading $KIT opens at launch')
+  // Coming Soon: nothing trades $KIT before its contract is configured.
+  if (await page.getByRole('button', { name: 'Trade $KIT' }).isEnabled()) throw new Error('$KIT can be traded before launch')
+  await visible(page, 'Trading opens when $KIT is live.')
+  await visible(page, 'NEARKITS Token')
   const kit = await page.locator('main').innerText()
   if (/\$\d/.test(kit)) throw new Error('$KIT page shows a dollar figure')
   // The demo has no bot server: the page says so, offers no bot button and shows no figures.
