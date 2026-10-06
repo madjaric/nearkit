@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Holding, TokenListing } from '@/types/domain'
-import { heldBalances, rankByHoldings } from './tokenRanking'
+import { heldBalances, holdingTiers, rankTokenList } from './tokenRanking'
 
 /**
- * A wallet-aware token picker: what the wallets hold comes first, then everything else. Tokens are
- * keyed by their contract (two tokens may share a symbol); a missing price never hides a token.
+ * NEARKITS' one token order, in every picker and search: $KIT, NEAR, what the picker's wallets hold,
+ * what the user's other executable wallets hold, popular tokens, then the rest; a search ranks by how
+ * closely each token matches first. Tokens are keyed by their contract (two tokens may share a
+ * symbol); a missing price never hides a token.
  */
 
 const token = (id: string, symbol: string, priceUsd: number | null = null, name = symbol): TokenListing => ({
@@ -27,7 +29,10 @@ const SHITZU = token('token.0xshitzu.near', 'SHITZU', 0.01)
 const SING = token('singularty.nearlytrade.near', 'SINGULARTY', null, 'Singularity is NEAR')
 const NEARLY = token('nearly-2.nearlytrade.near', 'NEARLY', 0.002, 'Not early. Nearly.')
 const NEARLY_OTHER = token('nearly-10.nearlytrade.near', 'NEARLY', null, 'NEARLY')
+const KIT = token('kit.nearlytrade.near', 'KIT', null, 'NEARKITS Token')
 const LIST = [NEAR, WNEAR, USDC, USDT, BLACKDRAGON, SHITZU, SING, NEARLY, NEARLY_OTHER]
+const WITH_KIT = [...LIST, KIT]
+const POPULAR = [USDC.id, USDT.id, BLACKDRAGON.id, SHITZU.id]
 
 const hold = (walletId: string, tokenId: string, amount: number): Holding => ({ walletId, tokenId, amount, raw: '1', verified: true })
 const ids = (list: readonly TokenListing[]) => list.map((t) => t.id)
@@ -68,40 +73,45 @@ describe('heldBalances', () => {
   })
 })
 
-describe('rankByHoldings (no search)', () => {
-  it('held tokens first, then the ones not held in the order the list had them', () => {
+describe('rankTokenList without a search', () => {
+  it('orders $KIT, NEAR, held here, held in the other wallets, popular, then the rest as listed', () => {
     const held = new Map([[SING.id, 1_000_000]])
-    expect(ids(rankByHoldings(LIST, { query: '', selectedId: null, held }))).toEqual([
-      SING.id,
+    const heldElsewhere = new Map([[SHITZU.id, 50]])
+    expect(ids(rankTokenList(WITH_KIT, { kitId: KIT.id, held, heldElsewhere, popular: POPULAR }))).toEqual([
+      KIT.id,
       NEAR.id,
-      WNEAR.id,
+      SING.id,
+      SHITZU.id,
       USDC.id,
       USDT.id,
       BLACKDRAGON.id,
-      SHITZU.id,
+      WNEAR.id,
       NEARLY.id,
       NEARLY_OTHER.id,
     ])
   })
 
-  it('among held tokens: the larger USD value first; a token without a price stays in the held section, after the priced ones, by balance', () => {
+  it('without $KIT listed (Coming Soon), NEAR leads', () => {
+    expect(ids(rankTokenList(LIST, { kitId: null, popular: POPULAR })).slice(0, 3)).toEqual([NEAR.id, USDC.id, USDT.id])
+  })
+
+  it('keeps the held-token order: the larger USD value first; held tokens without a price after the priced ones, by balance', () => {
     const held = new Map([
       [USDC.id, 2], // $2
-      [NEAR.id, 3], // $15
       [SING.id, 1_000_000], // no price
       [NEARLY_OTHER.id, 50], // no price
       [NEARLY.id, 40_000], // $80
     ])
-    const ranked = ids(rankByHoldings(LIST, { query: '', selectedId: null, held }))
-    expect(ranked.slice(0, 5)).toEqual([NEARLY.id, NEAR.id, USDC.id, SING.id, NEARLY_OTHER.id])
-    // Not held: after every held token, unmoved.
+    const ranked = ids(rankTokenList(LIST, { held }))
+    expect(ranked.slice(0, 5)).toEqual([NEAR.id, NEARLY.id, USDC.id, SING.id, NEARLY_OTHER.id])
+    // Not held anywhere: after every held token, in the list's own order.
     expect(ranked.slice(5)).toEqual([WNEAR.id, USDT.id, BLACKDRAGON.id, SHITZU.id])
   })
 
-  it('the selected token stays at the top, held or not', () => {
+  it('puts the selected token at the top, held or not', () => {
     const held = new Map([[SING.id, 1_000_000]])
-    expect(ids(rankByHoldings(LIST, { query: '', selectedId: USDT.id, held })).slice(0, 2)).toEqual([USDT.id, SING.id])
-    expect(ids(rankByHoldings(LIST, { query: '', selectedId: SING.id, held })).slice(0, 2)).toEqual([SING.id, NEAR.id])
+    expect(ids(rankTokenList(WITH_KIT, { selectedId: USDT.id, kitId: KIT.id, held })).slice(0, 4)).toEqual([USDT.id, KIT.id, NEAR.id, SING.id])
+    expect(ids(rankTokenList(WITH_KIT, { selectedId: SING.id, kitId: KIT.id, held })).slice(0, 3)).toEqual([SING.id, KIT.id, NEAR.id])
   })
 
   it('is deterministic: equal values fall back to the symbol, then the contract', () => {
@@ -113,30 +123,84 @@ describe('rankByHoldings (no search)', () => {
       [a.id, 10],
       [c.id, 10],
     ])
-    expect(ids(rankByHoldings([b, c, a], { query: '', selectedId: null, held }))).toEqual([a.id, c.id, b.id])
+    expect(ids(rankTokenList([b, c, a], { held }))).toEqual([a.id, c.id, b.id])
   })
 
-  it('nothing held: the list as it came (the selected one first)', () => {
-    expect(ids(rankByHoldings(LIST, { query: '', selectedId: null, held: new Map() }))).toEqual(ids(LIST))
+  it('a token held both here and in another wallet counts as held here', () => {
+    const held = new Map([[USDT.id, 5]])
+    const heldElsewhere = new Map([
+      [USDT.id, 9],
+      [SHITZU.id, 1],
+    ])
+    expect(ids(rankTokenList(LIST, { held, heldElsewhere })).slice(0, 3)).toEqual([NEAR.id, USDT.id, SHITZU.id])
   })
 })
 
-describe('rankByHoldings (search)', () => {
-  it('searches every token, held or not: the closest match first, held before not held for an equally close match', () => {
+describe('rankTokenList with a search', () => {
+  it('relevance wins: "USDC" finds USDC first, whatever $KIT, NEAR or the wallets hold', () => {
+    const held = new Map([[SING.id, 1_000_000]])
+    expect(ids(rankTokenList(WITH_KIT, { query: 'USDC', kitId: KIT.id, held, popular: POPULAR }))[0]).toBe(USDC.id)
+    expect(ids(rankTokenList(WITH_KIT, { query: 'usd', kitId: KIT.id, held, popular: POPULAR }))).toEqual([USDC.id, USDT.id])
+  })
+
+  it('finds $KIT by "kit" and by "$KIT"', () => {
+    expect(ids(rankTokenList(WITH_KIT, { query: 'kit', kitId: KIT.id }))[0]).toBe(KIT.id)
+    expect(ids(rankTokenList(WITH_KIT, { query: '$KIT', kitId: KIT.id }))[0]).toBe(KIT.id)
+  })
+
+  it('searches every token, held or not; for an equally close match, held first', () => {
     const held = new Map([[NEARLY_OTHER.id, 50]])
-    // "nearly": both NEARLY tokens match exactly by symbol; the held one comes first.
-    expect(ids(rankByHoldings(LIST, { query: 'nearly', selectedId: null, held }))).toEqual([NEARLY_OTHER.id, NEARLY.id, SING.id])
-    // A token nobody holds is still found.
-    expect(ids(rankByHoldings(LIST, { query: 'shitzu', selectedId: null, held }))).toEqual([SHITZU.id])
-    expect(ids(rankByHoldings(LIST, { query: 'usd', selectedId: null, held }))).toEqual([USDC.id, USDT.id])
+    expect(ids(rankTokenList(LIST, { query: 'nearly', held }))).toEqual([NEARLY_OTHER.id, NEARLY.id, SING.id])
+    expect(ids(rankTokenList(LIST, { query: 'shitzu', held }))).toEqual([SHITZU.id])
   })
 
   it('finds a token by its exact contract (not its symbol)', () => {
-    expect(ids(rankByHoldings(LIST, { query: 'singularty.nearlytrade.near', selectedId: null, held: new Map() }))).toEqual([SING.id])
-    expect(ids(rankByHoldings(LIST, { query: 'nearly-10.nearlytrade.near', selectedId: null, held: new Map() }))[0]).toBe(NEARLY_OTHER.id)
+    expect(ids(rankTokenList(LIST, { query: 'singularty.nearlytrade.near' }))).toEqual([SING.id])
+    expect(ids(rankTokenList(LIST, { query: 'nearly-10.nearlytrade.near' }))[0]).toBe(NEARLY_OTHER.id)
   })
 
   it('a selected token that doesn’t match the search isn’t forced into the results', () => {
-    expect(ids(rankByHoldings(LIST, { query: 'usdt', selectedId: SING.id, held: new Map([[SING.id, 1]]) }))).toEqual([USDT.id])
+    expect(ids(rankTokenList(LIST, { query: 'usdt', selectedId: SING.id, held: new Map([[SING.id, 1]]) }))).toEqual([USDT.id])
+  })
+})
+
+describe('holdingTiers', () => {
+  const wallets = [
+    { id: 'main', source: 'nearkit' as const },
+    { id: 'sniper', source: 'nearkit' as const },
+    { id: 'hot', source: 'external' as const },
+    { id: 'watched', source: 'watch' as const },
+    { id: 'watched-too', source: 'external' as const, access: 'watch' as const },
+  ]
+  const holdings = [hold('main', SING.id, 10), hold('sniper', SHITZU.id, 3), hold('hot', USDC.id, 4), hold('watched', NEARLY.id, 99), hold('watched-too', USDT.id, 1)]
+
+  it('splits what the picker’s wallets hold from what the other executable wallets hold', () => {
+    const t = holdingTiers(holdings, wallets, ['main'])
+    expect(t.held).toEqual(new Map([[SING.id, 10]]))
+    expect(t.heldElsewhere).toEqual(
+      new Map([
+        [SHITZU.id, 3],
+        [USDC.id, 4],
+      ]),
+    )
+  })
+
+  it('never counts a watch-only wallet, not even when a picker names it', () => {
+    const t = holdingTiers(holdings, wallets, ['watched'])
+    expect(t.held.size).toBe(0)
+    expect([...t.heldElsewhere.keys()]).not.toContain(NEARLY.id)
+    expect([...t.heldElsewhere.keys()]).not.toContain(USDT.id)
+  })
+
+  it('with no picker wallets, everything executable is "held"', () => {
+    const t = holdingTiers(holdings, wallets, null)
+    expect(t.held).toEqual(
+      new Map([
+        [SING.id, 10],
+        [SHITZU.id, 3],
+        [USDC.id, 4],
+      ]),
+    )
+    expect(t.heldElsewhere.size).toBe(0)
   })
 })

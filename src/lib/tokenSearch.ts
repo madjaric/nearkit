@@ -12,8 +12,10 @@ export interface Searchable {
   contract: string | null
 }
 
-/** How closely a token matches a (trimmed, lowercase) query: lower is closer; null when it doesn't match. */
-export function tokenMatchRank(t: Searchable, q: string): number | null {
+/** How closely a token matches a (trimmed, lowercase) query: lower is closer; null when it doesn't match. A leading "$" ($KIT) is the ticker's sign, not part of it. */
+export function tokenMatchRank(t: Searchable, query: string): number | null {
+  const q = query.startsWith('$') ? query.slice(1) : query
+  if (q === '') return null
   const symbol = t.symbol.toLowerCase()
   const name = t.name.toLowerCase()
   const contract = (t.contract ?? '').toLowerCase()

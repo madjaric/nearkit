@@ -14,9 +14,11 @@ import { Usd } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { useToast } from '@/components/ui/toast-context'
+import { isKitToken } from '@/config/kit'
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { formatAccount, formatAmount } from '@/lib/format'
+import { rankTokenList } from '@/lib/tokenRanking'
 import { BOT_NAME, WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
 import { accountIdError } from '@/lib/validation'
 import { describeError } from '@/services/errors'
@@ -499,7 +501,13 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
   const { reviewSend, executeSend } = useNearKitMutations()
   const holdings = 'holdings' in wallet ? wallet.holdings : []
   const held = holdings.filter((h) => h.amount > 0)
-  const assets = [NATIVE_TOKEN_ID, ...held.map((h) => h.tokenId).filter((id) => id !== NATIVE_TOKEN_ID)]
+  // What this wallet holds, in NEARKITS' one token order ($KIT, NEAR, the rest by value).
+  const heldIds = [NATIVE_TOKEN_ID, ...held.map((h) => h.tokenId).filter((id) => id !== NATIVE_TOKEN_ID)]
+  const ranked = rankTokenList(
+    tokens.filter((t) => heldIds.includes(t.id)),
+    { held: new Map(held.map((h) => [h.tokenId, h.amount])), kitId: tokens.find((t) => isKitToken(t.id))?.id ?? null },
+  ).map((t) => t.id)
+  const assets = [...ranked, ...heldIds.filter((id) => !ranked.includes(id))]
   if (tokenId && !assets.includes(tokenId)) assets.push(tokenId)
   const [asset, setAsset] = useState(tokenId ?? NATIVE_TOKEN_ID)
   const [amount, setAmount] = useState('')

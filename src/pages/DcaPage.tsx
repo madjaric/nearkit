@@ -73,7 +73,7 @@ function Dca() {
         <Panel>
           <PanelHeader title="New DCA plan" actions={<InfoTip term="dca" />} />
           <div className="flex flex-col gap-4 p-4">
-            <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} exclude={[NATIVE_TOKEN_ID]} />}</Field>
+            <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} exclude={[NATIVE_TOKEN_ID]} kitTeaser />}</Field>
             <Field
               label="Buy amount per run"
               aside={<span>Wallet holds {formatAmount(nearBalance, 2)} NEAR</span>}

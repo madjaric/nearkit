@@ -1,25 +1,39 @@
 import { ExternalLink } from 'lucide-react'
+import { Link } from 'react-router'
 import { LogoMark } from '@/components/brand/Brand'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
-import { ComingSoon, Led } from '@/components/ui/Indicators'
+import { buttonClass } from '@/components/ui/buttonClass'
+import { CopyButton } from '@/components/ui/Copy'
+import { ComingSoon, Led, Tag } from '@/components/ui/Indicators'
+import { Price } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
-import { useToast } from '@/components/ui/toast-context'
+import { isKitToken, KIT } from '@/config/kit'
+import { useTokens } from '@/services/queries'
+import { useTradeDrawer } from '@/state/contexts'
 
 const UTILITY = [
-  { title: 'Fee benefits', text: 'Reduced NearKit fees for $KIT holders. Terms are published before launch.' },
+  { title: 'Fee benefits', text: 'Reduced NEARKITS fees for $KIT holders. Terms are published before they apply.' },
   { title: 'Advanced tool access', text: 'Holder access to advanced multi-wallet and intelligence tools.' },
   { title: 'Higher limits', text: 'Larger wallet groups, batch sizes and rule counts.' },
-  { title: 'Premium automation features', text: 'Extended DCA, copy trading and sniper options.' },
+  { title: 'Premium automation features', text: 'Extended Volume Bot, DCA, copy trading and sniper options.' },
 ]
 
+/**
+ * $KIT's page, from its one configuration (src/config/kit.ts): Coming Soon until the build names its
+ * contract, then live: its contract, its price, and a trade like any token's. Nothing is shown that
+ * isn't known: no price, supply or contract before launch.
+ */
 export default function KitPage() {
-  const toast = useToast()
-  const placeholder = (what: string) => toast.push({ title: `${what} opens at launch`, detail: '$KIT has not launched. This button is a placeholder until then.' })
+  const { data: tokens = [] } = useTokens()
+  const { openTrade } = useTradeDrawer()
+  const listed = tokens.find((t) => isKitToken(t.id) && t.status === 'listed')
+  const live = KIT.tradable && listed !== undefined
+  const pending = 'Published at launch'
 
   return (
     <Page>
-      <PageHeader title="$KIT" status={<ComingSoon label="Not launched" />} description="The NearKit token." />
+      <PageHeader title={KIT.ticker} status={live ? <Tag tone="accent">Live</Tag> : <ComingSoon label="Not launched" />} description={`${KIT.name}, the token of NEARKITS.`} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Panel>
@@ -28,21 +42,41 @@ export default function KitPage() {
             <div className="flex min-w-0 flex-col gap-4">
               <div>
                 <h2 className="text-xl font-semibold leading-7 text-fg" style={{ fontStretch: '110%' }}>
-                  NearKit Token
+                  {KIT.name}
                 </h2>
-                <p className="num mt-0.5 text-md text-fg-2">$KIT</p>
+                <p className="num mt-0.5 text-md text-fg-2">{KIT.ticker}</p>
               </div>
               <p className="max-w-[60ch] text-base leading-6 text-fg-2">
-                $KIT powers the NearKit ecosystem. It launches separately through Nearly; NearKit is a trading toolkit, not a launchpad.
+                {KIT.ticker} is the token of NEARKITS, the trading toolkit for NEAR. It launches on {KIT.launchVenue}: NEARKITS is a trading toolkit, not a launchpad.
+                {live ? ' It is live: trade it here like any NEAR token.' : ' Until it is live, nothing here trades it and no figure about it is shown.'}
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="primary" size="lg" onClick={() => placeholder('Trading $KIT')}>
-                  Trade $KIT
-                </Button>
-                <Button variant="secondary" size="lg" iconRight={<ExternalLink size={14} />} onClick={() => placeholder('The Nearly page')}>
-                  View on Nearly
-                </Button>
-                <ComingSoon className="ml-1" />
+                {live && listed ? (
+                  <>
+                    <Button variant="primary" size="lg" onClick={() => openTrade({ tokenId: listed.id, side: 'buy' })}>
+                      Trade {KIT.ticker}
+                    </Button>
+                    {KIT.links.token && (
+                      <Link to={KIT.links.token} className={buttonClass({ variant: 'secondary', size: 'lg' })}>
+                        Market and chart
+                      </Link>
+                    )}
+                    {KIT.links.explorer && (
+                      <a href={KIT.links.explorer} target="_blank" rel="noreferrer noopener" className={buttonClass({ variant: 'ghost', size: 'lg' })}>
+                        Explorer <ExternalLink size={14} aria-hidden="true" />
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Button variant="primary" size="lg" disabled aria-describedby="kit-not-live">
+                      Trade {KIT.ticker}
+                    </Button>
+                    <span id="kit-not-live" className="text-sm text-fg-3">
+                      Trading opens when {KIT.ticker} is live.
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -54,27 +88,30 @@ export default function KitPage() {
             <Lines>
               <Line label="Status" mono={false}>
                 <span className="flex items-center justify-end gap-2">
-                  <Led tone="off" /> Not launched
+                  <Led tone={live ? 'on' : 'off'} /> {live ? 'Live' : 'Not launched'}
                 </span>
               </Line>
               <Line label="Launch venue" mono={false}>
-                Nearly
+                {KIT.launchVenue}
               </Line>
               <Line label="Contract" mono={false}>
-                Not deployed
+                {KIT.contract ? (
+                  <span className="flex items-center justify-end gap-1.5">
+                    <span className="num break-all text-xs">{KIT.contract}</span>
+                    <CopyButton value={KIT.contract} label="Copy the $KIT contract" />
+                  </span>
+                ) : (
+                  pending
+                )}
               </Line>
               <Line label="Price" mono={false}>
-                Published at launch
-              </Line>
-              <Line label="Market cap" mono={false}>
-                Published at launch
-              </Line>
-              <Line label="Supply" mono={false}>
-                Published at launch
+                {live && listed?.market ? <Price value={listed.market.priceUsd} /> : live ? 'No market price yet' : pending}
               </Line>
             </Lines>
             <p className="mt-3 border-t border-line-soft pt-3 text-xs text-fg-3">
-              NearKit shows no $KIT price, supply or market figures before launch. The KIT position elsewhere in this preview is demo data for layout, not $KIT market data.
+              {live
+                ? 'Market cap, supply and liquidity are on the token’s market page, from the sources that report them.'
+                : 'NEARKITS shows no $KIT price, supply or market figures before launch. The KIT position in the demo is simulated, for layout only.'}
             </p>
           </div>
         </Panel>

@@ -112,7 +112,7 @@ export function OrderForm() {
           {side === 'buy' && <p className="text-xs text-fg-3">Take profit and stop loss close positions, so they are sell-side only.</p>}
         </div>
 
-        <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} exclude={[NEAR]} walletId={walletId} />}</Field>
+        <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} exclude={[NEAR]} walletId={walletId} kitTeaser />}</Field>
 
         <div className="flex flex-col gap-2">
           <Field

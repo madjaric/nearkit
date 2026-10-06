@@ -7,6 +7,7 @@ import { Kbd, Tag } from '@/components/ui/Indicators'
 import { cn } from '@/lib/cn'
 import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
+import { useTokenRanking } from '@/features/tokens/useTokenRanking'
 import { useCapabilities, useTokenLookup, useTokens } from '@/services/queries'
 import { buildResults, type Result } from './searchResults'
 
@@ -26,9 +27,11 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
   const lookup = useTokenLookup(lookupId)
   const lookupNote = !lookupId ? null : lookup.isError ? describeError(lookup.error).message : lookup.isPending ? `Checking it on ${caps.networkLabel.toLowerCase()}…` : null
   const lookupState = lookup.isPending ? 'checking' : lookup.data ? 'found' : 'not-found'
+  // No wallet of its own: what every executable wallet holds ranks first (never watch-only).
+  const rank = useTokenRanking(null)
   const results = useMemo(
-    () => buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote, state: lookupState } : null),
-    [query, tokens, lookupId, lookup.data, lookupNote, lookupState],
+    () => buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote, state: lookupState } : null, { rank }),
+    [query, tokens, lookupId, lookup.data, lookupNote, lookupState, rank],
   )
 
   // "/" focuses search from anywhere that isn't already a text field.

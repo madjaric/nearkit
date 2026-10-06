@@ -82,7 +82,7 @@ const SIDEBAR = [
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
   ['Portfolio', ['Positions', 'PnL']],
   ['Intelligence', ['Scanner']],
-  ['Coming soon', ['Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'Telegram', '$KIT'].map((l) => `${l} SOON`)],
+  ['Coming soon', ['$KIT', 'Limit Orders', 'DCA', 'Copy Trade', 'Sniper', 'Telegram'].map((l) => `${l} SOON`)],
 ]
 /** Group names and entries of a navigation body, as rendered. */
 const navGroups = (nav) =>

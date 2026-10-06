@@ -436,7 +436,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
     <Panel>
       <PanelHeader title="Order" actions={<Tag tone={side === 'buy' ? 'accent' : 'neg'}>{verb}</Tag>} />
       <div className="flex flex-col gap-4 p-4">
-        <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} exclude={[NEAR]} />}</Field>
+        <Field label="Token">{({ id }) => <TokenSelect id={id} label="Token" value={tokenId} onChange={setTokenId} exclude={[NEAR]} holdingsOf={selectedIds} kitTeaser />}</Field>
 
         <div className="flex flex-col gap-1.5">
           <span className="legend flex items-center gap-1.5">

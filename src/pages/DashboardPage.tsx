@@ -16,6 +16,7 @@ import { Pct, Price } from '@/components/ui/Num'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { isComingSoon } from '@/config/release'
+import { KitSpotlight } from '@/features/kit/KitSpotlight'
 import { ActivityList } from '@/features/portfolio/ActivityList'
 import { PositionsTable } from '@/features/portfolio/PositionsTable'
 import { ValuePanel } from '@/features/portfolio/ValuePanel'
@@ -230,6 +231,8 @@ export default function DashboardPage() {
       />
 
       <Readouts />
+
+      <KitSpotlight />
 
       <PageGrid aside={<QuickTrade />} asideWidth={380} asideFirst stickyAside>
         <ValuePanel />

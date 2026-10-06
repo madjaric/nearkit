@@ -158,6 +158,7 @@ export function QuickTrade({ initialTokenId, initialSide = 'buy', variant = 'pan
             value={tokenId}
             walletId={ready ? walletId : undefined}
             exclude={[NEAR]}
+            kitTeaser
             onChange={(next) => {
               disarm()
               setTokenId(next)

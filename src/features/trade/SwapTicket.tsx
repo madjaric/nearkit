@@ -232,7 +232,7 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
                   </output>
                 </div>
                 <div className="flex shrink-0 items-center pr-3">
-                  <TokenSelect label="To token" size="lg" compact value={toId} walletId={ready ? walletId : undefined} onChange={(id) => setPair(fromId, id)} />
+                  <TokenSelect label="To token" size="lg" compact kitTeaser value={toId} walletId={ready ? walletId : undefined} onChange={(id) => setPair(fromId, id)} />
                 </div>
               </div>
             )

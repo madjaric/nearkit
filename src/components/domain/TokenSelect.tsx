@@ -1,11 +1,14 @@
 import { ChevronDown, Search } from 'lucide-react'
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Link } from 'react-router'
 import { Popover } from '@/components/ui/Floating'
 import { Tag } from '@/components/ui/Indicators'
 import { Amount, Pct, Price } from '@/components/ui/Num'
+import { isKitToken, KIT } from '@/config/kit'
+import { useTokenRanking } from '@/features/tokens/useTokenRanking'
 import { cn } from '@/lib/cn'
-import { heldBalances, rankByHoldings } from '@/lib/tokenRanking'
-import { rankTokens } from '@/lib/tokenSearch'
+import { heldBalances, rankTokenList } from '@/lib/tokenRanking'
+import { tokenMatchRank } from '@/lib/tokenSearch'
 import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import { useCapabilities, useHoldings, useImportToken, useTokenLookup, useTokens } from '@/services/queries'
@@ -27,6 +30,8 @@ interface TokenSelectProps {
    */
   holdingsOf?: readonly string[]
   size?: 'md' | 'lg'
+  /** A trading picker: while $KIT is Coming Soon, it is shown at the top (not selectable) with a link to its page. */
+  kitTeaser?: boolean
   /** Symbol only, as a chip that sits inside an amount field. */
   compact?: boolean
   className?: string
@@ -34,7 +39,20 @@ interface TokenSelectProps {
   describedBy?: string
 }
 
-export function TokenSelect({ value, onChange, label, exclude = [], walletId, holdingsOf, size = 'lg', compact = false, className, id, describedBy }: TokenSelectProps) {
+export function TokenSelect({
+  value,
+  onChange,
+  label,
+  exclude = [],
+  walletId,
+  holdingsOf,
+  size = 'lg',
+  kitTeaser = false,
+  compact = false,
+  className,
+  id,
+  describedBy,
+}: TokenSelectProps) {
   const { data: tokens = [] } = useTokens()
   const { data: holdings = [] } = useHoldings()
   const [open, setOpen] = useState(false)
@@ -44,15 +62,23 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, ho
 
   const selected = tokens.find((t) => t.id === value)
   const holdersKey = holdingsOf?.join(',') ?? null
-  const held = useMemo(() => (holdersKey === null ? null : heldBalances(holdings, holdersKey ? holdersKey.split(',') : [])), [holdings, holdersKey])
-  const balanceOf = (tokenId: string) => (held ? (held.get(tokenId) ?? 0) : walletId ? (holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0) : null)
+  const shown = useMemo(() => (holdersKey === null ? null : heldBalances(holdings, holdersKey ? holdersKey.split(',') : [])), [holdings, holdersKey])
+  const balanceOf = (tokenId: string) =>
+    shown ? (shown.get(tokenId) ?? 0) : walletId ? (holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0) : null
 
-  // Closest match first (src/lib/tokenSearch.ts), the same ranking as the global search; a list
-  // about some wallets' tokens puts what they hold first (src/lib/tokenRanking.ts).
+  // NEARKITS' one token order (src/lib/tokenRanking.ts): $KIT, NEAR, what this picker's wallets
+  // hold, what the other executable wallets hold, popular tokens, the rest; a search ranks by match first.
+  const ranking = useTokenRanking(holdingsOf ?? (walletId ? [walletId] : null))
   const list = useMemo(() => {
     const pool = tokens.filter((t) => !exclude.includes(t.id))
-    return held ? rankByHoldings(pool, { query, selectedId: value, held }) : rankTokens(pool, query)
-  }, [tokens, exclude, query, held, value])
+    return rankTokenList(pool, { ...ranking, query, selectedId: value })
+  }, [tokens, exclude, query, ranking, value])
+  // $KIT before launch: shown, never selectable (it has no contract to trade yet).
+  const teaser =
+    kitTeaser &&
+    KIT.status === 'coming-soon' &&
+    !tokens.some((t) => isKitToken(t.id)) &&
+    (query.trim() === '' || tokenMatchRank({ symbol: KIT.symbol, name: KIT.name, contract: null }, query.trim().toLowerCase()) !== null)
 
   // A pasted contract that no list has yet (a token launched minutes ago): read it from
   // chain and offer to import it. Reading it proves it is a token, not that it trades.
@@ -197,7 +223,22 @@ export function TokenSelect({ value, onChange, label, exclude = [], walletId, ho
               )}
             </li>
           )}
-          {list.length === 0 && !lookupId && <li className="px-3 py-6 text-center text-sm text-fg-3">No token matches “{query}”</li>}
+          {teaser && (
+            <li role="option" aria-selected={false} aria-disabled="true" className="flex items-center gap-2.5 px-3 py-2">
+              <TokenGlyph symbol={KIT.symbol} tokenId="kit" size={24} />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-fg">
+                  {KIT.symbol}
+                  <Tag tone="soon">Coming soon</Tag>
+                </span>
+                <span className="truncate text-xs text-fg-3">{`${KIT.name} · launches on ${KIT.launchVenue}`}</span>
+              </span>
+              <Link to={KIT.links.page} onClick={close} className="shrink-0 text-xs text-accent underline-offset-2 hover:underline">
+                About $KIT
+              </Link>
+            </li>
+          )}
+          {list.length === 0 && !lookupId && !teaser && <li className="px-3 py-6 text-center text-sm text-fg-3">No token matches “{query}”</li>}
           {list.map((token, index) => {
             const balance = balanceOf(token.id)
             return (

@@ -1,4 +1,4 @@
-import { rankByHoldings } from '@/lib/tokenRanking'
+import { rankTokenList } from '@/lib/tokenRanking'
 import { tradeWalletPool } from '@/lib/wallets'
 import type { TokenId, TokenListing, Wallet } from '@/types/domain'
 
@@ -31,6 +31,6 @@ export function defaultFamily(pool: { nearkit: readonly PoolWallet[]; browser: r
  * while nothing is held (or the balances aren't read yet).
  */
 export function defaultConsolidateToken(tokens: readonly TokenListing[], held: ReadonlyMap<TokenId, number>, fallback: TokenId): TokenId {
-  const ranked = rankByHoldings(tokens, { query: '', selectedId: null, held }).filter((t) => (held.get(t.id) ?? 0) > 0)
+  const ranked = rankTokenList(tokens, { held }).filter((t) => (held.get(t.id) ?? 0) > 0)
   return (ranked.find((t) => !t.isNative) ?? ranked[0])?.id ?? fallback
 }
