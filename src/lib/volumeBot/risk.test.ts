@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultBotConfig } from './config'
-import { guardBalances, guardFill, guardHealth, guardLoss, guardMarket, spreadCheck } from './risk'
+import { guardBalances, guardFill, guardHealth, guardLoss, guardMarket, liquidityOf, spreadCheck } from './risk'
 import type { MarketSnapshot } from './types'
 
 const T = Date.UTC(2026, 9, 6, 12)
@@ -45,6 +45,24 @@ describe('the guardian, on the market', () => {
   it('a wide spread skips the tick (it is a cost, not a danger)', () => {
     expect(spreadCheck(snap(0.01), risk)).toBeNull()
     expect(spreadCheck(snap(0.01, { askNear: 0.0106, bidNear: 0.0094 }), risk)).toMatch(/Spread 12\.00% is over its limit/)
+  })
+
+  it('a limit it can’t check is not passed: liquidity nobody reports pauses under a floor (no floor set, no pause)', () => {
+    expect(guard({ market: snap(0.01, { liquidityUsd: null }) })).toMatchObject({ code: 'low-liquidity', detail: expect.stringMatching(/unknown/) })
+    expect(guard({ market: snap(0.01, { liquidityUsd: null }), risk: { ...risk, minLiquidityUsd: 0 } })).toBeNull()
+  })
+
+  it('no sell route (no bid) skips the tick: it never buys what it can’t sell, and the spread can’t be read', () => {
+    expect(spreadCheck(snap(0.01, { bidNear: null }), risk)).toMatch(/no sell route/i)
+    expect(spreadCheck(snap(0.01, { askNear: null }), risk)).toMatch(/no buy route/i)
+  })
+
+  it('a liquidity figure counts only while it is fresh: an old one is unknown', () => {
+    const fig = (at: number) => ({ state: 'stale' as const, value: 80_000, source: 'DEX Screener', at, reason: 'x' })
+    expect(liquidityOf(fig(T - 10_000), T, risk.maxDataAgeSec)).toBe(80_000)
+    expect(liquidityOf(fig(T - (risk.maxDataAgeSec + 1) * 1000), T, risk.maxDataAgeSec)).toBeNull()
+    expect(liquidityOf({ state: 'unavailable', reason: 'no pair' }, T, risk.maxDataAgeSec)).toBeNull()
+    expect(liquidityOf(null, T, risk.maxDataAgeSec)).toBeNull()
   })
 })
 

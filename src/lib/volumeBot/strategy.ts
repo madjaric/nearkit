@@ -199,12 +199,27 @@ export type QuoteVerdict = { ok: true } | { ok: false; action: 'skip' | 'shrink'
  * be tried smaller), and at a price that still meets the strategy's (after every fee and the trade's
  * own impact). The swap's own minimum output (slippage) protects the rest on chain.
  */
-export function acceptQuote(intent: Extract<Intent, { kind: 'trade' }>, quote: TradeQuote, risk: RiskConfig, sizing: SizingConfig, now: number): QuoteVerdict {
+export function acceptQuote(
+  intent: Extract<Intent, { kind: 'trade' }>,
+  quote: TradeQuote,
+  risk: RiskConfig,
+  sizing: SizingConfig,
+  now: number,
+  /** The bot's own tiny probe quotes (the market snapshot): the price before this trade's own impact. */
+  probe?: Pick<MarketSnapshot, 'askNear' | 'bidNear'>,
+): QuoteVerdict {
   if (now - quote.at > risk.maxQuoteAgeSec * 1000) return { ok: false, action: 'skip', reason: 'Stale quote: older than its limit' }
-  if (quote.priceImpactBps !== null && quote.priceImpactBps > risk.maxPriceImpactBps)
+  // The router's own figure; without one (no USD price for the token), against the probe: a buy paying
+  // more per token than the probe, or a sell getting less, is what this trade's size moves the price.
+  const reference = quote.side === 'buy' ? probe?.askNear : probe?.bidNear
+  const impactBps =
+    quote.priceImpactBps ??
+    (reference && reference > 0 && quote.priceNear > 0 ? Math.max(0, (quote.side === 'buy' ? quote.priceNear / reference - 1 : 1 - quote.priceNear / reference) * 10_000) : null)
+  if (impactBps === null) return { ok: false, action: 'skip', reason: 'Price impact can’t be measured for this quote: no price to compare it with' }
+  if (impactBps > risk.maxPriceImpactBps)
     return sizing.adaptiveImpact
-      ? { ok: false, action: 'shrink', reason: `Price impact ${(quote.priceImpactBps / 100).toFixed(2)}% is over the limit: trying smaller` }
-      : { ok: false, action: 'skip', reason: `Price impact ${(quote.priceImpactBps / 100).toFixed(2)}% is over the limit` }
+      ? { ok: false, action: 'shrink', reason: `Price impact ${(impactBps / 100).toFixed(2)}% is over the limit: trying smaller` }
+      : { ok: false, action: 'skip', reason: `Price impact ${(impactBps / 100).toFixed(2)}% is over the limit` }
   if (intent.side === 'buy' && intent.maxPriceNear !== null && quote.priceNear > intent.maxPriceNear)
     return { ok: false, action: 'skip', reason: `Its executable price ${fmt(quote.priceNear)} is above the strategy’s ${fmt(intent.maxPriceNear)}` }
   if (intent.side === 'sell' && intent.minPriceNear !== null && quote.priceNear < intent.minPriceNear)

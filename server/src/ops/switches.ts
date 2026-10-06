@@ -63,11 +63,16 @@ export class OpsSwitches {
   }
 
   async set(name: SwitchName, paused: boolean, reason: string, by: string): Promise<void> {
-    await this.db.run(
-      `INSERT INTO ops_switches (name, paused, reason, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET paused = excluded.paused, reason = excluded.reason, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
-      [name, paused ? 1 : 0, reason, this.now(), by],
-    )
+    await this.db.tx(async () => {
+      await this.db.run(
+        `INSERT INTO ops_switches (name, paused, reason, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (name) DO UPDATE SET paused = excluded.paused, reason = excluded.reason, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+        [name, paused ? 1 : 0, reason, this.now(), by],
+      )
+      // Pausing every bot also cancels their trades not signed yet: none is signed after the switch is set.
+      if (name === 'volumebot' && paused)
+        await this.db.run(`UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE group_id LIKE 'vb-%' AND status IN ('quoted', 'confirmed')`, [this.now()])
+    })
     await this.audit.audit({ action: paused ? 'ops-paused' : 'ops-resumed', detail: { switch: name, reason, by } })
   }
 
@@ -92,6 +97,14 @@ export class OpsSwitches {
       : 'Withdrawals are paused by NEARKITS right now. Your owner wallet can still add the backup key or export the key in NEARKITS web.'
   }
 
-  /** The engine's gate: the same rule, for an intent at Confirm. */
-  gate = (intent: Intent, wallet: TradingWallet): Promise<string | null> => this.blocked(intent.kind, wallet)
+  /** The engine's gate: the same rule, for an intent at Confirm; a Volume Bot's trade also needs the Volume Bot switch on. */
+  gate = async (intent: Intent, wallet: TradingWallet): Promise<string | null> => {
+    const blocked = await this.blocked(intent.kind, wallet)
+    if (blocked || !intent.groupId?.startsWith('vb-')) return blocked
+    try {
+      return (await this.state()).volumebot.paused ? 'NEARKITS has paused the Volume Bot right now.' : null
+    } catch {
+      return 'NEARKITS can’t confirm that this is allowed right now. Try again in a moment.'
+    }
+  }
 }

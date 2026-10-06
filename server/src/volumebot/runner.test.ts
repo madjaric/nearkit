@@ -171,6 +171,76 @@ describe('accumulate, stop and restarts', () => {
     expect(h.chain.sent.length).toBe(sent)
   })
 
+  it('Stop, Emergency stop or Pause pressed after the runner’s last check, while the trade is prepared: nothing is signed or sent', async () => {
+    for (const press of ['stop', 'pause'] as const) {
+      const { h, bots, bot, step } = await setup()
+      for (let i = 0; i < 5; i++) await step()
+      h.market.usdtPerNear = 4_200_000n // away from fair value: this step would buy
+      const handler = h.custody.swaps.handler
+      const plan = handler.plan.bind(handler)
+      let pressed = false
+      handler.plan = async (intent, wallet) => {
+        // The intent is confirmed and the engine is planning its route: the owner presses now.
+        if (!pressed) {
+          pressed = true
+          if (press === 'stop') await bots.stop(bot.id, 'Emergency stop by its owner')
+          else await bots.pause(bot.id, 'owner', 'Paused by its owner')
+        }
+        return plan(intent, wallet)
+      }
+      const sent = h.chain.sent.length
+      await step()
+      expect(pressed).toBe(true)
+      expect(h.chain.sent.length).toBe(sent)
+      if (press === 'stop') {
+        // The next step finds nothing was sent and ends the run: no trade recorded.
+        expect(await step()).toMatchObject({ status: 'stopped' })
+        expect(await bots.trades(bot.id)).toEqual([])
+      }
+    }
+  })
+
+  it('a stop landing just as the runner creates the trade’s intent sends nothing', async () => {
+    const { h, bots, bot, step } = await setup()
+    for (let i = 0; i < 5; i++) await step()
+    h.market.usdtPerNear = 4_200_000n
+    const create = h.custody.store.createIntent.bind(h.custody.store)
+    let pressed = false
+    h.custody.store.createIntent = async (input) => {
+      if (!pressed && input.groupId === `vb-${bot.id}`) {
+        pressed = true
+        await bots.stop(bot.id, 'Emergency stop by its owner')
+      }
+      return create(input)
+    }
+    const sent = h.chain.sent.length
+    await step()
+    expect(pressed).toBe(true)
+    expect(h.chain.sent.length).toBe(sent)
+  })
+
+  it('NEARKITS pausing every bot (its kill switch) stops a trade already past the runner’s check', async () => {
+    const { h, bots, bot, step } = await setup()
+    for (let i = 0; i < 5; i++) await step()
+    h.market.usdtPerNear = 4_200_000n
+    const handler = h.custody.swaps.handler
+    const plan = handler.plan.bind(handler)
+    let flipped = false
+    handler.plan = async (intent, wallet) => {
+      if (!flipped) {
+        flipped = true
+        await h.custody.ops.set('volumebot', true, 'incident', 'test')
+      }
+      return plan(intent, wallet)
+    }
+    const sent = h.chain.sent.length
+    await step()
+    expect(flipped).toBe(true)
+    expect(h.chain.sent.length).toBe(sent)
+    void bots
+    void bot
+  })
+
   it('stop: nothing new is sent, and it ends stopped', async () => {
     const { bots, bot, step } = await setup()
     await step()

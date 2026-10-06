@@ -2,7 +2,7 @@ import type { NetworkConfig } from '@/config/networks'
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { applyFill, emptyBook, inventoryOf, openBook, pnlNear, type Book } from '@/lib/volumeBot/inventory'
-import { GUARDIAN_LABEL, guardBalances, guardFill, guardHealth, guardLoss, guardMarket, spreadCheck } from '@/lib/volumeBot/risk'
+import { GUARDIAN_LABEL, guardBalances, guardFill, guardHealth, guardLoss, guardMarket, liquidityOf, spreadCheck } from '@/lib/volumeBot/risk'
 import { nextEvaluationAt, scheduleGate } from '@/lib/volumeBot/schedule'
 import { acceptQuote, decide, MIN_TRADE_NEAR, updateFairValue } from '@/lib/volumeBot/strategy'
 import type { BotWallet, GuardianPause, Intent as BotIntent, MarketSnapshot, TradeQuote } from '@/lib/volumeBot/types'
@@ -124,7 +124,8 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
         const ask = buy.priceNear
         const bid = sell && sell.tokens > 0 ? sell.priceNear : null
         const [market, nearQuote] = await Promise.all([near.tokens.getMarketData(bot.token).catch(() => null), near.market.nearQuote().catch(() => null)])
-        const liquidity = market?.liquidityUsd.state === 'known' || market?.liquidityUsd.state === 'stale' ? market.liquidityUsd.value : null
+        // Only a fresh figure: an old one (a source that stopped answering) is unknown, and the guardian treats it so.
+        const liquidity = liquidityOf(market?.liquidityUsd, now(), bot.config.risk.maxDataAgeSec)
         return {
           at: now(),
           midNear: bid !== null ? (ask + bid) / 2 : ask,
@@ -321,7 +322,7 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
         await store.event(bot.id, 'skip', st.waiting)
         return null
       }
-      const verdict = acceptQuote(intent, toTradeQuote(intent.side, quote, cfg.tokenDecimals), cfg.risk, cfg.sizing, now())
+      const verdict = acceptQuote(intent, toTradeQuote(intent.side, quote, cfg.tokenDecimals), cfg.risk, cfg.sizing, now(), market)
       if (!verdict.ok) {
         if (verdict.action === 'shrink' && attempt < 2 && sizeNear / 2 >= MIN_TRADE_NEAR) {
           sizeNear /= 2
@@ -347,6 +348,13 @@ export function createVolumeBotRunner(deps: VolumeBotRunnerDeps) {
         ttlMs: SWAP_QUOTE_TTL_MS,
         groupId: `vb-${bot.id}`,
       })
+      // A Stop or Pause that landed just before the intent existed cancelled nothing: check again now
+      // (one after it cancels the intent itself, see VolumeBotStore.stop).
+      if (!(await stillTrading(bot.id))) {
+        await custody.store.setStatus(created.id, ['quoted'], 'cancelled')
+        st.waiting = 'Stopped or paused before this trade was sent'
+        return null
+      }
       const tradeId = await store.addTrade({
         botId: bot.id,
         runId,

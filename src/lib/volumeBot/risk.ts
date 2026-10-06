@@ -1,3 +1,4 @@
+import type { MarketFigure } from '@/types/domain'
 import type { FairValue, GuardianPause, MarketSnapshot, RiskConfig, TradeQuote } from './types'
 
 /**
@@ -28,6 +29,12 @@ export function guardMarket(i: {
   if (!market) return { code: 'provider-failure', detail: 'No market data source answered' }
   const age = (now - market.at) / 1000
   if (age > risk.maxDataAgeSec) return { code: 'stale-market-data', detail: `The market data is ${Math.round(age)} s old (limit ${risk.maxDataAgeSec} s)` }
+  // A floor it can't check is not passed: no source reporting the pool's liquidity is no proof it is there.
+  if (market.liquidityUsd === null && risk.minLiquidityUsd > 0)
+    return {
+      code: 'low-liquidity',
+      detail: `Pool liquidity is unknown right now (no source reports it), so its floor of $${risk.minLiquidityUsd.toLocaleString('en-US')} can’t be checked`,
+    }
   if (market.liquidityUsd !== null && market.liquidityUsd < risk.minLiquidityUsd)
     return {
       code: 'low-liquidity',
@@ -47,9 +54,24 @@ export function guardMarket(i: {
   return null
 }
 
-/** The cost to cross (ask over bid) over its limit: this tick is skipped, with the reason. */
+/**
+ * The liquidity a figure reports, while it is fresh (within `maxAgeSec`); an older or missing one is
+ * unknown, never the last value seen.
+ */
+export function liquidityOf(f: MarketFigure | null | undefined, now: number, maxAgeSec: number): number | null {
+  if (!f || (f.state !== 'known' && f.state !== 'stale')) return null
+  return now - f.at <= maxAgeSec * 1000 ? f.value : null
+}
+
+/**
+ * The cost to cross (ask over bid) over its limit: this tick is skipped, with the reason. With no
+ * route one way the spread can't be read, and the tick is skipped too: no sell route means the bot
+ * would buy what it can't sell.
+ */
 export function spreadCheck(market: MarketSnapshot, risk: RiskConfig): string | null {
-  if (market.askNear === null || market.bidNear === null || !(market.midNear > 0)) return null
+  if (market.bidNear === null) return 'No sell route for this token right now: the bot waits rather than buy what it can’t sell'
+  if (market.askNear === null) return 'No buy route for this token right now'
+  if (!(market.midNear > 0)) return null
   const spread = (market.askNear - market.bidNear) / market.midNear
   return spread * 10_000 > risk.maxSpreadBps ? `Spread ${pct(spread)} is over its limit of ${(risk.maxSpreadBps / 100).toFixed(2)}%` : null
 }

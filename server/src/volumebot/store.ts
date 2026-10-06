@@ -285,17 +285,30 @@ export class VolumeBotStore {
     }
   }
 
+  /**
+   * The bot's trades not signed yet (quoted, or confirmed while the engine prepares them) are
+   * cancelled with the status change: the engine signs only a confirmed intent and records each
+   * signature only while it still is (custody/store.ts), so once Stop or Pause answers, nothing
+   * new of this bot is signed or sent. A trade already signed is followed to its end.
+   */
+  private async cancelUnsigned(id: string): Promise<void> {
+    await this.db.run(`UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE group_id = ? AND status IN ('quoted', 'confirmed')`, [this.now(), `vb-${id}`])
+  }
+
   /** running → paused, with who paused it and why. */
   async pause(id: string, code: string, reason: string): Promise<boolean> {
     const t = this.now()
-    return (
-      (await this.db.run(`UPDATE volume_bots SET status = 'paused', pause_code = ?, pause_reason = ?, next_tick_at = NULL, updated_at = ? WHERE id = ? AND status = 'running'`, [
-        code,
-        reason,
-        t,
-        id,
-      ])) === 1
-    )
+    return this.db.tx(async () => {
+      const changed =
+        (await this.db.run(`UPDATE volume_bots SET status = 'paused', pause_code = ?, pause_reason = ?, next_tick_at = NULL, updated_at = ? WHERE id = ? AND status = 'running'`, [
+          code,
+          reason,
+          t,
+          id,
+        ])) === 1
+      if (changed) await this.cancelUnsigned(id)
+      return changed
+    })
   }
 
   /** paused → running, at once. */
@@ -313,14 +326,17 @@ export class VolumeBotStore {
   /** running or paused → stopping: nothing new is sent; the worker settles what was sent, then stops it. */
   async stop(id: string, reason: string): Promise<boolean> {
     const t = this.now()
-    return (
-      (await this.db.run(`UPDATE volume_bots SET status = 'stopping', pause_reason = ?, next_tick_at = ?, updated_at = ? WHERE id = ? AND status IN ('running', 'paused')`, [
-        reason,
-        t,
-        t,
-        id,
-      ])) === 1
-    )
+    return this.db.tx(async () => {
+      const changed =
+        (await this.db.run(`UPDATE volume_bots SET status = 'stopping', pause_reason = ?, next_tick_at = ?, updated_at = ? WHERE id = ? AND status IN ('running', 'paused')`, [
+          reason,
+          t,
+          t,
+          id,
+        ])) === 1
+      if (changed) await this.cancelUnsigned(id)
+      return changed
+    })
   }
 
   /** stopping → stopped, or running → completed: the run ends with its reason. */

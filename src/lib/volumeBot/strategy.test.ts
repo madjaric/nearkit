@@ -216,4 +216,16 @@ describe('a quote before it is executed', () => {
     expect(acceptQuote(intent, quote({ priceImpactBps: risk.maxPriceImpactBps + 50 }), risk, sizing, T)).toMatchObject({ ok: false, action: 'shrink' })
     expect(acceptQuote(intent, quote({ priceImpactBps: risk.maxPriceImpactBps + 50 }), risk, { ...sizing, adaptiveImpact: false }, T)).toMatchObject({ ok: false, action: 'skip' })
   })
+
+  it('an impact nobody reports is measured against the bot’s own small probe; one it can’t measure is not passed', () => {
+    const q = quote({ priceImpactBps: null })
+    // The probe's price (a tiny buy) equals this quote's: no impact.
+    expect(acceptQuote(intent, q, risk, sizing, T, { askNear: q.priceNear, bidNear: null })).toEqual({ ok: true })
+    // This quote pays 5% more per token than the probe did: over the limit.
+    const probe = { askNear: q.priceNear / 1.05, bidNear: null }
+    expect(acceptQuote(intent, q, risk, sizing, T, probe)).toMatchObject({ ok: false, action: 'shrink' })
+    expect(acceptQuote(intent, q, risk, { ...sizing, adaptiveImpact: false }, T, probe)).toMatchObject({ ok: false, action: 'skip' })
+    // No probe price at all: skipped.
+    expect(acceptQuote(intent, q, risk, sizing, T)).toMatchObject({ ok: false, action: 'skip', reason: expect.stringMatching(/impact/i) })
+  })
 })
