@@ -767,6 +767,20 @@ await step(
   async () => {
     near.state.accounts.set('friend5.testnet', { amount: String(ONE) })
     await page.goto(WEB + '/batch-send', { waitUntil: 'networkidle' })
+    // Send from starts on the connected account (also called "Main"): Manual rows follow it, and the page
+    // says how to send each row from its own NEARKITS wallet; Send from lists the two kinds apart.
+    const sendFrom = page.getByLabel('Send from', { exact: true })
+    await sendFrom.locator('optgroup').first().waitFor({ state: 'attached', timeout: 15000 })
+    const groups = await sendFrom.locator('optgroup').evaluateAll((gs) => gs.map((g) => g.getAttribute('label')))
+    if (groups.join() !== 'NEARKITS wallets,Connected wallet') throw new Error(`Send from lists ${groups.join()}`)
+    if ((await sendFrom.inputValue()) !== USER) throw new Error('Send from didn’t start on the connected account')
+    await page.getByRole('tab', { name: 'Manual' }).click()
+    if ((await page.getByRole('combobox', { name: /^From, recipient/ }).count()) !== 0) throw new Error('a connected Send from offers per-row wallets')
+    await shot('tg-09f-batch-manual-connected')
+    await page.getByRole('button', { name: 'Use NEARKITS wallets' }).click()
+    await page.getByLabel('From, recipient 1', { exact: true }).waitFor()
+    if ((await sendFrom.inputValue()) !== mainAddress) throw new Error('Use NEARKITS wallets didn’t switch Send from to a NEARKITS wallet')
+    await page.getByRole('tab', { name: 'Paste list' }).click()
     await page.getByLabel('Send from', { exact: true }).selectOption(mainAddress)
     // Paste list: one source, no per-row wallet, exactly as before.
     if ((await page.getByRole('combobox', { name: /^From, recipient/ }).count()) !== 0) throw new Error('Paste list offers a per-row wallet')

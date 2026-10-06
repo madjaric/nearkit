@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { tradeWalletPool } from '@/lib/wallets'
 import type { Wallet } from '@/types/domain'
-import { nearkitLines, rowSource, totalsBySource } from './rowSources'
+import { nearkitLines, perRowSources, rowSource, totalsBySource } from './rowSources'
 
 /**
  * Batch Send, Manual: while the batch runs on NearKit wallets, each row may name the NearKit wallet
@@ -25,6 +25,28 @@ const CONNECTED = wallet('me.near', 'external', { label: 'Me' })
 const WATCH = wallet('watch.near', 'watch', { label: 'Watched' })
 // What Send from offers (useSourceWallet): NearKit wallets that aren't frozen, then the connected accounts.
 const POOL = tradeWalletPool([MAIN, SNIPER, FROZEN, CONNECTED, WATCH])
+
+describe('when Manual rows offer their own wallet', () => {
+  const pool = POOL.options.filter((w) => w.source === 'nearkit')
+
+  it('Send from is one of two or more NEARKITS wallets: each row picks its own', () => {
+    expect(perRowSources('manual', MAIN, pool)).toBe('rows')
+    expect(perRowSources('manual', SNIPER, pool)).toBe('rows')
+  })
+
+  it('Send from is the connected account, with two or more NEARKITS wallets: the page says how to get there (rows still send from Send from)', () => {
+    expect(perRowSources('manual', CONNECTED, pool)).toBe('switch')
+  })
+
+  it('never in Paste list, never with a single NEARKITS wallet, never from a watch-only account', () => {
+    expect(perRowSources('paste', MAIN, pool)).toBeNull()
+    expect(perRowSources('paste', CONNECTED, pool)).toBeNull()
+    expect(perRowSources('manual', MAIN, [MAIN])).toBeNull()
+    expect(perRowSources('manual', CONNECTED, [MAIN])).toBeNull()
+    expect(perRowSources('manual', WATCH, pool)).toBeNull()
+    expect(perRowSources('manual', undefined, pool)).toBeNull()
+  })
+})
 
 describe('the wallet a manual row sends from', () => {
   it('follows Send from until the row names a wallet', () => {

@@ -1,4 +1,5 @@
 import { parseUnits } from '@/lib/amounts'
+import { executesViaNearKit, signsInBrowser } from '@/lib/wallets'
 import type { Wallet } from '@/types/domain'
 import type { SendLine } from '../tools/nearkitSends'
 
@@ -7,6 +8,17 @@ import type { SendLine } from '../tools/nearkitSends'
  * the NearKit wallet it sends from; NearKit's server sends every line from its own wallet, under the
  * same custody rule. A connected account signs the whole batch itself, so its rows always send from it.
  */
+
+/**
+ * Whether Manual rows each pick their NEARKITS wallet: `rows` while Send from is one of two or more
+ * NEARKITS wallets; `switch` while Send from is a connected account and there are two or more NEARKITS
+ * wallets the rows could use (the page says so: Send from decides); null otherwise.
+ */
+export function perRowSources(mode: 'paste' | 'manual', source: Pick<Wallet, 'source' | 'access'> | undefined, nearkit: readonly unknown[]): 'rows' | 'switch' | null {
+  if (mode !== 'manual' || !source || nearkit.length < 2) return null
+  if (executesViaNearKit(source)) return 'rows'
+  return signsInBrowser(source) ? 'switch' : null
+}
 
 /** The wallet a row sends from: its own choice when the batch runs on NearKit wallets and the choice is one of them (never watch-only or frozen), else Send from. */
 export function rowSource(choice: string | undefined, sendFromId: string, nearkit: readonly Pick<Wallet, 'id'>[]): string {

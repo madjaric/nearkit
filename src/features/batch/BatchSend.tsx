@@ -22,7 +22,7 @@ import { useBalance, useCapabilities, useHoldings, usePlanners, useRawBalance, u
 import { NearKitSendsModal } from '../tools/NearKitSendsModal'
 import { OperationModal } from '../tools/OperationModal'
 import { useSourceWallet } from '../tools/useSource'
-import { nearkitLines, rowSource, totalsBySource } from './rowSources'
+import { nearkitLines, perRowSources as perRowState, rowSource, totalsBySource } from './rowSources'
 
 type Mode = 'paste' | 'manual'
 interface ManualRow {
@@ -74,7 +74,8 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
   // Manual rows of a batch on NearKit wallets may each name the NearKit wallet they send from
   // (never watch-only or frozen); with a single NearKit wallet there is nothing to choose.
   const nearkitPool = signers.filter(executesViaNearKit)
-  const perRowSources = mode === 'manual' && source !== undefined && executesViaNearKit(source) && nearkitPool.length > 1
+  const perRow = perRowState(mode, source, nearkitPool)
+  const perRowSources = perRow === 'rows'
   const rowSourceId = (line: number) => (perRowSources ? rowSource(manual[line - 1]?.from, sourceId, nearkitPool) : sourceId)
   const walletOf = (id: string) => signers.find((w) => w.id === id)
 
@@ -144,7 +145,7 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
         <Panel>
           <PanelHeader title="Source" />
           <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
-            <Field label="Send from">{({ id }) => <WalletSelect id={id} value={sourceId} onChange={setSourceId} wallets={signers} />}</Field>
+            <Field label="Send from">{({ id }) => <WalletSelect id={id} value={sourceId} onChange={setSourceId} wallets={signers} groupBySource />}</Field>
             <Field
               label="Token"
               aside={
@@ -211,6 +212,14 @@ export function BatchSend({ initialTokenId = null, initialSourceId = null }: { i
               </div>
             ) : (
               <div className="flex flex-col gap-2">
+                {perRow === 'switch' && (
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-3">
+                    <span>Each row can send from its own NEARKITS wallet when Send from is a NEARKITS wallet. Send from is a connected account now.</span>
+                    <Button size="xs" variant="ghost" onClick={() => setSourceId(nearkitPool[0]?.id ?? sourceId)}>
+                      Use NEARKITS wallets
+                    </Button>
+                  </p>
+                )}
                 {manual.map((r, i) => {
                   const row = rowFor(i + 1)
                   const bad = row && row.status !== 'ok'
