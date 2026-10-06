@@ -25,6 +25,7 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export function createExecutionService(state: MockState): ExecutionService {
   return {
     forgetBalances: () => undefined,
+    trackBalances: () => undefined,
     async run(plan, prior, onProgress) {
       if (plan.mode !== 'demo') throw new ServiceError('wrong-mode', 'The demo can only simulate demo plans')
       let progress: OperationProgress = prior ? { ...prior, phase: 'running', pause: null } : { ...initialProgress(plan, true), phase: 'running' }

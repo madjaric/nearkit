@@ -1,13 +1,24 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { ChartRange, CopyRuleInput, DcaInput, MultiTradeRequest, OrderInput, PnlRange, PresetInput, QuoteRequest, SniperInput, TokenId, TransferRequest } from '@/types/domain'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import type { Holding, Session } from '@/types/domain'
 import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
 import { inFlight } from './inFlight'
 import { reconnectAs } from './ownerConnect'
 import type { NearKitWalletList, NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
-import { createRefreshStatus, refreshTargets, refreshUntilMoved, settledWithChanges, snapshotOf, type RefreshStatus } from './postTradeRefresh'
+import { NATIVE_TOKEN_ID } from '@/config/networks'
+import type { NearKitServices as Services } from './types'
+import {
+  createRefreshStatus,
+  refreshTargets,
+  refreshUntilMoved,
+  settledWithChanges,
+  snapshotOf,
+  type BalanceSnapshot,
+  type RefreshStatus,
+  type RefreshTargets,
+} from './postTradeRefresh'
 
 /**
  * Data hooks. Components only use these; they never see which service
@@ -164,7 +175,13 @@ export function useNearKitMutations() {
     /** The server's quote for each wallet, for the review. Nothing is signed. */
     prepareTrade: useMutation({ mutationFn: (input: WebTradeInput) => s.nearkit.prepareTrade(input) }),
     /** Runs the confirmed quotes: NearKit's server executes each wallet's own trade. */
-    executeTrade: useMutation({ mutationFn: ({ groupId, intentIds }: { groupId: string; intentIds: readonly string[] }) => s.nearkit.executeTrade(groupId, intentIds) }),
+    executeTrade: useMutation({
+      mutationFn: ({ groupId, intentIds }: { groupId: string; intentIds: readonly string[] }) => s.nearkit.executeTrade(groupId, intentIds),
+      onMutate: ({ groupId }) => {
+        const g = qc.getQueryData<WebTradeGroup>(qk.tradeGroup(groupId))
+        if (g) noteServerRun(qc, groupId, { accounts: g.legs.map((l) => l.accountId), tokens: [NATIVE_TOKEN_ID, g.token] })
+      },
+    }),
     cancelTrade: useMutation({ mutationFn: (groupId: string) => s.nearkit.cancelTrade(groupId) }),
     /** The server's review of a send; nothing is sent. */
     reviewSend: useMutation({ mutationFn: (input: WebSendInput) => s.nearkit.reviewSend(input) }),
@@ -189,8 +206,14 @@ export function useTradeGroup(groupId: string | null, live = false) {
       const group = await s.nearkit.tradeStatus(groupId as string)
       const finished = (g: WebTradeGroup | undefined) => g?.legs.filter((l) => l.status === 'done' || l.status === 'failed').length ?? 0
       if (finished(group) > finished(before)) {
-        s.execution.forgetBalances(group.legs.map((l) => l.accountId))
-        void Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
+        const targets = { accounts: group.legs.map((l) => l.accountId), tokens: [NATIVE_TOKEN_ID, group.token] }
+        // Every leg settled: reconcile against the balances before the run; until then, show each as it lands.
+        if (!group.legs.some((l) => runningLeg(l.status))) finishServerRun(s, qc, group.groupId, targets)
+        else {
+          s.execution.forgetBalances(targets.accounts)
+          s.execution.trackBalances(targets.accounts, targets.tokens)
+          void refetchBalances(qc)
+        }
       }
       return group
     },
@@ -200,15 +223,23 @@ export function useTradeGroup(groupId: string | null, live = false) {
   })
 }
 
-/** A send's status, polled while it runs; balances refresh when it finishes. */
-export function useSendStatus(intentId: string | null) {
+/**
+ * A send's status, polled while it runs; when it finishes, balances reconcile (the sending wallet and
+ * the destination, for the token sent: `targets`, noted when the send starts).
+ */
+export function useSendStatus(intentId: string | null, targets?: RefreshTargets) {
   const s = useServices()
   const qc = useQueryClient()
+  const targetsKey = targets ? `${targets.accounts.join(',')}|${targets.tokens.join(',')}` : ''
+  useEffect(() => {
+    if (intentId !== null && targets && !serverRuns.has(intentId) && !qc.getQueryData(qk.sendStatus(intentId))) noteServerRun(qc, intentId, targets)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intentId, targetsKey, qc])
   return useQuery({
     queryKey: qk.sendStatus(intentId),
     queryFn: async (): Promise<WebSendStatus> => {
       const r = await s.nearkit.sendStatus(intentId as string)
-      if (r.status === 'done' || r.status === 'failed') void Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] })])
+      if (r.status === 'done' || r.status === 'failed') finishServerRun(s, qc, intentId as string, targets ?? { accounts: [], tokens: [NATIVE_TOKEN_ID] })
       return r
     },
     enabled: intentId !== null,
@@ -374,6 +405,59 @@ export function usePlanners() {
 /** The post-trade balance refresh's status: "Updating balances…" in the top bar and the operation dialog. */
 export const balanceRefresh = createRefreshStatus()
 
+/** What every portfolio view reads: wallets, balances, positions, the summary, activity. */
+async function refetchBalances(qc: QueryClient, everywhere = false) {
+  // Every view, also the ones not on screen (the Dashboard after a Consolidate): none shows the old balances as current when opened.
+  const refetchType = everywhere ? 'all' : 'active'
+  await Promise.all([
+    qc.invalidateQueries({ queryKey: ['wallets'], refetchType }),
+    qc.invalidateQueries({ queryKey: qk.summary, refetchType }),
+    qc.invalidateQueries({ queryKey: qk.positions, refetchType }),
+    qc.invalidateQueries({ queryKey: ['portfolio'] }),
+    qc.invalidateQueries({ queryKey: qk.tokens }),
+  ])
+}
+
+/**
+ * Brings balances up to date after something moved them, without a page reload: the accounts'
+ * cached balances are dropped, the tokens they moved are read on chain directly (the indexer may lag),
+ * and the views refresh on a bounded schedule until the chain shows the change (every `expected`
+ * balance, for a run across several wallets), then once more for gas refunds. "Updating balances…"
+ * shows meanwhile (BalanceRefreshStatus); the operation's own result never waits for it.
+ */
+export function reconcileBalances(s: Pick<Services, 'execution'>, qc: QueryClient, targets: RefreshTargets, before: BalanceSnapshot, expected?: readonly string[]): void {
+  s.execution.trackBalances(targets.accounts, targets.tokens)
+  const refresh = async (everywhere = false) => {
+    s.execution.forgetBalances(targets.accounts)
+    await refetchBalances(qc, everywhere)
+  }
+  void balanceRefresh
+    .track((cancelled) =>
+      refreshUntilMoved({
+        before,
+        expected,
+        refresh: () => refresh(),
+        read: () => snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets),
+        followUp: () => refresh(true),
+        cancelled,
+      }),
+    )
+    .then((outcome) => (outcome === 'unchanged' ? refresh(true) : undefined))
+}
+
+/** Balances before a run on NEARKITS' server, by the run's id: reconciled against when it finishes. */
+const serverRuns = new Map<string, { targets: RefreshTargets; before: BalanceSnapshot }>()
+
+function noteServerRun(qc: QueryClient, id: string, targets: RefreshTargets) {
+  serverRuns.set(id, { targets, before: snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets) })
+}
+
+function finishServerRun(s: Pick<Services, 'execution'>, qc: QueryClient, id: string, fallback: RefreshTargets) {
+  const run = serverRuns.get(id)
+  serverRuns.delete(id)
+  reconcileBalances(s, qc, run?.targets ?? fallback, run?.before ?? new Map())
+}
+
 export function useBalanceRefresh(): RefreshStatus {
   return useSyncExternalStore(balanceRefresh.subscribe, balanceRefresh.get, balanceRefresh.get)
 }
@@ -391,9 +475,6 @@ export function useExecution() {
     const targets = refreshTargets(plan)
     const before = snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets)
     let result: OperationProgress | null = null
-    const refetch = async () => {
-      await Promise.all([qc.invalidateQueries({ queryKey: ['wallets'] }), qc.invalidateQueries({ queryKey: ['portfolio'] }), qc.invalidateQueries({ queryKey: qk.tokens })])
-    }
     // Listed while it goes (a slow network can keep it going after its dialog closed): the same trade can't be sent again meanwhile.
     const release = inFlight.add(plan)
     try {
@@ -401,21 +482,8 @@ export function useExecution() {
       return result
     } finally {
       release()
-      if (plan.mode === 'near' && settledWithChanges(result)) {
-        void balanceRefresh.track((cancelled) =>
-          refreshUntilMoved({
-            before,
-            refresh: async () => {
-              s.execution.forgetBalances(targets.accounts)
-              await refetch()
-            },
-            read: () => snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets),
-            cancelled,
-          }),
-        )
-      } else {
-        void refetch()
-      }
+      if (plan.mode === 'near' && settledWithChanges(result)) reconcileBalances(s, qc, targets, before)
+      else void refetchBalances(qc)
     }
   }
 }

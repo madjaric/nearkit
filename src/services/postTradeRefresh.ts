@@ -27,6 +27,15 @@ export function refreshTargets(plan: Pick<OperationPlan, 'signers' | 'lines' | '
   return { accounts, tokens: [...new Set(tokens.length ? tokens : [NATIVE_TOKEN_ID])] }
 }
 
+/**
+ * The accounts and tokens a run of sends changes (Consolidate, Split, Batch Send from NEARKITS
+ * wallets): every source and every destination, for the token moved, and NEAR (the senders pay gas).
+ */
+export function sendTargets(token: string, lines: readonly { from: string; to: string }[]): RefreshTargets {
+  const accounts = [...new Set([...lines.map((l) => l.from), ...lines.map((l) => l.to)])]
+  return { accounts, tokens: token === NATIVE_TOKEN_ID ? [NATIVE_TOKEN_ID] : [token, NATIVE_TOKEN_ID] }
+}
+
 /** Raw balance per `account|token`, from the holdings the app already shows. */
 export type BalanceSnapshot = ReadonlyMap<string, string>
 
@@ -36,8 +45,12 @@ export function snapshotOf(holdings: readonly Holding[] | undefined, targets: Re
   return out
 }
 
-/** True when any traded token's balance on any affected account is not what it was (appeared, moved or went to zero). */
-export function balancesMoved(before: BalanceSnapshot, after: BalanceSnapshot): boolean {
+/**
+ * True when any traded token's balance on any affected account is not what it was (appeared, moved
+ * or went to zero); with `expected` (keys `account|token`), only when every one of those did.
+ */
+export function balancesMoved(before: BalanceSnapshot, after: BalanceSnapshot, expected?: readonly string[]): boolean {
+  if (expected && expected.length > 0) return expected.every((k) => before.get(k) !== after.get(k))
   for (const [k, v] of after) if (before.get(k) !== v) return true
   for (const k of before.keys()) if (!after.has(k)) return true
   return false
@@ -57,6 +70,10 @@ export async function refreshUntilMoved(o: {
   before: BalanceSnapshot
   refresh: () => Promise<void>
   read: () => BalanceSnapshot
+  /** Every one of these `account|token` balances must move (a run across several wallets); default: any. */
+  expected?: readonly string[]
+  /** Once they moved: one more refresh, after FOLLOW_UP_MS, for the gas refund that lands a moment later. */
+  followUp?: () => Promise<void>
   delays?: readonly number[]
   sleep?: (ms: number) => Promise<void>
   cancelled?: () => boolean
@@ -74,10 +91,19 @@ export async function refreshUntilMoved(o: {
       // A failed refresh is just another try; the next one may work.
       continue
     }
-    if (balancesMoved(o.before, o.read())) return 'updated'
+    if (balancesMoved(o.before, o.read(), o.expected)) {
+      if (o.followUp) {
+        await sleep(FOLLOW_UP_MS)
+        if (!o.cancelled?.()) await o.followUp().catch(() => undefined)
+      }
+      return 'updated'
+    }
   }
   return 'unchanged'
 }
+
+/** How long after the balances moved the follow-up refresh asks again (gas refunds land a block or two later). */
+export const FOLLOW_UP_MS = 4_000
 
 // ─── status for the UI ──────────────────────────────────────────────────────
 

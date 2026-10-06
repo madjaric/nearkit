@@ -10,8 +10,9 @@ import { cn } from '@/lib/cn'
 import { formatAccount } from '@/lib/format'
 import { useServices } from '@/services/context'
 import { explorerTxUrl } from '@/services/near/explorer'
-import { useCapabilities } from '@/services/queries'
-import type { Wallet } from '@/types/domain'
+import { sendTargets, snapshotOf } from '@/services/postTradeRefresh'
+import { qk, reconcileBalances, useCapabilities } from '@/services/queries'
+import type { Holding, Wallet } from '@/types/domain'
 import { reviewLines, sendLines, type LineState, type SendLine } from './nearkitSends'
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -123,12 +124,20 @@ export function NearKitSendsModal({
     stop.current = false
     setStopping(false)
     setPhase('sending')
+    // Every source and destination, for the token moved: balances reconcile against these once the run ends.
+    const targets = sendTargets(
+      asset,
+      lines.map((l) => ({ from: l.from?.accountId ?? wallet?.accountId ?? '', to: l.to })),
+    )
+    const before = snapshotOf(qc.getQueryData<Holding[]>(qk.holdings), targets)
+    let final: LineState[] = states
     try {
-      await sendLines(s.nearkit, walletId, asset, lines, states, onLine, { now: Date.now, sleep, shouldStop: () => stop.current })
+      final = await sendLines(s.nearkit, walletId, asset, lines, states, onLine, { now: Date.now, sleep, shouldStop: () => stop.current })
     } finally {
       setPhase('done')
-      void qc.invalidateQueries({ queryKey: ['wallets'] })
-      void qc.invalidateQueries({ queryKey: ['portfolio'] })
+      // The balances that must move: each line that was sent, at its source and its destination.
+      const expected = lines.flatMap((l, i) => (final[i]?.kind === 'sent' ? [`${l.from?.accountId ?? wallet?.accountId ?? ''}|${asset}`, `${l.to}|${asset}`] : []))
+      reconcileBalances(s, qc, targets, before, [...new Set(expected)])
     }
   }
 

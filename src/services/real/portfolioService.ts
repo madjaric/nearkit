@@ -1,6 +1,6 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { recordValue, valueWindow } from '@/lib/valueHistory'
-import type { Position, Session, TokenListing } from '@/types/domain'
+import type { Position, Session, TokenListing, WalletSnapshot } from '@/types/domain'
 import type { NearKitWeb, NearKitWebSession } from '../nearkitWeb'
 import type { PortfolioService, WalletService } from '../types'
 import { reconcile } from './activity'
@@ -33,7 +33,8 @@ export function createPortfolioService(
   /** Who the portfolio is: the NearKit web sign-in and the browser wallet (its history is theirs alone). */
   const identity = (session: Session | null, web: NearKitWebSession | null) => `${web?.userName ?? ''}|${session?.accountId ?? ''}`
 
-  async function positions(): Promise<Position[]> {
+  /** Balances and values, without PnL: what the summary needs, never waiting for history. */
+  async function holdingsView(): Promise<{ list: Position[]; snapshots: WalletSnapshot[] }> {
     const snapshots = await wallets.listPortfolioSnapshots()
     const held = [...new Set(snapshots.flatMap((s) => s.holdings.map((h) => h.tokenId)))].filter((id) => id !== NATIVE_TOKEN_ID)
     const tokens = new Map<string, TokenListing>((await market.listTokens(held)).map((t) => [t.id, t]))
@@ -64,8 +65,12 @@ export function createPortfolioService(
       })
     }
     // Priced positions by value first, then unpriced ones by balance.
-    const sorted = list.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1) || b.balance - a.balance)
-    return withPnl(sorted, snapshots, tracker, PNL_WAIT_MS)
+    return { list: list.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1) || b.balance - a.balance), snapshots }
+  }
+
+  async function positions(): Promise<Position[]> {
+    const { list, snapshots } = await holdingsView()
+    return withPnl(list, snapshots, tracker, PNL_WAIT_MS)
   }
 
   return {
@@ -89,7 +94,8 @@ export function createPortfolioService(
           updatedAt: ctx.now(),
         }
       }
-      const [snapshots, list, near, all] = await Promise.all([wallets.listPortfolioSnapshots(), positions(), market.nearQuote(), wallets.listWallets()])
+      // The summary shows no PnL: it never waits for history (a balance change shows as soon as it is read).
+      const [{ list, snapshots }, near, all] = await Promise.all([holdingsView(), market.nearQuote(), wallets.listWallets()])
       const priced = list.filter((p) => p.valueUsd !== null)
       const availableNear = snapshots.reduce((s, w) => s + w.nearBalance, 0)
       const valueUsd = ctx.capabilities.prices ? priced.reduce((s, p) => s + (p.valueUsd ?? 0), 0) : null

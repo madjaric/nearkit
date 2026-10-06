@@ -25,7 +25,17 @@ const review = (to: string, amount: string): WebSendReview => ({
 })
 
 /** A fake web API: who is approved, what each review answers, how each send ends. It records every call in order. */
-function api(opts: { unapproved?: string[]; broken?: Record<string, string>; ending?: Record<string, WebSendStatus['status']>; ttlMs?: number; pausedAfter?: number } = {}) {
+function api(
+  opts: {
+    unapproved?: string[]
+    broken?: Record<string, string>
+    ending?: Record<string, WebSendStatus['status']>
+    ttlMs?: number
+    pausedAfter?: number
+    requoteFirst?: string[]
+  } = {},
+) {
+  const requoted = new Set<string>()
   const calls: string[] = []
   let now = 0
   let n = 0
@@ -56,6 +66,11 @@ function api(opts: { unapproved?: string[]; broken?: Record<string, string>; end
       i.polls += 1
       calls.push(`status ${intentId}`)
       if (i.polls < 2) return { status: 'executing', message: null, hashes: [] }
+      // The engine replaced this send (the destination changed since its review): it must be reviewed again.
+      if (opts.requoteFirst?.includes(i.to) && !requoted.has(i.to)) {
+        requoted.add(i.to)
+        return { status: 'requoted', message: null, hashes: [] }
+      }
       const end = opts.ending?.[i.to] ?? 'done'
       return end === 'done' ? { status: 'done', message: null, hashes: [`tx-${intentId}`] } : { status: end, message: `The send to ${i.to} failed.`, hashes: [] }
     },
@@ -176,5 +191,17 @@ describe('Consolidate: one line from each of several NEARKITS wallets, into one 
     await expect(sendLines(a.fake, '', 'sing.near', into, states, () => undefined, { now: a.now, sleep: async () => undefined, shouldStop: () => false })).rejects.toThrow(
       'Every line must be ready before the batch is sent',
     )
+  })
+})
+
+describe('a line the server re-quoted while it ran (Consolidate into a fresh wallet)', () => {
+  it('is reviewed again and sent, never left "still running"', async () => {
+    const a = api({ requoteFirst: ['bob.near'] })
+    const states = await reviewLines(a.fake, WALLET, 'near', lines, () => undefined)
+    a.calls.length = 0
+    const done = await sendLines(a.fake, WALLET, 'near', lines, states, () => undefined, { now: a.now, sleep: async (ms) => void a.advance(ms), shouldStop: () => false })
+    expect(done.map((s) => s.kind)).toEqual(['sent', 'sent', 'sent'])
+    // bob.near: executed, re-quoted, reviewed again (same destination and amount), executed again.
+    expect(a.calls.slice(3, 10)).toEqual(['execute i2', 'status i2', 'status i2', 'review bob.near 2', 'execute i4', 'status i4', 'status i4'])
   })
 })

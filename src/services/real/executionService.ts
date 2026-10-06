@@ -1,3 +1,4 @@
+import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { createExecutor } from '@/services/near/executor'
 import { createTxLocator } from '@/services/near/locate'
 import type { ExecutionService } from '../types'
@@ -28,6 +29,10 @@ export function createExecutionService(ctx: NearContext, active: Set<string>): E
   return {
     forgetBalances(accountIds) {
       for (const id of accountIds) ctx.balances.invalidate(id)
+    },
+    trackBalances(accountIds, contracts) {
+      const tokens = contracts.filter((c) => c !== NATIVE_TOKEN_ID)
+      if (tokens.length > 0) for (const id of accountIds) ctx.balances.track(id, tokens)
     },
     async run(plan, prior, onProgress) {
       active.add(plan.id)

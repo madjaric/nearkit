@@ -26,6 +26,7 @@ import { describeError } from '@/services/errors'
 import { explorerTxUrl } from '@/services/near/explorer'
 import { newCreateKey, type NearKitWebWallet, type SendApproval, type WebLegStatus } from '@/services/nearkitWeb'
 import { LinkRequestError } from '@/services/telegramLink'
+import { sendTargets } from '@/services/postTradeRefresh'
 import { useCapabilities, useNearKitMutations, useNearKitSession, useNearKitWallets, useSendStatus, useTokens } from '@/services/queries'
 import type { Wallet, WalletSnapshot } from '@/types/domain'
 
@@ -541,7 +542,8 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
   const [telegramOpened, setTelegramOpened] = useState(false)
   // The user's own NearKit wallets: a shortcut for the destination, nothing more.
   const { data: own } = useNearKitWallets()
-  const status = useSendStatus(sending)
+  // The wallet and the destination, for the token sent: their balances reconcile once the send finishes.
+  const status = useSendStatus(sending, reviewSend.data ? sendTargets(reviewSend.data.review.asset, [{ from: wallet.accountId, to: reviewSend.data.review.to }]) : undefined)
   const symbolOf = (id: string) => (id === NATIVE_TOKEN_ID ? 'NEAR' : (tokens.find((t) => t.id === id)?.symbol ?? formatAccount(id, 20)))
   const balance = held.find((h) => h.tokenId === asset)
   const toError = touched ? accountIdError(to) : null

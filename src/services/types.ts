@@ -205,6 +205,11 @@ export interface ExecutionService {
    * again (the post-trade refresh does this before each try). No-op in demo mode.
    */
   forgetBalances(accountIds: readonly string[]): void
+  /**
+   * Read these tokens of these accounts on chain directly for a while (they just received or sent
+   * them), instead of waiting for the token indexer to notice. No-op in demo mode.
+   */
+  trackBalances(accountIds: readonly string[], contracts: readonly string[]): void
 }
 
 export interface AutomationService {

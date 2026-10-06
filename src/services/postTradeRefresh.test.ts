@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Holding } from '@/types/domain'
-import { balancesMoved, createRefreshStatus, refreshTargets, refreshUntilMoved, snapshotOf, REFRESH_DELAYS_MS } from './postTradeRefresh'
+import { balancesMoved, createRefreshStatus, refreshTargets, refreshUntilMoved, sendTargets, snapshotOf, REFRESH_DELAYS_MS } from './postTradeRefresh'
 
 const USDT = 'usdt.tether-token.near'
 const plan = {
@@ -80,5 +80,66 @@ describe('balances after a trade', () => {
     status.subscribe(() => seen.push(status.get().state))
     await status.track(async () => 'unchanged')
     expect(seen).toEqual(['updating', 'stale'])
+  })
+})
+
+describe('balances after a run across several wallets (Consolidate, Split, Batch Send)', () => {
+  it('targets every source and every destination of the lines, for the token moved', () => {
+    expect(
+      sendTargets('near', [
+        { from: 'a.near', to: 'dest.near' },
+        { from: 'b.near', to: 'dest.near' },
+      ]),
+    ).toEqual({ accounts: ['a.near', 'b.near', 'dest.near'], tokens: ['near'] })
+    expect(sendTargets(USDT, [{ from: 'a.near', to: 'x.near' }])).toEqual({ accounts: ['a.near', 'x.near'], tokens: [USDT, 'near'] })
+  })
+
+  it('waits until every source shows the change, not only the first one', async () => {
+    let reads = 0
+    const before = new Map([
+      ['a.near|near', '5'],
+      ['b.near|near', '5'],
+    ])
+    const outcome = await refreshUntilMoved({
+      before,
+      expected: ['a.near|near', 'b.near|near'],
+      refresh: async () => undefined,
+      // a.near's balance shows the send at once; b.near's only at the third read.
+      read: () => {
+        reads++
+        return new Map([
+          ['a.near|near', '1'],
+          ['b.near|near', reads >= 3 ? '1' : '5'],
+        ])
+      },
+      sleep: async () => undefined,
+    })
+    expect(outcome).toBe('updated')
+    expect(reads).toBe(3)
+  })
+
+  it('counts a destination that held nothing before once the token appears there', async () => {
+    const outcome = await refreshUntilMoved({
+      before: new Map([['a.near|' + USDT, '9']]),
+      expected: ['a.near|' + USDT, 'dest.near|' + USDT],
+      refresh: async () => undefined,
+      read: () => new Map([['dest.near|' + USDT, '9']]),
+      sleep: async () => undefined,
+    })
+    expect(outcome).toBe('updated')
+  })
+
+  it('refreshes once more after the balances moved, for the gas refund that lands a moment later', async () => {
+    const refreshes: string[] = []
+    let calls = 0
+    const outcome = await refreshUntilMoved({
+      before: new Map([['a.near|near', '5']]),
+      refresh: async () => void refreshes.push(`try ${++calls}`),
+      read: () => new Map([['a.near|near', '4']]),
+      sleep: async () => undefined,
+      followUp: async () => void refreshes.push('follow-up'),
+    })
+    expect(outcome).toBe('updated')
+    expect(refreshes).toEqual(['try 1', 'follow-up'])
   })
 })

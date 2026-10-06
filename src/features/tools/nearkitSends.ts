@@ -77,12 +77,17 @@ export async function reviewLines(api: SendsApi, walletId: string, asset: string
   return states
 }
 
-/** Follows one running send until it is done or failed; null when it isn't finished in time. */
-async function follow(api: SendsApi, intentId: string, opts: { now: () => number; sleep: (ms: number) => Promise<void> }): Promise<LineState | null> {
+/**
+ * Follows one running send until it is done or failed; null when it isn't finished in time;
+ * 'requoted' when the engine replaced it (what it reviewed changed, e.g. an earlier line created or
+ * registered its destination): nothing was sent for it, and it needs a new review.
+ */
+async function follow(api: SendsApi, intentId: string, opts: { now: () => number; sleep: (ms: number) => Promise<void> }): Promise<LineState | 'requoted' | null> {
   const until = opts.now() + SEND_WAIT_MS
   while (opts.now() < until) {
     await opts.sleep(POLL_MS)
     const s = await api.sendStatus(intentId).catch(() => null)
+    if (s?.status === 'requoted') return 'requoted'
     if (!s || !finished(s.status)) continue
     if (s.status === 'done') return { kind: 'sent', hashes: s.hashes }
     return {
@@ -131,18 +136,32 @@ export async function sendLines(
       }
       current = again
     }
-    try {
-      await api.executeSend(current.intentId)
-    } catch (e) {
-      set(i, { kind: 'failed', message: messageOf(e) })
-      if (e instanceof LinkRequestError && e.code === 'paused') stopped = true
-      continue
-    }
-    const end = await follow(api, current.intentId, opts)
-    if (end) set(i, end)
-    else {
-      set(i, { kind: 'failed', message: STILL_RUNNING })
-      stopped = true
+    // A send the engine re-quoted is reviewed again (same destination and amount) and sent, at most twice.
+    for (let requotes = 0; ; requotes++) {
+      try {
+        await api.executeSend(current.intentId)
+      } catch (e) {
+        set(i, { kind: 'failed', message: messageOf(e) })
+        if (e instanceof LinkRequestError && e.code === 'paused') stopped = true
+        break
+      }
+      const end = await follow(api, current.intentId, opts)
+      if (end === 'requoted' && requotes < 2) {
+        const again = await reviewOne(api, line.from?.walletId ?? walletId, asset, line)
+        if (again.kind !== 'ready') {
+          set(i, { kind: 'failed', message: again.kind === 'approval' || again.kind === 'error' ? again.message : 'This send couldn’t be reviewed again.' })
+          break
+        }
+        current = again
+        continue
+      }
+      if (end && end !== 'requoted') set(i, end)
+      else if (end === 'requoted') set(i, { kind: 'failed', message: 'Its review kept changing while it ran: nothing was sent. Review it again.' })
+      else {
+        set(i, { kind: 'failed', message: STILL_RUNNING })
+        stopped = true
+      }
+      break
     }
   }
   return states

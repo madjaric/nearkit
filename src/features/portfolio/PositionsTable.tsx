@@ -15,7 +15,7 @@ import { useSort } from '@/components/ui/useSort'
 import { cn } from '@/lib/cn'
 import { formatCompact } from '@/lib/format'
 import { canExecute, executesViaNearKit } from '@/lib/wallets'
-import { useWallets } from '@/services/queries'
+import { useBalanceRefresh, useWallets } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 import type { Position, Wallet } from '@/types/domain'
 import { SendTokenButton } from '../token/SendToken'
@@ -147,6 +147,8 @@ function TokenCell({ position }: { position: Position }) {
 
 export function PositionsTable({ positions, loading = false, compact = false, expandable = false }: PositionsTableProps) {
   const { sorted, sort, setSort, thSort } = useSort(positions, GETTERS, { key: 'value', dir: 'desc' })
+  // While balances reconcile after a run, these figures aren't shown as current: dimmed, and said so (BalanceRefreshStatus).
+  const reconciling = useBalanceRefresh().state === 'updating'
   const { data: wallets = [] } = useWallets()
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [sending, setSending] = useState<{ wallet: Wallet; tokenId: string } | null>(null)
@@ -179,7 +181,7 @@ export function PositionsTable({ positions, loading = false, compact = false, ex
   const tier = TIERS[compact ? 'compact' : 'full']
 
   return (
-    <div className="@container">
+    <div className={cn('@container transition-opacity', reconciling && 'opacity-60')} aria-busy={reconciling || undefined}>
       {/* A box wide enough for it: the terminal table */}
       <div className={tier.table}>
         <Table label="Positions" rows="double" minWidth={compact ? 520 : 860}>

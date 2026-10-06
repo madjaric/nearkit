@@ -2,6 +2,7 @@ import { Coins, Layers, PieChart, SendHorizontal, Wallet } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Sparkline } from '@/components/chart/Sparkline'
+import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
 import { Freshness } from '@/components/domain/Freshness'
 import { SimMark } from '@/components/domain/SimMark'
 import { DataTag, StatusLamp } from '@/components/domain/Status'
@@ -242,9 +243,12 @@ export default function DashboardPage() {
             title="Positions"
             meta={positions.data ? positions.data.length : undefined}
             actions={
-              <Link to="/positions" className={linkKey}>
-                All positions
-              </Link>
+              <>
+                <BalanceRefreshStatus />
+                <Link to="/positions" className={linkKey}>
+                  All positions
+                </Link>
+              </>
             }
           />
           {!session ? (
