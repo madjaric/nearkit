@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { migrate } from './schema'
 import { SqliteDatabase } from './sqlite'
 import { Store } from './store'
+import { anotherInstance, ENGINE_TIMEOUT_MS, openTestDatabase, TEST_ENGINES } from './testing'
 
 let now = 1_000_000
 let store: Store
@@ -148,4 +149,24 @@ describe('boots', () => {
     expect(await start(2000)).toEqual({ boot: 2, since: 1000 })
     expect(await start(3000)).toEqual({ boot: 3, since: 1000 })
   })
+})
+
+describe.each(TEST_ENGINES)('a link code completed twice at once, on %s', (engine) => {
+  it(
+    'links one account, never two (two instances racing with one code)',
+    async () => {
+      const db = await openTestDatabase(engine)
+      const a = new Store(db, () => now)
+      await a.upsertUser(alice)
+      await a.createLinkRequest({ codeHash: 'race', userId: 101, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 600_000 })
+      const b = engine === 'postgres' ? new Store(anotherInstance(db), () => now) : a
+      const results = await Promise.allSettled([
+        a.completeLink({ codeHash: 'race', network: 'testnet', accountId: 'one.testnet', userId: 101, publicKey: 'ed25519:K' }),
+        b.completeLink({ codeHash: 'race', network: 'testnet', accountId: 'two.testnet', userId: 101, publicKey: 'ed25519:K' }),
+      ])
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      expect(await a.linksOf(101, 'testnet')).toHaveLength(1)
+    },
+    ENGINE_TIMEOUT_MS,
+  )
 })

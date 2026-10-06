@@ -339,6 +339,18 @@ export class CustodyStore {
     return r ? toWallet(r) : null
   }
 
+  /**
+   * The wallet the user's owner of record comes from: an owned active one first, else the newest
+   * owned one even if closed. Deleting owned wallets never makes room for a new owner.
+   */
+  async ownedOfRecord(userId: number, network: string): Promise<TradingWallet | null> {
+    const r = await this.db.get<WalletRow>(
+      "SELECT * FROM trading_wallets WHERE user_id = ? AND network = ? AND owner_account IS NOT NULL ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC LIMIT 1",
+      [userId, network],
+    )
+    return r ? toWallet(r) : null
+  }
+
   /** The user's active wallets on this network, in slot order (Main first). */
   /** The user's active wallets, in the order they put them in (wallets never ordered follow, by slot). */
   async activeWallets(userId: number, network: string): Promise<TradingWallet[]> {

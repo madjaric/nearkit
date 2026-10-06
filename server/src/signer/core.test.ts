@@ -332,6 +332,13 @@ describe('owner-signed requests', () => {
     expect((await signer.challenge({ kind: 'owner-session', owner: OWNER })).kind).toBe('owner-session')
   })
 
+  it('requests anyone can make in the owner’s name don’t use up the owner’s export and approvals', async () => {
+    for (let i = 0; i < 20; i++) await signer.challenge({ kind: 'owner-session', owner: OWNER })
+    const browser = await createExportKeyPair()
+    expect((await signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey })).kind).toBe('export')
+    expect((await signer.challenge({ kind: 'approve-destination', accountId: wallet.accountId, destination: 'bob.testnet' })).kind).toBe('approve-destination')
+  })
+
   it('RPC providers that disagree decide nothing: the request stays unused and works once they agree', async () => {
     const c = await signer.challenge({ kind: 'owner-session', owner: OWNER })
     const proof = await proofFor(c)

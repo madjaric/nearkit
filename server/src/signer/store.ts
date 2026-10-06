@@ -409,9 +409,19 @@ export class SignerStore {
     return (await this.db.run('UPDATE signer_challenges SET used_at = ?, used_key = ? WHERE id = ? AND used_at IS NULL AND expires_at >= ?', [t, key, id, t])) === 1
   }
 
-  async countChallengesSince(network: string, owner: string, since: number): Promise<number> {
+  /**
+   * Requests made since `since` for this owner, of this kind and (export, approval) this wallet:
+   * each budget is its own, so requests anyone can make in the owner's name (an owner session)
+   * never use up the owner's export or approvals.
+   */
+  async countChallengesSince(network: string, owner: string, kind: string, accountId: string | null, since: number): Promise<number> {
     return (
-      (await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM signer_challenges WHERE network = ? AND owner_account = ? AND created_at >= ?', [network, owner, since]))?.n ?? 0
+      (
+        await this.db.get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM signer_challenges WHERE network = ? AND owner_account = ? AND kind = ? AND COALESCE(account_id, '') = ? AND created_at >= ?",
+          [network, owner, kind, accountId ?? '', since],
+        )
+      )?.n ?? 0
     )
   }
 

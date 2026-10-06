@@ -541,7 +541,7 @@ export function createSignerCore(deps: SignerDeps) {
           if (destination === ownerAccount) throw new BadRequestError('malformed request: the owner wallet needs no approval')
         }
       }
-      if ((await store.countChallengesSince(network.id, ownerAccount, now() - CHALLENGE_WINDOW_MS)) >= CHALLENGES_PER_WINDOW)
+      if ((await store.countChallengesSince(network.id, ownerAccount, kind, accountId, now() - CHALLENGE_WINDOW_MS)) >= CHALLENGES_PER_WINDOW)
         throw new ChallengeError('rate-limited', 'Too many requests for this wallet. Try again in a few minutes.')
       const id = randomToken(18)
       const expiresAt = now() + ttl

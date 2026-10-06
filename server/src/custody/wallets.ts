@@ -101,7 +101,8 @@ export async function ownerForNewWallet(
   input: { userId: number; network: string; linked: string | null; approvalsOn: () => Promise<boolean> },
 ): Promise<{ accountId: string; publicKey: string } | null | undefined> {
   const link = input.linked ? await links.linkOf(input.network, input.linked) : null
-  const existing = (await c.store.activeWallets(input.userId, input.network)).find((w) => w.ownerAccount)
+  // Closed wallets count too: deleting the owned wallets first must not let a wallet linked since become the owner.
+  const existing = await c.store.ownedOfRecord(input.userId, input.network)
   if (existing?.ownerAccount) {
     const ownerLink = await links.linkOf(input.network, existing.ownerAccount)
     return { accountId: existing.ownerAccount, publicKey: ownerLink?.userId === input.userId ? ownerLink.publicKey : (existing.ownerKey ?? link?.publicKey ?? '') }

@@ -78,6 +78,26 @@ describe('withdrawal destinations the owner approves', () => {
     expect((await h.signerVault?.key('testnet', created.accountId))?.ownerAccount).toBe(LINKED)
   })
 
+  it('deleting the owned wallets first changes nothing: the next wallet still answers to the owner they had, not to a wallet linked since', async () => {
+    const h = await walletBot()
+    await h.press('cw:create')
+    const first = (await h.wallet()) as TradingWallet
+    expect(first.ownerAccount).toBe(LINKED)
+    // Someone in the Telegram account deletes the empty owned wallet, links their own wallet and makes it the default.
+    await h.press(`cr:deleteyes:${first.id}`)
+    expect((await h.custody.store.wallet(first.id))?.status).toBe('deleted')
+    const mallory = await ownerKeypair()
+    h.chain.accounts.set(MALLORY, { amount: ONE, keys: { [mallory.publicKey]: 'full' } })
+    await h.store.createLinkRequest({ codeHash: 'm3', userId: ALICE.id, network: 'testnet', nonce: 'n', message: 'm', ttlMs: 60_000 })
+    await h.store.completeLink({ codeHash: 'm3', network: 'testnet', accountId: MALLORY, userId: ALICE.id, publicKey: mallory.publicKey })
+    await h.store.updateSettings(ALICE.id, { defaultAccount: MALLORY })
+    await h.press('cw:create')
+    const next = (await h.wallet()) as TradingWallet
+    expect(next.id).not.toBe(first.id)
+    expect(next.ownerAccount).toBe(LINKED)
+    expect((await h.signerVault?.key('testnet', next.accountId))?.ownerAccount).toBe(LINKED)
+  })
+
   it('a compromised app that skips every check still can’t withdraw: the signer refuses an unapproved destination', async () => {
     const { h, w, forgedWithdraw } = await world()
     const r = await forgedWithdraw('evil.testnet')

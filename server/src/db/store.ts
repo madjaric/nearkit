@@ -234,7 +234,9 @@ export class Store {
       if (req.network !== r.network) throw new LinkError('network', `This link code is for the ${req.network} network`)
       const previous = await this.linkOf(r.network, r.accountId)
       const previousUserId = previous && previous.userId !== r.userId ? previous.userId : null
-      await this.db.run('UPDATE link_requests SET used_at = ?, linked_account = ? WHERE code_hash = ?', [t, r.accountId, r.codeHash])
+      // Used up only if still unused: two completions racing (two instances) link one account, never two.
+      const used = await this.db.run('UPDATE link_requests SET used_at = ?, linked_account = ? WHERE code_hash = ? AND used_at IS NULL', [t, r.accountId, r.codeHash])
+      if (used !== 1) throw new LinkError('used', 'This link code was already used')
       if (previousUserId !== null) {
         await this.db.run('INSERT INTO link_events (network, account_id, user_id, kind, detail, at) VALUES (?, ?, ?, ?, ?, ?)', [
           r.network,
