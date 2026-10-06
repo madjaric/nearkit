@@ -32,7 +32,8 @@ nearkits.com as its canonical address).
   `trailingSlash: false`, `X-Robots-Tag: noindex` for private and COMING SOON routes.
   `src/config/hosting.test.ts` checks it against the router and `seo.ts`.
 - `scripts/serve-dist.mjs`: serves a build locally the way `vercel.json` says (used by `npm run e2e:beta`
-  and for audits). `scripts/brand-images.mjs` draws `og.png` and the icons from the mark.
+  and for audits). `scripts/brand-images.mjs` makes `og.png`, the favicons, the app icons (`manifest.webmanifest`)
+  and the logo files in `public/brand/` from the official logo, `brand/nearkits-logo.jpg`.
 
 ## Rules
 

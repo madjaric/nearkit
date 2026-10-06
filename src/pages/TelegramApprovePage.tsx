@@ -62,9 +62,9 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <main className="flex min-h-dvh justify-center bg-canvas px-4 py-6 text-fg">
       <div className="flex w-full max-w-md flex-col gap-5">
-        <span className="flex items-center gap-2.5">
+        <span className="flex items-center gap-1.5">
           <LogoMark size={20} />
-          <Wordmark />
+          <Wordmark height={13} />
         </span>
         {children}
       </div>

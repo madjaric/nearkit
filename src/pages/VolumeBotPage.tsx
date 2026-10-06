@@ -89,9 +89,9 @@ export default function VolumeBotPage() {
       </a>
       <header className="sticky top-0 z-30 border-b border-line bg-canvas/95 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 lg:px-6">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="NEARKITS home">
+          <Link to="/" className="flex items-center gap-1.5" aria-label="NEARKITS home">
             <LogoMark size={22} />
-            <Wordmark />
+            <Wordmark height={14} />
           </Link>
           <nav aria-label="NEARKITS" className="hidden items-center gap-1 md:flex">
             {NAV.map((n) => (
@@ -389,9 +389,10 @@ export default function VolumeBotPage() {
 
       <footer className="border-t border-line bg-well">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-fg-3 sm:flex-row sm:items-center sm:justify-between lg:px-6">
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-1">
             <LogoMark size={18} />
-            NEARKITS · the trading toolkit for NEAR
+            <Wordmark height={12} />
+            <span className="ml-1">· the trading toolkit for NEAR</span>
           </span>
           <nav aria-label="More from NEARKITS" className="flex flex-wrap gap-x-5 gap-y-2">
             <Link to="/" className="hover:text-fg">

@@ -120,9 +120,25 @@ function fit(ctx: CanvasRenderingContext2D, text: string, font: (size: number) =
   return 12
 }
 
-/** Waits for the app's fonts, so the canvas doesn't fall back to system fonts. */
+/** The official logo (public/brand/nearkits-logo.png: mark and wordmark on transparent), once loaded. */
+let logo: HTMLImageElement | null = null
+const LOGO_RATIO = 1034 / 145
+
+/** Waits for the app's fonts and the logo, so the canvas falls back to neither system fonts nor plain text. */
 export async function loadCardFonts(): Promise<void> {
-  await Promise.all([document.fonts.load(`400 48px ${MONO}`), document.fonts.load(`600 24px ${SANS}`), document.fonts.load(`700 24px ${SANS}`)]).catch(() => undefined)
+  const image = async () => {
+    if (logo) return
+    const img = new Image()
+    img.src = '/brand/nearkits-logo.png'
+    await img.decode()
+    logo = img
+  }
+  await Promise.all([
+    document.fonts.load(`400 48px ${MONO}`),
+    document.fonts.load(`600 24px ${SANS}`),
+    document.fonts.load(`700 24px ${SANS}`),
+    image().catch(() => undefined),
+  ]).catch(() => undefined)
 }
 
 export function drawPnlCard(canvas: HTMLCanvasElement, card: PnlCard, account: string | null): void {
@@ -156,12 +172,15 @@ export function drawPnlCard(canvas: HTMLCanvasElement, card: PnlCard, account: s
     ctx.stroke()
   }
 
-  // Wordmark: NEARKITS.
+  // The logo; its name in type if the image couldn't load.
   ctx.textBaseline = 'alphabetic'
-  ctx.font = `700 30px ${SANS}`
-  ctx.letterSpacing = '2px'
-  ctx.fillStyle = c.fg
-  ctx.fillText('NEARKITS', pad, 96)
+  if (logo) ctx.drawImage(logo, pad, 64, Math.round(40 * LOGO_RATIO), 40)
+  else {
+    ctx.font = `700 30px ${SANS}`
+    ctx.letterSpacing = '2px'
+    ctx.fillStyle = c.fg
+    ctx.fillText('NEARKITS', pad, 96)
+  }
 
   // Chips, right-aligned: network, and DEMO when it is.
   ctx.font = `600 18px ${SANS}`

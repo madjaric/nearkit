@@ -153,9 +153,9 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
 export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col border-r border-line bg-canvas lg:flex">
-      <NavLink to="/" className="flex h-16 shrink-0 items-center gap-3 border-b border-line px-5" aria-label="NEARKITS dashboard">
+      <NavLink to="/" className="flex h-16 shrink-0 items-center gap-1.5 border-b border-line px-5" aria-label="NEARKITS dashboard">
         <LogoMark size={24} />
-        <Wordmark />
+        <Wordmark height={16} />
       </NavLink>
       <NavBody />
     </aside>

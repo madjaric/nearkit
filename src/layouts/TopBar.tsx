@@ -182,10 +182,10 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
             <IconButton label="Open navigation" onClick={onOpenNav} className="-ml-1 lg:hidden">
               <MenuIcon size={18} />
             </IconButton>
-            <Link to="/" className="flex items-center gap-2 lg:hidden" aria-label="NEARKITS dashboard">
+            <Link to="/" className="flex items-center gap-1.5 lg:hidden" aria-label="NEARKITS dashboard">
               {/* Phones drop the mark so the connected account prints in full. */}
               <LogoMark size={20} className="hidden sm:block" />
-              <Wordmark />
+              <Wordmark height={13} />
             </Link>
             <div className="hidden max-w-[480px] flex-1 lg:block">
               <GlobalSearch />

@@ -82,9 +82,9 @@ export function AppShell() {
       <TabBar onOpenNav={() => setNavOpen(true)} />
       <Sheet open={navOpen} onClose={() => setNavOpen(false)} side="left" label="Navigation">
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-line px-5">
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5">
             <LogoMark size={24} />
-            <Wordmark />
+            <Wordmark height={16} />
           </span>
           <IconButton label="Close navigation" size="sm" onClick={() => setNavOpen(false)}>
             <X size={16} />

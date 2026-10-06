@@ -23,6 +23,7 @@ const TYPES = {
   '.png': 'image/png',
   '.woff2': 'font/woff2',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
   '.txt': 'text/plain; charset=utf-8',
   '.xml': 'application/xml',
 }

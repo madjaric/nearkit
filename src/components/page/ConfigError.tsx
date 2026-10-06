@@ -12,7 +12,7 @@ export function ConfigError({ issues }: { issues: readonly EnvIssue[] }) {
     <main className="grid min-h-dvh place-items-center bg-canvas px-4 py-10 text-fg">
       <div className="w-full max-w-[560px] rounded-md border border-line bg-panel">
         <header className="flex items-center justify-between gap-3 border-b border-line-soft px-5 py-4">
-          <Wordmark />
+          <Wordmark height={16} />
           <span className="legend flex items-center gap-1.5 text-neg">
             <Led tone="neg" /> Configuration error
           </span>
