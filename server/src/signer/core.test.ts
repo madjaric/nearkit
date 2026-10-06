@@ -251,6 +251,17 @@ describe('owner-signed requests', () => {
     expect((await vault.events('testnet', wallet.accountId)).filter((e) => e.kind === 'key-exported')).toHaveLength(2)
   })
 
+  it('export: a browser key edited into the signer’s database after the owner signed seals nothing to it', async () => {
+    const browser = await createExportKeyPair()
+    const attacker = await createExportKeyPair()
+    const c = await signer.challenge({ kind: 'export', accountId: wallet.accountId, recipientKey: browser.publicKey })
+    const proof = await proofFor(c)
+    // The owner signed the message naming the browser's key; the row now names another one.
+    await db.run('UPDATE signer_challenges SET recipient_key = ? WHERE id = ?', [attacker.publicKey, c.id])
+    await expect(signer.exportKey(proof)).rejects.toThrow(/browser key/)
+    expect((await vault.events('testnet', wallet.accountId)).filter((e) => e.kind === 'key-exported')).toHaveLength(0)
+  })
+
   it('a NEARKITS wallet’s own key, exported, never proves its owner, not even while the owner’s key is also on that wallet', async () => {
     // The wallet's key as Recover hands it to the owner, imported into a wallet app that now signs with it.
     const secret = await exportAsOwner({ challenge: (r) => signer.challenge(r), exportKey: (p) => signer.exportKey(p) }, wallet.accountId, owner)

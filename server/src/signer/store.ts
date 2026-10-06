@@ -551,6 +551,16 @@ export class SignerStore {
    * Records the one signature of (intent, step). If another signature of that step exists
    * (a concurrent request), that one is returned and this one must not be released.
    */
+  /** The transactions this wallet had signed since `since` (base64), newest last. */
+  async signedSince(network: string, accountId: string, since: number): Promise<string[]> {
+    const rows = await this.db.all<{ signed: string }>('SELECT signed FROM signer_signatures WHERE network = ? AND account_id = ? AND created_at >= ? ORDER BY created_at', [
+      network,
+      accountId,
+      since,
+    ])
+    return rows.map((r) => r.signed)
+  }
+
   async recordSignature(s: Omit<SignatureRecord, 'createdAt'>): Promise<SignatureRecord> {
     try {
       await this.db.attempt(() =>

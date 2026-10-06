@@ -4,9 +4,9 @@ import { exportKeyFingerprint, sealExport } from '@/lib/exportCrypto'
 import { telegramApprovalDigest } from '@/lib/telegramApproval'
 import { accountKind, isForeignToNetwork } from '@/lib/validation'
 import { parseEd25519PublicKey, verifyNep413 } from '@/services/near/nep413'
-import { deserializeSignedTransaction, serializeSignedTransaction, serializeTransaction, transactionDigest, type NearTransaction } from '@/services/near/transaction'
+import { deserializeSignedTransaction, serializeSignedTransaction, serializeTransaction, transactionDigest, type NearTransaction, type TxAction } from '@/services/near/transaction'
 import { generateKey, implicitAccountId, nearPublicKey, publicKeyOf, secretKeyText, signWithSeed } from '../custody/keys'
-import { checkPlan, PolicyViolation, type WalletOperation, type WalletTxPlan } from '../custody/policy'
+import { checkPlan, MAX_REGISTRATIONS_PER_DAY_YOCTO, PolicyViolation, type WalletOperation } from '../custody/policy'
 import { KeyUnavailableError, parseSealed, type Keyring } from '../custody/vault'
 import { randomBytesArray, randomToken } from '../ids'
 import { silentLogger, type Logger } from '../log'
@@ -82,6 +82,11 @@ export const TELEGRAM_REQUEST_TTL_MS = 10 * 60_000
 const TELEGRAM_SKEW_MS = 60_000
 const CHALLENGES_PER_WINDOW = 20
 const CHALLENGE_WINDOW_MS = 10 * 60_000
+const REGISTRATION_WINDOW_MS = 24 * 60 * 60_000
+
+/** NEAR a transaction attaches to storage registrations: the contract it calls keeps it. */
+const registrationPaid = (actions: readonly TxAction[]): bigint =>
+  actions.reduce((sum, a) => (a.type === 'FunctionCall' && a.methodName === 'storage_deposit' ? sum + a.deposit : sum), 0n)
 const HEALTH_CACHE_MS = 60_000
 
 export interface ChallengeView {
@@ -172,6 +177,18 @@ export function createSignerCore(deps: SignerDeps) {
   const log = deps.log ?? silentLogger
   const ttl = config.challengeTtlMs ?? CHALLENGE_TTL_MS
   let health: { at: number; kek: string } | null = null
+  const queues = new Map<string, Promise<unknown>>()
+
+  /** Runs `run` after every earlier one for the same account has settled. */
+  async function oneAtATime<T>(account: string, run: () => Promise<T>): Promise<T> {
+    const mine = (queues.get(account) ?? Promise.resolve()).catch(() => undefined).then(run)
+    queues.set(account, mine)
+    try {
+      return await mine
+    } finally {
+      if (queues.get(account) === mine) queues.delete(account)
+    }
+  }
 
   async function paused(): Promise<boolean> {
     return (config.pausedByHost?.() ?? false) || (await store.getState('paused')) === 'true'
@@ -289,7 +306,7 @@ export function createSignerCore(deps: SignerDeps) {
     }
   }
 
-  async function authorize(key: SignerKey, op: WalletOperation, plan: readonly WalletTxPlan[], step: number): Promise<void> {
+  async function authorize(key: SignerKey, op: WalletOperation): Promise<void> {
     switch (op.kind) {
       case 'withdraw-near':
       case 'withdraw-token':
@@ -314,9 +331,10 @@ export function createSignerCore(deps: SignerDeps) {
         throw new PolicyViolation(`no other key on this wallet is a full-access key of ${key.ownerAccount}; removing NEARKITS’ key would leave it to nobody`)
       }
       case 'swap':
-        // The route is the swap's last transaction; earlier ones only register storage.
-        if (step === plan.length - 1)
-          await verifySwapRoute(op.route, key.accountId, { network, feeRecipient: config.feeRecipient, maxSlippagePpm: config.maxSlippagePpm, oracle, now })
+        // Every step, not only the swap itself: the earlier transactions register storage on the
+        // route's tokens and attach NEAR to them, so the route (Rhea's signature or the pools, and
+        // the signer's own quote) is what makes those contracts the route's, before any is signed.
+        await verifySwapRoute(op.route, key.accountId, { network, feeRecipient: config.feeRecipient, maxSlippagePpm: config.maxSlippagePpm, oracle, now })
         return
       case 'unwrap':
         return
@@ -426,20 +444,35 @@ export function createSignerCore(deps: SignerDeps) {
       }
       try {
         checkPlan(op, plan, { accountId, publicKey: key.publicKey, network: key.network }, network, config.feeRecipient)
-        await authorize(key, op, plan, step)
+        await authorize(key, op)
       } catch (e) {
         throw e instanceof PolicyViolation ? await denied(e) : e
       }
-      const signature = await withSeed(key, (seed) => signWithSeed(seed, digest))
-      const bytes = serializeSignedTransaction(tx, signature)
-      // What leaves is read back and must be exactly the planned transaction.
-      if (!sameTransaction(deserializeSignedTransaction(bytes).transaction, tx)) throw new PolicyViolation('the signed transaction differs from the plan')
-      const signed = base64Encode(bytes)
-      const record = await store.recordSignature({ intentId, step, network: network.id, accountId, txHash: hash, signed, nonce: nonce.toString(), opKind: op.kind })
-      // A concurrent request signed this step first: this signature is dropped, never released.
-      if (record.txHash !== hash) throw new AlreadySignedError()
-      await store.event('tx-signed', { network: network.id, accountId, detail: { intent: intentId, step, hash, op: op.kind, receiver: planned.receiverId } })
-      return { hash, signed }
+      const paid = registrationPaid(tx.actions)
+      const release = async () => {
+        if (paid > 0n) {
+          // What this wallet already paid for registrations today, from the transactions the signer signed itself.
+          let spent = 0n
+          for (const s of await store.signedSince(network.id, accountId, now() - REGISTRATION_WINDOW_MS)) {
+            const raw = base64Decode(s)
+            if (raw) spent += registrationPaid(deserializeSignedTransaction(raw).transaction.actions)
+          }
+          if (spent + paid > MAX_REGISTRATIONS_PER_DAY_YOCTO)
+            throw await denied(new PolicyViolation('this wallet has reached the 0.5 NEAR a day NEARKITS pays for storage registrations; try again tomorrow'))
+        }
+        const signature = await withSeed(key, (seed) => signWithSeed(seed, digest))
+        const bytes = serializeSignedTransaction(tx, signature)
+        // What leaves is read back and must be exactly the planned transaction.
+        if (!sameTransaction(deserializeSignedTransaction(bytes).transaction, tx)) throw new PolicyViolation('the signed transaction differs from the plan')
+        const signed = base64Encode(bytes)
+        const record = await store.recordSignature({ intentId, step, network: network.id, accountId, txHash: hash, signed, nonce: nonce.toString(), opKind: op.kind })
+        // A concurrent request signed this step first: this signature is dropped, never released.
+        if (record.txHash !== hash) throw new AlreadySignedError()
+        await store.event('tx-signed', { network: network.id, accountId, detail: { intent: intentId, step, hash, op: op.kind, receiver: planned.receiverId } })
+        return { hash, signed }
+      }
+      // Registrations of one wallet are signed one at a time, so the day's total is what was really signed.
+      return paid > 0n ? await oneAtATime(accountId, release) : await release()
     },
 
     async 'erase-key'(body) {
@@ -586,6 +619,9 @@ export function createSignerCore(deps: SignerDeps) {
       const key = await ownedKey(c)
       if (!c.recipientKey) throw new ChallengeError('unknown', 'This export request names no browser key. Start again.')
       const recipientKey = c.recipientKey
+      // The owner signed the browser key's fingerprint, not the row: the key sealed to must be that one.
+      if (readMessage(c.message)?.fields['Browser key'] !== (await exportKeyFingerprint(recipientKey)))
+        throw new ChallengeError('unknown', 'This export request doesn’t name the browser key you signed for. Start again.')
       // The key exists in the clear only between opening it and sealing it to the browser key the owner signed for.
       const secret = await withSeed(key, (seed) => secretKeyText(seed))
       const sealed = await sealExport(recipientKey, secret, { challengeId: c.id, network: network.id, accountId: key.accountId })

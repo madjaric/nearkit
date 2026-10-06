@@ -341,6 +341,28 @@ describe('signer policy: direct DCL swaps', () => {
     ])
   })
 
+  it('registers an account on a contract once per plan: a registration repeated (each attaching NEAR) is refused', () => {
+    const buy = direct('buy', ONE)
+    const twice = [
+      { contract: SING, accountId: WALLET.accountId },
+      { contract: SING, accountId: WALLET.accountId },
+    ]
+    refusedWith(buy, plan(buy, twice), /registers .* twice/)
+    // Two different accounts on one token (the wallet and the fee account) are still one each.
+    expect(() =>
+      checkPlan(
+        op(buy),
+        plan(buy, [
+          { contract: SING, accountId: WALLET.accountId },
+          { contract: SING, accountId: FEES },
+        ]),
+        mainWallet,
+        main,
+        FEES,
+      ),
+    ).not.toThrow()
+  })
+
   it('refuses a fee to anyone else, a different fee, no fee, or an exchange amount that is not the rest', () => {
     const buy = direct('buy', ONE)
     const fee = buy.direct as NonNullable<SwapRouteFacts['direct']>

@@ -90,6 +90,14 @@ const MAX_TXS = 4
 const MAX_ACTIONS = 5
 const REGISTRATION_GAS = 30n * 10n ** 12n
 
+/**
+ * What one wallet may pay for storage registrations in any 24 hours, all requests together (the
+ * signer counts what it signed). A registration's NEAR stays with the contract called; an ordinary
+ * one costs 0.00125 NEAR, so this fits hundreds a day, while a request naming any contract can't
+ * drain a wallet 0.1 NEAR at a time.
+ */
+export const MAX_REGISTRATIONS_PER_DAY_YOCTO = 5n * 10n ** 23n
+
 /** JSON with sorted keys, so key order never decides equality. */
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
@@ -116,11 +124,17 @@ function expectCall(a: WalletAction | undefined, method: string, args: Record<st
   if (gas <= 0n || gas > maxGas) refuse(`${method} attaches unexpected gas`)
 }
 
-/** NEP-145 registration of `allowed` accounts only, at most the NearKit cap. */
-function expectRegistration(a: WalletAction | undefined, allowed: ReadonlySet<string>): void {
+/**
+ * NEP-145 registration of `allowed` accounts only, at most the NearKit cap, and each account once
+ * per contract in a plan (`seen`): a repeated registration would only hand the contract more NEAR.
+ */
+function expectRegistration(a: WalletAction | undefined, allowed: ReadonlySet<string>, contract: string, seen: Set<string>): void {
   if (!a || a.kind !== 'call' || a.method !== 'storage_deposit') return refuse('expected a storage registration')
   const account = a.args.account_id
   if (typeof account !== 'string' || !allowed.has(account)) refuse('a registration is for an unexpected account')
+  const once = `${contract}|${String(account)}`
+  if (seen.has(once)) refuse('the plan registers the same account on a token twice')
+  seen.add(once)
   const deposit = int(a.deposit, 'a deposit')
   if (deposit <= 0n || deposit > MAX_REGISTRATION_YOCTO) refuse('a registration deposit is outside NEARKITS’ limit')
   expectCall(a, 'storage_deposit', { account_id: account, registration_only: true }, deposit, REGISTRATION_GAS)
@@ -233,6 +247,7 @@ function checkAggregatorSwap(
   const routeContracts = new Set([...r.routeTokens, network.wrapContract])
   const users = new Set([wallet.accountId, feeRecipient as string])
   const tokens = new Set(r.routeTokens)
+  const registered = new Set<string>()
   let withRhea = 0
   for (const tx of plan.slice(0, -1)) {
     if (tx.receiverId === agg.contract) {
@@ -242,13 +257,13 @@ function checkAggregatorSwap(
       continue
     }
     if (!routeContracts.has(tx.receiverId)) refuse('a registration is on a contract outside the route')
-    for (const a of tx.actions) expectRegistration(a, registrants)
+    for (const a of tx.actions) expectRegistration(a, registrants, tx.receiverId, registered)
   }
   const actions = [...swapTx.actions]
   expectCall(actions.pop(), 'ft_transfer_call', { receiver_id: agg.contract, amount: r.amountIn.toString(), msg: r.msg }, 1n, GAS.SWAP_CALL)
   if (r.nativeIn) expectCall(actions.pop(), 'near_deposit', {}, r.amountIn, GAS.NEAR_DEPOSIT)
   if (actions.length > 2) refuse('the swap transaction has unexpected actions')
-  for (const a of actions) expectRegistration(a, registrants)
+  for (const a of actions) expectRegistration(a, registrants, swapTx.receiverId, registered)
 }
 
 /**
@@ -298,16 +313,17 @@ function checkDclSwap(
   if (swapTx.receiverId !== r.routeIn) refuse('the swap transaction goes to a different token contract')
   const registrants = new Set([wallet.accountId, ...(d.fee > 0n && d.feeRecipient ? [d.feeRecipient] : [])])
   const routeContracts = new Set([...r.routeTokens, network.wrapContract])
+  const registered = new Set<string>()
   for (const tx of plan.slice(0, -1)) {
     if (!routeContracts.has(tx.receiverId)) refuse('a registration is on a contract outside the route')
-    for (const a of tx.actions) expectRegistration(a, registrants)
+    for (const a of tx.actions) expectRegistration(a, registrants, tx.receiverId, registered)
   }
   const actions = [...swapTx.actions]
   expectCall(actions.pop(), 'ft_transfer_call', { receiver_id: dcl.contract, amount: d.swapAmount.toString(), msg: r.msg }, 1n, GAS.SWAP_CALL)
   if (d.fee > 0n) expectCall(actions.pop(), 'ft_transfer', { receiver_id: d.feeRecipient, amount: d.fee.toString() }, 1n, GAS.FT_TRANSFER)
   if (r.nativeIn) expectCall(actions.pop(), 'near_deposit', {}, r.amountIn, GAS.NEAR_DEPOSIT)
   if (actions.length > 2) refuse('the swap transaction has unexpected actions')
-  for (const a of actions) expectRegistration(a, registrants)
+  for (const a of actions) expectRegistration(a, registrants, swapTx.receiverId, registered)
 }
 
 function checkSwap(op: Extract<WalletOperation, { kind: 'swap' }>, plan: readonly WalletTxPlan[], wallet: PolicyWallet, network: NetworkConfig, feeRecipient: string | null): void {
@@ -327,15 +343,16 @@ function checkSwap(op: Extract<WalletOperation, { kind: 'swap' }>, plan: readonl
   // Registrations first: the wallet itself, on tokens of this route only.
   const self = new Set([wallet.accountId])
   const routeContracts = new Set([...r.routeTokens, network.wrapContract])
+  const registered = new Set<string>()
   for (const tx of plan.slice(0, -1)) {
     if (!routeContracts.has(tx.receiverId)) refuse('a registration is on a contract outside the route')
-    for (const a of tx.actions) expectRegistration(a, self)
+    for (const a of tx.actions) expectRegistration(a, self, tx.receiverId, registered)
   }
   const actions = [...swapTx.actions]
   expectCall(actions.pop(), 'ft_transfer_call', { receiver_id: r.receiver, amount: r.amountIn.toString(), msg: r.msg }, 1n, GAS.SWAP_CALL)
   if (r.nativeIn) expectCall(actions.pop(), 'near_deposit', {}, r.amountIn, GAS.NEAR_DEPOSIT)
   if (actions.length > 1) refuse('the swap transaction has unexpected actions')
-  for (const a of actions) expectRegistration(a, self)
+  for (const a of actions) expectRegistration(a, self, swapTx.receiverId, registered)
 }
 
 function checkDestination(to: string, wallet: PolicyWallet, network: NetworkConfig): void {
@@ -374,7 +391,7 @@ export function checkPlan(op: WalletOperation, plan: readonly WalletTxPlan[], wa
         if (actions.length) refuse('the withdrawal has unexpected actions')
       } else {
         if (actions.length !== 1) refuse('the withdrawal must register the destination exactly once')
-        expectRegistration(actions[0], new Set([op.to]))
+        expectRegistration(actions[0], new Set([op.to]), op.token, new Set())
         const a = actions[0] as Extract<WalletAction, { kind: 'call' }>
         if (BigInt(a.deposit) !== op.registration) refuse('the registration deposit differs from the one shown')
       }
