@@ -4,7 +4,22 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/swap", "destination": "/swap.html" },
+    { "source": "/multi-trade", "destination": "/multi-trade.html" },
+    { "source": "/split", "destination": "/split.html" },
+    { "source": "/consolidate", "destination": "/consolidate.html" },
+    { "source": "/batch-send", "destination": "/batch-send.html" },
+    { "source": "/scanner", "destination": "/scanner.html" },
+    { "source": "/volume-bot", "destination": "/volume-bot.html" },
+    { "source": "/kit", "destination": "/kit.html" },
+    { "source": "/telegram", "destination": "/telegram.html" },
+    { "source": "/docs", "destination": "/docs.html" },
+    { "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg)", "destination": "/app.html" },
+    { "source": "/volume-bot/console", "destination": "/app.html" },
+    { "source": "/token/:id", "destination": "/app.html" }
+  ],
   "headers": [
     {
       "source": "/((?!tg$|tg/).*)",
@@ -24,6 +39,14 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
+    },
+    {
+      "source": "/(wallets|positions|pnl|settings|recover|tg|limit-orders|dca|copy-trade|sniper|app.html|404.html)",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    },
+    {
+      "source": "/volume-bot/console",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     },
     {
       "source": "/assets/(.*)",

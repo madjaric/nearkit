@@ -4,9 +4,9 @@ import { Link } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Figures } from '@/components/ui/Figures'
-import { FAQ, PIPELINE, SPECS, TWAP_RANGE, VOLUME_BOT_CONSOLE_PATH, VOLUME_BOT_TITLE } from '@/features/volumeBot/content'
+import { FAQ, LINKS, PIPELINE, SPECS, TWAP_RANGE, VOLUME_BOT_CONSOLE_PATH, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_BOT_UPDATED } from '@/features/volumeBot/content'
 import { NEARKIT_FEE_LABEL, RHEA_APP_FEE_SHARE_LABEL } from '@/lib/fees'
-import { usePageTitle } from '@/lib/hooks'
+import { usePageTitle, useRouteMeta } from '@/lib/hooks'
 import { MAX_BOT_WALLETS, MIN_EDGE_BPS, MIN_INTERVAL_SEC } from '@/lib/volumeBot/config'
 
 /**
@@ -68,8 +68,20 @@ function Points({ items }: { items: ReactNode[] }) {
 
 const F = ({ children }: { children: string }) => <Figures>{children}</Figures>
 
+/** A reference outside NEARKITS, opened in a new tab. */
+function Ref({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg">
+      {children}
+    </a>
+  )
+}
+
+const UPDATED = new Date(`${VOLUME_BOT_UPDATED}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+
 export default function VolumeBotPage() {
   usePageTitle('Volume Bot')
+  useRouteMeta(VOLUME_BOT_PATH)
   return (
     <div className="min-h-dvh bg-canvas text-fg">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-50 focus:rounded-sm focus:bg-panel focus:px-3 focus:py-2">
@@ -129,6 +141,9 @@ export default function VolumeBotPage() {
                   How it works
                 </a>
               </div>
+              <p className="mt-6 text-xs text-fg-3">
+                Updated <time dateTime={VOLUME_BOT_UPDATED}>{UPDATED}</time>
+              </p>
             </div>
             <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line-soft">
               {SPECS.map((s) => (
@@ -177,7 +192,8 @@ export default function VolumeBotPage() {
               <Section id="what">
                 <p>
                   A trading bot watches a market and places trades by rules you set, so you don’t have to sit at the screen. The NEARKITS Volume Bot is one for NEAR: you choose a
-                  token, a strategy, the wallets it may use and every limit, and it trades that token against NEAR through Rhea, the main exchange on NEAR.
+                  token, a strategy, the wallets it may use and every limit, and it trades that token against NEAR through <Ref href={LINKS.rhea}>Rhea</Ref>, the main exchange on
+                  NEAR.
                 </p>
                 <p>
                   It is not a separate wallet or a script you run. It runs on NEARKITS’s server and trades from your NEARKITS wallets through the same path as a trade you confirm
@@ -213,7 +229,7 @@ export default function VolumeBotPage() {
                     'Executes it from one wallet, confirms it on chain and records the fill in that wallet’s books.',
                   ].map((step, i) => (
                     <li key={i} className="flex gap-3">
-                      <span className="num w-6 shrink-0 pt-px text-sm text-fg-4">{i + 1}.</span>
+                      <span className="num w-6 shrink-0 pt-px text-sm text-fg-3">{i + 1}.</span>
                       <span className="min-w-0">{step}</span>
                     </li>
                   ))}
@@ -297,8 +313,8 @@ export default function VolumeBotPage() {
 
               <Section id="near">
                 <p>
-                  NEAR accounts, NEP-141 tokens and Rhea’s pools are what the bot works with, and NEAR’s low fees make frequent small trades practical. Everything else on NEARKITS
-                  works with the same wallets:{' '}
+                  <Ref href={LINKS.near}>NEAR</Ref> accounts, <Ref href={LINKS.nep141}>NEP-141</Ref> tokens and Rhea’s pools are what the bot works with, and NEAR’s low fees make
+                  frequent small trades practical. Everything else on NEARKITS works with the same wallets:{' '}
                   <Link to="/swap" className="text-fg underline decoration-line-strong underline-offset-4 hover:decoration-fg">
                     Swap
                   </Link>
@@ -339,7 +355,7 @@ export default function VolumeBotPage() {
                     </>,
                   ].map((step, i) => (
                     <li key={i} className="flex gap-3">
-                      <span className="num w-6 shrink-0 pt-px text-sm text-fg-4">{i + 1}.</span>
+                      <span className="num w-6 shrink-0 pt-px text-sm text-fg-3">{i + 1}.</span>
                       <span className="min-w-0">{step}</span>
                     </li>
                   ))}

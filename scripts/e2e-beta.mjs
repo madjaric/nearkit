@@ -1,9 +1,10 @@
 // The public testnet beta's COMING SOON gate, checked in a production build:
 //   npm run e2e:beta [-- --shots <dir>] [-- --width 390]
 // Builds dist/e2e-beta in e2e mode (a production build, so the gate is on, that
-// also carries the scripted test wallet), serves it on port 5204 and checks that
-// Limit Orders, DCA, Copy Trade and Sniper are tagged and read-only
-// while the live tools keep working. A fake NEAR network answers every request.
+// also carries the scripted test wallet), serves it on port 5204 the way vercel.json
+// says (scripts/serve-dist.mjs: rewrites, headers, real 404s) and checks that Limit
+// Orders, DCA, Copy Trade and Sniper are tagged and read-only while the live tools
+// keep working. A fake NEAR network answers every request.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -25,7 +26,7 @@ const VITE = join('node_modules', 'vite', 'bin', 'vite.js')
 
 const build = spawnSync(process.execPath, [VITE, 'build', '--mode', 'e2e', '--outDir', OUT, '--logLevel', 'warn'], { stdio: 'inherit' })
 if (build.status !== 0) process.exit(build.status ?? 1)
-const server = spawn(process.execPath, [VITE, 'preview', '--outDir', OUT, '--port', String(PORT), '--strictPort'], { stdio: 'ignore' })
+const server = spawn(process.execPath, [join('scripts', 'serve-dist.mjs'), '--dir', OUT, '--port', String(PORT)], { stdio: 'ignore' })
 for (let i = 0; i < 100; i++) {
   const up = await fetch(BASE).then(
     (r) => r.ok,
@@ -325,11 +326,28 @@ await step(
   'the public address is nearkits.com: every page names it (canonical, og:url), robots.txt, sitemap.xml and the JSON-LD point there, and vercel.app appears nowhere',
   async () => {
     const html = await (await fetch(BASE + '/token/kit')).text()
-    // The served HTML names no canonical of its own (each page sets one as it renders): never two that disagree.
+    // The app's shell names no canonical of its own (a token page sets one as it renders): never two that disagree.
     if (/rel="canonical"/.test(html)) throw new Error('the served HTML names a canonical')
     if (html.includes('vercel.app')) throw new Error('the served HTML names vercel.app')
-    const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)?.[1] ?? '{}')
-    if (ld.url !== 'https://nearkits.com/' || ld.name !== 'NEARKITS') throw new Error(`JSON-LD: ${JSON.stringify(ld)}`)
+    const graph = JSON.parse(html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)?.[1] ?? '{}')['@graph'] ?? []
+    const site = graph.find((n) => n['@type'] === 'WebSite')
+    if (site?.url !== 'https://nearkits.com/' || site?.name !== 'NEARKITS') throw new Error(`JSON-LD: ${JSON.stringify(graph)}`)
+    // A public page arrives with its own head; the Volume Bot page with its whole text and no script.
+    const bot = await (await fetch(BASE + '/volume-bot')).text()
+    if (
+      !bot.includes('<link rel="canonical" href="https://nearkits.com/volume-bot" />') ||
+      !bot.includes('Automated Trading on NEAR</h1>') ||
+      bot.includes('<script type="module"')
+    )
+      throw new Error('/volume-bot is not served prerendered')
+    const swapHtml = await (await fetch(BASE + '/swap')).text()
+    if (!swapHtml.includes('<title>Swap NEAR tokens through Rhea · NEARKITS</title>')) throw new Error('/swap is not served with its own title')
+    // A typo is a real 404 (the app still renders its own page for it), and private pages are never indexed.
+    const missing = await fetch(BASE + '/no-such-page')
+    if (missing.status !== 404) throw new Error(`an unknown address answers ${missing.status}`)
+    if ((await fetch(BASE + '/wallets')).headers.get('x-robots-tag') !== 'noindex') throw new Error('/wallets is indexable')
+    const llms = await fetch(BASE + '/llms.txt')
+    if (!llms.ok || !(await llms.text()).startsWith('# NEARKITS')) throw new Error('llms.txt is missing')
     const robots = await fetch(BASE + '/robots.txt')
     const robotsText = await robots.text()
     if (!robots.ok || !robotsText.includes('Sitemap: https://nearkits.com/sitemap.xml')) throw new Error(`robots.txt: ${robots.status} ${robotsText.slice(0, 200)}`)

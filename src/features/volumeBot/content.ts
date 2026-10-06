@@ -10,8 +10,17 @@ export const VOLUME_BOT_PATH = '/volume-bot'
 export const VOLUME_BOT_CONSOLE_PATH = '/volume-bot/console'
 
 export const VOLUME_BOT_TITLE = 'NEARKITS Volume Bot — Automated Trading on NEAR'
+/** When this page's content last changed (shown on it, and its structured data's dateModified). */
+export const VOLUME_BOT_UPDATED = '2026-10-06'
+
+/** Outside references the page cites. */
+export const LINKS = {
+  rhea: 'https://rhea.finance/',
+  near: 'https://www.near.org/',
+  nep141: 'https://github.com/near/NEPs/blob/master/neps/nep-0141.md',
+}
 export const VOLUME_BOT_DESCRIPTION =
-  'Automated trading on NEAR from your NEARKITS wallets: a market maker that trades only with an edge over fair value, TWAP accumulate and distribute, risk limits and a guardian that pauses with the exact reason.'
+  'Automated trading on NEAR from your NEARKITS wallets: a market maker that trades only with an edge over fair value, TWAP orders, risk limits and a guardian.'
 
 const days = (sec: number) => Math.round(sec / 86_400)
 const minutes = (sec: number) => Math.round(sec / 60)
@@ -71,12 +80,3 @@ export const FAQ: FaqEntry[] = [
 ]
 
 export const TWAP_RANGE = `${minutes(MIN_TWAP_SEC)} minutes to ${days(MAX_TWAP_SEC)} days`
-
-/** schema.org FAQPage for the FAQ the page shows, as JSON-LD. */
-export function faqJsonLd(): Record<string, unknown> {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
-  }
-}

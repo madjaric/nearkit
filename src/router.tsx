@@ -40,7 +40,7 @@ export const router = createBrowserRouter([
           { path: 'settings', lazy: page(() => import('@/pages/SettingsPage')) },
           { path: 'docs', lazy: page(() => import('@/pages/DocsPage')) },
           // Already in the main chunk for the boot and error screens.
-          { path: '*', Component: NotFoundPage },
+          { path: '*', Component: NotFoundPage, handle: { notFound: true } },
         ],
       },
     ],

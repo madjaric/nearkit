@@ -5,7 +5,7 @@
  */
 export const DEFAULT_PUBLIC_URL = 'https://nearkits.com'
 
-/** The pages sitemap.xml lists: shipped, public, and the same for every visitor (no wallet-specific or COMING SOON pages). */
+/** The pages sitemap.xml lists: shipped, public, and the same for every visitor (no wallet-specific or COMING SOON pages). Each has its title and description in seo.ts. */
 export const SITEMAP_PATHS: readonly string[] = ['/', '/swap', '/multi-trade', '/split', '/consolidate', '/batch-send', '/scanner', '/volume-bot', '/kit', '/telegram', '/docs']
 
 /** The public address as an origin (https, or http on localhost; no path, query, hash or credentials). Blank: NearKit's own. Null: not one. */
@@ -28,16 +28,7 @@ export function canonicalUrl(publicUrl: string, pathname: string): string {
   return `${publicUrl}/${path}`
 }
 
-export function robotsTxt(publicUrl: string): string {
-  return ['User-agent: *', 'Allow: /', '', `Sitemap: ${publicUrl}/sitemap.xml`, ''].join('\n')
-}
-
 export function sitemapXml(publicUrl: string): string {
   const urls = SITEMAP_PATHS.map((p) => `  <url><loc>${canonicalUrl(publicUrl, p)}</loc></url>`)
   return ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">', ...urls, '</urlset>', ''].join('\n')
-}
-
-/** The site's name and home page for search engines (schema.org WebSite), as JSON-LD. */
-export function websiteJsonLd(publicUrl: string): string {
-  return JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebSite', name: 'NEARKITS', url: `${publicUrl}/` })
 }
