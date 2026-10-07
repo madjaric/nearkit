@@ -24,8 +24,23 @@ describe('each public page’s title and description', () => {
     expect(pageSeo('/volume-bot/')?.path).toBe('/volume-bot')
   })
 
-  it('$KIT is described as not launched until it is: no price, contract or supply claimed', () => {
-    expect(pageSeo('/kit')?.description).toMatch(/has not launched/)
+  it('$KIT is described as not launched until it is, with its tax and where it goes: no price, contract or supply claimed', () => {
+    const description = pageSeo('/kit')?.description ?? ''
+    expect(description).toMatch(/has not launched/)
+    expect(description).toContain('2% buy and sell tax, split 50/50 between Buyback & Burn and holder rewards')
+    expect(description.length).toBeLessThanOrEqual(160)
+  })
+
+  it('$KIT’s page states its launch configuration: the tax and its split, apart from them the pool fee and NEARKITS’ share, tracking as it stands, nothing promised', () => {
+    const facts = pageSeo('/kit')?.facts ?? []
+    expect(facts).toEqual([
+      '$KIT has a 2% buy tax and a 2% sell tax.',
+      'The tax is split 50% to Buyback & Burn and 50% to holder rewards; 0% goes to the creator.',
+      'Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.',
+      'The Buyback & Burn tracker shows only real on-chain activity, and tracking begins after launch. Holder reward tracking is coming soon.',
+      'No return, reward rate, burn amount or buyback frequency is promised.',
+    ])
+    for (const p of publicPages().filter((x) => x.path !== '/kit')) expect(p.facts, p.path).toBeUndefined()
   })
 })
 
@@ -114,6 +129,9 @@ describe('crawler files', () => {
     expect(txt).toMatch(/owner wallet/)
     expect(txt).toMatch(/can lose money/)
     expect(txt).toContain(kitDescription())
+    expect(txt).toContain('- $KIT tokenomics, from its launch configuration on Nearly: $KIT has a 2% buy tax and a 2% sell tax. The tax is split 50% to Buyback & Burn')
+    expect(txt).toContain('Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.')
+    expect(txt).not.toMatch(/APR|APY|guaranteed/i)
     expect(txt).toMatch(/Coming soon[^\n]*limit orders[^\n]*DCA[^\n]*copy trading[^\n]*sniper/i)
     expect(llmsTxt(URL)).not.toContain('t.me/')
   })

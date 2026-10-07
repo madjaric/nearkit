@@ -60,6 +60,15 @@ describe('the prerendered site', () => {
     expect(files['index.html']).toContain('NEARKITS — The trading toolkit for NEAR</h1>')
   })
 
+  it('the $KIT page tells a reader without JavaScript its tax, the split and, apart from them, the pool fee', () => {
+    const html = files['kit.html'] ?? ''
+    const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'))
+    expect(noscript).toContain('$KIT has a 2% buy tax and a 2% sell tax.')
+    expect(noscript).toContain('The tax is split 50% to Buyback &amp; Burn and 50% to holder rewards; 0% goes to the creator.')
+    expect(noscript).toContain('Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.')
+    expect(files['swap.html']).not.toContain('pool fee')
+  })
+
   it('each app page reads as its own: the other pages are listed by name, never with their descriptions', () => {
     const html = files['swap.html'] ?? ''
     const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'))

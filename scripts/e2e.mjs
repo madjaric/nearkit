@@ -411,6 +411,51 @@ await step('$KIT and Telegram show placeholders, no invented stats', async () =>
   if (/\$\d|≈\s?\d/.test(telegram)) throw new Error('Telegram page shows invented figures')
 })
 
+await step(
+  '$KIT tokenomics: a 2% buy and sell tax split 50/50, the 1% pool fee and NEARKITS’ 70% apart from it; Buyback & Burn empty until launch; holder rewards Coming soon; no invented figure; no sideways scroll at 375px',
+  async () => {
+    for (const [width, height] of [
+      [1440, 900],
+      [375, 812],
+    ]) {
+      const p = width === 1440 ? page : await newPage(width, height)
+      await p.goto(BASE + '/kit', { waitUntil: 'networkidle' })
+      const tokenomics = p.getByRole('region', { name: /\$KIT tokenomics/i })
+      await tokenomics.waitFor()
+      const part = (name) => tokenomics.getByRole('group', { name }).innerText()
+      const [tax, split, pool] = [await part('Trading tax'), await part('Tax distribution'), await part('Pool fee')]
+      const has = (text, re, what) => {
+        if (!re.test(text)) throw new Error(`${width}px: ${what} reads "${text.replace(/\s+/g, ' ')}"`)
+      }
+      has(tax, /Buy tax\s+2%[\s\S]*Sell tax\s+2%/i, 'the trading tax')
+      has(tax, /2% tax applies to buys and sells\. Tax revenue is split 50\/50 between Buyback & Burn and Holder rewards\./, 'the tax note')
+      has(split, /Buyback & Burn\s+50%[\s\S]*Holders\s+50%/i, 'the tax distribution')
+      has(split, /Creator\s+0%/i, 'the creator share')
+      has(pool, /Pool fee\s+1%[\s\S]*NEARKITS share\s+70%/i, 'the pool fee')
+      has(pool, /70% of the 1% pool fee is allocated to NEARKITS\./, 'the pool fee note')
+      // Two separate things: the 70% is the pool fee's, never the tax's.
+      if (/70%|pool fee/i.test(tax + split) || /Buyback|Holders/i.test(pool)) throw new Error(`${width}px: the trading tax and the pool fee are mixed`)
+      const tracker = await p.getByRole('region', { name: /Buyback & Burn/i }).innerText()
+      has(tracker, /Awaiting launch/i, 'the tracker status')
+      has(tracker, /Tracking begins after launch\./, 'the tracker note')
+      has(tracker, /50% → Buyback & Burn/, 'the tax allocation')
+      if ((tracker.match(/—/g) ?? []).length !== 4 || /\d/.test(tracker.replace(/50%/g, ''))) throw new Error(`${width}px: the tracker shows a figure: ${tracker}`)
+      const rewards = await p.getByRole('region', { name: /Holder rewards/i }).innerText()
+      has(rewards, /Coming soon/i, 'holder rewards')
+      has(rewards, /50%[\s\S]*of the tax/, 'the holders’ share')
+      has(rewards, /Holder reward tracking will be available after launch\./, 'the holder rewards note')
+      if (/\d/.test(rewards.replace(/50%/g, ''))) throw new Error(`${width}px: holder rewards show a figure: ${rewards}`)
+      // What the tokenomics say (the phone's status strip above the page prints NEAR's own price).
+      const said = [await tokenomics.innerText(), tracker, rewards].join('\n')
+      if (/\$\d|APR|APY|guarantee/i.test(said)) throw new Error(`${width}px: the $KIT tokenomics promise or price something`)
+      const wide = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+      if (wide > 1) throw new Error(`${width}px: the $KIT page scrolls sideways by ${wide}px`)
+      await shot(p, `kit-tokenomics-${width}`)
+      if (p !== page) await p.context().close()
+    }
+  },
+)
+
 await step('disconnect shows connect states; demo account reconnects', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: /demo-trader\.near/ }).click()

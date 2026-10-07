@@ -9,6 +9,8 @@ import { ComingSoon, Led, Tag } from '@/components/ui/Indicators'
 import { Price } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { isKitToken, KIT } from '@/config/kit'
+import { buybackTracker } from '@/features/kit/buyback'
+import { BuybackPanel, HolderRewardsPanel, KitTokenomics } from '@/features/kit/Tokenomics'
 import { useTokens } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 
@@ -48,7 +50,7 @@ export default function KitPage() {
               </div>
               <p className="max-w-[60ch] text-base leading-6 text-fg-2">
                 {KIT.ticker} is the token of NEARKITS, the trading toolkit for NEAR. It launches on {KIT.launchVenue}: NEARKITS is a trading toolkit, not a launchpad.
-                {live ? ' It is live: trade it here like any NEAR token.' : ' Until it is live, nothing here trades it and no figure about it is shown.'}
+                {live ? ' It is live: trade it here like any NEAR token.' : ' Until it is live, nothing here trades it and no market figure about it is shown.'}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 {live && listed ? (
@@ -115,6 +117,14 @@ export default function KitPage() {
             </p>
           </div>
         </Panel>
+      </div>
+
+      <KitTokenomics />
+
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        {/* No on-chain source reads $KIT's buybacks and burns yet (no API or indexer for them): the tracker gets no facts, and says so. A source plugs in here. */}
+        <BuybackPanel tracker={buybackTracker(KIT.status, null)} kitDecimals={listed?.decimals ?? null} />
+        <HolderRewardsPanel />
       </div>
 
       <Panel>

@@ -35,6 +35,13 @@ function NoScript({ page, pages }: { page: PageSeo; pages: PageSeo[] }) {
     <main className="mx-auto max-w-3xl px-4 py-10 text-fg">
       <h1 className="text-2xl font-bold">{heading}</h1>
       <p className="mt-3 text-fg-2">{page.description}</p>
+      {page.facts && (
+        <ul className="mt-3 flex list-disc flex-col gap-1 pl-5 text-fg-2">
+          {page.facts.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      )}
       <p className="mt-3 text-fg-3">NEARKITS runs in your browser: turn on JavaScript to use it.</p>
       <nav aria-label="NEARKITS" className="mt-8">
         <ul className="flex flex-col gap-3">
