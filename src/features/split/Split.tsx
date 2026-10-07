@@ -1,14 +1,14 @@
 import { Plus, Trash2, Upload } from 'lucide-react'
 import { useState } from 'react'
-import { AccountText } from '@/components/domain/Account'
 import { AllocationBar } from '@/components/domain/AllocationBar'
 import { SimulationNote } from '@/components/domain/Status'
 import { PercentKeys } from '@/components/domain/TradeControls'
 import { TokenSelect } from '@/components/domain/TokenSelect'
+import { RecipientSelect } from '@/components/domain/RecipientSelect'
 import { WalletSelect } from '@/components/domain/WalletSelect'
 import { Button, IconButton } from '@/components/ui/Button'
 import { Figures } from '@/components/ui/Figures'
-import { AmountInput, Field, Input, Segmented } from '@/components/ui/Form'
+import { AmountInput, Field, Segmented } from '@/components/ui/Form'
 import { InfoTip, Term } from '@/components/ui/Help'
 import { Amount } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
@@ -20,6 +20,7 @@ import { cn } from '@/lib/cn'
 import { NETWORK_FEE_NEAR_PER_TX, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
 import { maxNearSendYocto } from '@/services/near/gas'
 import { floorTo, formatAmount, formatNumber, parseAmount, toInputString } from '@/lib/format'
+import { nextTarget, recipientAccount, takenBy, type RecipientTarget } from '@/lib/recipientTarget'
 import { accountIdError } from '@/lib/validation'
 import { useBalance, useCapabilities, usePlanners, useRawBalance, useTokens } from '@/services/queries'
 import type { Wallet } from '@/types/domain'
@@ -28,9 +29,8 @@ import { OperationModal } from '../tools/OperationModal'
 import { useSourceWallet } from '../tools/useSource'
 import { ImportRecipients, type ImportedRow } from './ImportRecipients'
 
-export type Recipient = { id: string; pct: string } & ({ kind: 'wallet'; walletId: string } | { kind: 'account'; accountId: string })
+export type Recipient = { id: string; pct: string } & RecipientTarget
 
-const EXTERNAL = '__external__'
 let seq = 10
 const rid = () => `r${(seq += 1)}`
 
@@ -73,7 +73,7 @@ export function Split() {
   const decimals = tokenId === NATIVE_TOKEN_ID ? 4 : 2
   const exactTotal = token ? tryParseUnits(amountText, token.decimals) : null
 
-  const accountOf = (r: Recipient) => (r.kind === 'wallet' ? (wallets.find((w) => w.id === r.walletId)?.accountId ?? '') : r.accountId.trim())
+  const accountOf = (r: Recipient) => recipientAccount(r, wallets)
   const percents = mode === 'equal' ? equalPercents(rows.length) : rows.map((r) => parseAmount(r.pct) ?? Number.NaN)
   const safePercents = percents.map((p) => (Number.isFinite(p) ? p : 0))
   const amounts = amountsFromPercents(amount, safePercents, 6)
@@ -158,14 +158,8 @@ export function Split() {
   if (mode === 'custom' && rows.length > 0 && state !== 'balanced') issues.push(`Percentages add up to ${formatNumber(pctTotal, 2, 2)}%. They must total exactly 100%.`)
   if (badRows > 0) issues.push(`${badRows} recipient ${badRows === 1 ? 'row needs' : 'rows need'} attention`)
 
-  const usedIds = new Set(rows.flatMap((r) => (r.kind === 'wallet' ? [r.walletId] : [])))
-  const nextWallet = wallets.find((w) => w.id !== sourceId && !usedIds.has(w.id))
-
   const update = (id: string, patch: Partial<Recipient> | ((r: Recipient) => Recipient)) =>
     setRows((list) => (list ?? rows).map((r) => (r.id === id ? (typeof patch === 'function' ? patch(r) : ({ ...r, ...patch } as Recipient)) : r)))
-
-  const changeTarget = (r: Recipient, value: string) =>
-    update(r.id, () => (value === EXTERNAL ? { id: r.id, pct: r.pct, kind: 'account', accountId: '' } : { id: r.id, pct: r.pct, kind: 'wallet', walletId: value }))
 
   const applyImport = (imported: ImportedRow[], withPercents: boolean) => {
     const own = new Map(wallets.map((w) => [w.accountId, w.id]))
@@ -180,38 +174,17 @@ export function Split() {
     setImportOpen(false)
   }
 
-  const recipientControl = (r: Recipient, index: number, compact = false) => {
-    const err = rowErrors[index]
-    return (
-      <div className={cn('flex min-w-0 gap-2', compact ? 'flex-col' : 'items-start')}>
-        <WalletSelect
-          size="sm"
-          label={`Recipient ${index + 1}`}
-          value={r.kind === 'wallet' ? r.walletId : EXTERNAL}
-          onChange={(v) => changeTarget(r, v)}
-          wallets={wallets}
-          exclude={[sourceId, ...rows.filter((o) => o.id !== r.id && o.kind === 'wallet').map((o) => (o.kind === 'wallet' ? o.walletId : ''))]}
-          extraOption={{ value: EXTERNAL, label: 'External account…' }}
-          showAccount={compact}
-          className={compact ? 'w-full' : 'w-44 shrink-0'}
-        />
-        {r.kind === 'account' ? (
-          <Input
-            inputSize="sm"
-            mono
-            aria-label={`Recipient ${index + 1} account ID`}
-            placeholder="account.near"
-            value={r.accountId}
-            aria-invalid={Boolean(err)}
-            onChange={(e) => update(r.id, (cur) => (cur.kind === 'account' ? { ...cur, accountId: e.target.value } : cur))}
-            className="min-w-0 flex-1"
-          />
-        ) : (
-          !compact && <AccountText id={accountOf(r)} className="pt-1.5 text-xs text-fg-3" />
-        )}
-      </div>
-    )
-  }
+  const recipientControl = (r: Recipient, index: number, compact = false) => (
+    <RecipientSelect
+      index={index}
+      target={r}
+      onChange={(t) => update(r.id, (cur) => ({ id: cur.id, pct: cur.pct, ...t }))}
+      wallets={wallets}
+      exclude={takenBy(sourceId, rows, r.id)}
+      invalid={Boolean(rowErrors[index])}
+      compact={compact}
+    />
+  )
 
   const summary = (
     <Lines>
@@ -274,12 +247,7 @@ export function Split() {
                   size="sm"
                   variant="secondary"
                   icon={<Plus size={14} />}
-                  onClick={() =>
-                    setRows((list) => [
-                      ...(list ?? rows),
-                      nextWallet ? { id: rid(), kind: 'wallet', walletId: nextWallet.id, pct: '' } : { id: rid(), kind: 'account', accountId: '', pct: '' },
-                    ])
-                  }
+                  onClick={() => setRows((list) => [...(list ?? rows), { id: rid(), pct: '', ...nextTarget(sourceId, rows, wallets) }])}
                 >
                   Add wallet
                 </Button>

@@ -48,7 +48,11 @@ function parseLine(text: string): { account: string; amountText: string; extra: 
   return { account, amountText, extra }
 }
 
-export function parseBatchList(text: string, options: { decimals?: number } = {}): BatchParseResult {
+/**
+ * `refuse`: an account no line may send to (Batch Send's Manual rows: the source wallet itself), refused with
+ * `message` before duplicates are counted.
+ */
+export function parseBatchList(text: string, options: { decimals?: number; refuse?: { account: string; message: string } } = {}): BatchParseResult {
   const rows: BatchRow[] = []
   const seen = new Map<string, number>()
   const lines = text.split(/\r?\n/)
@@ -74,6 +78,9 @@ export function parseBatchList(text: string, options: { decimals?: number } = {}
     if (accountError) {
       status = 'invalid-account'
       message = accountError
+    } else if (options.refuse && account === options.refuse.account) {
+      status = 'invalid-account'
+      message = options.refuse.message
     }
 
     if (status === 'ok') {

@@ -787,65 +787,111 @@ await step(
 )
 
 await step(
-  'Batch Send, Manual: each row sends from its own NEARKITS wallet (Send from until one is chosen); the preview and the review name each row’s wallet and NEARKITS’ server reviews each line from it; never a connected or watch-only account; Paste list unchanged',
+  'Batch Send, Manual: one Send from for the whole batch, and Split’s recipient picker on every row (your wallets, then External account…); no per-row From and no "Use NEARKITS wallets"; every line goes from Send from; Paste list unchanged; usable at 375px',
   async () => {
     near.state.accounts.set('friend5.testnet', { amount: String(ONE) })
+    const visible = (label) => page.getByLabel(label, { exact: true }).locator('visible=true').first()
+    const optionsOf = (select) => select.locator('option').evaluateAll((os) => os.map((o) => ({ value: o.value, text: o.textContent })))
+    // Split's recipient picker, for the same source: the reference.
+    await page.goto(WEB + '/split', { waitUntil: 'networkidle' })
+    await page.getByLabel('Source wallet', { exact: true }).selectOption(mainAddress)
+    await visible('Recipient 1').waitFor({ timeout: 15000 })
+    const splitOptions = await optionsOf(visible('Recipient 1'))
+
     await page.goto(WEB + '/batch-send', { waitUntil: 'networkidle' })
-    // Send from starts on the connected account (also called "Main"): Manual rows follow it, and the page
-    // says how to send each row from its own NEARKITS wallet; Send from lists the two kinds apart.
+    // SOURCE: one Send from (the two kinds listed apart, as before) and the token.
     const sendFrom = page.getByLabel('Send from', { exact: true })
     await sendFrom.locator('optgroup').first().waitFor({ state: 'attached', timeout: 15000 })
     const groups = await sendFrom.locator('optgroup').evaluateAll((gs) => gs.map((g) => g.getAttribute('label')))
     if (groups.join() !== 'NEARKITS wallets,Connected wallet') throw new Error(`Send from lists ${groups.join()}`)
-    if ((await sendFrom.inputValue()) !== USER) throw new Error('Send from didn’t start on the connected account')
+    await sendFrom.selectOption(mainAddress)
     await page.getByRole('tab', { name: 'Manual' }).click()
-    if ((await page.getByRole('combobox', { name: /^From, recipient/ }).count()) !== 0) throw new Error('a connected Send from offers per-row wallets')
-    await shot('tg-09f-batch-manual-connected')
-    await page.getByRole('button', { name: 'Use NEARKITS wallets' }).click()
-    await page.getByLabel('From, recipient 1', { exact: true }).waitFor()
-    if ((await sendFrom.inputValue()) !== mainAddress) throw new Error('Use NEARKITS wallets didn’t switch Send from to a NEARKITS wallet')
-    await page.getByRole('tab', { name: 'Paste list' }).click()
-    await page.getByLabel('Send from', { exact: true }).selectOption(mainAddress)
-    // Paste list: one source, no per-row wallet, exactly as before.
-    if ((await page.getByRole('combobox', { name: /^From, recipient/ }).count()) !== 0) throw new Error('Paste list offers a per-row wallet')
-    await page.getByRole('tab', { name: 'Manual' }).click()
-    const from1 = page.getByLabel('From, recipient 1', { exact: true })
-    await from1.waitFor()
-    // Only NearKit wallets (never the connected account or a watch-only one); a row follows Send from.
-    const offered = await from1.locator('option').evaluateAll((os) => os.map((o) => o.value))
-    if ([...offered].sort().join() !== [mainAddress, degenAddress].sort().join()) throw new Error(`a row offers ${offered.join(', ')}`)
-    if ((await from1.inputValue()) !== mainAddress) throw new Error('a new row doesn’t follow Send from')
-    await page.getByLabel('Recipient 1', { exact: true }).fill(USER)
-    await page.getByLabel('Amount 1', { exact: true }).fill('0.1')
+    const noPerRowFrom = async () => {
+      if ((await page.getByRole('combobox', { name: /^From/ }).count()) !== 0) throw new Error('a row has its own From')
+      if ((await page.getByRole('button', { name: 'Use NEARKITS wallets' }).count()) !== 0) throw new Error('"Use NEARKITS wallets" is still there')
+      if ((await page.getByText(/send from its own NEARKITS wallet/).count()) !== 0) throw new Error('the per-row From copy is still there')
+      const manualPanel = page.getByRole('tabpanel', { name: 'Manual' })
+      if ((await manualPanel.getByRole('combobox').count()) !== (await manualPanel.getByRole('combobox', { name: /^Recipient \d+$/ }).count()))
+        throw new Error('a Manual row shows a dropdown besides its recipient picker')
+      if ((await page.getByLabel('Send from', { exact: true }).count()) !== 1) throw new Error('there is more than one Send from')
+    }
+    await noPerRowFrom()
+    // RECIPIENTS: Split's picker, option for option (never Send from itself), ending with External account….
+    const picker1 = visible('Recipient 1')
+    const batchOptions = await optionsOf(picker1)
+    if (JSON.stringify(batchOptions) !== JSON.stringify(splitOptions))
+      throw new Error(`Batch Send offers ${JSON.stringify(batchOptions)}; Split offers ${JSON.stringify(splitOptions)}`)
+    if (batchOptions.at(-1)?.text !== 'External account…' || batchOptions.some((o) => o.value === mainAddress))
+      throw new Error(`the picker offers ${batchOptions.map((o) => o.text).join(', ')}`)
+    // Row 1: an internal wallet (its address is shown, like Split). Row 2: External account, a named account. Row 3: a 64-character address.
+    await picker1.selectOption(degenAddress)
+    await page.getByText(degenAddress.slice(0, 6)).locator('visible=true').first().waitFor()
+    await visible('Amount 1').fill('0.1')
     await page.getByRole('button', { name: 'Add recipient' }).click()
-    await page.getByLabel('From, recipient 2', { exact: true }).selectOption(degenAddress)
-    await page.getByLabel('Recipient 2', { exact: true }).fill('friend5.testnet')
-    await page.getByLabel('Amount 2', { exact: true }).fill('0.1')
-    if ((await from1.inputValue()) !== mainAddress) throw new Error('choosing row 2’s wallet changed row 1')
-    // The preview names each row's wallet.
-    const rows = page.getByRole('table', { name: 'Batch preview' }).locator('tbody tr')
-    await rows.nth(1).getByText('Sniper A').waitFor({ timeout: 15000 })
-    if (!(await rows.nth(0).innerText()).includes('Main')) throw new Error(`preview row 1: ${await rows.nth(0).innerText()}`)
-    await page.getByText('2 NEARKITS wallets').waitFor()
-    await shot('tg-09c-batch-manual-per-row')
+    // Split's Add: a new row starts with the next free wallet (the first its picker offers), else External account….
+    const firstFree = (await optionsOf(visible('Recipient 2')))[0]?.value
+    if ((await visible('Recipient 2').inputValue()) !== firstFree) throw new Error('a new row doesn’t start the way Split’s does')
+    await visible('Recipient 2').selectOption('__external__')
+    await visible('Recipient 2 account ID').fill('friend5.testnet')
+    await visible('Amount 2').fill('0.1')
+    await page.getByRole('button', { name: 'Add recipient' }).click()
+    await visible('Recipient 3').selectOption('__external__')
+    // Validation as before: a malformed account is refused with its reason.
+    await visible('Recipient 3 account ID').fill('Friend6.Testnet')
+    await page.getByText('Account IDs are lowercase').first().waitFor()
+    const implicit = 'e'.repeat(64)
+    near.state.accounts.set(implicit, { amount: String(ONE) })
+    await visible('Recipient 3 account ID').fill(implicit)
+    await visible('Amount 3').fill('0.1')
+    // Row 2's picker no longer offers Sniper A (row 1 sends to it), like Split.
+    if ((await optionsOf(visible('Recipient 2'))).some((o) => o.value === degenAddress)) throw new Error('two rows could pick the same wallet')
+    await noPerRowFrom()
+    // PREVIEW: each line's recipient and amount; no From column.
+    const preview = page.getByRole('table', { name: 'Batch preview' })
+    const heads = await preview.locator('thead th').allInnerTexts()
+    if (heads.some((h) => /from/i.test(h))) throw new Error(`the preview has a From column: ${heads.join(', ')}`)
+    const lines = preview.locator('tbody tr')
+    await lines.nth(2).getByText('Ready').waitFor({ timeout: 15000 })
+    const texts = await lines.allInnerTexts()
+    if (texts.length !== 3 || !texts[1]?.includes('friend5.testnet') || !texts.every((t) => t.includes('Ready'))) throw new Error(`preview: ${texts.join(' | ')}`)
+    await page.getByText('Main', { exact: true }).locator('visible=true').first().waitFor()
+    await shot('tg-09c-batch-manual')
+    // REVIEW: every line from Send from (Main); NEARKITS' server reviews each from it.
     await page.getByRole('button', { name: 'Send batch' }).click()
     const review = page.getByRole('dialog', { name: 'Review batch send' })
-    await review.getByText(/^From 2 NEARKITS wallets/).waitFor({ timeout: 15000 })
+    await review.getByText(/^From Main · NEARKITS’ server signs and sends each line/).waitFor({ timeout: 15000 })
     for (let i = 0; i < 60 && (await review.getByText('Checking…').count()) > 0; i++) await new Promise((r) => setTimeout(r, 250))
-    // Row 1 from Main to its owner: ready. Row 2 from Sniper A: reviewed as Sniper A (its approval link names Sniper A, not Main).
-    const lines = review.locator('tbody tr')
-    if (!/Main[\s\S]*Ready/.test(await lines.nth(0).innerText())) throw new Error(`review line 1: ${await lines.nth(0).innerText()}`)
-    if (!(await lines.nth(1).innerText()).includes('Sniper A')) throw new Error(`review line 2: ${await lines.nth(1).innerText()}`)
-    const approve = await lines
-      .nth(1)
-      .getByRole('link', { name: /^Approve with / })
-      .getAttribute('href')
-    if (!approve?.includes(`approve=${degenAddress}`) || !approve.includes('to=friend5.testnet')) throw new Error(`row 2 was reviewed for another wallet: ${approve}`)
-    if (await review.getByRole('button', { name: 'Send batch' }).isEnabled()) throw new Error('a batch with a line that needs approval could be sent')
+    const reviewed = review.locator('tbody tr')
+    if (!(await reviewed.nth(0).innerText()).includes('Ready')) throw new Error(`review line 1 (Sniper A, a sibling under the same owner): ${await reviewed.nth(0).innerText()}`)
+    for (const n of [1, 2]) {
+      const href = await reviewed
+        .nth(n)
+        .getByRole('link', { name: /^Approve with / })
+        .getAttribute('href')
+      if (!href?.includes(`approve=${mainAddress}`)) throw new Error(`review line ${n + 1} wasn’t reviewed from Send from: ${href}`)
+    }
     await shot('tg-09d-batch-manual-review')
     await review.getByRole('button', { name: 'Cancel' }).click()
+    // Send from decides for every line: moved to Sniper A, row 1 (Sniper A) can't receive its own batch (Split's rule).
+    await sendFrom.selectOption(degenAddress)
+    await page.getByText('The source wallet cannot receive its own batch').first().waitFor()
+    if (await page.getByRole('button', { name: 'Send batch' }).isEnabled()) throw new Error('a batch to its own source could be sent')
+    await sendFrom.selectOption(mainAddress)
+    // PASTE LIST: unchanged (one source, no picker).
+    await page.getByRole('tab', { name: 'Paste list' }).click()
+    await page.getByRole('textbox', { name: 'Batch list' }).waitFor()
+    if ((await page.getByRole('combobox', { name: /^Recipient/ }).count()) !== 0) throw new Error('Paste list shows a recipient picker')
+    // A PHONE: Split's stacked picker, usable, and no sideways scroll.
+    await page.getByRole('tab', { name: 'Manual' }).click()
     await page.setViewportSize({ width: 375, height: 812 })
-    await page.getByLabel('From, recipient 2', { exact: true }).waitFor()
+    const phonePicker = visible('Recipient 1')
+    await phonePicker.waitFor()
+    const box = await phonePicker.boundingBox()
+    if (!box || box.width < 200) throw new Error(`the phone picker is ${box?.width}px wide`)
+    // External account…'s field stacks under the picker at its full height (not squashed).
+    const account = await visible('Recipient 2 account ID').boundingBox()
+    if (!account || account.height < 32 || account.width < 200) throw new Error(`the phone account field is ${account?.width}×${account?.height}px`)
+    await visible('Amount 1').fill('0.2')
     const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     if (wide > 1) throw new Error(`Batch Send Manual scrolls sideways by ${wide}px at 375px`)
     await shot('tg-09e-batch-manual-375')

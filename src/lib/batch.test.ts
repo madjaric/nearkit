@@ -61,6 +61,19 @@ describe('parseBatchList', () => {
     const result = parseBatchList(`${hex},1\n${eth},2`)
     expect(result.valid).toHaveLength(2)
   })
+
+  it('refuses an account it is told to (the source wallet, in Manual), with the given reason, and leaves it out of the totals', () => {
+    const result = parseBatchList('alice.near,1\nbob.near,2\nalice.near,3', { refuse: { account: 'alice.near', message: 'Not to yourself' } })
+    expect(result.rows.map((r) => [r.status, r.message])).toEqual([
+      ['invalid-account', 'Not to yourself'],
+      ['ok', null],
+      ['invalid-account', 'Not to yourself'],
+    ])
+    expect(result.total).toBe(2)
+    expect(result.invalidCount).toBe(2)
+    // Without the option nothing changes: the same list is two lines and a duplicate.
+    expect(parseBatchList('alice.near,1\nbob.near,2\nalice.near,3').rows.map((r) => r.status)).toEqual(['ok', 'ok', 'duplicate'])
+  })
 })
 
 describe('parseBatchList with token decimals', () => {
