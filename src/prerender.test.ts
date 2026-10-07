@@ -60,10 +60,12 @@ describe('the prerendered site', () => {
     expect(files['index.html']).toContain('NEARKITS — The trading toolkit for NEAR</h1>')
   })
 
-  it('the $KIT page tells a reader without JavaScript its tax, the split and, apart from them, the pool fee', () => {
+  it('the $KITS page tells a reader without JavaScript what the token is, its tax, the split and, apart from them, the pool fee', () => {
     const html = files['kit.html'] ?? ''
     const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'))
-    expect(noscript).toContain('$KIT has a 2% buy tax and a 2% sell tax.')
+    expect(noscript).toContain('$KITS (Near Kits) is the NEARKITS token; its contract on NEAR is kits.nearlytrade.near.')
+    expect(noscript).toContain('$KITS has a 2% buy tax and a 2% sell tax.')
+    expect(html).toContain('<title>$KITS (Near Kits), the NEARKITS token · NEARKITS</title>')
     expect(noscript).toContain('The tax is split 50% to Buyback &amp; Burn and 50% to holder rewards; 0% goes to the creator.')
     expect(noscript).toContain('Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.')
     expect(files['swap.html']).not.toContain('pool fee')

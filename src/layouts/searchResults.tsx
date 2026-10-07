@@ -1,6 +1,6 @@
 import { Coins, ScanSearch, SquareSlash, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { isKitToken, KIT, type KitConfig } from '@/config/kit'
+import { isKitToken, KIT, KITS_CONTRACT, type KitConfig } from '@/config/kit'
 import { isComingSoon } from '@/config/release'
 import { rankTokenList, type RankOptions } from '@/lib/tokenRanking'
 import { tokenMatchRank } from '@/lib/tokenSearch'
@@ -33,21 +33,20 @@ const tokenPage = (id: string) => `/token/${encodeURIComponent(id)}`
 /** The name, and the contract the token is (native NEAR has none). */
 const tokenDetail = (t: TokenListing) => (t.isNative || !t.contract ? 'Native NEAR' : `${t.name} · ${t.contract}`)
 
-/** $KIT before launch: its page, never a trade (it has no contract yet). */
-const kitTeaser = (kit: Pick<KitConfig, 'name' | 'launchVenue'>): Result => ({
+/** $KITS on a network without it (testnet): its page, never a trade (there is no contract to trade here). */
+const kitTeaser = (kit: Pick<KitConfig, 'name' | 'ticker'>): Result => ({
   id: 'kit',
   group: 'Tokens',
-  label: '$KIT',
-  detail: `${kit.name} · launches on ${kit.launchVenue}`,
+  label: kit.ticker,
+  detail: `${kit.name} · on NEAR mainnet`,
   to: '/kit',
   icon: Coins,
-  soon: true,
 })
 
 export interface SearchContext {
   /** NEARKITS' token order, besides the query (src/lib/tokenRanking.ts). */
   rank?: Omit<RankOptions, 'query' | 'selectedId'>
-  kit?: Pick<KitConfig, 'name' | 'symbol' | 'launchVenue' | 'status'>
+  kit?: Pick<KitConfig, 'name' | 'symbol' | 'ticker' | 'launchVenue' | 'status'>
 }
 
 /**
@@ -55,13 +54,13 @@ export interface SearchContext {
  * contract no list has yet (read from chain, like the swap selector), and opens the token's
  * own page; a contract also offers a scan, and a leading "/" lists the same commands the
  * Telegram bot takes. Finding a token never opens the swap: trading starts from its page.
- * Tokens come in NEARKITS' one order ($KIT, NEAR, what the wallets hold, popular tokens);
- * while $KIT is Coming Soon its page is offered instead, since there is nothing to trade yet.
+ * Tokens come in NEARKITS' one order ($KITS, NEAR, what the wallets hold, popular tokens); on a
+ * network without $KITS (testnet) its page is offered instead, since there is nothing to trade there.
  */
 export function buildResults(raw: string, tokens: TokenListing[], found: ContractLookup | null = null, context: SearchContext = {}): Result[] {
   const q = raw.trim().toLowerCase()
   const kit = context.kit ?? KIT
-  const kitSoon = kit.status === 'coming-soon' && !tokens.some((t) => isKitToken(t.id))
+  const kitSoon = kit.status === 'mainnet-only' && !tokens.some((t) => isKitToken(t.id))
   if (!q) {
     const suggested = rankTokenList(tokens, context.rank)
       .filter((t) => !t.isNative)
@@ -89,8 +88,8 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
     to: tokenPage(t.id),
     token: t,
   }))
-  // $KIT's page takes its place by how closely it matches, like any token.
-  const kitRank = kitSoon ? tokenMatchRank({ symbol: kit.symbol, name: kit.name, contract: null }, q) : null
+  // $KITS' page takes its place by how closely it matches: its symbol, its name, or its exact contract.
+  const kitRank = kitSoon ? (q === KITS_CONTRACT ? 0 : tokenMatchRank({ symbol: kit.symbol, name: kit.name, contract: null }, q)) : null
   if (kitRank !== null) {
     const after = results.findIndex((r) => r.token !== undefined && (tokenMatchRank(r.token, q) ?? Infinity) > kitRank)
     results.splice(after === -1 ? results.length : after, 0, kitTeaser(kit))

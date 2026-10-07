@@ -10,7 +10,7 @@ const mark = (text: string) =>
 describe('splitFigures', () => {
   it('sets counts and amounts with their unit apart from the words', () => {
     expect(mark('5 wallets · 10.00 NEAR total')).toBe('[5] wallets · [10.00 NEAR] total')
-    expect(mark('400,000 KIT to 4 wallets')).toBe('[400,000 KIT] to [4] wallets')
+    expect(mark('400,000 KITS to 4 wallets')).toBe('[400,000 KITS] to [4] wallets')
     expect(mark('3 recipients · 850 SHITZU')).toBe('[3] recipients · [850 SHITZU]')
     expect(mark('5 of 12 selected')).toBe('[5] of [12] selected')
     expect(mark('1 limit · 1 TP · 1 SL')).toBe('[1] limit · [1] TP · [1] SL')
@@ -34,7 +34,7 @@ describe('splitFigures', () => {
   it('leaves digits inside words and ids alone', () => {
     expect(mark('1 main · 11 NEARKITS-managed')).toBe('[1] main · [11] NEARKITS-managed')
     expect(mark('w01 to 3fa9c2')).toBe('w01 to 3fa9c2')
-    expect(mark('Split KIT across TRADING')).toBe('Split KIT across TRADING')
+    expect(mark('Split KITS across TRADING')).toBe('Split KITS across TRADING')
     expect(mark('')).toBe('')
   })
 

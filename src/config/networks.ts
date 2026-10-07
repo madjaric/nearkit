@@ -73,6 +73,8 @@ export interface NetworkConfig {
   rhea: RheaNetworkConfig
   /** DEXs NearKit quotes and swaps on directly, beside Rhea's routers (ROUTING_PLAN.md). */
   dex: { dcl: DclConfig }
+  /** $KITS, the NEARKITS token, on this network (launched on Nearly); null where it doesn't exist. */
+  kitsContract: string | null
   /** Contract IDs NearKit lists by default. Metadata is always fetched from chain. */
   knownTokens: readonly string[]
   /** Token the trade tickets open on. */
@@ -121,6 +123,7 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
       geckoterminal: 'https://api.geckoterminal.com/api/v2/networks/near',
       coingeckoMarkets: 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=near',
     }),
+    kitsContract: 'kits.nearlytrade.near',
     knownTokens: Object.freeze([
       'wrap.near',
       '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1', // native USDC
@@ -156,6 +159,7 @@ export const NETWORKS: Readonly<Record<NetworkId, NetworkConfig>> = Object.freez
     dex: Object.freeze({ dcl: Object.freeze({ contract: 'dclv2.ref-dev.testnet' }) }),
     // Testnet tokens with the deepest wrap.testnet pools on ref-finance-101.testnet (verified 2026-09-28).
     market: null,
+    kitsContract: null,
     knownTokens: Object.freeze(['wrap.testnet', 'usdt.itachicara.testnet', 'usdc.itachicara.testnet', 'ref.fakes.testnet']),
     defaultTradeToken: 'usdt.itachicara.testnet',
     stableTokens: Object.freeze([]),

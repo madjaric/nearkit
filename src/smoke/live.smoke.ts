@@ -138,7 +138,7 @@ describe('mainnet (live, read-only)', () => {
   })
 
   it('a token in no list is found by its exact contract, and Rhea alone decides whether it trades', async () => {
-    // A nearlytrade launch (NEP-591 global contract) that no NearKit list carries: new tokens such as $KIT start this way.
+    // A nearlytrade launch (NEP-591 global contract) that no NearKit list carries: new tokens such as $KITS start this way.
     const contract = 'singularty.nearlytrade.near'
     expect(net.knownTokens).not.toContain(contract)
     const env = parseEnv({ VITE_NEARKIT_SERVICES: 'near', VITE_NEAR_NETWORK: 'mainnet', VITE_ENABLE_MAINNET_EXECUTION: 'false' }).env

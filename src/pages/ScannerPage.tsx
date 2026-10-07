@@ -1,10 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { ScanSearch } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { useSearchParams } from 'react-router'
 import { Page, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
-import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input } from '@/components/ui/Form'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
@@ -126,16 +125,7 @@ export default function ScannerPage() {
   } else if (listed?.status === 'prelaunch') {
     body = (
       <Panel>
-        <EmptyState
-          title="$KIT has not launched"
-          action={
-            <Link to="/kit" className={buttonClass()}>
-              About $KIT
-            </Link>
-          }
-        >
-          There is no deployed contract to scan yet. $KIT launches separately through Nearly.
-        </EmptyState>
+        <EmptyState title={`${listed.symbol} has not launched`}>There is no deployed contract to scan yet.</EmptyState>
       </Panel>
     )
   } else if (listed && !real) {

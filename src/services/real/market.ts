@@ -60,7 +60,7 @@ export function createMarket(ctx: NearContext) {
     return { tokenId, priceUsd, priceNear: near ? priceUsd / near.priceUsd : 0, change24hPct: null, liquidityUsd: null, volume24hUsd: null, updatedAt: prices?.at ?? ctx.now() }
   }
 
-  /** Native NEAR, tracked tokens, $KIT and whatever the connected accounts hold. */
+  /** Native NEAR, tracked tokens, $KITS and whatever the connected accounts hold. */
   async function listTokens(extra: string[] = []): Promise<TokenListing[]> {
     const ids = [...new Set([...ctx.trackedTokens(), ...extra])]
     const [native, listed] = await Promise.all([

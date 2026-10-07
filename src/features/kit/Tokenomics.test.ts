@@ -5,7 +5,7 @@ import { KIT_POOL_FEE_NOTE, KIT_TAX_NOTE } from '@/config/kit'
 import { buybackTracker } from './buyback'
 import { BuybackPanel, HolderRewardsPanel, KitTokenomics } from './Tokenomics'
 
-/** The $KIT page's tokenomics, as a visitor reads them: the panels rendered to HTML, read as text. */
+/** The $KITS page's tokenomics, as a visitor reads them: the panels rendered to HTML, read as text. */
 
 // Inline spans (a figure set in mono inside a sentence) join their text; every other tag is a break.
 const read = (html: string) =>
@@ -26,12 +26,14 @@ const group = (html: string, name: string) => {
   return read(html.slice(html.lastIndexOf('<', at), next < 0 ? undefined : html.lastIndexOf('<', next)))
 }
 
-describe('$KIT tokenomics on the $KIT page', () => {
+const KITS = 'kits.nearlytrade.near'
+
+describe('$KITS tokenomics on the $KITS page', () => {
   const html = renderToStaticMarkup(createElement(KitTokenomics))
   const text = read(html)
 
-  it('names the token and prints its launch configuration: a 2% buy and sell tax split 50/50, a 1% pool fee with 70% to NEARKITS', () => {
-    expect(text).toMatch(/\$KIT NEAR KITS/)
+  it('names the token, Near Kits at kits.nearlytrade.near, and prints its launch configuration: a 2% buy and sell tax split 50/50, a 1% pool fee with 70% to NEARKITS', () => {
+    expect(text).toMatch(/\$KITS tokenomics \$KITS Near Kits kits\.nearlytrade\.near/)
     for (const figure of [/Buy tax 2%/, /Sell tax 2%/, /Buyback & Burn 50%/, /Holders 50%/, /Pool fee 1%/, /NEARKITS share 70%/]) expect(text).toMatch(figure)
     expect(text).toContain(KIT_TAX_NOTE)
     expect(text).toContain(KIT_POOL_FEE_NOTE)
@@ -55,27 +57,27 @@ describe('$KIT tokenomics on the $KIT page', () => {
   })
 })
 
-describe('the Buyback & Burn tracker before launch', () => {
-  const text = read(renderToStaticMarkup(createElement(BuybackPanel, { tracker: buybackTracker('coming-soon', null), kitDecimals: null })))
+describe('the Buyback & Burn tracker', () => {
+  const text = read(renderToStaticMarkup(createElement(BuybackPanel, { tracker: buybackTracker(KITS, null), kitDecimals: 18 })))
 
-  it('is an empty state: its four readouts print "—", it says tracking begins after launch, and it shows the confirmed 50% allocation', () => {
-    expect(text).toMatch(/Buyback & Burn/)
-    expect(text).toMatch(/Awaiting launch/)
-    expect(text).toContain('Tracking begins after launch.')
-    expect(text).toMatch(/Total bought back —.*Total burned —.*\$KIT burned —.*Last buyback —/)
+  it('follows kits.nearlytrade.near, and until a source reads its buybacks and burns it is an empty state: four "—", awaiting data, and the confirmed 50%', () => {
+    expect(text).toMatch(/Buyback & Burn kits\.nearlytrade\.near/)
+    expect(text).toMatch(/Awaiting data/)
+    expect(text).toContain('Not tracked yet: NEARKITS doesn’t read the buybacks and burns of kits.nearlytrade.near from the chain yet, so no figure is shown.')
+    expect(text).toMatch(/Total bought back —.*Total burned —.*\$KITS burned —.*Last buyback —/)
     expect(text).toMatch(/50% → Buyback & Burn/)
   })
 
   it('makes up no activity: the only figures are the 50% allocation', () => {
     expect(text.replace(/50%/g, '')).not.toMatch(/\d/)
-    expect(text).not.toMatch(/Tracking(?! begins)/)
+    expect(text).not.toMatch(/Tracking|after launch/)
   })
 
-  it('says when $KIT is live but nothing reads its buybacks yet, and still prints no figure', () => {
-    const live = read(renderToStaticMarkup(createElement(BuybackPanel, { tracker: buybackTracker('live', null), kitDecimals: 18 })))
-    expect(live).toMatch(/Awaiting data/)
-    expect(live).not.toContain('Tracking begins after launch.')
-    expect(live.replace(/50%/g, '')).not.toMatch(/\d/)
+  it('on a network without $KITS (testnet) it says so, and still prints no figure', () => {
+    const off = read(renderToStaticMarkup(createElement(BuybackPanel, { tracker: buybackTracker(null, null), kitDecimals: null })))
+    expect(off).toMatch(/Mainnet only/)
+    expect(off).toContain('$KITS trades on NEAR mainnet: this build doesn’t follow its buybacks and burns.')
+    expect(off.replace(/50%/g, '')).not.toMatch(/\d/)
   })
 })
 
@@ -86,7 +88,7 @@ describe('holder rewards', () => {
     expect(text).toMatch(/Holder rewards/i)
     expect(text).toMatch(/Coming soon/i)
     expect(text).toMatch(/50%.*of the tax/)
-    expect(text).toContain('Holder reward tracking will be available after launch.')
+    expect(text).toContain('Holder reward tracking is coming soon.')
     expect(text.replace(/50%/g, '')).not.toMatch(/\d/)
     expect(text).not.toMatch(/APR|APY|yield|claim now|earned:/i)
   })

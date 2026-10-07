@@ -8,8 +8,11 @@ const listed: TokenListing[] = [
   { id: 'near', symbol: 'NEAR', name: 'NEAR', decimals: 24, contract: null, isNative: true, status: 'listed', source: 'native', market: null },
   { id: 'usdt.tether-token.near', symbol: 'USDt', name: 'Tether USD', decimals: 6, contract: 'usdt.tether-token.near', status: 'listed', source: 'known', market: null },
 ]
-const SOON_KIT = { name: 'NEARKITS Token', symbol: 'KIT', launchVenue: 'Nearly', status: 'coming-soon' } as const
-const LIVE_KIT = { ...SOON_KIT, status: 'live' } as const
+const KITS = 'kits.nearlytrade.near'
+/** $KITS where the build has its contract (mainnet, the demo), and on a network without it (testnet). */
+const LIVE_KIT = { name: 'Near Kits', symbol: 'KITS', ticker: '$KITS', launchVenue: 'Nearly', status: 'live' } as const
+const OFF_KIT = { ...LIVE_KIT, status: 'mainnet-only' } as const
+const kits: TokenListing = { id: KITS, symbol: 'KITS', name: 'Near Kits', decimals: 18, contract: KITS, status: 'listed', source: 'known', market: null }
 const sing: TokenListing = { id: SING, symbol: 'SINGULARTY', name: 'Singularity is NEAR', decimals: 18, contract: SING, status: 'listed', source: 'discovered', market: null }
 
 describe('what reads as a contract', () => {
@@ -81,26 +84,35 @@ describe('global search opens a token’s own page (Token Detail), never the swa
     ])
   })
 
-  it('while $KIT is Coming Soon, the search offers its page first (never a trade), and "$KIT" or "kit" finds it', () => {
-    expect(buildResults('', [...listed, sing], null, { kit: SOON_KIT })[0]).toMatchObject({ label: '$KIT', to: '/kit', soon: true })
-    for (const q of ['kit', '$KIT', 'nearkits']) expect(buildResults(q, listed, null, { kit: SOON_KIT })[0]).toMatchObject({ to: '/kit' })
-    expect(buildResults('usdt', listed, null, { kit: SOON_KIT }).some((r) => r.to === '/kit')).toBe(false)
+  it('$KITS is a token like any other: its own page, first in the order', () => {
+    const results = buildResults('', [...listed, sing, kits], null, { kit: LIVE_KIT, rank: { kitId: KITS } })
+    expect(results[0]).toMatchObject({ label: 'KITS', to: '/token/kits.nearlytrade.near' })
+    expect(results.some((r) => r.to === '/kit')).toBe(false)
   })
 
-  it('once $KIT is live it is a token like any other: its own page, first in the order', () => {
-    const kit: TokenListing = {
-      id: 'kit.nearlytrade.near',
-      symbol: 'KIT',
-      name: 'NEARKITS Token',
-      decimals: 18,
-      contract: 'kit.nearlytrade.near',
-      status: 'listed',
-      source: 'known',
-      market: null,
+  it('"$KITS", "KITS", "Near Kits" and kits.nearlytrade.near all resolve to the one token, first, once', () => {
+    for (const q of ['$KITS', 'KITS', 'kits', 'Near Kits', 'near kits', KITS]) {
+      const found = q === KITS ? ({ token: kits, note: null, state: 'found' } as const) : null
+      const results = buildResults(q, [...listed, sing, kits], found, { kit: LIVE_KIT, rank: { kitId: KITS } })
+      expect(results[0], q).toMatchObject({ label: 'KITS', to: '/token/kits.nearlytrade.near' })
+      expect(results.filter((r) => r.token?.id === KITS)).toHaveLength(1)
     }
-    const results = buildResults('', [...listed, sing, kit], null, { kit: LIVE_KIT, rank: { kitId: kit.id } })
-    expect(results[0]).toMatchObject({ label: 'KIT', to: '/token/kit.nearlytrade.near' })
-    expect(results.some((r) => r.to === '/kit')).toBe(false)
+  })
+
+  it('NEARKITS, the platform, is not the token: "nearkits" resolves to no $KITS token', () => {
+    expect(buildResults('nearkits', [...listed, kits], null, { kit: LIVE_KIT }).some((r) => r.token?.id === KITS)).toBe(false)
+    // A testnet build's $KITS shortcut answers to its symbol, name or exact contract, not to any query its contract contains.
+    for (const q of ['nearly'])
+      expect(
+        buildResults(q, listed, null, { kit: OFF_KIT }).some((r) => r.to === '/kit'),
+        q,
+      ).toBe(false)
+  })
+
+  it('on a network without $KITS (testnet), the search offers its page (never a trade), found by "$KITS", "KITS", "Near Kits" or its contract', () => {
+    expect(buildResults('', [...listed, sing], null, { kit: OFF_KIT })[0]).toMatchObject({ label: '$KITS', to: '/kit', detail: 'Near Kits · on NEAR mainnet' })
+    for (const q of ['kits', '$KITS', 'KITS', 'Near Kits', KITS]) expect(buildResults(q, listed, null, { kit: OFF_KIT })[0], q).toMatchObject({ to: '/kit' })
+    expect(buildResults('usdt', listed, null, { kit: OFF_KIT }).some((r) => r.to === '/kit')).toBe(false)
   })
 
   it('no result of a token search leads to the swap', () => {

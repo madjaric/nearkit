@@ -8,7 +8,7 @@ export const HISTORY_DAYS = 180
 const TRADE_MIX: { id: TokenId; weight: number; vol: number }[] = [
   { id: TOKEN_IDS.blackdragon, weight: 0.42, vol: 0.34 },
   { id: TOKEN_IDS.shitzu, weight: 0.24, vol: 0.22 },
-  { id: TOKEN_IDS.kit, weight: 0.18, vol: 0.4 },
+  { id: TOKEN_IDS.kits, weight: 0.18, vol: 0.4 },
   { id: TOKEN_IDS.near, weight: 0.16, vol: 0.09 },
 ]
 

@@ -69,7 +69,7 @@ export interface NearContext {
     /** Also read these token contracts for this account for a while (tokens it just traded). */
     track(accountId: string, contracts: readonly string[]): void
   }
-  /** Token contracts NearKit tracks besides discovered ones: configured, imported and $KIT. */
+  /** Token contracts NearKit tracks besides discovered ones: configured, imported and $KITS. */
   trackedTokens(): string[]
 }
 

@@ -83,7 +83,8 @@ const SIDEBAR = [
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
   ['Portfolio', ['Positions', 'PnL']],
   ['Intelligence', ['Scanner']],
-  ['Coming soon', ['$KIT', 'Limit Orders', 'Volume Bot', 'DCA', 'Copy Trade', 'Sniper', 'Telegram'].map((l) => `${l} SOON`)],
+  // $KITS sits under the Dashboard, MAINNET on this testnet build: it isn't coming soon, it trades on mainnet.
+  ['Coming soon', ['Limit Orders', 'Volume Bot', 'DCA', 'Copy Trade', 'Sniper', 'Telegram'].map((l) => `${l} SOON`)],
 ]
 /** Group names and entries of a navigation body, as rendered. */
 const navGroups = (nav) =>
@@ -325,7 +326,7 @@ await step('PnL is live on the beta and honest: NEAR figures from on-chain histo
 await step(
   'the public address is nearkits.com: every page names it (canonical, og:url), robots.txt, sitemap.xml and the JSON-LD point there, and vercel.app appears nowhere',
   async () => {
-    const html = await (await fetch(BASE + '/token/kit')).text()
+    const html = await (await fetch(BASE + '/token/kits.nearlytrade.near')).text()
     // The app's shell names no canonical of its own (a token page sets one as it renders): never two that disagree.
     if (/rel="canonical"/.test(html)) throw new Error('the served HTML names a canonical')
     if (html.includes('vercel.app')) throw new Error('the served HTML names vercel.app')

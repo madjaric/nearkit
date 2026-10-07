@@ -8,7 +8,7 @@ beforeAll(() => {
   setSimulationLatency(0)
 })
 
-const { near, blackdragon, kit, shitzu } = TOKEN_IDS
+const { near, blackdragon, kits: kit, shitzu } = TOKEN_IDS
 
 describe('demo trading', () => {
   it('charges NEARKITS’ 0.50% on the NEAR leg of a buy', async () => {
@@ -26,7 +26,7 @@ describe('demo trading', () => {
     const feeNear = sell.nearkitFee.amountNear ?? Number.NaN
     expect(feeNear / (sell.amountOut + feeNear)).toBeCloseTo(0.005, 10)
     const pair = await s.trading.quote({ tokenIn: kit, tokenOut: shitzu, amountIn: '1000', slippagePct: 1, walletId: 'w01' })
-    expect(pair.path).toEqual(['KIT', 'NEAR', 'SHITZU'])
+    expect(pair.path).toEqual(['KITS', 'NEAR', 'SHITZU'])
   })
 
   it('refuses swaps above the wallet balance and malformed amounts', async () => {
@@ -149,7 +149,7 @@ describe('demo portfolio', () => {
   it('reports four positions with PnL against cost basis', async () => {
     const s = createMockServices()
     const positions = await s.portfolio.listPositions()
-    expect(positions.map((p) => p.token.symbol).sort()).toEqual(['BLACKDRAGON', 'KIT', 'NEAR', 'SHITZU'])
+    expect(positions.map((p) => p.token.symbol).sort()).toEqual(['BLACKDRAGON', 'KITS', 'NEAR', 'SHITZU'])
     const summary = await s.portfolio.getSummary()
     expect(summary.activePositions).toBe(4)
     expect(summary.openOrders).toBe(3)

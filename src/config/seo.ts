@@ -1,6 +1,6 @@
 import { FAQ, VOLUME_BOT_DESCRIPTION, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_BOT_UPDATED } from '@/features/volumeBot/content'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
-import { KIT, KIT_LAUNCH } from './kit'
+import { KIT, KIT_LAUNCH, KITS_CONTRACT } from './kit'
 import { BETA_COMING_SOON } from './release'
 import { canonicalUrl, SITEMAP_PATHS } from './site'
 
@@ -34,17 +34,16 @@ export interface PageSeo {
 const { tax, taxSplit, poolFee } = KIT_LAUNCH
 const taxLine = `a ${tax.buyPct}% buy and sell tax, split ${taxSplit.buybackBurnPct}/${taxSplit.holdersPct} between Buyback & Burn and holder rewards`
 
-export const kitDescription = () =>
-  KIT.status === 'live'
-    ? `${KIT.ticker} is the NEARKITS token, live on NEAR: its contract and how to buy it, with ${taxLine}.`
-    : `${KIT.ticker} is the NEARKITS token, launching on ${KIT.launchVenue}: ${taxLine}. It has not launched yet.`
+/** What the token is (the same on every build: it is one token, on NEAR mainnet). */
+export const kitDescription = () => `${KIT.ticker} (${KIT.name}) is the NEARKITS token on NEAR, at ${KITS_CONTRACT}: ${taxLine}.`
 
-/** $KIT's launch configuration as the $KIT page states it: the tax and its split, then, apart from them, the pool fee. */
+/** What $KITS is and its launch configuration, as its page states them: the tax and its split, then, apart from them, the pool fee. */
 export const kitFacts = (): string[] => [
+  `${KIT.ticker} (${KIT.name}) is the NEARKITS token; its contract on NEAR is ${KITS_CONTRACT}.`,
   `${KIT.ticker} has a ${tax.buyPct}% buy tax and a ${tax.sellPct}% sell tax.`,
   `The tax is split ${taxSplit.buybackBurnPct}% to Buyback & Burn and ${taxSplit.holdersPct}% to holder rewards; ${taxSplit.creatorPct}% goes to the creator.`,
   `Separately from the tax, the pool fee is ${poolFee.pct}%, and ${poolFee.nearkitsSharePct}% of the pool fee is allocated to NEARKITS.`,
-  'The Buyback & Burn tracker shows only real on-chain activity, and tracking begins after launch. Holder reward tracking is coming soon.',
+  'The Buyback & Burn tracker shows only real on-chain activity. Holder reward tracking is coming soon.',
   'No return, reward rate, burn amount or buyback frequency is promised.',
 ]
 
@@ -83,7 +82,7 @@ export function publicPages(): PageSeo[] {
       name: 'Scanner',
     },
     [VOLUME_BOT_PATH]: { title: VOLUME_BOT_TITLE, description: VOLUME_BOT_DESCRIPTION, name: 'Volume Bot' },
-    '/kit': { title: `${KIT.ticker}, the NEARKITS token · NEARKITS`, description: kitDescription(), name: KIT.ticker, facts: kitFacts() },
+    '/kit': { title: `${KIT.ticker} (${KIT.name}), the NEARKITS token · NEARKITS`, description: kitDescription(), name: KIT.ticker, facts: kitFacts() },
     '/telegram': {
       title: 'Telegram bot for NEAR trading · NEARKITS',
       description: 'Trade NEAR tokens in Telegram: NEARKITS wallets buy and sell in the chat, signed by NEARKITS; a NEAR account you link signs its trades in your own wallet.',

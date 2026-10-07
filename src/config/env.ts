@@ -19,7 +19,7 @@ export interface AppEnv {
   mainnetExecution: boolean
   /** Account that receives the NearKit app fee. Public, not a secret. */
   feeRecipient: string | null
-  /** $KIT NEP-141 contract, once launched. */
+  /** $KITS' NEP-141 contract on this build's network: kits.nearlytrade.near on mainnet and in the demo; null on testnet, where it doesn't exist. */
   kitContract: string | null
   /** NearKit server API (Telegram linking, trade results). Public URL, not a secret. Null: no server for this build. */
   apiUrl: string | null
@@ -91,7 +91,8 @@ export function parseEnv(raw: RawEnv): { env: AppEnv; issues: EnvIssue[] } {
     return value
   }
   const feeRecipient = account('VITE_NEARKIT_FEE_RECIPIENT')
-  const kitContract = account('VITE_KIT_TOKEN_CONTRACT')
+  // $KITS is one token, kits.nearlytrade.near on mainnet; the demo previews it too. A build may name another (a testnet stand-in).
+  const kitContract = account('VITE_KIT_TOKEN_CONTRACT') ?? (services === 'demo' ? NETWORKS.mainnet.kitsContract : NETWORKS[network].kitsContract)
 
   let apiUrl: string | null = null
   if (!blank(raw.VITE_NEARKIT_API_URL)) {

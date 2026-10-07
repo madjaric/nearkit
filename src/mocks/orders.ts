@@ -18,7 +18,7 @@ export const SEED_ORDERS: LimitOrder[] = [
   },
   {
     id: 'ord-1043',
-    tokenId: TOKEN_IDS.kit,
+    tokenId: TOKEN_IDS.kits,
     side: 'sell',
     type: 'take-profit',
     triggerPriceUsd: 0.0008,
@@ -70,7 +70,7 @@ export const SEED_ORDERS: LimitOrder[] = [
   },
   {
     id: 'ord-1019',
-    tokenId: TOKEN_IDS.kit,
+    tokenId: TOKEN_IDS.kits,
     side: 'buy',
     type: 'limit',
     triggerPriceUsd: 0.00039,

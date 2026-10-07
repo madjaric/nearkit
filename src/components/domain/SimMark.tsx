@@ -3,11 +3,11 @@ import { cn } from '@/lib/cn'
 
 /**
  * Marks a figure that exists only in the simulation. Used wherever a pre-launch
- * token ($KIT) shows a price, entry or exit, so it never reads as market data.
+ * token shows a price, entry or exit, so it never reads as market data.
  */
 export function SimMark({ className }: { className?: string }) {
   return (
-    <Tip content="Simulated figure. $KIT has not launched, so it has no market price." className={cn('ml-1 align-middle', className)}>
+    <Tip content="Simulated figure. This token has not launched, so it has no market price." className={cn('ml-1 align-middle', className)}>
       <span
         tabIndex={0}
         aria-label="Simulated figure"

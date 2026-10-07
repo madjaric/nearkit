@@ -30,7 +30,7 @@ The one place on NEAR where multi-wallet execution and wallet housekeeping (spli
 
 - Desktop is the primary trading surface; mobile must be genuinely usable (drawer or bottom navigation, tables that collapse into rows/cards, trading actions reachable).
 - Users compare prices, balances and PnL at a glance, so numbers must align and read as terminal output.
-- The $KIT token launches separately through Nearly. NearKit links to it but does not host the launch.
+- The $KITS token (Near Kits, `kits.nearlytrade.near`) launched separately through Nearly. NEARKITS links to it but did not host the launch.
 - The Telegram bot (@NearKitBot) runs on the same account:
   - NearKit wallets (up to 10 per user) with Buy, Sell, withdrawals and recovery;
   - positions and PnL;
@@ -42,14 +42,14 @@ The one place on NEAR where multi-wallet execution and wallet housekeeping (spli
 
 - **Phase 1 is UI/UX only.** No real NEAR transactions, smart contracts, Rhea or Nearly integration, private key handling, Telegram bot, swaps, or blockchain execution.
 - The UI talks only to service interfaces (`TradingService`, `WalletService`, `TokenService`, `AutomationService`, plus portfolio/scanner as needed). Phase 1 ships mock implementations, and components must not know whether data comes from mocks or chain.
-- NearKit fee: **0.50%** (50 bps) on Swap and Quick Trade on the web and on Buy and Sell in Telegram, shown on every trade surface and set once, in `NEARKIT_FEE` (`src/lib/fees.ts`). Of it NearKit receives 0.40% (to the production fee account `nearkitfee.near`) and Rhea's aggregator keeps 0.10%; Rhea's own protocol fee, pool fees and gas are separate. (0.10% from 2026-09-28 and 2.00% before that; 0.50% since 2026-09-29.) Split, Consolidate and Batch Send carry no NearKit fee. The future 2% buy and sell fee on $KIT belongs to its Nearly launch and is separate.
+- NearKit fee: **0.50%** (50 bps) on Swap and Quick Trade on the web and on Buy and Sell in Telegram, shown on every trade surface and set once, in `NEARKIT_FEE` (`src/lib/fees.ts`). Of it NearKit receives 0.40% (to the production fee account `nearkitfee.near`) and Rhea's aggregator keeps 0.10%; Rhea's own protocol fee, pool fees and gas are separate. (0.10% from 2026-09-28 and 2.00% before that; 0.50% since 2026-09-29.) Split, Consolidate and Batch Send carry no NearKit fee. $KITS' 2% buy and sell tax belongs to the token (its Nearly launch configuration) and is separate.
 - Referrals: a referrer earns 20% of NearKit's 0.40% (0.08% of volume) on the trades of the people they invited, and NearKit keeps 0.32%. The trader always pays exactly 0.50%. The owner pays claims; there is no hot wallet.
 - Mock state may reset on refresh; persistence is not required.
 - Terminology: Split = distribute one wallet's tokens to many; Consolidate = gather from many into one; Batch Send = many transfers from one list; Presets = saved wallet groups.
 
 ## Brand Commitments
 
-- Name **NEARKITS** (always written in capitals; formerly NearKit), token **$KIT**, tagline "The trading toolkit for NEAR."
+- Name **NEARKITS** (always written in capitals; formerly NearKit), token **$KITS** (Near Kits), tagline "The trading toolkit for NEAR."
 - Must feel like a serious trader tool: Bloomberg-terminal simplicity + modern crypto terminal + clean developer tooling, high information density, still approachable for retail.
 - Must not borrow the visual identity of Banana Gun, Maestro or Archery Tools (they inspire features only).
 - Dark-first. One distinctive accent used sparingly for active / connected / positive / primary action. Red only for sell / loss / danger. No generic purple-blue Web3 look, no neon-gradient overload, no glassmorphism, no giant rounded cards or pills, no gimmick or pixel fonts.

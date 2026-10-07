@@ -18,12 +18,12 @@ const NEAR_BALANCES = [8420.55, 1142.2, 612.75, 488.1, 364.33, 118.4, 96.25, 84.
 
 export const SEED_HOLDINGS: Holding[] = [
   ...NEAR_BALANCES.map((amount, i) => ({ walletId: `w${pad(i + 1)}`, tokenId: TOKEN_IDS.near, amount })),
-  // KIT: the split example (1,000,000 from Main) and the consolidate example (427,560 across 02–05).
-  { walletId: 'w01', tokenId: TOKEN_IDS.kit, amount: 1_250_000 },
-  { walletId: 'w02', tokenId: TOKEN_IDS.kit, amount: 82_420 },
-  { walletId: 'w03', tokenId: TOKEN_IDS.kit, amount: 112_810 },
-  { walletId: 'w04', tokenId: TOKEN_IDS.kit, amount: 42_220 },
-  { walletId: 'w05', tokenId: TOKEN_IDS.kit, amount: 190_110 },
+  // KITS: the split example (1,000,000 from Main) and the consolidate example (427,560 across 02–05).
+  { walletId: 'w01', tokenId: TOKEN_IDS.kits, amount: 1_250_000 },
+  { walletId: 'w02', tokenId: TOKEN_IDS.kits, amount: 82_420 },
+  { walletId: 'w03', tokenId: TOKEN_IDS.kits, amount: 112_810 },
+  { walletId: 'w04', tokenId: TOKEN_IDS.kits, amount: 42_220 },
+  { walletId: 'w05', tokenId: TOKEN_IDS.kits, amount: 190_110 },
   { walletId: 'w01', tokenId: TOKEN_IDS.blackdragon, amount: 684_203_110 },
   { walletId: 'w02', tokenId: TOKEN_IDS.blackdragon, amount: 152_000_000 },
   { walletId: 'w03', tokenId: TOKEN_IDS.blackdragon, amount: 88_500_000 },

@@ -1,61 +1,64 @@
 import { explorerTokenUrl } from '@/services/near/explorer'
-import { ENV, NETWORK } from './env'
+import { ENV } from './env'
+import { NETWORKS } from './networks'
 
 /**
- * $KIT, NEARKITS' own token: one configuration that every surface reads (the sidebar, the Dashboard,
- * token pickers and search, the $KIT page). Nothing here is guessed. The contract comes only from the
- * build (VITE_KIT_TOKEN_CONTRACT): until it names one, $KIT is Coming Soon and nothing trades it;
- * once it does, $KIT is live and trades like any other token.
+ * $KITS (Near Kits), the NEARKITS token: one configuration that every surface reads (the sidebar,
+ * the Dashboard, token pickers and search, the $KITS page). NEARKITS is the platform; $KITS is its
+ * token, and it is one contract: kits.nearlytrade.near, on NEAR mainnet, launched on Nearly. Where
+ * the build has that contract (mainnet, and the demo's preview), $KITS is live and trades like any
+ * other token; on testnet, where it doesn't exist, it is mainnet-only and nothing trades it.
  */
 
-export type KitStatus = 'coming-soon' | 'live'
+/** The one $KITS contract (NEAR mainnet). */
+export const KITS_CONTRACT = 'kits.nearlytrade.near'
+
+export type KitStatus = 'live' | 'mainnet-only'
 
 export interface KitConfig {
-  name: string
-  symbol: 'KIT'
-  ticker: '$KIT'
-  /** The NEP-141 contract; null until the build names it. */
+  name: 'Near Kits'
+  symbol: 'KITS'
+  ticker: '$KITS'
+  /** The NEP-141 contract on this build's network; null where $KITS doesn't exist (testnet). */
   contract: string | null
   status: KitStatus
-  /** False while Coming Soon: no picker, ticket or link may trade it. */
+  /** False where the build has no contract: no picker, ticket or link may trade it. */
   tradable: boolean
   launchVenue: 'Nearly'
   /** One line for the places that introduce it. */
   tagline: string
-  links: { page: '/kit'; token: string | null; explorer: string | null }
+  /** Its page, its Token Detail where it trades, and its explorer page (always mainnet's: where it lives). */
+  links: { page: '/kit'; token: string | null; explorer: string }
 }
 
-/** The demo's preview $KIT (simulated figures, never a contract). */
-export const DEMO_KIT_ID = 'kit'
-
-export function kitConfig(contract: string | null, explorerUrl: string): KitConfig {
+export function kitConfig(contract: string | null): KitConfig {
   const live = contract !== null
   return {
-    name: 'NEARKITS Token',
-    symbol: 'KIT',
-    ticker: '$KIT',
+    name: 'Near Kits',
+    symbol: 'KITS',
+    ticker: '$KITS',
     contract,
-    status: live ? 'live' : 'coming-soon',
+    status: live ? 'live' : 'mainnet-only',
     tradable: live,
     launchVenue: 'Nearly',
-    tagline: live ? 'The NEARKITS token is live on NEAR.' : 'The NEARKITS token launches on Nearly.',
+    tagline: live ? '$KITS, the NEARKITS token, is live on NEAR.' : '$KITS, the NEARKITS token, trades on NEAR mainnet.',
     links: {
       page: '/kit',
       token: live ? `/token/${encodeURIComponent(contract)}` : null,
-      explorer: live ? explorerTokenUrl({ explorerUrl }, contract) : null,
+      explorer: explorerTokenUrl(NETWORKS.mainnet, KITS_CONTRACT),
     },
   }
 }
 
-export const KIT: Readonly<KitConfig> = Object.freeze(kitConfig(ENV.kitContract, NETWORK.explorerUrl))
+export const KIT: Readonly<KitConfig> = Object.freeze(kitConfig(ENV.kitContract))
 
 /**
- * $KIT as its launch configuration on Nearly sets it (the owner's figures, 2026-10-07). The trading
- * tax and the pool fee are two separate things: NEARKITS' 70% is a share of the pool fee, never of
- * the tax. These are rules, not market figures: no price, supply or activity is implied.
+ * $KITS as its launch configuration on Nearly sets it (the owner's figures, 2026-10-07; the
+ * contract's own get_tax reads 200 bps on buys and on sells). The trading tax and the pool fee are
+ * two separate things: NEARKITS' 70% is a share of the pool fee, never of the tax. These are
+ * rules, not market figures: no price, supply or activity is implied.
  */
 export const KIT_LAUNCH = {
-  name: 'NEAR KITS',
   /** Charged on every buy and every sell, in % of the trade. */
   tax: { buyPct: 2, sellPct: 2 },
   /** Where the tax goes, in % of the tax: all of it. */
@@ -69,7 +72,7 @@ const { tax, taxSplit, poolFee } = KIT_LAUNCH
 export const KIT_TAX_NOTE = `${tax.buyPct}% tax applies to buys and sells. Tax revenue is split ${taxSplit.buybackBurnPct}/${taxSplit.holdersPct} between Buyback & Burn and Holder rewards.`
 export const KIT_POOL_FEE_NOTE = `${poolFee.nearkitsSharePct}% of the ${poolFee.pct}% pool fee is allocated to NEARKITS.`
 
-/** True for $KIT's token id: the demo's preview token, or the configured contract. */
+/** True for $KITS' token id: the build's contract (the demo's preview uses the same id). */
 export function isKitToken(tokenId: string | null | undefined, kit: Pick<KitConfig, 'contract'> = KIT): boolean {
-  return tokenId != null && (tokenId === DEMO_KIT_ID || (kit.contract !== null && tokenId === kit.contract))
+  return tokenId != null && kit.contract !== null && tokenId === kit.contract
 }

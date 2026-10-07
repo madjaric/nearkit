@@ -406,7 +406,7 @@ export default function VolumeBotPage() {
               Swap
             </Link>
             <Link to="/kit" className="hover:text-fg">
-              $KIT
+              $KITS
             </Link>
             <Link to="/docs" className="hover:text-fg">
               Docs

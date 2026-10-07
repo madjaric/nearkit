@@ -406,7 +406,7 @@ Every button is a key: uppercase keycap type, one 3px shape, and color changes o
 - **Watch tag:** accounts added by ID carry a dashed WATCH tag in wallet lists; they show balances and can receive, and never sign.
 
 ### SIM Mark
-A 14px dashed-outline "sim" micro-label (9px uppercase, `fg-3`) placed after every $KIT price, entry, market and exit figure. It is focusable and carries a tooltip disclosure ("Simulated figure. $KIT has not launched, so it has no market price."). The $KIT page prints "Published at launch" in place of price, market cap and supply and shows no figures for them.
+A 14px dashed-outline "sim" micro-label (9px uppercase, `fg-3`) placed after every price, entry, market and exit figure of a pre-launch token. It is focusable and carries a tooltip disclosure ("Simulated figure. This token has not launched, so it has no market price."). $KITS has launched, so it carries none; on a network without it (testnet) the $KITS page prints "On NEAR mainnet" and shows no market figure.
 
 ### Cards / Containers (Panels)
 - **Corner Style:** 4px.
@@ -474,7 +474,7 @@ A 10px `well` trough with 1px-gapped segments per wallet, alternating between tw
 - **Do** put readouts in fixed-slot strips with 1px rules and ghost zeros in `fg-4` for absent values.
 - **Do** keep fire-key labels constant and print the blocking reason on a line below the key.
 - **Do** set table body rows at 36px, and declare `rows="double"` for 44px only when a cell carries a second line.
-- **Do** mark every $KIT price, entry, market and exit figure with the dashed SIM mark, and mark unshipped features with the dashed COMING SOON tag.
+- **Do** mark every pre-launch token's price, entry, market and exit figure with the dashed SIM mark, and mark unshipped features with the dashed COMING SOON tag.
 - **Do** show freshness on live values: "Ns" ages, amber "stale" after 20s, and a drain bar on quotes.
 - **Do** draw charts as traces on the 10-division graticule with the "/div" scale readout.
 - **Do** keep corners at 2–4px and panels flat, with shadows only on floating layers.
@@ -486,7 +486,7 @@ A 10px `well` trough with 1px-gapped segments per wallet, alternating between tw
 - **Don't** tint a whole toned caption; only the figure takes pos or neg.
 - **Don't** replace a fire key's label with its blocking reason.
 - **Don't** use KPI card grids, gradient area fills, glassmorphism or pill-shaped controls.
-- **Don't** show a price, supply or market cap for $KIT before launch.
+- **Don't** show a price, supply or market cap for a token before it launches, or a $KITS Buyback & Burn figure no on-chain source has read.
 - **Don't** print SAFE, SCAM or any verdict in the scanner, or claim NearKit receives the full 0.50% fee (Rhea's aggregator keeps 0.10% of it).
 - **Don't** nest a bordered panel inside another panel.
 - **Don't** introduce colors outside the token set; the default palette is cleared.

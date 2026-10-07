@@ -8,34 +8,35 @@ import { CopyButton } from '@/components/ui/Copy'
 import { ComingSoon, Led, Tag } from '@/components/ui/Indicators'
 import { Price } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
-import { isKitToken, KIT } from '@/config/kit'
+import { isKitToken, KIT, KITS_CONTRACT } from '@/config/kit'
 import { buybackTracker } from '@/features/kit/buyback'
 import { BuybackPanel, HolderRewardsPanel, KitTokenomics } from '@/features/kit/Tokenomics'
 import { useTokens } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 
 const UTILITY = [
-  { title: 'Fee benefits', text: 'Reduced NEARKITS fees for $KIT holders. Terms are published before they apply.' },
+  { title: 'Fee benefits', text: `Reduced NEARKITS fees for ${KIT.ticker} holders. Terms are published before they apply.` },
   { title: 'Advanced tool access', text: 'Holder access to advanced multi-wallet and intelligence tools.' },
   { title: 'Higher limits', text: 'Larger wallet groups, batch sizes and rule counts.' },
   { title: 'Premium automation features', text: 'Extended Volume Bot, DCA, copy trading and sniper options.' },
 ]
 
 /**
- * $KIT's page, from its one configuration (src/config/kit.ts): Coming Soon until the build names its
- * contract, then live: its contract, its price, and a trade like any token's. Nothing is shown that
- * isn't known: no price, supply or contract before launch.
+ * $KITS' page, from its one configuration (src/config/kit.ts): Near Kits at kits.nearlytrade.near,
+ * live on NEAR mainnet, traded here like any token once the token list has read it from chain. On a
+ * network without it (testnet) it is mainnet-only: nothing trades it and no market figure is shown.
  */
 export default function KitPage() {
-  const { data: tokens = [] } = useTokens()
+  const { data: tokens = [], isPending } = useTokens()
   const { openTrade } = useTradeDrawer()
   const listed = tokens.find((t) => isKitToken(t.id) && t.status === 'listed')
+  // On this build's network (mainnet, the demo); live to trade once the list has it.
+  const onNetwork = KIT.status === 'live'
   const live = KIT.tradable && listed !== undefined
-  const pending = 'Published at launch'
 
   return (
     <Page>
-      <PageHeader title={KIT.ticker} status={live ? <Tag tone="accent">Live</Tag> : <ComingSoon label="Not launched" />} description={`${KIT.name}, the token of NEARKITS.`} />
+      <PageHeader title={KIT.ticker} status={onNetwork ? <Tag tone="accent">Live</Tag> : <Tag>Mainnet only</Tag>} description={`${KIT.name}, the token of NEARKITS.`} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Panel>
@@ -49,8 +50,8 @@ export default function KitPage() {
                 <p className="num mt-0.5 text-md text-fg-2">{KIT.ticker}</p>
               </div>
               <p className="max-w-[60ch] text-base leading-6 text-fg-2">
-                {KIT.ticker} is the token of NEARKITS, the trading toolkit for NEAR. It launches on {KIT.launchVenue}: NEARKITS is a trading toolkit, not a launchpad.
-                {live ? ' It is live: trade it here like any NEAR token.' : ' Until it is live, nothing here trades it and no market figure about it is shown.'}
+                {KIT.ticker} is the token of NEARKITS, the trading toolkit for NEAR. It launched on {KIT.launchVenue}: NEARKITS is a trading toolkit, not a launchpad.
+                {onNetwork ? ' It is live: trade it here like any NEAR token.' : ' It trades on NEAR mainnet; this build doesn’t trade it and shows no market figure for it.'}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 {live && listed ? (
@@ -63,11 +64,6 @@ export default function KitPage() {
                         Market and chart
                       </Link>
                     )}
-                    {KIT.links.explorer && (
-                      <a href={KIT.links.explorer} target="_blank" rel="noreferrer noopener" className={buttonClass({ variant: 'ghost', size: 'lg' })}>
-                        Explorer <ExternalLink size={14} aria-hidden="true" />
-                      </a>
-                    )}
                   </>
                 ) : (
                   <>
@@ -75,10 +71,17 @@ export default function KitPage() {
                       Trade {KIT.ticker}
                     </Button>
                     <span id="kit-not-live" className="text-sm text-fg-3">
-                      Trading opens when {KIT.ticker} is live.
+                      {!onNetwork
+                        ? `${KIT.ticker} trades on NEAR mainnet, not in this build.`
+                        : isPending
+                          ? `Reading ${KIT.ticker} from NEAR…`
+                          : `NEARKITS can’t read ${KIT.ticker} from NEAR right now. Try again shortly.`}
                     </span>
                   </>
                 )}
+                <a href={KIT.links.explorer} target="_blank" rel="noreferrer noopener" className={buttonClass({ variant: 'ghost', size: 'lg' })}>
+                  Explorer <ExternalLink size={14} aria-hidden="true" />
+                </a>
               </div>
             </div>
           </div>
@@ -90,30 +93,26 @@ export default function KitPage() {
             <Lines>
               <Line label="Status" mono={false}>
                 <span className="flex items-center justify-end gap-2">
-                  <Led tone={live ? 'on' : 'off'} /> {live ? 'Live' : 'Not launched'}
+                  <Led tone={onNetwork ? 'on' : 'off'} /> {onNetwork ? 'Live' : 'Mainnet only'}
                 </span>
               </Line>
               <Line label="Launch venue" mono={false}>
                 {KIT.launchVenue}
               </Line>
               <Line label="Contract" mono={false}>
-                {KIT.contract ? (
-                  <span className="flex items-center justify-end gap-1.5">
-                    <span className="num break-all text-xs">{KIT.contract}</span>
-                    <CopyButton value={KIT.contract} label="Copy the $KIT contract" />
-                  </span>
-                ) : (
-                  pending
-                )}
+                <span className="flex items-center justify-end gap-1.5">
+                  <span className="num break-all text-xs">{KITS_CONTRACT}</span>
+                  <CopyButton value={KITS_CONTRACT} label={`Copy the ${KIT.ticker} contract`} />
+                </span>
               </Line>
               <Line label="Price" mono={false}>
-                {live && listed?.market ? <Price value={listed.market.priceUsd} /> : live ? 'No market price yet' : pending}
+                {live && listed?.market ? <Price value={listed.market.priceUsd} /> : onNetwork ? 'No market price yet' : 'On NEAR mainnet'}
               </Line>
             </Lines>
             <p className="mt-3 border-t border-line-soft pt-3 text-xs text-fg-3">
-              {live
+              {onNetwork
                 ? 'Market cap, supply and liquidity are on the token’s market page, from the sources that report them.'
-                : 'NEARKITS shows no $KIT price, supply or market figures before launch. The KIT position in the demo is simulated, for layout only.'}
+                : `This build reads no ${KIT.ticker} market: its price, supply and liquidity are on NEAR mainnet.`}
             </p>
           </div>
         </Panel>
@@ -122,8 +121,8 @@ export default function KitPage() {
       <KitTokenomics />
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        {/* No on-chain source reads $KIT's buybacks and burns yet (no API or indexer for them): the tracker gets no facts, and says so. A source plugs in here. */}
-        <BuybackPanel tracker={buybackTracker(KIT.status, null)} kitDecimals={listed?.decimals ?? null} />
+        {/* The tracker follows $KITS' contract on this network. Nothing reads its buybacks and burns from the chain yet (no API or indexer here; NearBlocks indexes none of its events so far): it gets no facts, and says so. A source plugs in here. */}
+        <BuybackPanel tracker={buybackTracker(KIT.contract, null)} kitDecimals={listed?.decimals ?? null} />
         <HolderRewardsPanel />
       </div>
 

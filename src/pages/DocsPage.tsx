@@ -5,6 +5,7 @@ import { Panel } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
 import { ENV } from '@/config/env'
+import { KIT } from '@/config/kit'
 import { isComingSoon, TELEGRAM_BOT_LIVE } from '@/config/release'
 import { GLOSSARY } from '@/lib/glossary'
 import { useCapabilities } from '@/services/queries'
@@ -20,7 +21,7 @@ const SECTIONS = [
   { id: 'glossary', title: 'Glossary' },
 ]
 
-type AreaState = 'live' | 'local' | 'drafts' | 'soon' | 'unlaunched'
+type AreaState = 'live' | 'local' | 'drafts' | 'soon' | 'mainnet'
 
 /** NEARKITS wallets (and the Volume Bot on them) run where this build names NEARKITS' server. */
 const CUSTODY: AreaState = ENV.services === 'near' && ENV.apiUrl ? 'live' : 'soon'
@@ -42,7 +43,7 @@ const STATUS: [string, AreaState][] = [
   ['Limit, take-profit and stop-loss orders', isComingSoon('/limit-orders') ? 'soon' : 'drafts'],
   ['DCA, Copy trade, Sniper', isComingSoon('/dca') ? 'soon' : 'drafts'],
   ['Telegram bot', TELEGRAM_BOT_LIVE ? 'live' : 'soon'],
-  ['$KIT', 'unlaunched'],
+  ['$KITS token (kits.nearlytrade.near)', KIT.status === 'live' ? 'live' : 'mainnet'],
 ]
 
 function statusCopy(state: AreaState, demo: boolean, network: string) {
@@ -53,8 +54,8 @@ function statusCopy(state: AreaState, demo: boolean, network: string) {
       return { lamp: 'idle' as const, text: demo ? 'Demo data' : 'Saved in this browser' }
     case 'drafts':
       return { lamp: 'idle' as const, text: demo ? 'Saved in standby, nothing runs' : 'Drafts saved, nothing runs' }
-    case 'unlaunched':
-      return { lamp: 'off' as const, text: 'Not launched' }
+    case 'mainnet':
+      return { lamp: 'off' as const, text: 'On NEAR mainnet only' }
     default:
       return { lamp: 'off' as const, text: 'Not live on this site yet' }
   }
@@ -116,7 +117,7 @@ export default function DocsPage() {
                     return (
                       <Tr key={area}>
                         <Td className="whitespace-normal text-fg">{area}</Td>
-                        <Td>{state === 'soon' || state === 'unlaunched' ? <ComingSoon /> : <Tag tone="neutral">Ready</Tag>}</Td>
+                        <Td>{state === 'soon' ? <ComingSoon /> : state === 'mainnet' ? <Tag>Mainnet</Tag> : <Tag tone="neutral">Ready</Tag>}</Td>
                         <Td className="whitespace-normal">
                           <span className="flex items-center gap-2 text-fg-2">
                             <Led tone={s.lamp} />

@@ -76,7 +76,7 @@ export function wait(kind: keyof typeof LATENCY): Promise<void> {
 const TICK_MS = 8_000
 const VOLATILITY: Record<string, number> = {
   [TOKEN_IDS.near]: 0.0022,
-  [TOKEN_IDS.kit]: 0.006,
+  [TOKEN_IDS.kits]: 0.006,
   [TOKEN_IDS.blackdragon]: 0.0055,
   [TOKEN_IDS.shitzu]: 0.004,
   [TOKEN_IDS.usdc]: 0.0001,

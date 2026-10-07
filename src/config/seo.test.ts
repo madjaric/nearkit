@@ -24,20 +24,24 @@ describe('each public page’s title and description', () => {
     expect(pageSeo('/volume-bot/')?.path).toBe('/volume-bot')
   })
 
-  it('$KIT is described as not launched until it is, with its tax and where it goes: no price, contract or supply claimed', () => {
-    const description = pageSeo('/kit')?.description ?? ''
-    expect(description).toMatch(/has not launched/)
-    expect(description).toContain('2% buy and sell tax, split 50/50 between Buyback & Burn and holder rewards')
-    expect(description.length).toBeLessThanOrEqual(160)
+  it('$KITS is described as what it is: Near Kits, the NEARKITS token at kits.nearlytrade.near, its tax and where it goes; no price or supply claimed', () => {
+    const page = pageSeo('/kit')
+    expect(page).toMatchObject({ title: '$KITS (Near Kits), the NEARKITS token · NEARKITS', name: '$KITS' })
+    expect(page?.description).toBe(
+      '$KITS (Near Kits) is the NEARKITS token on NEAR, at kits.nearlytrade.near: a 2% buy and sell tax, split 50/50 between Buyback & Burn and holder rewards.',
+    )
+    expect(page?.description.length).toBeLessThanOrEqual(160)
+    expect(page?.description).not.toMatch(/\$KIT\b|not launched/)
   })
 
-  it('$KIT’s page states its launch configuration: the tax and its split, apart from them the pool fee and NEARKITS’ share, tracking as it stands, nothing promised', () => {
+  it('$KITS’ page states what it is and its launch configuration: the tax and its split, apart from them the pool fee and NEARKITS’ share, tracking as it stands, nothing promised', () => {
     const facts = pageSeo('/kit')?.facts ?? []
     expect(facts).toEqual([
-      '$KIT has a 2% buy tax and a 2% sell tax.',
+      '$KITS (Near Kits) is the NEARKITS token; its contract on NEAR is kits.nearlytrade.near.',
+      '$KITS has a 2% buy tax and a 2% sell tax.',
       'The tax is split 50% to Buyback & Burn and 50% to holder rewards; 0% goes to the creator.',
       'Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.',
-      'The Buyback & Burn tracker shows only real on-chain activity, and tracking begins after launch. Holder reward tracking is coming soon.',
+      'The Buyback & Burn tracker shows only real on-chain activity. Holder reward tracking is coming soon.',
       'No return, reward rate, burn amount or buyback frequency is promised.',
     ])
     for (const p of publicPages().filter((x) => x.path !== '/kit')) expect(p.facts, p.path).toBeUndefined()
@@ -122,14 +126,17 @@ describe('crawler files', () => {
     for (const p of publicPages().filter((x) => x.path !== '/')) expect(txt).toContain(`(https://nearkits.com${p.path}): ${p.description}`)
   })
 
-  it('llms.txt says who signs, where withdrawals go, the risks, what $KIT is and what is coming soon, and links the bot', () => {
+  it('llms.txt says who signs, where withdrawals go, the risks, what $KITS is and what is coming soon, and links the bot', () => {
     const txt = llmsTxt(URL, 'NearKitBot')
     expect(txt).toContain('[@NearKitBot](https://t.me/NearKitBot)')
     expect(txt).toMatch(/NEARKITS wallets are custodial/)
     expect(txt).toMatch(/owner wallet/)
     expect(txt).toMatch(/can lose money/)
     expect(txt).toContain(kitDescription())
-    expect(txt).toContain('- $KIT tokenomics, from its launch configuration on Nearly: $KIT has a 2% buy tax and a 2% sell tax. The tax is split 50% to Buyback & Burn')
+    expect(txt).toContain(
+      '- $KITS tokenomics, from its launch configuration on Nearly: $KITS (Near Kits) is the NEARKITS token; its contract on NEAR is kits.nearlytrade.near. $KITS has a 2% buy tax and a 2% sell tax. The tax is split 50% to Buyback & Burn',
+    )
+    expect(txt).not.toMatch(/\$KIT\b/)
     expect(txt).toContain('Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.')
     expect(txt).not.toMatch(/APR|APY|guaranteed/i)
     expect(txt).toMatch(/Coming soon[^\n]*limit orders[^\n]*DCA[^\n]*copy trading[^\n]*sniper/i)

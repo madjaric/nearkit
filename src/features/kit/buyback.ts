@@ -1,20 +1,20 @@
-import type { KitStatus } from '@/config/kit'
 import { formatUnits } from '@/lib/amounts'
 import { formatDateTime, formatUsd, truncateMiddle } from '@/lib/format'
 
 /**
- * $KIT's Buyback & Burn as the chain records it: what the buybacks spent, what was burned, and when
- * the last buyback landed. An on-chain source fills this in; none exists yet, so the $KIT page hands
- * the tracker nothing and it says so. A figure no source has read is null, never 0.
+ * $KITS' Buyback & Burn as the chain records it, for one contract (kits.nearlytrade.near): what the
+ * buybacks spent, what was burned, and when the last buyback landed. An on-chain source fills this
+ * in; none reads it yet, so the $KITS page hands the tracker no facts and it says so. A figure no
+ * source has read is null, never 0.
  */
 export interface BuybackFacts {
   /** NEAR spent on buybacks, in total, in yoctoNEAR. */
   boughtBackYocto: string | null
   /** That NEAR's USD value at the time of each buyback. */
   boughtBackUsd: number | null
-  /** $KIT burned, in total, in its smallest unit. */
+  /** $KITS burned, in total, in its smallest unit. */
   burnedRaw: string | null
-  /** The burned $KIT's USD value at the time of each burn. */
+  /** The burned $KITS' USD value at the time of each burn. */
   burnedUsd: number | null
   /** When the last buyback landed (ms), and its transaction. */
   lastBuybackAt: number | null
@@ -22,16 +22,17 @@ export interface BuybackFacts {
 }
 
 export type BuybackTracker =
-  /** $KIT has no contract yet: there is nothing to track. */
-  | { state: 'awaiting-launch' }
-  /** $KIT is live, but nothing reads its buybacks and burns from the chain yet. */
-  | { state: 'awaiting-data' }
-  | { state: 'tracking'; facts: BuybackFacts }
+  /** This build's network has no $KITS (testnet): there is nothing to follow. */
+  | { state: 'not-on-network' }
+  /** It follows `contract`, but nothing reads its buybacks and burns from the chain yet. */
+  | { state: 'awaiting-data'; contract: string }
+  /** What an on-chain source read for `contract`. */
+  | { state: 'tracking'; contract: string; facts: BuybackFacts }
 
-/** What the tracker shows: nothing before launch, whatever it is handed; then what a source read, if one did. */
-export function buybackTracker(status: KitStatus, facts: BuybackFacts | null): BuybackTracker {
-  if (status !== 'live') return { state: 'awaiting-launch' }
-  return facts ? { state: 'tracking', facts } : { state: 'awaiting-data' }
+/** What the tracker shows for $KITS' contract on this network: nothing without one, whatever it is handed; then what a source read, if one did. */
+export function buybackTracker(contract: string | null, facts: BuybackFacts | null): BuybackTracker {
+  if (contract === null) return { state: 'not-on-network' }
+  return facts ? { state: 'tracking', contract, facts } : { state: 'awaiting-data', contract }
 }
 
 export interface BuybackReadout {
@@ -56,8 +57,8 @@ export function buybackReadouts(tracker: BuybackTracker, kitDecimals: number | n
       value: units(f?.boughtBackYocto, NEAR_DECIMALS, 'NEAR'),
       sub: f ? (usd(f.boughtBackUsd) ?? 'USD value unknown') : 'NEAR spent, and its USD value',
     },
-    { legend: 'Total burned', value: f?.burnedUsd != null ? formatUsd(f.burnedUsd) : UNKNOWN, sub: 'USD value of the $KIT burned' },
-    { legend: '$KIT burned', value: units(f?.burnedRaw, kitDecimals, 'KIT'), sub: 'tokens burned' },
+    { legend: 'Total burned', value: f?.burnedUsd != null ? formatUsd(f.burnedUsd) : UNKNOWN, sub: 'USD value of the $KITS burned' },
+    { legend: '$KITS burned', value: units(f?.burnedRaw, kitDecimals, 'KITS'), sub: 'tokens burned' },
     {
       legend: 'Last buyback',
       value: f?.lastBuybackAt != null ? formatDateTime(f.lastBuybackAt) : UNKNOWN,

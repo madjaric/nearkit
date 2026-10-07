@@ -11,8 +11,8 @@ import { useTokens } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 
 /**
- * $KIT on the Dashboard: one slim band. Before launch it says where $KIT launches and links its
- * page (nothing trades it); once live it shows the price and opens a trade on it.
+ * $KITS on the Dashboard: one slim band. Where the build has its contract it shows the price and
+ * opens a trade on it; on a network without it (testnet) it says where $KITS trades and links its page.
  */
 export function KitSpotlight() {
   const { data: tokens = [] } = useTokens()
@@ -28,7 +28,7 @@ export function KitSpotlight() {
             <h2 id="kit-spotlight-title" className="num text-sm font-semibold tracking-[0.02em] text-fg">
               {KIT.ticker}
             </h2>
-            {live ? <Tag tone="accent">Live</Tag> : <Tag tone="soon">Coming soon</Tag>}
+            {KIT.status === 'live' ? <Tag tone="accent">Live</Tag> : <Tag>Mainnet only</Tag>}
             {live && listed?.market && (
               <span className="flex items-baseline gap-2 text-sm">
                 <Price value={listed.market.priceUsd} className="text-fg" />
@@ -36,9 +36,7 @@ export function KitSpotlight() {
               </span>
             )}
           </div>
-          <p className="text-xs text-fg-3">
-            {live ? `${KIT.name}: trade it like any NEAR token.` : `${KIT.name}: launches on ${KIT.launchVenue}. Its contract and price are published at launch.`}
-          </p>
+          <p className="text-xs text-fg-3">{KIT.status === 'live' ? `${KIT.name}: trade it like any NEAR token.` : `${KIT.name}: trades on NEAR mainnet, not in this build.`}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">

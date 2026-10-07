@@ -22,6 +22,7 @@ import { maxNearSendYocto } from '@/services/near/gas'
 import { floorTo, formatAmount, formatNumber, parseAmount, toInputString } from '@/lib/format'
 import { nextTarget, recipientAccount, takenBy, type RecipientTarget } from '@/lib/recipientTarget'
 import { accountIdError } from '@/lib/validation'
+import { KITS_CONTRACT } from '@/config/kit'
 import { useBalance, useCapabilities, usePlanners, useRawBalance, useTokens } from '@/services/queries'
 import type { Wallet } from '@/types/domain'
 import { NearKitSendsModal } from '../tools/NearKitSendsModal'
@@ -64,7 +65,8 @@ export function Split() {
   const [confirming, setConfirming] = useState(false)
 
   const rows = pickedRows ?? initialRows(new Set(wallets.map((w) => w.id)))
-  const tokenId = pickedToken ?? (tokens.some((t) => t.id === 'kit') ? 'kit' : (tokens.find((t) => !t.isNative)?.id ?? NATIVE_TOKEN_ID))
+  // The demo's brief opens on $KITS (its 25/25/20/15/15 example); a real build opens on its first token.
+  const tokenId = pickedToken ?? (caps.mode === 'demo' && tokens.some((t) => t.id === KITS_CONTRACT) ? KITS_CONTRACT : (tokens.find((t) => !t.isNative)?.id ?? NATIVE_TOKEN_ID))
   const token = tokens.find((t) => t.id === tokenId)
   const symbol = token?.symbol ?? ''
   const balance = useBalance(sourceId, tokenId)

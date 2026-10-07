@@ -12,7 +12,7 @@ nearkits.com as its canonical address).
 | `/` | Brand / what NEARKITS is | yes | `index.html` (own head, app renders) |
 | `/swap`, `/multi-trade`, `/split`, `/consolidate`, `/batch-send`, `/scanner` | Tool ("swap NEAR tokens", "multi-wallet NEAR trading", …) | yes | `<path>.html` (own head + `<noscript>` summary) |
 | `/volume-bot` | "NEAR trading bot", "market making on NEAR" | yes | `volume-bot.html`: whole page prerendered, no script |
-| `/kit` | The $KIT token (not launched: no price, contract or supply claimed) | yes | `kit.html` |
+| `/kit` | $KITS (Near Kits), the NEARKITS token at `kits.nearlytrade.near`: its tax, split and pool fee (no price or supply claimed) | yes | `kit.html` |
 | `/telegram`, `/docs` | Telegram bot, documentation | yes | `<path>.html` |
 | `/token/:id` | A token's page | a token NEARKITS lists: yes (not in sitemap); one only looked up by its contract, or one that doesn't exist: **noindex** (set by the app) | `app.html`; head set by the app (`useTokenHead`) |
 | `/wallets`, `/positions`, `/pnl`, `/settings`, `/recover`, `/tg`, `/volume-bot/console` | Personal / app inside | **noindex** | `app.html` + `X-Robots-Tag: noindex` |
@@ -25,7 +25,7 @@ nearkits.com as its canonical address).
 - `src/config/seo.ts`: every public page's title, description and name; structured data
   (`Organization`, `WebSite` on every page; `WebPage` per public page; `SoftwareApplication` on `/` and
   `/volume-bot`; `BreadcrumbList` and `FAQPage` only on `/volume-bot`, where both are visible);
-  `robots.txt` (everyone allowed, AI crawlers named explicitly) and `llms.txt` (the pages, the Telegram bot, and key facts: who signs, where withdrawals go, the risks, $KIT, what is coming soon).
+  `robots.txt` (everyone allowed, AI crawlers named explicitly) and `llms.txt` (the pages, the Telegram bot, and key facts: who signs, where withdrawals go, the risks, $KITS and its tokenomics, what is coming soon).
 - `src/prerender.tsx` (run by `vite.config.ts` → `prerenderSite` after each build): writes each public
   page's HTML with its own head, `app.html`, `404.html`, `robots.txt`, `sitemap.xml`, `llms.txt`.
 - `useRouteMeta` (`src/lib/hooks.ts`): keeps the same head as the app navigates.

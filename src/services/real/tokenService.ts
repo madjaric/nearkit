@@ -12,7 +12,7 @@ import { createTokenActivity } from './tokenActivity'
 import { createTokenMarket } from './tokenMarket'
 
 /**
- * Tokens in real mode: native NEAR, the network's configured tokens, $KIT when
+ * Tokens in real mode: native NEAR, the network's configured tokens, $KITS when
  * configured, tokens the user imported, and tokens the user's wallets hold. With
  * `wallets` (the web app), those are every wallet that can act: NearKit wallets and
  * the connected wallet's accounts, never a watch-only one; without it (the server,

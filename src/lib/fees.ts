@@ -19,8 +19,8 @@ import { mulBps, toYocto } from './amounts'
  *   referrer's share of that, and NearKit's net revenue.
  * - Testnet collects no fee (the classic router has no app fee). Without a configured
  *   fee account, fee-bearing mainnet trades are blocked.
- * Transfers (Split, Consolidate, Batch Send) carry no NearKit fee. The future $KIT buy and
- * sell fee is a separate thing and does not live here.
+ * Transfers (Split, Consolidate, Batch Send) carry no NearKit fee. $KITS' own 2% buy and sell
+ * tax (its Nearly launch configuration, src/config/kit.ts) is a separate thing and does not live here.
  */
 export const NEARKIT_FEE = {
   /** Basis points of a swap the user pays as NearKit's fee: 50 = 0.50%. */

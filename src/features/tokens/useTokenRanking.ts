@@ -19,7 +19,7 @@ export function popularTokenIds(): string[] {
 const POPULAR: readonly string[] = Object.freeze(popularTokenIds())
 
 /**
- * What NEARKITS' token order (rankTokenList) needs to know besides the search: $KIT while it is
+ * What NEARKITS' token order (rankTokenList) needs to know besides the search: $KITS while it is
  * listed, NEAR, what `own` wallets hold (a picker's trading wallet or sources; null: every executable
  * wallet, for the global search), what the user's other executable wallets hold (never watch-only),
  * and the popular tokens.

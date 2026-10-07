@@ -60,7 +60,7 @@ export interface RankOptions {
   held?: ReadonlyMap<TokenId, number>
   /** What the user's other executable wallets hold. */
   heldElsewhere?: ReadonlyMap<TokenId, number>
-  /** $KIT's token id while it is listed (live, or the demo's preview); null: not listed. */
+  /** $KITS' token id while it is listed (where the build has its contract, the demo included); null: not listed. */
   kitId?: TokenId | null
   /** Popular tokens, the most relevant first (stablecoins, then the network's known tokens). */
   popular?: readonly TokenId[]
@@ -70,7 +70,7 @@ const NONE: ReadonlyMap<TokenId, number> = new Map()
 
 /**
  * NEARKITS' one token order, used by every token picker and search:
- *  1. $KIT, 2. NEAR, 3. what the picker's wallets hold, 4. what the user's other executable wallets
+ *  1. $KITS, 2. NEAR, 3. what the picker's wallets hold, 4. what the user's other executable wallets
  *     hold, 5. popular tokens, 6. every other token in the order the list had it;
  *  - without a search, the selected token comes first of all;
  *  - with a search, how closely a token matches decides first (tokenSearch.ts: "USDC" finds USDC

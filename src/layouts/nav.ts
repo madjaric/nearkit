@@ -112,8 +112,8 @@ export const NAV_FOOTER: NavItem[] = [
 /** Every page the navigation links to (in-place actions such as Quick Trade are not pages). */
 export const ALL_NAV: NavItem[] = [NAV_HOME, ...NAV_GROUPS.flatMap((g) => g.items.filter((i): i is NavItem => !isNavAction(i))), ...NAV_FOOTER]
 
-/** Pages the search box finds that the navigation lists elsewhere ($KIT has its own sidebar entry). */
-export const SEARCH_ONLY_NAV: NavItem[] = [{ to: '/kit', label: '$KIT', icon: Coins, keywords: ['kit', '$kit', 'nearkits token', 'token launch'] }]
+/** Pages the search box finds that the navigation lists elsewhere ($KITS has its own sidebar entry). */
+export const SEARCH_ONLY_NAV: NavItem[] = [{ to: '/kit', label: '$KITS', icon: Coins, keywords: ['kits', '$kits', 'near kits', 'nearkits token', 'tokenomics', 'buyback', 'burn'] }]
 
 /** Telegram-style commands the search box understands. */
 export const COMMANDS: { command: string; to: string; label: string }[] = [

@@ -157,17 +157,31 @@ await step('portfolio value: 1D, 7D and 30D; 1D is the last 24 hours', async () 
   await page.getByRole('img', { name: /Portfolio value, last 7 days/ }).waitFor()
 })
 
-await step('global search ranks the closest match first ("k": KIT before BLACKDRAGON) and opens Token Detail', async () => {
+await step('global search ranks the closest match first ("k": KITS before BLACKDRAGON) and opens Token Detail', async () => {
   // (The "/" shortcut skips form controls, and a range radio has focus here: click the box instead.)
   await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().click()
   await page.keyboard.type('k')
   const first = page.getByRole('listbox', { name: 'Search results' }).getByRole('option').first()
   await first.waitFor()
   const label = ((await first.textContent()) ?? '').trim()
-  if (!label.startsWith('KIT')) throw new Error(`the first result for "k" is ${label}`)
+  if (!label.startsWith('KITS')) throw new Error(`the first result for "k" is ${label}`)
   await page.keyboard.press('Enter')
-  await page.waitForURL(/\/token\/kit$/)
+  await page.waitForURL(/\/token\/kits\.nearlytrade\.near$/)
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+})
+
+await step('global search: "$KITS", "KITS", "Near Kits" and kits.nearlytrade.near all resolve to $KITS and open its Token Detail', async () => {
+  for (const q of ['$KITS', 'KITS', 'Near Kits', 'kits.nearlytrade.near']) {
+    await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().click()
+    await page.keyboard.type(q)
+    const first = page.getByRole('listbox', { name: 'Search results' }).getByRole('option').first()
+    await first.waitFor()
+    const label = ((await first.textContent()) ?? '').trim()
+    if (!label.startsWith('KITS') || !label.includes('kits.nearlytrade.near')) throw new Error(`the first result for "${q}" is ${label}`)
+    await page.keyboard.press('Enter')
+    await page.waitForURL(/\/token\/kits\.nearlytrade\.near$/)
+    await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  }
 })
 
 await step('global search: "/" focuses, command routes to Split', async () => {
@@ -182,7 +196,7 @@ await step('global search: "/" focuses, command routes to Split', async () => {
   await page.getByRole('heading', { name: 'Split', level: 1 }).waitFor()
 })
 
-await step('split: brief example is balanced (25/25/20/15/15 → 1,000,000 KIT)', async () => {
+await step('split: brief example is balanced (25/25/20/15/15 → 1,000,000 KITS)', async () => {
   await visible(page, '100.00%')
   await page.getByText('Balanced', { exact: true }).first().waitFor()
   await visible(page, '250,000')
@@ -207,7 +221,7 @@ await step('split: invalid external account is flagged', async () => {
 
 await step('split: amount above balance is flagged', async () => {
   await page.getByLabel('Amount to distribute').fill('5000000')
-  await visible(page, /Exceeds the available 1,250,000 KIT/)
+  await visible(page, /Exceeds the available 1,250,000 KITS/)
   await page.getByLabel('Amount to distribute').fill('1000000')
 })
 
@@ -215,7 +229,7 @@ await step('split: review shows exact amounts, then the execution log', async ()
   await page.getByRole('button', { name: 'Split tokens' }).click()
   const modal = page.getByRole('dialog', { name: 'Review split' })
   await modal.waitFor()
-  await modal.getByText('1,000,000 KIT').first().waitFor({ timeout: 6000 })
+  await modal.getByText('1,000,000 KITS').first().waitFor({ timeout: 6000 })
   await modal.getByText('250,000').first().waitFor()
   await modal.getByRole('button', { name: 'Split tokens' }).click()
   const done = page.getByRole('dialog', { name: 'Simulation complete' })
@@ -278,7 +292,7 @@ await step('multi sell: each wallet has its own 25 / 50 / 75 / MAX, setting only
   await shot(page, 'multi-sell-presets')
 })
 
-await step('consolidate: brief total 427,560 KIT', async () => {
+await step('consolidate: brief total 427,560 KITS', async () => {
   await page.goto(BASE + '/consolidate', { waitUntil: 'networkidle' })
   await visible(page, '427,560')
   await page.getByRole('button', { name: 'Deselect all', exact: true }).click()
@@ -395,14 +409,19 @@ await step('PnL: cursor handle moves with the keyboard', async () => {
   await page.getByText('Δ PnL (B − A)').waitFor()
 })
 
-await step('$KIT and Telegram show placeholders, no invented stats', async () => {
+await step('$KITS is live at kits.nearlytrade.near: its page trades it, names its contract and links its market and explorer; Telegram shows no invented stats', async () => {
   await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
-  // Coming Soon: nothing trades $KIT before its contract is configured.
-  if (await page.getByRole('button', { name: 'Trade $KIT' }).isEnabled()) throw new Error('$KIT can be traded before launch')
-  await visible(page, 'Trading opens when $KIT is live.')
-  await visible(page, 'NEARKITS Token')
+  await page.getByRole('heading', { name: '$KITS', exact: true }).first().waitFor()
+  await visible(page, 'Near Kits, the token of NEARKITS.')
+  if (!(await page.getByRole('button', { name: 'Trade $KITS' }).isEnabled())) throw new Error('the demo can’t trade $KITS')
+  if ((await page.getByRole('link', { name: 'Market and chart' }).getAttribute('href')) !== '/token/kits.nearlytrade.near')
+    throw new Error('the market link is not $KITS’ Token Detail')
+  if ((await page.getByRole('link', { name: /Explorer/ }).getAttribute('href')) !== 'https://nearblocks.io/tokens/kits.nearlytrade.near')
+    throw new Error('the explorer link is not $KITS’')
   const kit = await page.locator('main').innerText()
-  if (/\$\d/.test(kit)) throw new Error('$KIT page shows a dollar figure')
+  if (!kit.includes('kits.nearlytrade.near')) throw new Error('the $KITS page doesn’t name its contract')
+  // Nothing stale: no "$KIT" (NEARKITS, the platform, keeps its name) and no pre-launch copy.
+  if (/\$KIT\b|Not launched|launches on|Published at launch/.test(kit)) throw new Error('the $KITS page reads like the old $KIT')
   // The demo has no bot server: the page says so, offers no bot button and shows no figures.
   await page.goto(BASE + '/telegram', { waitUntil: 'networkidle' })
   await visible(page, 'no NEARKITS bot server is connected to this build yet')
@@ -412,7 +431,7 @@ await step('$KIT and Telegram show placeholders, no invented stats', async () =>
 })
 
 await step(
-  '$KIT tokenomics: a 2% buy and sell tax split 50/50, the 1% pool fee and NEARKITS’ 70% apart from it; Buyback & Burn empty until launch; holder rewards Coming soon; no invented figure; no sideways scroll at 375px',
+  '$KITS tokenomics: Near Kits at kits.nearlytrade.near, a 2% buy and sell tax split 50/50, the 1% pool fee and NEARKITS’ 70% apart from it; Buyback & Burn follows the contract and is empty until a source reads it; holder rewards Coming soon; no invented figure; no sideways scroll at 375px',
   async () => {
     for (const [width, height] of [
       [1440, 900],
@@ -420,13 +439,14 @@ await step(
     ]) {
       const p = width === 1440 ? page : await newPage(width, height)
       await p.goto(BASE + '/kit', { waitUntil: 'networkidle' })
-      const tokenomics = p.getByRole('region', { name: /\$KIT tokenomics/i })
+      const tokenomics = p.getByRole('region', { name: /\$KITS tokenomics/i })
       await tokenomics.waitFor()
       const part = (name) => tokenomics.getByRole('group', { name }).innerText()
       const [tax, split, pool] = [await part('Trading tax'), await part('Tax distribution'), await part('Pool fee')]
       const has = (text, re, what) => {
         if (!re.test(text)) throw new Error(`${width}px: ${what} reads "${text.replace(/\s+/g, ' ')}"`)
       }
+      has(await tokenomics.innerText(), /\$KITS\s+Near Kits\s+kits\.nearlytrade\.near/, 'the token')
       has(tax, /Buy tax\s+2%[\s\S]*Sell tax\s+2%/i, 'the trading tax')
       has(tax, /2% tax applies to buys and sells\. Tax revenue is split 50\/50 between Buyback & Burn and Holder rewards\./, 'the tax note')
       has(split, /Buyback & Burn\s+50%[\s\S]*Holders\s+50%/i, 'the tax distribution')
@@ -436,20 +456,21 @@ await step(
       // Two separate things: the 70% is the pool fee's, never the tax's.
       if (/70%|pool fee/i.test(tax + split) || /Buyback|Holders/i.test(pool)) throw new Error(`${width}px: the trading tax and the pool fee are mixed`)
       const tracker = await p.getByRole('region', { name: /Buyback & Burn/i }).innerText()
-      has(tracker, /Awaiting launch/i, 'the tracker status')
-      has(tracker, /Tracking begins after launch\./, 'the tracker note')
+      has(tracker, /Awaiting data/i, 'the tracker status')
+      has(tracker, /Buyback & Burn\s+kits\.nearlytrade\.near/i, 'the contract the tracker follows')
+      has(tracker, /Not tracked yet: NEARKITS doesn’t read the buybacks and burns of kits\.nearlytrade\.near from the chain yet, so no figure is shown\./, 'the tracker note')
       has(tracker, /50% → Buyback & Burn/, 'the tax allocation')
       if ((tracker.match(/—/g) ?? []).length !== 4 || /\d/.test(tracker.replace(/50%/g, ''))) throw new Error(`${width}px: the tracker shows a figure: ${tracker}`)
       const rewards = await p.getByRole('region', { name: /Holder rewards/i }).innerText()
       has(rewards, /Coming soon/i, 'holder rewards')
       has(rewards, /50%[\s\S]*of the tax/, 'the holders’ share')
-      has(rewards, /Holder reward tracking will be available after launch\./, 'the holder rewards note')
+      has(rewards, /Holder reward tracking is coming soon\./, 'the holder rewards note')
       if (/\d/.test(rewards.replace(/50%/g, ''))) throw new Error(`${width}px: holder rewards show a figure: ${rewards}`)
       // What the tokenomics say (the phone's status strip above the page prints NEAR's own price).
       const said = [await tokenomics.innerText(), tracker, rewards].join('\n')
-      if (/\$\d|APR|APY|guarantee/i.test(said)) throw new Error(`${width}px: the $KIT tokenomics promise or price something`)
+      if (/\$\d|APR|APY|guarantee/i.test(said)) throw new Error(`${width}px: the $KITS tokenomics promise or price something`)
       const wide = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
-      if (wide > 1) throw new Error(`${width}px: the $KIT page scrolls sideways by ${wide}px`)
+      if (wide > 1) throw new Error(`${width}px: the $KITS page scrolls sideways by ${wide}px`)
       await shot(p, `kit-tokenomics-${width}`)
       if (p !== page) await p.context().close()
     }
@@ -510,8 +531,8 @@ await step('phone: tab bar, drawer navigation and trade access', async () => {
   await phone.waitForURL(/\/scanner$/)
   await drawer.waitFor({ state: 'hidden' })
   await phone.getByRole('navigation', { name: 'Quick navigation' }).getByRole('link', { name: 'Positions' }).click()
-  await phone.getByRole('button', { name: 'Buy KIT' }).click()
-  await phone.getByRole('dialog', { name: 'Trade ticket' }).getByText('Trade KIT').waitFor()
+  await phone.getByRole('button', { name: 'Buy KITS' }).click()
+  await phone.getByRole('dialog', { name: 'Trade ticket' }).getByText('Trade KITS').waitFor()
   await shot(phone, 'phone-trade-sheet')
 })
 

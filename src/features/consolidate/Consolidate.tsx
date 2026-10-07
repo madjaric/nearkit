@@ -11,6 +11,7 @@ import { InfoTip, Term } from '@/components/ui/Help'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { cn } from '@/lib/cn'
+import { KITS_CONTRACT } from '@/config/kit'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { NETWORK_FEE_NEAR_PER_TX } from '@/lib/fees'
@@ -18,7 +19,7 @@ import { WALLET_DUST_NEAR } from '@/lib/walletDust'
 import { nearSendUpfrontYocto } from '@/services/near/gas'
 import { floorTo, formatAmount, formatNumber, toInputString } from '@/lib/format'
 import { heldBalances } from '@/lib/tokenRanking'
-import { useHoldings, usePlanners, useSession, useTokens, useWallets } from '@/services/queries'
+import { useCapabilities, useHoldings, usePlanners, useSession, useTokens, useWallets } from '@/services/queries'
 import { NearKitSendsModal } from '../tools/NearKitSendsModal'
 import { OperationModal } from '../tools/OperationModal'
 import { consolidatePool, defaultConsolidateToken, defaultFamily, type SourceFamily } from './sources'
@@ -31,17 +32,19 @@ export function Consolidate() {
   const { data: tokens = [] } = useTokens()
   const { data: session } = useSession()
   const planners = usePlanners()
+  const demo = useCapabilities().mode === 'demo'
   const [pickedToken, setTokenId] = useState<string | null>(null)
   const [pickedDest, setDestId] = useState<string | null>(null)
   const [pickedFamily, setFamily] = useState<SourceFamily | null>(null)
   const destId = pickedDest ?? session?.walletId ?? wallets[0]?.id ?? ''
   // Every wallet that can act, except the destination: NearKit wallets (not frozen) and the connected
   // accounts; never a watch-only one. What they hold, summed, is what can be gathered: the picker
-  // puts it first, and (after the demo's own $KIT) the page opens on the most valuable of it.
+  // puts it first, and (after the demo's own $KITS brief) the page opens on the most valuable of it.
   const pool = consolidatePool(wallets, destId)
   const sourceIds = pool.all.map((w) => w.id)
   const held = heldBalances(holdings, sourceIds)
-  const tokenId = pickedToken ?? (tokens.some((t) => t.id === 'kit') ? 'kit' : defaultConsolidateToken(tokens, held, tokens.find((t) => !t.isNative)?.id ?? NEAR))
+  const tokenId =
+    pickedToken ?? (demo && tokens.some((t) => t.id === KITS_CONTRACT) ? KITS_CONTRACT : defaultConsolidateToken(tokens, held, tokens.find((t) => !t.isNative)?.id ?? NEAR))
   const [picked, setPicked] = useState<string[] | null>(null)
   const [hideEmpty, setHideEmpty] = useState(true)
   const [confirming, setConfirming] = useState(false)

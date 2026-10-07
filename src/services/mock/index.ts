@@ -1,4 +1,5 @@
 import { ENV_ISSUES } from '@/config/env'
+import { KITS_CONTRACT } from '@/config/kit'
 import { createNearKitWeb } from '../nearkitWeb'
 import type { Capabilities, NearKitServices } from '../types'
 import { createAutomationService } from './automationService'
@@ -20,7 +21,8 @@ const DEMO_CAPABILITIES: Capabilities = {
   pnl: true,
   automation: 'demo',
   execution: { enabled: true, simulated: true, reason: null, trading: { enabled: true, reason: null, router: 'demo', feeCharged: false, feeRecipient: null } },
-  kitContract: null,
+  // The demo previews $KITS at its one contract (src/config/kit.ts).
+  kitContract: KITS_CONTRACT,
   configIssues: ENV_ISSUES,
 }
 

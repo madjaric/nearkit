@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { Popover } from '@/components/ui/Floating'
 import { Tag } from '@/components/ui/Indicators'
 import { Amount, Pct, Price } from '@/components/ui/Num'
-import { isKitToken, KIT } from '@/config/kit'
+import { isKitToken, KIT, KITS_CONTRACT } from '@/config/kit'
 import { useTokenRanking } from '@/features/tokens/useTokenRanking'
 import { cn } from '@/lib/cn'
 import { heldBalances, rankTokenList } from '@/lib/tokenRanking'
@@ -30,7 +30,7 @@ interface TokenSelectProps {
    */
   holdingsOf?: readonly string[]
   size?: 'md' | 'lg'
-  /** A trading picker: while $KIT is Coming Soon, it is shown at the top (not selectable) with a link to its page. */
+  /** A trading picker: on a network without $KITS (testnet), it is shown at the top (not selectable) with a link to its page. */
   kitTeaser?: boolean
   /** Symbol only, as a chip that sits inside an amount field. */
   compact?: boolean
@@ -66,19 +66,20 @@ export function TokenSelect({
   const balanceOf = (tokenId: string) =>
     shown ? (shown.get(tokenId) ?? 0) : walletId ? (holdings.find((h) => h.walletId === walletId && h.tokenId === tokenId)?.amount ?? 0) : null
 
-  // NEARKITS' one token order (src/lib/tokenRanking.ts): $KIT, NEAR, what this picker's wallets
+  // NEARKITS' one token order (src/lib/tokenRanking.ts): $KITS, NEAR, what this picker's wallets
   // hold, what the other executable wallets hold, popular tokens, the rest; a search ranks by match first.
   const ranking = useTokenRanking(holdingsOf ?? (walletId ? [walletId] : null))
   const list = useMemo(() => {
     const pool = tokens.filter((t) => !exclude.includes(t.id))
     return rankTokenList(pool, { ...ranking, query, selectedId: value })
   }, [tokens, exclude, query, ranking, value])
-  // $KIT before launch: shown, never selectable (it has no contract to trade yet).
+  // $KITS on a network without it (testnet): shown, never selectable (there is no contract to trade here).
+  const teaserQuery = query.trim().toLowerCase()
   const teaser =
     kitTeaser &&
-    KIT.status === 'coming-soon' &&
+    KIT.status === 'mainnet-only' &&
     !tokens.some((t) => isKitToken(t.id)) &&
-    (query.trim() === '' || tokenMatchRank({ symbol: KIT.symbol, name: KIT.name, contract: null }, query.trim().toLowerCase()) !== null)
+    (teaserQuery === '' || teaserQuery === KITS_CONTRACT || tokenMatchRank({ symbol: KIT.symbol, name: KIT.name, contract: null }, teaserQuery) !== null)
 
   // A pasted contract that no list has yet (a token launched minutes ago): read it from
   // chain and offer to import it. Reading it proves it is a token, not that it trades.
@@ -225,16 +226,16 @@ export function TokenSelect({
           )}
           {teaser && (
             <li role="option" aria-selected={false} aria-disabled="true" className="flex items-center gap-2.5 px-3 py-2">
-              <TokenGlyph symbol={KIT.symbol} tokenId="kit" size={24} />
+              <TokenGlyph symbol={KIT.symbol} tokenId={KITS_CONTRACT} size={24} />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-fg">
                   {KIT.symbol}
-                  <Tag tone="soon">Coming soon</Tag>
+                  <Tag>Mainnet</Tag>
                 </span>
-                <span className="truncate text-xs text-fg-3">{`${KIT.name} · launches on ${KIT.launchVenue}`}</span>
+                <span className="truncate text-xs text-fg-3">{`${KIT.name} · on NEAR mainnet`}</span>
               </span>
               <Link to={KIT.links.page} onClick={close} className="shrink-0 text-xs text-accent underline-offset-2 hover:underline">
-                About $KIT
+                About {KIT.ticker}
               </Link>
             </li>
           )}

@@ -3,15 +3,15 @@ import { Figures } from '@/components/ui/Figures'
 import { ComingSoon, Led, Tag, type LedTone } from '@/components/ui/Indicators'
 import { Legend, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
-import { KIT, KIT_LAUNCH, KIT_POOL_FEE_NOTE, KIT_TAX_NOTE } from '@/config/kit'
+import { KIT, KIT_LAUNCH, KIT_POOL_FEE_NOTE, KIT_TAX_NOTE, KITS_CONTRACT } from '@/config/kit'
 import { cn } from '@/lib/cn'
 import { buybackReadouts, UNKNOWN, type BuybackTracker } from './buyback'
 
 /**
- * $KIT's tokenomics on its page, from its launch configuration (KIT_LAUNCH): the trading tax and
+ * $KITS' tokenomics on its page, from its launch configuration (KIT_LAUNCH): the trading tax and
  * where it goes, and apart from it the pool fee with NEARKITS' share; then the Buyback & Burn
- * tracker and holder rewards. Rules are printed as rules; nothing here is a market figure, and the
- * tracker prints only what an on-chain source has read (today: nothing).
+ * tracker for its contract and holder rewards. Rules are printed as rules; nothing here is a market
+ * figure, and the tracker prints only what an on-chain source has read (today: nothing).
  */
 
 const pct = (n: number) => `${n}%`
@@ -45,10 +45,8 @@ export function KitTokenomics() {
       <PanelHeader id="kit-tokenomics" title={`${KIT.ticker} tokenomics`} />
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line-soft px-4 py-3">
         <p className="flex min-w-0 items-baseline gap-2.5">
-          <span className="num text-lg text-fg">{KIT.ticker}</span>{' '}
-          <span className="text-sm font-semibold uppercase tracking-[0.06em] text-fg-2" style={{ fontStretch: '92%' }}>
-            {KIT_LAUNCH.name}
-          </span>
+          <span className="num text-lg text-fg">{KIT.ticker}</span> <span className="text-sm font-medium text-fg-2">{KIT.name}</span>{' '}
+          <span className="num min-w-0 break-all text-xs text-fg-3">{KITS_CONTRACT}</span>
         </p>
         <p className="text-xs text-fg-3">Launch configuration on {KIT.launchVenue}</p>
       </div>
@@ -123,18 +121,19 @@ function Meter({ share, label, cells = 20 }: { share: number; label: string; cel
 }
 
 const TRACKER_STATUS: Record<BuybackTracker['state'], { label: string; tone: LedTone }> = {
-  'awaiting-launch': { label: 'Awaiting launch', tone: 'off' },
+  'not-on-network': { label: 'Mainnet only', tone: 'off' },
   'awaiting-data': { label: 'Awaiting data', tone: 'off' },
   tracking: { label: 'Tracking', tone: 'on' },
 }
 
-const TRACKER_NOTE: Record<BuybackTracker['state'], string> = {
-  'awaiting-launch': `Tracking begins after launch. Its figures will come from ${KIT.ticker}’s buyback and burn transactions on NEAR; none is shown until then.`,
-  'awaiting-data': `Not tracked yet: NEARKITS doesn’t read ${KIT.ticker}’s buybacks and burns from the chain yet, so no figure is shown.`,
-  tracking: `Read from ${KIT.ticker}’s buyback and burn transactions on NEAR.`,
+/** What the tracker says it follows, and where its figures come from (none until a source reads them). */
+function trackerNote(tracker: BuybackTracker): string {
+  if (tracker.state === 'not-on-network') return `${KIT.ticker} trades on NEAR mainnet: this build doesn’t follow its buybacks and burns.`
+  if (tracker.state === 'awaiting-data') return `Not tracked yet: NEARKITS doesn’t read the buybacks and burns of ${tracker.contract} from the chain yet, so no figure is shown.`
+  return `Read from the buyback and burn transactions of ${tracker.contract}.`
 }
 
-/** Buyback & Burn: the readouts an on-chain source fills in ("—" until it has), and the tax share that pays for it. */
+/** Buyback & Burn for $KITS' contract: the readouts an on-chain source fills in ("—" until it has), and the tax share that pays for it. */
 export function BuybackPanel({ tracker, kitDecimals }: { tracker: BuybackTracker; kitDecimals: number | null }) {
   const status = TRACKER_STATUS[tracker.state]
   const share = taxSplit.buybackBurnPct
@@ -143,6 +142,7 @@ export function BuybackPanel({ tracker, kitDecimals }: { tracker: BuybackTracker
       <PanelHeader
         id="kit-buyback"
         title="Buyback & Burn"
+        meta={tracker.state === 'not-on-network' ? undefined : tracker.contract}
         actions={
           <Tag tone={tracker.state === 'tracking' ? 'accent' : 'neutral'}>
             <Led tone={status.tone} /> {status.label}
@@ -163,7 +163,7 @@ export function BuybackPanel({ tracker, kitDecimals }: { tracker: BuybackTracker
             <Figures>{`${pct(share)} → Buyback & Burn`}</Figures>
           </span>
         </div>
-        <p className="text-sm text-fg-3">{TRACKER_NOTE[tracker.state]}</p>
+        <p className="text-sm text-fg-3">{trackerNote(tracker)}</p>
       </div>
     </Panel>
   )
@@ -177,7 +177,7 @@ export function HolderRewardsPanel() {
       <ReadoutStrip inset cols="grid-cols-1">
         <ReadoutSlot legend="Allocated to holders" value={pct(taxSplit.holdersPct)} unit="of the tax" sub="set by the launch configuration" />
       </ReadoutStrip>
-      <p className="p-4 text-sm text-fg-2">Holder reward tracking will be available after launch.</p>
+      <p className="p-4 text-sm text-fg-2">Holder reward tracking is coming soon.</p>
     </Panel>
   )
 }

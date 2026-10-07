@@ -69,9 +69,13 @@ describe('parseEnv', () => {
     expect(bad.issues.map((i) => i.key).sort()).toEqual(['VITE_NEARKIT_API_URL', 'VITE_TELEGRAM_BOT'])
   })
 
-  it('keeps $KIT unset until a contract is configured', () => {
+  it('knows $KITS by its one contract, kits.nearlytrade.near: on mainnet and in the demo; testnet has none; a build may still name another', () => {
+    expect(parseEnv({ VITE_NEAR_NETWORK: 'mainnet' }).env.kitContract).toBe('kits.nearlytrade.near')
+    expect(parseEnv({ VITE_NEARKIT_SERVICES: 'demo' }).env.kitContract).toBe('kits.nearlytrade.near')
     expect(parseEnv({}).env.kitContract).toBeNull()
-    expect(parseEnv({ VITE_NEAR_NETWORK: 'testnet', VITE_KIT_TOKEN_CONTRACT: 'kit.nearly.testnet' }).env.kitContract).toBe('kit.nearly.testnet')
+    expect(parseEnv({ VITE_NEAR_NETWORK: 'testnet', VITE_KIT_TOKEN_CONTRACT: 'kits.nearly.testnet' }).env.kitContract).toBe('kits.nearly.testnet')
+    expect(NETWORKS.mainnet.kitsContract).toBe('kits.nearlytrade.near')
+    expect(NETWORKS.testnet.kitsContract).toBeNull()
   })
 })
 

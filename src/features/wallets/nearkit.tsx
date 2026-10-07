@@ -522,7 +522,7 @@ function SendForm({ wallet, tokenId, onClose }: { wallet: Wallet | WalletSnapsho
   const { reviewSend, executeSend } = useNearKitMutations()
   const holdings = 'holdings' in wallet ? wallet.holdings : []
   const held = holdings.filter((h) => h.amount > 0)
-  // What this wallet holds, in NEARKITS' one token order ($KIT, NEAR, the rest by value).
+  // What this wallet holds, in NEARKITS' one token order ($KITS, NEAR, the rest by value).
   const heldIds = [NATIVE_TOKEN_ID, ...held.map((h) => h.tokenId).filter((id) => id !== NATIVE_TOKEN_ID)]
   const ranked = rankTokenList(
     tokens.filter((t) => heldIds.includes(t.id)),

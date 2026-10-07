@@ -86,7 +86,7 @@ function QuickTradeEntry({ entry, onNavigate }: { entry: NavAction; onNavigate?:
   )
 }
 
-/** $KIT keeps its own mark and mono ticker: first of the Coming Soon group until it launches, then right under the Dashboard. */
+/** $KITS keeps its own mark and mono ticker, right under the Dashboard: Live where the build has its contract, Mainnet on testnet. */
 function KitEntry({ onNavigate }: { onNavigate?: () => void }) {
   const live = KIT.status === 'live'
   return (
@@ -94,7 +94,7 @@ function KitEntry({ onNavigate }: { onNavigate?: () => void }) {
       <NavLink to={KIT.links.page} onClick={onNavigate} className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
         <LogoMark size={18} />
         <span className="num flex-1 text-sm tracking-[0.02em]">{KIT.ticker}</span>
-        {live ? <Tag tone="accent">Live</Tag> : <Tag tone="soon">Soon</Tag>}
+        {live ? <Tag tone="accent">Live</Tag> : <Tag>Mainnet</Tag>}
       </NavLink>
     </li>
   )
@@ -113,7 +113,7 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="flex flex-col gap-0.5">
           <NavEntry item={NAV_HOME} onNavigate={onNavigate} />
-          {KIT.status === 'live' && <KitEntry onNavigate={onNavigate} />}
+          <KitEntry onNavigate={onNavigate} />
         </ul>
         {groups.map((group) => (
           <div key={group.label} className="mt-6" role="group" aria-label={group.label}>
@@ -125,15 +125,16 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
             </ul>
           </div>
         ))}
-        <div className="mt-6" role="group" aria-label="Coming soon">
-          <GroupLegend label="Coming soon" />
-          <ul className="flex flex-col gap-0.5">
-            {KIT.status !== 'live' && <KitEntry onNavigate={onNavigate} />}
-            {soon.map((item) => (
-              <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
-            ))}
-          </ul>
-        </div>
+        {soon.length > 0 && (
+          <div className="mt-6" role="group" aria-label="Coming soon">
+            <GroupLegend label="Coming soon" />
+            <ul className="flex flex-col gap-0.5">
+              {soon.map((item) => (
+                <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
+              ))}
+            </ul>
+          </div>
+        )}
       </nav>
       <div className="border-t border-line px-3 py-3">
         <ul className="flex flex-col gap-0.5">

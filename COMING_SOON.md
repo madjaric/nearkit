@@ -28,7 +28,7 @@ Each feature has one category:
 | Copy Trade | D, and C for an alerts-only version | COMING SOON |
 | Sniper | D and B, so E | COMING SOON |
 | Telegram | B (hosting) | Built; COMING SOON on the site until its server is hosted |
-| $KIT | E and C | Not launched |
+| $KITS | done | Live on mainnet (`kits.nearlytrade.near`); holder reward tracking COMING SOON |
 
 ## Shipped
 
@@ -93,6 +93,6 @@ The bot and its API are built and tested in `server/` (see `server/README.md`):
 
 The site's Telegram page goes live on its own when a build sets `VITE_NEARKIT_API_URL` and `VITE_TELEGRAM_BOT`. What's missing is hosting: a long-running host with HTTPS, and for mainnet the signer, PostgreSQL and a KMS key ([DEPLOYMENT.md](DEPLOYMENT.md)). Vercel's static hosting can't run the server.
 
-## $KIT: E and C
+## $KITS: launched
 
-The token hasn't launched. Its launch through Nearly and its tokenomics are product decisions. The 2% buy and sell fee on $KIT is separate from NEARKITS' trading fee and is not implemented here.
+$KITS (Near Kits) launched on Nearly at `kits.nearlytrade.near` (NEAR mainnet). Its 2% buy and sell tax belongs to the token contract and is separate from NEARKITS' trading fee; NEARKITS doesn't implement it. Left to do: an on-chain source for the Buyback & Burn tracker (it shows no figure until one reads the chain) and holder reward tracking.

@@ -81,7 +81,7 @@ export interface Capabilities {
       feeRecipient: string | null
     }
   }
-  /** $KIT contract once configured; null until launch. */
+  /** $KITS' contract on this build's network (kits.nearlytrade.near on mainnet and in the demo); null on testnet. */
   kitContract: string | null
   configIssues: readonly EnvIssue[]
 }

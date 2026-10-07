@@ -141,7 +141,7 @@ describe('splits keep every raw unit', () => {
     expect(() => splitByWeights(-1n, [1n])).toThrow()
   })
 
-  it('reproduces the brief example exactly: 1,000,000 KIT at 25/25/20/15/15', () => {
+  it('reproduces the brief example exactly: 1,000,000 KITS at 25/25/20/15/15', () => {
     const total = parseUnits('1000000', 18)
     const weights = ['25', '25', '20', '15', '15'].map((p) => parsePercent(p))
     const parts = splitByWeights(total, weights)

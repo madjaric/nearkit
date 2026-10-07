@@ -134,7 +134,7 @@ function TokenCell({ position }: { position: Position }) {
             {position.token.symbol}
           </Link>
           {position.token.status === 'prelaunch' && (
-            <Tag tone="warn" title="$KIT has not launched. KIT figures in this preview are demo data.">
+            <Tag tone="warn" title="This token has not launched. Its figures in this preview are demo data.">
               Pre-launch
             </Tag>
           )}

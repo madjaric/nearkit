@@ -20,7 +20,7 @@ Nothing else is set, and none of it is secret. The network chip reads TESTNET BE
 
 The beta ships Swap and Quick Trade, Multi Trade, Split, Consolidate, Batch Send, Wallets, Positions, PnL and Scanner.
 
-**Coming soon:** Limit Orders, DCA, Copy Trade and Sniper (plus Telegram, live only in a build that names a running NEARKITS server, and $KIT, which has not launched).
+**Coming soon:** Limit Orders, DCA, Copy Trade and Sniper (plus Telegram, live only in a build that names a running NEARKITS server).
 - Their pages, code and tests stay. In the beta the sidebar lists them last, in a COMING SOON group with SOON tags, and their pages show COMING SOON with every field and key disabled.
 - The list is `BETA_COMING_SOON` in `src/config/release.ts`; remove a route there to ship it. [COMING_SOON.md](COMING_SOON.md) says what each held-back feature still needs.
 - The hold applies to every production build of the real services, on testnet and mainnet: `npm run dev` and the e2e suites keep these features usable, and `npm run e2e:beta` checks the held-back state.
@@ -60,7 +60,7 @@ Every variable is public (none is a secret), documented in `.env.example`, and v
 | `VITE_NEAR_RPC_URL` | the network's verified list | comma-separated override; first is primary |
 | `VITE_ENABLE_MAINNET_EXECUTION` | `false` | must be exactly `true` for value-moving actions on mainnet |
 | `VITE_NEARKIT_FEE_RECIPIENT` | none | account that receives the NEARKITS app fee; without it mainnet trades are blocked. Production: `nearkitfee.near`, set in `.env.mainnet` |
-| `VITE_KIT_TOKEN_CONTRACT` | none | the $KIT contract once it launches on Nearly |
+| `VITE_KIT_TOKEN_CONTRACT` | none | a stand-in $KITS contract for a test build; mainnet and the demo use `kits.nearlytrade.near` |
 
 Every external host and contract lives in `src/config/networks.ts`, verified live on 2026-09-28.
 
@@ -81,7 +81,7 @@ Every external host and contract lives in `src/config/networks.ts`, verified liv
 | Positions, PnL | Real: balances from chain, Rhea prices, average-cost PnL from each account's on-chain history (see "Positions and PnL") |
 | Limit/TP/SL, DCA, Copy Trade, Sniper | Drafts saved in this browser; nothing executes them. COMING SOON in the public testnet beta |
 | Telegram bot | Real, in `server/` (see `server/README.md`): linking, NEARKITS wallets (up to 10) with Buy/Sell and owner-approved withdrawals right in Telegram (custody on testnet; mainnet waits for the owner's ceremony), buy/sell signed in the linked wallet, buybot, invites, /positions and /pnl. Needs a hosted server; until then the web page stays COMING SOON |
-| $KIT | Not launched |
+| $KITS (Near Kits, `kits.nearlytrade.near`) | Live on mainnet: its page, token facts, tokenomics, a Buyback & Burn tracker that waits for an on-chain source (no figures until one reads the chain), holder rewards COMING SOON |
 
 ## Tests
 
@@ -149,7 +149,7 @@ The production fee account is `nearkitfee.near` (owner decision, 2026-09-29); `<
 
 The NEARKITS trading fee is 0.50% (50 bps) on Swap and Quick Trade. It is set in one place, `NEARKIT_FEE` in `src/lib/fees.ts`, and everything derives from it: quotes on the web and in Telegram, the rate Rhea is asked to collect, the route checks, reviews, docs and tests.
 
-Rhea's aggregator (`aggregatedex.near`) collects the fee as an app fee. NEARKITS' account receives 0.40% and Rhea keeps 0.10% (20% of the app fee). Rhea also charges its own separate 0.10% protocol fee on every swap, and pools charge their own fees. `feeLedger` is ready for referrals: it splits a collected fee into Rhea's share, what NEARKITS received, a referrer's share and NEARKITS' net. Referrals are off. Fees accrue as an internal balance on the aggregator, not as transfers. Split, Consolidate and Batch Send carry no NEARKITS fee. The future 2% buy and sell fee on $KIT belongs to its launch through Nearly; it is separate from this fee and not implemented here.
+Rhea's aggregator (`aggregatedex.near`) collects the fee as an app fee. NEARKITS' account receives 0.40% and Rhea keeps 0.10% (20% of the app fee). Rhea also charges its own separate 0.10% protocol fee on every swap, and pools charge their own fees. `feeLedger` is ready for referrals: it splits a collected fee into Rhea's share, what NEARKITS received, a referrer's share and NEARKITS' net. Referrals are off. Fees accrue as an internal balance on the aggregator, not as transfers. Split, Consolidate and Batch Send carry no NEARKITS fee. $KITS' own 2% buy and sell tax belongs to the token contract (its launch through Nearly); it is separate from this fee and not implemented here.
 
 On a direct DCL route the aggregator is not involved, so the fee is a transfer: `floor(amountIn × 0.50%)` of the input token goes to `<fee account>` by `ft_transfer` in the same transaction as the swap, before the exchange receives the rest (`src/services/dcl/swap.ts`, `src/services/rhea/swapTransactions.ts`). NEARKITS receives all of it (no router share); the pool's own fee is in the rate. It is never charged twice: a route is either an aggregator route with the app fee or a direct route with the transfer. The fee account must be registered on the fee token (read live on 2026-10-03, `nearkitfee.near` is registered on neither `wrap.near` nor new tokens); the plan adds that one-time `storage_deposit`, paid by the trader and shown in the review. Known limit: when the exchange refunds a swap after the transfer (the price moved past the slippage between the final re-quote and execution), the fee stays with NEARKITS; the review says so, and collecting after delivery would need a NEARKITS contract on chain.
 
