@@ -1157,6 +1157,36 @@ await step(
     if (!notice.text.includes(browserKey)) throw new Error('Telegram names another browser key than the page shows')
     if ((await ep.getByRole('button', { name: 'Collect the key' }).count()) !== 0) throw new Error('the key is offered while the export is held')
 
+    // 1b. Release it now opens the Mini App on exactly this export (its digest is the start parameter Telegram signs).
+    // A launch Telegram didn't sign releases nothing, and "Not me" only closes the Mini App.
+    const mini = await newPage({ accounts: [USER] })
+    await mini.route('https://telegram.org/**', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.Telegram={WebApp:{ready(){},expand(){},close(){window.__nearkitClosed=true}}}' }),
+    )
+    const digest = new URL(release.url).searchParams.get('startapp')
+    const launchData = new URLSearchParams({
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      start_param: digest,
+      user: JSON.stringify({ id: TG_USER.id }),
+      signature: 'x',
+      hash: 'y',
+    })
+    await mini.goto(WEB + '/tg#' + new URLSearchParams({ tgWebAppData: launchData.toString(), tgWebAppVersion: '8.0', tgWebAppPlatform: 'ios' }).toString())
+    await mini.reload({ waitUntil: 'networkidle' })
+    await mini.getByRole('heading', { name: 'Release a key export' }).waitFor({ timeout: 15000 })
+    await mini.getByText(browserKey, { exact: true }).first().waitFor()
+    await mini.getByText(USER, { exact: true }).first().waitFor()
+    await mini.getByRole('button', { name: 'Release the key now' }).click()
+    await mini
+      .getByRole('alert')
+      .getByText(/isn’t signed by Telegram/)
+      .waitFor({ timeout: 15000 })
+    await mini.getByRole('button', { name: 'Not me: close' }).click()
+    if ((await mini.evaluate(() => window.__nearkitClosed)) !== true) throw new Error('"Not me" didn’t close the Mini App')
+    await mini.context().close()
+    await ep.reload({ waitUntil: 'networkidle' })
+    await ep.getByText(/NEARKITS holds it until/).waitFor({ timeout: 15000 })
+
     // 2. Recover lists it as waiting, from this browser's own store, after the page was left and reloaded.
     await ep.goto(`${WEB}/recover`, { waitUntil: 'networkidle' })
     const waiting = ep.getByRole('listitem').filter({ hasText: mainAddress })
