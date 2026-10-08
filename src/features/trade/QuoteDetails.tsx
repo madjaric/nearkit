@@ -9,6 +9,7 @@ import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { formatAmount, formatNumber, formatPct, formatPrice, formatUsd } from '@/lib/format'
 import { useCapabilities } from '@/services/queries'
 import type { Quote } from '@/types/domain'
+import { WRAP_FEE_TEXT, wrapExplainer } from './wrapCopy'
 
 const bpsLabel = (bps: number) => `${formatNumber(bps / 100, 2, 2)}%`
 
@@ -50,15 +51,19 @@ export function QuoteDetails({
   const impact = q?.priceImpactPct ?? null
   const impactTone = impact === null ? 'text-fg-4' : impact > 10 ? 'text-neg' : impact > 3 ? 'text-warn' : 'text-fg-2'
   const fee = q?.nearkitFee
+  // NEAR ↔ wNEAR: wrapping through the wrap contract, not a trade.
+  const wrapping = q?.router === 'wrap' || q?.router === 'unwrap' ? q.router : null
   // Demo shows the fee for illustration; real mode states whether it is charged and how it splits.
   const feeText =
     !q || !fee
       ? '—'
-      : caps.mode === 'near' && !fee.charged
-        ? 'Not charged on testnet'
-        : fee.amountNear === null
-          ? `${NEARKIT_FEE_LABEL} of the trade`
-          : `${formatNumber(fee.amountNear, 2, 4)} NEAR`
+      : wrapping
+        ? WRAP_FEE_TEXT
+        : caps.mode === 'near' && !fee.charged
+          ? 'Not charged on testnet'
+          : fee.amountNear === null
+            ? `${NEARKIT_FEE_LABEL} of the trade`
+            : `${formatNumber(fee.amountNear, 2, 4)} NEAR`
   const feeSplit =
     fee && fee.charged && fee.receivedBps !== null && fee.routerShareBps !== null
       ? `Of the ${NEARKIT_FEE_LABEL}, NEARKITS receives ${bpsLabel(fee.receivedBps)} and Rhea keeps ${bpsLabel(fee.routerShareBps)}.${fee.routerFeeBps ? ` Rhea also charges its own ${bpsLabel(fee.routerFeeBps)} on every swap.` : ''}`
@@ -93,9 +98,11 @@ export function QuoteDetails({
                 <InfoTip>
                   {q.router === 'demo'
                     ? 'Demo route through NEAR.'
-                    : q.source === 'dcl'
-                      ? 'Quoted on the DCL exchange’s own pools, read from chain. It is quoted again right before you sign.'
-                      : 'Route from Rhea’s router. It is quoted again right before you sign.'}
+                    : wrapping
+                      ? wrapExplainer(wrapping)
+                      : q.source === 'dcl'
+                        ? 'Quoted on the DCL exchange’s own pools, read from chain. It is quoted again right before you sign.'
+                        : 'Route from Rhea’s router. It is quoted again right before you sign.'}
                 </InfoTip>
               </span>
             ) : (
@@ -109,7 +116,7 @@ export function QuoteDetails({
         <Line
           label={
             <>
-              NEARKITS fee <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span> {feeSplit ? <InfoTip>{feeSplit}</InfoTip> : <InfoTip term="nearkitFee" />}
+              NEARKITS fee {!wrapping && <span className="num text-fg-2">{NEARKIT_FEE_LABEL}</span>} {feeSplit ? <InfoTip>{feeSplit}</InfoTip> : <InfoTip term="nearkitFee" />}
             </>
           }
         >

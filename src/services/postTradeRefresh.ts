@@ -36,6 +36,11 @@ export function sendTargets(token: string, lines: readonly { from: string; to: s
   return { accounts, tokens: token === NATIVE_TOKEN_ID ? [NATIVE_TOKEN_ID] : [token, NATIVE_TOKEN_ID] }
 }
 
+/** The accounts and tokens a wrap or unwrap changes: the one wallet, for wNEAR and NEAR. */
+export function wrapTargets(accountId: string, wrapContract: string): RefreshTargets {
+  return { accounts: [accountId], tokens: [wrapContract, NATIVE_TOKEN_ID] }
+}
+
 /** Raw balance per `account|token`, from the holdings the app already shows. */
 export type BalanceSnapshot = ReadonlyMap<string, string>
 

@@ -1,5 +1,6 @@
 import { GAS } from '@/services/near/gas'
 import { storageDepositAction } from '@/services/near/plans'
+import { nearDepositAction } from '@/services/near/wrap'
 import type { PlannedAction, PlannedTransaction } from '@/types/operations'
 
 /**
@@ -64,7 +65,7 @@ export function buildSwapTransactions(input: SwapTxInput): PlannedTransaction[] 
     if (input.wrap.registerDeposit !== null && !swapActions.some((a) => a.kind === 'call' && a.method === 'storage_deposit' && a.args.account_id === input.signerId)) {
       swapActions.unshift(storageDepositAction(input.signerId, input.wrap.registerDeposit))
     }
-    swapActions.push({ kind: 'call', method: 'near_deposit', args: {}, gas: GAS.NEAR_DEPOSIT.toString(), deposit: input.wrap.amount.toString() })
+    swapActions.push(nearDepositAction(input.wrap.amount))
   }
   const fee = input.feeTransfer
   if (fee && fee.amount > 0n) {

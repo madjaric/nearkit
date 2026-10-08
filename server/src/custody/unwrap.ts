@@ -3,10 +3,11 @@ import { formatUnits } from '@/lib/amounts'
 import { accountState } from '@/services/near/account'
 import { NearKitError } from '@/services/near/errors'
 import { estimateUpfrontYocto, GAS } from '@/services/near/gas'
+import { nearWithdrawAction } from '@/services/near/wrap'
 import type { ServerNear } from '../near'
 import type { IntentHandler } from './engine'
 
-/** wNEAR back to NEAR: one `near_withdraw` on the wrap contract (1 yoctoNEAR attached). */
+/** wNEAR back to NEAR: one `near_withdraw` on the wrap contract (1 yoctoNEAR attached), built by the same function the web uses (services/near/wrap.ts). */
 
 export interface UnwrapParams {
   /** Raw wNEAR (24 decimals). */
@@ -30,7 +31,7 @@ export function unwrapHandler(near: ServerNear): IntentHandler {
         plan: [
           {
             receiverId: wrap,
-            actions: [{ kind: 'call', method: 'near_withdraw', args: { amount: amount.toString() }, gas: GAS.NEAR_WITHDRAW.toString(), deposit: '1' }],
+            actions: [nearWithdrawAction(amount)],
             label: 'Unwrap wNEAR',
           },
         ],

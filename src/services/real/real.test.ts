@@ -5,6 +5,7 @@ import { NETWORKS, type NetworkId } from '@/config/networks'
 import { tradeWalletPool } from '@/lib/wallets'
 import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
 import type { RpcTxResult } from '@/services/near/rpc'
+import { nearDepositAction, nearWithdrawAction, wrapActions } from '@/services/near/wrap'
 import type { ConnectorTransaction, WalletSession } from '@/services/near/wallet'
 import findPathSingle from '@/services/rhea/fixtures/findpath-testnet-wrap-usdt.json'
 import smartxOldFee from '@/services/rhea/fixtures/smartx-usdt-to-near-fee200.json'
@@ -87,6 +88,9 @@ function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
     reviewSend: unused,
     executeSend: unused,
     sendStatus: unused,
+    reviewUnwrap: unused,
+    executeUnwrap: unused,
+    unwrapStatus: unused,
     bots: unused,
     saveBot: unused,
     botDetail: unused,
@@ -1370,5 +1374,80 @@ describe('the portfolio counts executable wallets only: watch-only wallets are o
     expect(s).toMatchObject({ walletCount: 2, executableWalletCount: 2 })
     expect(s.availableNear).toBeGreaterThan(14.9)
     expect((await t.services.portfolio.listPositions()).map((p) => p.token.id)).toEqual([USDT, 'near'])
+  })
+})
+
+// ─── wrapping and unwrapping NEAR (no exchange) ─────────────────────────────
+
+describe('NEAR ↔ wNEAR on the Swap page (connected wallet, testnet fake chain): wrapping, not a swap', () => {
+  const WRAP = 'wrap.testnet'
+  const chainOpts = (registered = true): FakeChainOptions => ({
+    accounts: { 'alice.testnet': { amount: NEAR(5) } },
+    tokens: { [WRAP]: { symbol: 'wNEAR', decimals: 24, balances: { 'alice.testnet': NEAR(2) }, registered: registered ? ['alice.testnet'] : [], boundsMin: MIN_STORAGE } },
+  })
+  /** Every request to a router or exchange (Rhea's aggregator or classic router): there must be none. */
+  const watchRouters = (seen: string[]) => (f: typeof fetch) =>
+    (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const text = `${input instanceof Request ? input.url : String(input)} ${typeof init?.body === 'string' ? init.body : ''}`
+      if (/refburrow|smartrouter|ref-finance|get_return|aggregate/i.test(text)) seen.push(text.slice(0, 120))
+      return f(input, init)
+    }) as typeof fetch
+  const unwrapRequest = (amountIn: string) => ({ tokenIn: WRAP, tokenOut: 'near', amountIn, slippagePct: 0.5, walletId: 'alice.testnet' })
+  const wrapRequest = (amountIn: string) => ({ tokenIn: 'near', tokenOut: WRAP, amountIn, slippagePct: 0.5, walletId: 'alice.testnet' })
+
+  it('wNEAR → NEAR quotes exactly 1:1, with no NEARKITS fee and no router asked', async () => {
+    const seen: string[] = []
+    const { services } = setup({ chain: chainOpts(), session: session(['alice.testnet']), wrapFetch: watchRouters(seen) })
+    const q = await services.trading.quote(unwrapRequest('1.5'))
+    expect(q).toMatchObject({ router: 'unwrap', amountOutRaw: NEAR(1.5).toString(), minAmountOutRaw: NEAR(1.5).toString(), rate: 1, priceImpactPct: 0, path: ['wNEAR', 'NEAR'] })
+    expect(q.nearkitFee).toMatchObject({ charged: false, amountNear: null })
+    expect(seen).toEqual([])
+  })
+
+  it('wNEAR → NEAR is the one near_withdraw NEARKITS’ server signs for an unwrap: the exact amount on the wrap contract, no fee, and it runs', async () => {
+    const seen: string[] = []
+    const { services, run } = setup({ chain: chainOpts(), session: session(['alice.testnet']), wrapFetch: watchRouters(seen) })
+    const plan = await services.trading.prepareSwap(unwrapRequest('1.5'))
+    expect(plan.fee).toBeNull()
+    expect(plan.transactions).toHaveLength(1)
+    expect(plan.transactions[0]).toMatchObject({ signerId: 'alice.testnet', receiverId: WRAP, actions: [nearWithdrawAction(NEAR(1.5))] })
+    expect(plan.swap).toMatchObject({
+      router: 'unwrap',
+      tokenIn: { id: WRAP, contract: WRAP, symbol: 'wNEAR' },
+      tokenOut: { id: 'near', contract: null },
+      amountIn: { raw: NEAR(1.5).toString() },
+      expectedOut: { raw: NEAR(1.5).toString() },
+      minOut: { raw: NEAR(1.5).toString() },
+    })
+    expect(plan.title).toBe('Unwrap · 1.5 wNEAR')
+    expect(seen).toEqual([])
+    expect((await run(plan)).phase).toBe('success')
+    // Activity states the exact amounts: nothing is a minimum when nothing can slip.
+    const [entry] = await services.portfolio.listActivity()
+    expect(entry).toMatchObject({ kind: 'swap', status: 'success', title: 'Unwrap · 1.5 wNEAR', detail: '1.5 wNEAR → 1.5 NEAR' })
+  })
+
+  it('never unwraps more wNEAR than the wallet holds', async () => {
+    const { services } = setup({ chain: chainOpts(), session: session(['alice.testnet']) })
+    await expect(services.trading.prepareSwap(unwrapRequest('3'))).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE', message: expect.stringMatching(/holds 2 wNEAR/) })
+  })
+
+  it('NEAR → wNEAR wraps with the swap path’s own wrap step (registration with the wrap contract only when missing, then near_deposit): no router, no fee', async () => {
+    const seen: string[] = []
+    const fresh = setup({ chain: chainOpts(false), session: session(['alice.testnet']), wrapFetch: watchRouters(seen) })
+    const plan = await fresh.services.trading.prepareSwap(wrapRequest('1'))
+    expect(plan.fee).toBeNull()
+    expect(plan.transactions).toHaveLength(1)
+    expect(plan.transactions[0]).toMatchObject({ receiverId: WRAP, actions: wrapActions('alice.testnet', NEAR(1), MIN_STORAGE) })
+    expect(plan.swap).toMatchObject({ router: 'wrap', expectedOut: { raw: NEAR(1).toString() }, minOut: { raw: NEAR(1).toString() } })
+    expect(await fresh.services.trading.quote(wrapRequest('1'))).toMatchObject({ router: 'wrap', rate: 1, path: ['NEAR', 'wNEAR'] })
+    expect(seen).toEqual([])
+    const registered = setup({ chain: chainOpts(true), session: session(['alice.testnet']) })
+    expect((await registered.services.trading.prepareSwap(wrapRequest('1'))).transactions[0]?.actions).toEqual([nearDepositAction(NEAR(1))])
+  })
+
+  it('never wraps more NEAR than the wallet can spend', async () => {
+    const { services } = setup({ chain: chainOpts(), session: session(['alice.testnet']) })
+    await expect(services.trading.prepareSwap(wrapRequest('6'))).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE' })
   })
 })

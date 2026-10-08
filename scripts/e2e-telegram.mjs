@@ -602,6 +602,66 @@ await step('a single Buy from a NEARKITS wallet in the normal trade ticket: no b
 })
 
 await step(
+  'Unwrap from a NEARKITS wallet on the Swap page: the Telegram unwrap, reviewed and run by NEARKITS (one near_withdraw of the exact amount, no fee, no router, no Telegram); NEAR → wNEAR is not offered for a NEARKITS wallet, and says why',
+  async () => {
+    const wrap = near.state.tokens.get('wrap.testnet')
+    wrap.registered.add(mainAddress)
+    wrap.balances.set(mainAddress, String(2n * ONE))
+    const from = tg.sent.length
+    const routers = []
+    const api = []
+    const watch = (r) => {
+      if (/refburrow|smartrouter/.test(r.url())) routers.push(r.url())
+      if (r.method() === 'POST' && /\/api\/web\/(unwrap|trade|send)\//.test(r.url())) api.push({ path: new URL(r.url()).pathname, body: JSON.parse(r.postData() ?? '{}') })
+    }
+    page.on('request', watch)
+    await page.goto(WEB + '/swap?from=wrap.testnet&to=near', { waitUntil: 'networkidle' })
+    await page.getByLabel('Swap from wallet').selectOption(mainAddress)
+    await page.getByPlaceholder('0.00').first().fill('1.5')
+    await page.getByText('To (exact)').first().waitFor()
+    await page.getByText('wrap.testnet · near_withdraw').first().waitFor()
+    await page.getByText(/NEARKITS executes it from Main/).waitFor()
+    await page.getByRole('button', { name: 'Unwrap wNEAR' }).click()
+    await page.getByRole('button', { name: 'Confirm unwrap' }).click()
+    const modal = page.getByRole('dialog', { name: 'Review unwrap' })
+    await modal.getByText('1.5 wNEAR → 1.5 NEAR').waitFor({ timeout: 15000 })
+    await modal.getByText('None: wrapping isn’t a trade').waitFor()
+    await modal.getByText('≈ 0.0005 NEAR').waitFor()
+    await shot('tg-08d-web-unwrap-review')
+    await modal.getByRole('button', { name: 'Confirm unwrap' }).click()
+    // NEARKITS' engine runs it (this fake network holds no key for the wallet, so it ends as failed: nothing real).
+    await modal.getByText(/^(Unwrapped|Failed)$/).waitFor({ timeout: 30000 })
+    await shot('tg-08e-web-unwrap-status')
+    // The run ended: the wallet's NEAR and wNEAR are read again on their own, with no reload.
+    await page
+      .getByRole('status')
+      .filter({ hasText: /Updating balances…|Balances updated|Balances may lag/ })
+      .first()
+      .waitFor({ timeout: 10000 })
+    // The unwrap routes only, with the wallet and the exact amount: never a trade or a send.
+    const paths = api.map((c) => c.path).filter((p) => !p.endsWith('/status'))
+    if (!api.some((c) => c.path === '/api/web/unwrap/status')) throw new Error('the unwrap status was never asked')
+    if (paths.join() !== '/api/web/unwrap/review,/api/web/unwrap/execute') throw new Error(`the web called ${paths.join()}`)
+    if (api[0].body.amount !== '1.5' || !api[0].body.walletId) throw new Error(`the review asked for ${JSON.stringify({ ...api[0].body, session: undefined })}`)
+    await page.keyboard.press('Escape')
+    // NEAR → wNEAR: a NEARKITS wallet's signer wraps NEAR only inside a trade, so there is no wrap of its own here.
+    await page.goto(WEB + '/swap?from=near&to=wrap.testnet', { waitUntil: 'networkidle' })
+    await page.getByLabel('Swap from wallet').selectOption(mainAddress)
+    await page.getByPlaceholder('0.00').first().fill('1')
+    await page
+      .getByText(/A NEARKITS wallet can’t wrap NEAR as a step of its own/)
+      .first()
+      .waitFor()
+    if (await page.getByRole('button', { name: 'Wrap NEAR' }).isEnabled()) throw new Error('a NEARKITS wallet offers a wrap')
+    page.off('request', watch)
+    if (routers.length) throw new Error(`wrapping asked a router: ${routers[0]}`)
+    await new Promise((r) => setTimeout(r, 300))
+    if (tg.sent.slice(from).some((m) => m.chatId === TG_USER.id)) throw new Error('Telegram took part in a web unwrap')
+    wrap.balances.delete(mainAddress)
+  },
+)
+
+await step(
   'Send from a NEARKITS wallet is reviewed and sent from the web; an unapproved address offers Approve & continue (the owner approves it right there, then the review); Telegram takes no part',
   async () => {
     near.state.accounts.set('friend.testnet', { amount: String(ONE) })

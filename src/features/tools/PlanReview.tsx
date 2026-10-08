@@ -1,6 +1,7 @@
 import { AccountText } from '@/components/domain/Account'
 import { GasReserveLine } from '@/components/domain/GasReserve'
 import { Figures } from '@/components/ui/Figures'
+import { InfoTip } from '@/components/ui/Help'
 import { Tag } from '@/components/ui/Indicators'
 import { Line, Lines } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
@@ -8,6 +9,7 @@ import { formatUnits, formatUnitsUp, groupDigits as g } from '@/lib/amounts'
 import { formatNumber, formatPct } from '@/lib/format'
 import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import type { FeeDisclosure, OperationPlan, PlannedAction, TokenRef } from '@/types/operations'
+import { WRAP_FEE_TEXT, wrapExplainer } from '../trade/wrapCopy'
 
 const near = (yocto: string) => formatUnits(BigInt(yocto), 24, { maxFraction: 6, group: true })
 
@@ -22,6 +24,7 @@ function actionLine(a: PlannedAction, receiverId: string, token: TokenRef): stri
     return `Registers ${String(a.args.user)} with ${receiverId} for ${tokens} ${tokens === 1 ? 'token' : 'tokens'}: ${near(a.deposit)} NEAR`
   }
   if (a.method === 'near_deposit') return `Wraps ${near(a.deposit)} NEAR into wNEAR`
+  if (a.method === 'near_withdraw') return `Unwraps ${near(String(a.args.amount))} wNEAR into NEAR`
   if (a.method === 'ft_transfer_call') return `Sends ${tokens(a.args.amount)} to ${String(a.args.receiver_id)} for the swap`
   if (a.method === 'ft_transfer') return `Transfers ${tokens(a.args.amount)} to ${String(a.args.receiver_id)}`
   return null
@@ -78,6 +81,8 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
   const upfront = BigInt(plan.totals.upfrontNear.raw) > 0n
   const multiSigner = plan.signers.length > 1
   const swap = plan.swap
+  // NEAR ↔ wNEAR: exactly what goes in comes out, through the wrap contract; nothing to slip.
+  const wrap = swap && (swap.router === 'wrap' || swap.router === 'unwrap') ? swap.router : null
 
   return (
     <div className="flex flex-col gap-4">
@@ -88,7 +93,25 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
         <Line label={multiSigner ? 'Signers' : 'From'}>
           {multiSigner ? `${plan.signers.length} accounts, one approval each` : <AccountText id={plan.signers[0] ?? ''} className="text-fg-2" full />}
         </Line>
-        {swap ? (
+        {swap && wrap ? (
+          <>
+            <Line label="You pay" emphasis>{`${g(swap.amountIn.display)} ${swap.tokenIn.symbol}`}</Line>
+            <Line label="Pay token" mono={false}>
+              <TokenId token={swap.tokenIn} />
+            </Line>
+            <Line label="Receive token" mono={false}>
+              <TokenId token={swap.tokenOut} />
+            </Line>
+            <Line label="You receive (exact)" emphasis>{`${g(swap.expectedOut.display)} ${swap.tokenOut.symbol}`}</Line>
+            <Line label="Rate">{`1 ${swap.tokenIn.symbol} = 1 ${swap.tokenOut.symbol} · exact`}</Line>
+            <Line label="Contract call">
+              <span className="flex items-center justify-end gap-1.5">
+                {`${(wrap === 'unwrap' ? swap.tokenIn : swap.tokenOut).contract ?? ''} · ${wrap === 'unwrap' ? 'near_withdraw' : 'near_deposit'}`}
+                <InfoTip>{wrapExplainer(wrap)}</InfoTip>
+              </span>
+            </Line>
+          </>
+        ) : swap ? (
           <>
             <Line label="You pay" emphasis>{`${g(swap.amountIn.display)} ${swap.tokenIn.symbol}`}</Line>
             <Line label="Pay token" mono={false}>
@@ -122,7 +145,13 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
         {storage && <Line label="Storage deposits">{`${g(plan.totals.storage.display)} NEAR`}</Line>}
         {upfront && <GasReserveLine value={`≈ ${formatUnitsUp(BigInt(plan.totals.upfrontNear.raw), 24, 4, { group: true })} NEAR`} />}
         <Line label="Transactions">{`${plan.transactions.length} in ${plan.groups.length} ${plan.groups.length === 1 ? 'approval' : 'approvals'}`}</Line>
-        {plan.fee ? <FeeLines fee={plan.fee} demo={plan.mode === 'demo'} /> : !swap && <Line label="NEARKITS fee">None on transfers</Line>}
+        {plan.fee ? (
+          <FeeLines fee={plan.fee} demo={plan.mode === 'demo'} />
+        ) : wrap ? (
+          <Line label="NEARKITS fee">{WRAP_FEE_TEXT}</Line>
+        ) : (
+          !swap && <Line label="NEARKITS fee">None on transfers</Line>
+        )}
       </Lines>
 
       {plan.warnings.length > 0 && (

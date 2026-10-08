@@ -7,6 +7,7 @@ import { createCongestionProbe, NETWORK_BUSY_WARNING } from '@/services/near/con
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { groupTransactions, registrationWarnings, txStorageYocto, txUpfrontYocto } from '@/services/near/plans'
 import { HIGH_REGISTRATION_YOCTO } from '@/services/near/storage'
+import { wrapDirection } from '@/services/near/wrap'
 import { aggregatorFee, grossOf } from '@/services/rhea/fees'
 import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
 import type { LimitOrder, MultiTradeLegQuote, MultiTradeQuote, OrderExpiry, Quote, QuoteRequest, Wallet } from '@/types/domain'
@@ -16,6 +17,7 @@ import { amountValue, executableWallet, nearText, nearValue, newPlanId, requireS
 import type { NearContext } from './context'
 import type { Market } from './market'
 import { createSwapRouter, type RoutedSwap } from './swapRouting'
+import { createWrapPlanner } from './wrapNear'
 
 /**
  * Real trading. Quotes are indicative; `prepareSwap` always fetches a fresh
@@ -40,6 +42,9 @@ const allocated = (leg: { amountIn: string }) => leg.amountIn.trim() !== '' && N
 export function createTradingService(ctx: NearContext, market: Market, wallets: Pick<WalletService, 'getSession' | 'listWallets'>): TradingService {
   const router = createSwapRouter(ctx)
   const congestion = createCongestionProbe(ctx.rpc)
+  // NEAR ↔ wNEAR is wrapping, not a swap: no router, no NEARKITS fee (wrapNear.ts).
+  const wrapPlanner = createWrapPlanner(ctx)
+  const wrapping = (r: QuoteRequest) => wrapDirection(r.tokenIn, r.tokenOut, ctx.network.wrapContract)
 
   /**
    * Swaps with NEAR go through wrap.near's shard (twice before the tokens arrive). When it is
@@ -322,6 +327,8 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     return new Set(ws?.accounts ?? [])
   }
 
+  const notConnected = (accountId: string) => `${accountId} is not connected right now. NEARKITS asks you to connect it in your wallet before signing.`
+
   async function walletBatches(): Promise<boolean> {
     const ws = await ctx.wallet().then((w) => w.session().catch(() => null))
     return ws?.batch ?? false
@@ -329,12 +336,20 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
 
   return {
     async quote(request) {
+      const wrap = wrapping(request)
+      if (wrap) return wrapPlanner.quote(request, wrap)
       const user = ctx.session.current?.accountId ?? null
       return toQuote(request, await router.route(request, user && !ctx.session.current?.issue ? user : null, false))
     },
 
     async prepareSwap(request) {
       const wallet = await signerFor(request.walletId)
+      const wrap = wrapping(request)
+      if (wrap) {
+        const [batch, signing, busy] = await Promise.all([walletBatches(), sessionSigners(), congestion.busy(ctx.network.wrapContract)])
+        const warnings = [...(busy ? [NETWORK_BUSY_WARNING] : []), ...(signing.has(wallet.accountId) ? [] : [notConnected(wallet.accountId)])]
+        return wrapPlanner.plan(wallet, request, wrap, { warnings, batch })
+      }
       const r = await router.route(request, wallet.accountId, true)
       const leg = await planLeg(wallet, r)
       await checkFunds(leg)
@@ -361,7 +376,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         ...feeAccountWarning(r, leg.txs),
         ...registrationWarnings(leg.txs, HIGH_REGISTRATION_YOCTO),
       ]
-      if (!signing.has(wallet.accountId)) warnings.push(`${wallet.accountId} is not connected right now. NEARKITS asks you to connect it in your wallet before signing.`)
+      if (!signing.has(wallet.accountId)) warnings.push(notConnected(wallet.accountId))
       const verb =
         r.tokenIn.contract === null ? `Buy ${r.tokenOut.symbol}` : r.tokenOut.contract === null ? `Sell ${r.tokenIn.symbol}` : `Swap ${r.tokenIn.symbol} for ${r.tokenOut.symbol}`
       return {

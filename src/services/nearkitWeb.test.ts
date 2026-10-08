@@ -215,3 +215,30 @@ describe('the Volume Bot console calls', () => {
     await expect(web.saveBot({} as never)).rejects.toMatchObject({ status: 400, code: 'config', detail: { issues } })
   })
 })
+
+describe('the unwrap calls (wNEAR back to NEAR in a NEARKITS wallet)', () => {
+  it('review names the wallet and the amount (or max), execute and status name the intent, always with the session', async () => {
+    const s = server({
+      '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Alice' } } }),
+      '/api/web/unwrap/review': (b) => ({
+        status: 200,
+        json: {
+          intentId: 'u1',
+          expiresAt: 1,
+          review: { walletId: b.walletId, from: 'Main', accountId: wallet.accountId, amount: '1500000000000000000000000', contract: 'wrap.testnet' },
+        },
+      }),
+      '/api/web/unwrap/execute': () => ({ status: 200, json: { started: true } }),
+      '/api/web/unwrap/status': () => ({ status: 200, json: { status: 'done', message: null, hashes: ['H1'] } }),
+    })
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl: s.fetchImpl, store: memoryStorage() })
+    await web.login(CODE)
+    const r = await web.reviewUnwrap({ walletId: 'w1', amount: '1.5' })
+    expect(r).toMatchObject({ intentId: 'u1', review: { walletId: 'w1', amount: '1500000000000000000000000', contract: 'wrap.testnet' } })
+    expect(s.calls.at(-1)).toEqual({ path: '/api/web/unwrap/review', body: { session: TOKEN, walletId: 'w1', amount: '1.5' } })
+    expect(await web.executeUnwrap('u1')).toEqual({ started: true })
+    expect(s.calls.at(-1)).toEqual({ path: '/api/web/unwrap/execute', body: { session: TOKEN, intentId: 'u1' } })
+    expect(await web.unwrapStatus('u1')).toEqual({ status: 'done', message: null, hashes: ['H1'] })
+    expect(s.calls.at(-1)).toEqual({ path: '/api/web/unwrap/status', body: { session: TOKEN, intentId: 'u1' } })
+  })
+})

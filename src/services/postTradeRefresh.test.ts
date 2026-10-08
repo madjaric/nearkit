@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Holding } from '@/types/domain'
-import { balancesMoved, createRefreshStatus, refreshTargets, refreshUntilMoved, sendTargets, snapshotOf, REFRESH_DELAYS_MS } from './postTradeRefresh'
+import { balancesMoved, createRefreshStatus, refreshTargets, refreshUntilMoved, sendTargets, snapshotOf, wrapTargets, REFRESH_DELAYS_MS } from './postTradeRefresh'
 
 const USDT = 'usdt.tether-token.near'
 const plan = {
@@ -80,6 +80,20 @@ describe('balances after a trade', () => {
     status.subscribe(() => seen.push(status.get().state))
     await status.track(async () => 'unchanged')
     expect(seen).toEqual(['updating', 'stale'])
+  })
+})
+
+describe('balances after an unwrap from a NEARKITS wallet (wNEAR back to NEAR)', () => {
+  const WRAP = 'wrap.near'
+  it('targets the one wallet, for wNEAR and NEAR', () => {
+    expect(wrapTargets('a.near', WRAP)).toEqual({ accounts: ['a.near'], tokens: [WRAP, 'near'] })
+  })
+
+  it('sees the unwrap once wNEAR drops and NEAR rises', () => {
+    const t = wrapTargets('a.near', WRAP)
+    const before = snapshotOf([holding('a.near', WRAP, '2000000000000000000000000'), holding('a.near', 'near', '1000000000000000000000000')], t)
+    expect(balancesMoved(before, snapshotOf([holding('a.near', WRAP, '2000000000000000000000000'), holding('a.near', 'near', '1000000000000000000000000')], t))).toBe(false)
+    expect(balancesMoved(before, snapshotOf([holding('a.near', WRAP, '500000000000000000000000'), holding('a.near', 'near', '2499000000000000000000000')], t))).toBe(true)
   })
 })
 

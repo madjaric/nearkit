@@ -58,6 +58,7 @@ export const qk = {
   tokenMarket: (id: string | null) => ['market', 'data', id] as const,
   tradeGroup: (groupId: string | null) => ['nearkit', 'trade', groupId] as const,
   sendStatus: (intentId: string | null) => ['nearkit', 'send', intentId] as const,
+  unwrapStatus: (intentId: string | null) => ['nearkit', 'unwrap', intentId] as const,
 }
 
 /** Real data refreshes less often than the demo: free public infrastructure has rate limits. */
@@ -192,6 +193,9 @@ export function useNearKitMutations() {
     /** The server's review of a send; nothing is sent. */
     reviewSend: useMutation({ mutationFn: (input: WebSendInput) => s.nearkit.reviewSend(input) }),
     executeSend: useMutation({ mutationFn: (intentId: string) => s.nearkit.executeSend(intentId) }),
+    /** The server's review of unwrapping a NEARKITS wallet's wNEAR: the Telegram bot's Unwrap wNEAR. Nothing is signed. */
+    reviewUnwrap: useMutation({ mutationFn: (input: { walletId: string; amount: string }) => s.nearkit.reviewUnwrap(input) }),
+    executeUnwrap: useMutation({ mutationFn: (intentId: string) => s.nearkit.executeUnwrap(intentId) }),
   }
 }
 
@@ -235,16 +239,31 @@ export function useTradeGroup(groupId: string | null, live = false) {
  */
 export function useSendStatus(intentId: string | null, targets?: RefreshTargets) {
   const s = useServices()
+  return useServerRunStatus(qk.sendStatus(intentId), (id) => s.nearkit.sendStatus(id), intentId, targets)
+}
+
+/**
+ * An unwrap's status, polled while it runs; when it finishes, the wallet's NEAR and wNEAR
+ * reconcile (`targets`: wrapTargets, noted when the unwrap starts).
+ */
+export function useUnwrapStatus(intentId: string | null, targets?: RefreshTargets) {
+  const s = useServices()
+  return useServerRunStatus(qk.unwrapStatus(intentId), (id) => s.nearkit.unwrapStatus(id), intentId, targets)
+}
+
+/** One intent run by NEARKITS' server, polled until it finishes; then its balances reconcile. */
+function useServerRunStatus(queryKey: readonly unknown[], read: (intentId: string) => Promise<WebSendStatus>, intentId: string | null, targets?: RefreshTargets) {
+  const s = useServices()
   const qc = useQueryClient()
   const targetsKey = targets ? `${targets.accounts.join(',')}|${targets.tokens.join(',')}` : ''
   useEffect(() => {
-    if (intentId !== null && targets && !serverRuns.has(intentId) && !qc.getQueryData(qk.sendStatus(intentId))) noteServerRun(qc, intentId, targets)
+    if (intentId !== null && targets && !serverRuns.has(intentId) && !qc.getQueryData(queryKey)) noteServerRun(qc, intentId, targets)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intentId, targetsKey, qc])
   return useQuery({
-    queryKey: qk.sendStatus(intentId),
+    queryKey,
     queryFn: async (): Promise<WebSendStatus> => {
-      const r = await s.nearkit.sendStatus(intentId as string)
+      const r = await read(intentId as string)
       if (r.status === 'done' || r.status === 'failed') finishServerRun(s, qc, intentId as string, targets ?? { accounts: [], tokens: [NATIVE_TOKEN_ID] })
       return r
     },

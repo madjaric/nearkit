@@ -471,7 +471,8 @@ export interface Quote {
   networkFeeNear: number
   /** Route through pools, as token symbols. */
   path: string[]
-  router: 'aggregator' | 'classic' | 'dcl' | 'demo'
+  /** `wrap` / `unwrap`: NEAR ↔ wNEAR on the wrap contract, 1:1, no exchange and no fee. */
+  router: 'aggregator' | 'classic' | 'dcl' | 'demo' | 'wrap' | 'unwrap'
   /** Where the route comes from (Rhea's aggregator, Rhea's classic router, DCL directly); absent in the demo. */
   source?: 'rhea-aggregator' | 'rhea-classic' | 'dcl'
   quotedAt: Timestamp

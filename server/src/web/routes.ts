@@ -15,6 +15,7 @@ import { friendlyError } from '../bot/ui'
 import { MAX_ACTIVE_WALLETS_PER_USER, MAX_WALLET_LABEL, walletName } from '../custody/limits'
 import type { Intent, IntentKind, TradingWallet } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
+import { UNWRAP_TTL_MS, type UnwrapParams } from '../custody/unwrap'
 import { createTradingWallet, deleteWallet, ownerForNewWallet, siblingWallet, undeletableText, WalletLimitError, type CustodyDeps } from '../custody/wallets'
 import { checkDestinationSyntax, maxNearWithdraw, reviewWithdraw, WITHDRAW_TTL_MS, type WithdrawInput, type WithdrawReview } from '../custody/withdraw'
 import type { Store } from '../db/store'
@@ -169,12 +170,16 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
     if (!intents.length) throw new HttpError(404, 'not-found', 'That trade isn’t one of yours, or it’s gone.')
     return { groupId, intents, latest: await Promise.all(intents.map((i) => latestOf(custody.store, i))) }
   }
-  /** A send the user reviewed (404 for anyone else's). */
-  const sendOf = async (userId: number, body: unknown) => {
+  /** One of the user's own intents of this kind (404 for anyone else's, or another kind). */
+  const intentOf = async (userId: number, body: unknown, kind: IntentKind, missing: string) => {
     const intent = await custody.store.intent(field(body, 'intentId', 64))
-    if (!intent || intent.userId !== userId || intent.kind !== 'withdraw') throw new HttpError(404, 'not-found', 'That send isn’t one of yours, or it’s gone.')
+    if (!intent || intent.userId !== userId || intent.kind !== kind) throw new HttpError(404, 'not-found', missing)
     return intent
   }
+  /** A send the user reviewed. */
+  const sendOf = (userId: number, body: unknown) => intentOf(userId, body, 'withdraw', 'That send isn’t one of yours, or it’s gone.')
+  /** An unwrap the user reviewed. */
+  const unwrapOf = (userId: number, body: unknown) => intentOf(userId, body, 'unwrap', 'That unwrap isn’t one of yours, or it’s gone.')
 
   return {
     '/api/web/login': async (body) => {
@@ -502,6 +507,54 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
     '/api/web/send/status': async (body) => {
       const userId = await userOf(body)
       const { intent, requoted } = await latestOf(custody.store, await sendOf(userId, body))
+      return sendStatus(intent, deps.now(), requoted)
+    },
+
+    /**
+     * Unwrap on the web's Swap page: a NEARKITS wallet's wNEAR back to NEAR. It is the intent the
+     * Telegram bot's Unwrap wNEAR creates (bot/nativeTrade.ts), run by the same engine handler
+     * (custody/unwrap.ts): one near_withdraw that the signer's policy holds to the exact amount. No
+     * trade, so no NEARKITS fee; allowed on a frozen wallet, as in Telegram (nothing leaves it).
+     */
+    '/api/web/unwrap/review': async (body) => {
+      const userId = await userOf(body)
+      const wallet = await ownWallet(userId, field(body, 'walletId', 64))
+      await notPaused('unwrap')
+      const wrap = deps.network.wrapContract
+      // "max": the wallet's whole wNEAR, read here from chain (the bot's Unwrap offers the same).
+      const amountText = field(body, 'amount', 40).trim()
+      const wantsMax = amountText.toLowerCase() === 'max'
+      const parsed = wantsMax ? null : tryParseUnits(amountText, NEAR_DECIMALS)
+      if (parsed && (!parsed.ok || parsed.value <= 0n)) throw new HttpError(400, 'amount', `Unwrap an amount above 0 with at most ${NEAR_DECIMALS} decimals.`)
+      const held = await deps.near.ctx.reader.balanceOf(wrap, wallet.accountId).catch(() => null)
+      if (held === null) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
+      const amount = parsed?.ok ? parsed.value : held
+      if (amount <= 0n) throw new HttpError(400, 'amount', `${walletName(wallet)} has no wNEAR to unwrap.`)
+      if (amount > held) throw new HttpError(400, 'amount', `${walletName(wallet)} holds ${formatUnits(held, NEAR_DECIMALS, { maxFraction: 6 })} wNEAR.`)
+      await custody.store.cancelQuoted(wallet.id, ['unwrap'])
+      const params: UnwrapParams = { amount: amount.toString() }
+      const intent = await custody.store.createIntent({ walletId: wallet.id, userId, chatId: WEB_CHAT, kind: 'unwrap', params, ttlMs: UNWRAP_TTL_MS })
+      return {
+        intentId: intent.id,
+        expiresAt: intent.expiresAt,
+        review: { walletId: wallet.id, from: walletName(wallet), accountId: wallet.accountId, amount: params.amount, contract: wrap },
+      }
+    },
+
+    /** Runs a reviewed unwrap through the engine, after this returns. */
+    '/api/web/unwrap/execute': async (body) => {
+      const userId = await userOf(body)
+      const intent = await unwrapOf(userId, body)
+      await notPaused('unwrap')
+      if (intent.status !== 'quoted' || intent.expiresAt <= deps.now())
+        throw new HttpError(409, 'nothing-open', 'That unwrap isn’t waiting any more: it ran, or its review expired. Review it again.')
+      startRun(custody, [intent], userId, deps.log)
+      return { started: true }
+    },
+
+    '/api/web/unwrap/status': async (body) => {
+      const userId = await userOf(body)
+      const { intent, requoted } = await latestOf(custody.store, await unwrapOf(userId, body))
       return sendStatus(intent, deps.now(), requoted)
     },
   }

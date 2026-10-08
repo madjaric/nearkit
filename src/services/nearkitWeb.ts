@@ -97,6 +97,17 @@ export interface WebSendReview {
   fresh: boolean
 }
 
+/** The server's review of an unwrap: the Telegram bot's unwrap (one near_withdraw on the wrap contract), for this wallet and amount. */
+export interface WebUnwrapReview {
+  walletId: string
+  from: string
+  accountId: string
+  /** Raw wNEAR (24 decimals); the same NEAR comes out. */
+  amount: string
+  /** The wrap contract it calls. */
+  contract: string
+}
+
 export interface WebSendStatus {
   status: WebLegStatus
   message: string | null
@@ -158,6 +169,11 @@ export interface NearKitWeb {
   /** Sends exactly what was reviewed. */
   executeSend(intentId: string): Promise<{ started: boolean }>
   sendStatus(intentId: string): Promise<WebSendStatus>
+  /** The server's review of unwrapping a NEARKITS wallet's wNEAR (an amount, or "max"); nothing is signed. */
+  reviewUnwrap(input: { walletId: string; amount: string }): Promise<{ intentId: string; expiresAt: number; review: WebUnwrapReview }>
+  /** Unwraps exactly what was reviewed. */
+  executeUnwrap(intentId: string): Promise<{ started: boolean }>
+  unwrapStatus(intentId: string): Promise<WebSendStatus>
   /** The user's Volume Bots on this network. */
   bots(): Promise<BotSummary[]>
   /** Creates a bot (no id) or changes a stopped one's configuration; nothing trades until Start. Refusals carry `detail.issues`, field by field. */
@@ -373,6 +389,9 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     reviewSend: (input) => call<{ intentId: string; expiresAt: number; review: WebSendReview }>('/api/web/send/review', { ...input }),
     executeSend: (intentId) => call<{ started: boolean }>('/api/web/send/execute', { intentId }),
     sendStatus: (intentId) => call<WebSendStatus>('/api/web/send/status', { intentId }),
+    reviewUnwrap: (input) => call<{ intentId: string; expiresAt: number; review: WebUnwrapReview }>('/api/web/unwrap/review', { ...input }),
+    executeUnwrap: (intentId) => call<{ started: boolean }>('/api/web/unwrap/execute', { intentId }),
+    unwrapStatus: (intentId) => call<WebSendStatus>('/api/web/unwrap/status', { intentId }),
 
     bots: async () => (await call<{ bots: BotSummary[] }>('/api/web/bots', {})).bots,
     saveBot: async (config, botId) => (await call<{ bot: BotSummary }>('/api/web/bots/save', botId ? { config, botId } : { config })).bot,

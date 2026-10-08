@@ -375,6 +375,95 @@ await step('after a confirmed swap the balances refresh on their own, with no re
   usdt.balances.set(USER, String(before))
 })
 
+await step('wNEAR → NEAR on the Swap page is an unwrap, not a swap: no router asked, no fee, exact amounts; it signs one near_withdraw and the balances refresh', async () => {
+  const wrap = near.state.tokens.get('wrap.testnet')
+  const account = near.state.accounts.get(USER)
+  const before = { wnear: wrap.balances.get(USER), registered: wrap.registered.has(USER), near: account.amount }
+  wrap.registered.add(USER)
+  wrap.balances.set(USER, String(2n * ONE))
+  const routers = []
+  const watch = (r) => /refburrow|smartrouter/.test(r.url()) && routers.push(r.url())
+  page.on('request', watch)
+  await page.goto(BASE + '/swap?from=wrap.testnet&to=near', { waitUntil: 'networkidle' })
+  await page.getByPlaceholder('0.00').first().fill('1.5')
+  await visible('To (exact)')
+  await visible('1 wNEAR = 1 NEAR · exact')
+  await visible('wrap.testnet · near_withdraw')
+  await visible('None: wrapping isn’t a trade')
+  if (await page.getByRole('group', { name: /Slippage/ }).count()) throw new Error('an unwrap shows a slippage control')
+  await page
+    .locator('output')
+    .filter({ hasText: /^1\.5$/ })
+    .first()
+    .waitFor()
+  await shot('real-05b-unwrap-ticket')
+  await page.getByRole('button', { name: 'Unwrap wNEAR' }).click()
+  await page.getByRole('button', { name: 'Confirm unwrap' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review unwrap' })
+  await modal.getByText('You receive (exact)').waitFor({ timeout: 10000 })
+  await modal.getByText('1.5 NEAR', { exact: true }).waitFor()
+  await modal.getByText('None: wrapping isn’t a trade').waitFor()
+  if (await modal.getByText(/Minimum received|Slippage limit/).count()) throw new Error('the unwrap review shows swap lines')
+  await shot('real-05c-unwrap-review')
+  const signed = (await signedLog()).length
+  await modal.getByRole('button', { name: 'Unwrap wNEAR' }).click()
+  await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })
+  const log = await signedLog()
+  const tx = log.at(-1).transactions.at(-1)
+  const calls = tx.actions.map((a) => `${a.params.methodName} ${JSON.stringify(a.params.args)} ${a.params.deposit}`)
+  if (log.length !== signed + 1 || tx.receiverId !== 'wrap.testnet' || calls.join() !== `near_withdraw {"amount":"${(3n * ONE) / 2n}"} 1`)
+    throw new Error(`Signed ${tx.receiverId}: ${calls.join(' | ')}`)
+  // The chain's readers catch up a moment later: wNEAR down, NEAR up, with no reload.
+  setTimeout(() => {
+    wrap.balances.set(USER, String(ONE / 2n))
+    account.amount = String(BigInt(before.near) + (3n * ONE) / 2n)
+  }, 1500)
+  await page.getByRole('status').filter({ hasText: 'Balances updated' }).first().waitFor({ timeout: 20000 })
+  await page.keyboard.press('Escape')
+  await page
+    .getByText(/Balance\s*0\.50?\s*wNEAR/)
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+  page.off('request', watch)
+  if (routers.length) throw new Error(`an unwrap asked a router: ${routers[0]}`)
+  if (before.wnear === undefined) wrap.balances.delete(USER)
+  else wrap.balances.set(USER, before.wnear)
+  if (!before.registered) wrap.registered.delete(USER)
+  account.amount = before.near
+})
+
+await step('NEAR → wNEAR is a wrap: no router asked, no fee; it signs the swap path’s own wrap step (registration only when missing, then near_deposit)', async () => {
+  const wrap = near.state.tokens.get('wrap.testnet')
+  const registered = wrap.registered.has(USER)
+  wrap.registered.delete(USER)
+  const routers = []
+  const watch = (r) => /refburrow|smartrouter/.test(r.url()) && routers.push(r.url())
+  page.on('request', watch)
+  await page.goto(BASE + '/swap?from=near&to=wrap.testnet', { waitUntil: 'networkidle' })
+  await page.getByPlaceholder('0.00').first().fill('1')
+  await visible('To (exact)')
+  await visible('1 NEAR = 1 wNEAR · exact')
+  await visible('wrap.testnet · near_deposit')
+  await page.getByRole('button', { name: 'Wrap NEAR' }).click()
+  await page.getByRole('button', { name: 'Confirm wrap' }).click()
+  const modal = page.getByRole('dialog', { name: 'Review wrap' })
+  await modal.getByText('You receive (exact)').waitFor({ timeout: 10000 })
+  await modal.getByText('1 wNEAR', { exact: true }).waitFor()
+  await modal.getByText('None: wrapping isn’t a trade').waitFor()
+  await shot('real-05d-wrap-review')
+  await modal.getByRole('button', { name: 'Wrap NEAR' }).click()
+  await page.getByRole('dialog', { name: /Confirmed|transactions confirmed/ }).waitFor({ timeout: 15000 })
+  const tx = (await signedLog()).at(-1).transactions.at(-1)
+  const methods = tx.actions.map((a) => a.params.methodName)
+  const deposit = tx.actions.find((a) => a.params.methodName === 'near_deposit')?.params.deposit
+  if (tx.receiverId !== 'wrap.testnet' || methods.join() !== 'storage_deposit,near_deposit' || deposit !== String(ONE))
+    throw new Error(`Signed ${tx.receiverId}: ${methods} (${deposit})`)
+  await page.keyboard.press('Escape')
+  page.off('request', watch)
+  if (routers.length) throw new Error(`a wrap asked a router: ${routers[0]}`)
+  if (registered) wrap.registered.add(USER)
+})
+
 await step('multi buy across two accounts: sequential, one approval per wallet, no all-or-nothing', async () => {
   await page.goto(BASE + '/multi-trade', { waitUntil: 'networkidle' })
   // The checkbox is custom-drawn over a visually hidden input. Wide screens list wallets
@@ -522,9 +611,11 @@ await step('a watch-only account never joins a Multi Buy or a preset: not offere
 await step('activity shows what NEARKITS sent, with explorer links', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await visible('Sent from this browser')
-  // The Dashboard lists the latest six operations: the DCL sell and buy are the newest.
-  await visible(/100 FRESH → min 0\.09801 NEAR/)
-  await visible(/1 NEAR → min 980\.1 FRESH/)
+  // The Dashboard lists the latest six operations. A wrap and an unwrap state exact amounts (nothing
+  // can slip); a swap states its minimum.
+  await visible(/^1 NEAR → 1 wNEAR$/)
+  await visible(/^1\.5 wNEAR → 1\.5 NEAR$/)
+  await visible(/ → min [0-9.,]+ USDT$/)
 })
 
 await step('PnL card: the figures on screen, exported as a PNG', async () => {

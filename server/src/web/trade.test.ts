@@ -415,6 +415,104 @@ describe('Send from NEARKITS web: reviewed and executed on the web', () => {
   })
 })
 
+describe('Unwrap from NEARKITS web: the Telegram unwrap, reviewed and run from the Swap page', () => {
+  /** Gives one of Alice's NEARKITS wallets wNEAR, as a refunded buy would. */
+  const giveWnear = async (app: Awaited<ReturnType<typeof webApp>>, walletId: string, amount: bigint) => {
+    const wrap = app.h.chain.tokens.get(WRAP)
+    if (!wrap) throw new Error('no wrap contract')
+    const accountId = await app.account(walletId)
+    wrap.registered.add(accountId)
+    wrap.balances.set(accountId, amount)
+    return accountId
+  }
+  const wnear = (app: Awaited<ReturnType<typeof webApp>>, accountId: string) => app.h.chain.tokens.get(WRAP)?.balances.get(accountId) ?? 0n
+  /** The calls a transaction makes, by method, with their decoded arguments and deposit. */
+  const calls = (app: Awaited<ReturnType<typeof webApp>>) =>
+    app.h.chain.sent.flatMap(({ tx }) =>
+      tx.actions.flatMap((a) =>
+        a.type === 'FunctionCall' ? [{ receiverId: tx.receiverId, method: a.methodName, args: JSON.parse(new TextDecoder().decode(a.args)) as unknown, deposit: a.deposit }] : [],
+      ),
+    )
+
+  it('the same unwrap intent Telegram creates: one near_withdraw of the exact amount, signed by NEARKITS, no Telegram step', async () => {
+    const app = await webApp()
+    const { h, call, signIn, wallets, custody, messages, near } = app
+    const token = await signIn()
+    const [a] = await wallets(token, 0)
+    const accountId = await giveWnear(app, a, 2n * ONE)
+    const before = { messages: messages(), near: await near(a) }
+    const r = await call('/api/web/unwrap/review', { session: token, walletId: a, amount: '1.5' })
+    expect(r.review).toMatchObject({ walletId: a, accountId, amount: ((3n * ONE) / 2n).toString(), contract: WRAP })
+    const intent = await custody.store.intent(String(r.intentId))
+    expect(intent).toMatchObject({ kind: 'unwrap', status: 'quoted', params: { amount: ((3n * ONE) / 2n).toString() } })
+    expect(await call('/api/web/unwrap/execute', { session: token, intentId: r.intentId })).toEqual({ started: true })
+    await webRunsSettled()
+    expect(calls(app).filter((c) => c.method === 'near_withdraw')).toEqual([
+      { receiverId: WRAP, method: 'near_withdraw', args: { amount: ((3n * ONE) / 2n).toString() }, deposit: 1n },
+    ])
+    expect(wnear(app, accountId)).toBe(ONE / 2n)
+    expect((await near(a)) - before.near).toBeGreaterThan(ONE)
+    expect(await call('/api/web/unwrap/status', { session: token, intentId: r.intentId })).toMatchObject({ status: 'done' })
+    expect(messages()).toBe(before.messages)
+    expect(h.chain.sent.every(({ tx }) => tx.receiverId === WRAP)).toBe(true)
+  })
+
+  it('MAX unwraps the wallet’s whole wNEAR, read from chain on the server', async () => {
+    const app = await webApp()
+    const token = await app.signIn()
+    const [a] = await app.wallets(token, 0)
+    const accountId = await giveWnear(app, a, (7n * ONE) / 4n)
+    const r = await app.call('/api/web/unwrap/review', { session: token, walletId: a, amount: 'max' })
+    expect((r.review as { amount: string }).amount).toBe(((7n * ONE) / 4n).toString())
+    await app.call('/api/web/unwrap/execute', { session: token, intentId: r.intentId })
+    await webRunsSettled()
+    expect(wnear(app, accountId)).toBe(0n)
+  })
+
+  it('refuses more than the wallet holds, a wallet with none, a watch account or another user’s wallet, and another user’s or a used review', async () => {
+    const app = await webApp()
+    const { call, signIn, wallets } = app
+    const token = await signIn()
+    const [a, b] = await wallets(token, 1)
+    await giveWnear(app, a, ONE)
+    await expect(call('/api/web/unwrap/review', { session: token, walletId: a, amount: '2' })).rejects.toMatchObject({
+      status: 400,
+      code: 'amount',
+      message: expect.stringMatching(/holds 1 wNEAR/),
+    })
+    await expect(call('/api/web/unwrap/review', { session: token, walletId: a, amount: '0' })).rejects.toMatchObject({ status: 400, code: 'amount' })
+    await expect(call('/api/web/unwrap/review', { session: token, walletId: b, amount: 'max' })).rejects.toMatchObject({
+      status: 400,
+      code: 'amount',
+      message: expect.stringMatching(/no wNEAR/),
+    })
+    await expect(call('/api/web/unwrap/review', { session: token, walletId: 'bottest.near', amount: '1' })).rejects.toMatchObject({ status: 403 })
+    const bob = await signIn(BOB)
+    await expect(call('/api/web/unwrap/review', { session: bob, walletId: a, amount: '1' })).rejects.toMatchObject({ status: 403 })
+    const mine = await call('/api/web/unwrap/review', { session: token, walletId: a, amount: '1' })
+    await expect(call('/api/web/unwrap/execute', { session: bob, intentId: mine.intentId })).rejects.toMatchObject({ status: 404 })
+    await expect(call('/api/web/unwrap/status', { session: bob, intentId: mine.intentId })).rejects.toMatchObject({ status: 404 })
+    // Not a send: the send routes don't take an unwrap, nor the unwrap routes a send.
+    await expect(call('/api/web/send/execute', { session: token, intentId: mine.intentId })).rejects.toMatchObject({ status: 404 })
+    await call('/api/web/unwrap/execute', { session: token, intentId: mine.intentId })
+    await webRunsSettled()
+    await expect(call('/api/web/unwrap/execute', { session: token, intentId: mine.intentId })).rejects.toMatchObject({ status: 409, code: 'nothing-open' })
+  })
+
+  it('a frozen wallet still unwraps, as in Telegram: wNEAR back to NEAR moves nothing out of the wallet', async () => {
+    const app = await webApp()
+    const token = await app.signIn()
+    const [a] = await app.wallets(token, 0)
+    const accountId = await giveWnear(app, a, ONE)
+    await app.custody.store.setFrozen(a, 'test')
+    const r = await app.call('/api/web/unwrap/review', { session: token, walletId: a, amount: '1' })
+    await app.call('/api/web/unwrap/execute', { session: token, intentId: r.intentId })
+    await webRunsSettled()
+    expect(wnear(app, accountId)).toBe(0n)
+    expect(await app.call('/api/web/unwrap/status', { session: token, intentId: r.intentId })).toMatchObject({ status: 'done' })
+  })
+})
+
 describe('the four kinds of destination for a NEARKITS wallet', () => {
   it('B: Consolidate into another of the user’s wallets under the same owner needs no approval: each line reviews and sends', async () => {
     const { h, call, signIn, wallets, account, near } = await webApp()

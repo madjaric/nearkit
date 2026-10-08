@@ -37,7 +37,10 @@ export function activityStatus(txs: readonly Pick<ActivityTx, 'phase'>[], runnin
 }
 
 function detailOf(plan: OperationPlan): string {
-  if (plan.swap) return `${plan.swap.amountIn.display} ${plan.swap.tokenIn.symbol} → min ${plan.swap.minOut.display} ${plan.swap.tokenOut.symbol}`
+  const swap = plan.swap
+  // Wrapping is exact: what goes in comes out, so there is no minimum to state.
+  if (swap && (swap.router === 'wrap' || swap.router === 'unwrap')) return `${swap.amountIn.display} ${swap.tokenIn.symbol} → ${swap.expectedOut.display} ${swap.tokenOut.symbol}`
+  if (swap) return `${swap.amountIn.display} ${swap.tokenIn.symbol} → min ${swap.minOut.display} ${swap.tokenOut.symbol}`
   const n = plan.lines.length
   return `${n} ${n === 1 ? 'line' : 'lines'} · ${plan.totals.amount.display} ${plan.token.symbol}`
 }

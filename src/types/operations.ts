@@ -113,7 +113,8 @@ export interface FeeDisclosure {
 }
 
 export interface SwapDetails {
-  router: 'aggregator' | 'classic' | 'dcl' | 'demo'
+  /** `wrap` / `unwrap`: NEAR ↔ wNEAR on the wrap contract, 1:1, no exchange and no fee. */
+  router: 'aggregator' | 'classic' | 'dcl' | 'demo' | 'wrap' | 'unwrap'
   /** Where the route comes from; absent in the demo. */
   source?: 'rhea-aggregator' | 'rhea-classic' | 'dcl'
   tokenIn: TokenRef
