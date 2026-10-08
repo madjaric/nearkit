@@ -43,6 +43,21 @@ export const NEARKIT_FEE_RECEIVED_LABEL = bpsLabel((NEARKIT_FEE_BPS * (10_000 - 
 export const RHEA_APP_FEE_SHARE_LABEL = bpsLabel((NEARKIT_FEE_BPS * RHEA_APP_FEE_SHARE_BPS) / 10_000)
 
 /**
+ * NEARKITS' fee on Bridge & Buy's cross-chain leg (SOL, ETH or BNB to NEAR through NEAR Intents):
+ * the ONE place it is set. It is what NEARKITS receives, 25 bps = 0.25% of the amount bridged,
+ * charged by NEAR Intents' 1Click API as an app fee from the input and paid into NEARKITS' fee
+ * account inside NEAR Intents.
+ * - 1Click shares an app fee 50/50 and keeps at least 20 bps itself, so NEARKITS' server asks for
+ *   twice this (lib/bridge/fee.ts) and refuses a quote whose fees, as 1Click echoes them, don't give
+ *   NEARKITS exactly this (owner decision 2026-10-08: NEARKITS receives the full 0.25%; NEAR
+ *   Intents' own share is shown on its own line).
+ * - The 0.50% trading fee never applies to the bridge leg. The $KITS purchase after it is an
+ *   ordinary NEAR → $KITS trade and carries NEARKIT_FEE like any trade, shown on its own line.
+ */
+export const BRIDGE_FEE_BPS = 25
+export const BRIDGE_FEE_LABEL = bpsLabel(BRIDGE_FEE_BPS)
+
+/**
  * The production fee account (owner decision, 2026-09-29). Mainnet must be configured
  * with exactly this account: a mainnet build or server set to any other refuses to
  * trade, and the signer refuses to sign a route whose fee goes anywhere else.

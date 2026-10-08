@@ -8,6 +8,8 @@ import { Amount } from '@/components/ui/Num'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { isKitToken } from '@/config/kit'
+import { NeedNear } from '../bridge/NeedNear'
 import { GAS_RESERVE_NEAR } from '@/lib/fees'
 import { formatAmount } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
@@ -198,6 +200,7 @@ export function QuickTrade({ initialTokenId, initialSide = 'buy', variant = 'pan
             />
           )}
         </Field>
+        {insufficient && side === 'buy' && isKitToken(tokenId) && <NeedNear />}
         <PercentKeys
           disabled={!ready || !spend.maxSpend}
           active={activeFraction}

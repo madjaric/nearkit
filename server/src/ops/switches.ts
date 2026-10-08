@@ -26,9 +26,14 @@ import type { Database } from '../db/database'
  * only reads the chain) and the bot keeps answering.
  */
 
-/** `volumebot`: every Volume Bot pauses (its worker checks it each tick); manual trading goes on. */
-export type SwitchName = 'trading' | 'withdrawals' | 'volumebot'
-export const SWITCHES: readonly SwitchName[] = ['trading', 'withdrawals', 'volumebot']
+/**
+ * `volumebot`: every Volume Bot pauses (its worker checks it each tick); manual trading goes on.
+ * `bridge`: Bridge & Buy hands out no new deposit address; orders already under way are still
+ * followed to the end (NEAR Intents moves them whatever NEARKITS does), and their $KITS purchase
+ * follows the trading switch like any trade.
+ */
+export type SwitchName = 'trading' | 'withdrawals' | 'volumebot' | 'bridge'
+export const SWITCHES: readonly SwitchName[] = ['trading', 'withdrawals', 'volumebot', 'bridge']
 
 export interface SwitchState {
   paused: boolean
@@ -59,7 +64,7 @@ export class OpsSwitches {
       const r = rows.find((x) => x.name === name)
       return r && r.paused === 1 ? { paused: true, reason: r.reason, since: r.updated_at } : { paused: false, reason: null, since: r?.updated_at ?? null }
     }
-    return { trading: of('trading'), withdrawals: of('withdrawals'), volumebot: of('volumebot') }
+    return { trading: of('trading'), withdrawals: of('withdrawals'), volumebot: of('volumebot'), bridge: of('bridge') }
   }
 
   async set(name: SwitchName, paused: boolean, reason: string, by: string): Promise<void> {
@@ -95,6 +100,15 @@ export class OpsSwitches {
     return name === 'trading'
       ? 'Trading from NEARKITS wallets is paused by NEARKITS right now. Withdrawals and recovery still work.'
       : 'Withdrawals are paused by NEARKITS right now. Your owner wallet can still add the backup key or export the key in NEARKITS web.'
+  }
+
+  /** Why Bridge & Buy can't hand out a new deposit address now; null when it can. Fails closed. */
+  async bridgeBlocked(): Promise<string | null> {
+    try {
+      return (await this.state()).bridge.paused ? 'Bridge & Buy is paused by NEARKITS right now. Orders already under way continue.' : null
+    } catch {
+      return 'NEARKITS can’t confirm that this is allowed right now. Try again in a moment.'
+    }
   }
 
   /** The engine's gate: the same rule, for an intent at Confirm; a Volume Bot's trade also needs the Volume Bot switch on. */

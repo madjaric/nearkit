@@ -1,5 +1,5 @@
 import { FAQ, VOLUME_BOT_DESCRIPTION, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_BOT_UPDATED } from '@/features/volumeBot/content'
-import { NEARKIT_FEE_LABEL } from '@/lib/fees'
+import { BRIDGE_FEE_LABEL, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { KIT, KIT_LAUNCH, KITS_CONTRACT } from './kit'
 import { BETA_COMING_SOON } from './release'
 import { canonicalUrl, SITEMAP_PATHS } from './site'
@@ -47,6 +47,14 @@ export const kitFacts = (): string[] => [
   'No return, reward rate, burn amount or buyback frequency is promised.',
 ]
 
+/** What Bridge & Buy does, as its page states it. */
+export const bridgeFacts = (): string[] => [
+  `Bridge & Buy brings SOL (Solana), ETH (Ethereum) or BNB (BNB Chain) to NEAR through NEAR Intents and buys ${KIT.ticker} (${KITS_CONTRACT}) with it.`,
+  'It runs in two steps: NEAR Intents delivers NEAR to the NEAR wallet you choose, then NEARKITS buys $KITS with that NEAR at the price then, never below the least $KITS you accepted.',
+  `Your own wallet sends the funds; NEARKITS never holds them. If the bridge can’t complete, NEAR Intents refunds your address.`,
+  `NEARKITS’ fee on the bridge is ${BRIDGE_FEE_LABEL}, with NEAR Intents’ own fee shown beside it; the $KITS purchase carries NEARKITS’ ${NEARKIT_FEE_LABEL} trading fee and $KITS’ own buy tax.`,
+]
+
 /** Every page the sitemap lists, in its order. */
 export function publicPages(): PageSeo[] {
   const pages: Record<string, Omit<PageSeo, 'path'>> = {
@@ -55,6 +63,12 @@ export function publicPages(): PageSeo[] {
       title: 'Swap NEAR tokens through Rhea · NEARKITS',
       description: 'Swap NEP-141 tokens on NEAR through Rhea. The route is quoted again right before you sign, and every fee is shown in the review.',
       name: 'Swap',
+    },
+    '/bridge': {
+      title: 'Bridge & Buy $KITS from SOL, ETH or BNB · NEARKITS',
+      description: 'Bring SOL, ETH or BNB to NEAR through NEAR Intents and buy $KITS in one flow. Your own wallet sends; every fee is shown before you confirm.',
+      name: 'Bridge & Buy',
+      facts: bridgeFacts(),
     },
     '/multi-trade': {
       title: 'Multi Trade: buy or sell from many NEAR wallets · NEARKITS',

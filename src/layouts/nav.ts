@@ -14,6 +14,7 @@ import {
   Merge,
   MessageSquare,
   Repeat,
+  Route,
   ScanSearch,
   SendHorizontal,
   Settings,
@@ -57,6 +58,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/swap', label: 'Swap', icon: ArrowLeftRight, keywords: ['buy', 'sell', 'trade', 'exchange'] },
       // The Quick Trade ticket, opened over the current page (the trade drawer).
       { action: 'quick-trade', label: 'Quick Trade', icon: ChevronsRight },
+      // SOL, ETH or BNB → NEAR (NEAR Intents) → $KITS. NEAR mainnet with NEARKITS' server; the demo previews it.
+      {
+        to: '/bridge',
+        label: 'Bridge & Buy',
+        icon: Route,
+        soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
+        keywords: ['bridge', 'buy kits', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents', 'deposit'],
+      },
       { to: '/multi-trade', label: 'Multi Trade', icon: Layers, keywords: ['multi buy', 'multi sell', 'bundle', 'wallets'] },
       { to: '/limit-orders', label: 'Limit Orders', icon: ListOrdered, keywords: ['orders', 'take profit', 'stop loss', 'tp', 'sl'] },
     ],
@@ -118,6 +127,7 @@ export const SEARCH_ONLY_NAV: NavItem[] = [{ to: '/kit', label: '$KITS', icon: C
 /** Telegram-style commands the search box understands. */
 export const COMMANDS: { command: string; to: string; label: string }[] = [
   { command: '/buy', to: '/swap', label: 'Buy a token' },
+  { command: '/bridge', to: '/bridge', label: 'Bridge & Buy $KITS from SOL, ETH or BNB' },
   { command: '/sell', to: '/swap?side=sell', label: 'Sell a token' },
   { command: '/multi', to: '/multi-trade', label: 'Multi-wallet buy or sell' },
   { command: '/orders', to: '/limit-orders', label: 'Limit orders' },

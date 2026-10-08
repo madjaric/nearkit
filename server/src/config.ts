@@ -2,7 +2,8 @@ import { resolve } from 'node:path'
 import { parseEnv, type AppEnv, type EnvIssue } from '@/config/env'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
 import { DEFAULT_PUBLIC_URL } from '@/config/site'
-import { feeRecipientProblem } from '@/lib/fees'
+import { feeRecipientProblem, PRODUCTION_FEE_RECIPIENT } from '@/lib/fees'
+import { KITS_CONTRACT } from '@/config/kit'
 import { SWITCHES, type SwitchName } from './ops/switches'
 import { parseTlsPin, type TlsPin } from './signer/tls'
 import type { DatabaseConfig } from './db/open'
@@ -64,6 +65,12 @@ export interface ServerConfig {
    * and with the switch on but something missing the server refuses to start.
    */
   custody: { enabled: boolean; reason: string | null; signer: CustodySigner | null }
+  /**
+   * Bridge & Buy $KITS (bridge/): NEAR Intents' 1Click API brings SOL, ETH or BNB to NEAR, then $KITS
+   * is bought. Mainnet only, with $KITS and the production fee account; NEARKIT_BRIDGE=off turns it off.
+   * `apiKey` (ONECLICK_API_KEY, a 1Click partner JWT) is a secret: sent only to 1Click, never logged.
+   */
+  bridge: { enabled: boolean; reason: string | null; oneclickUrl: string; apiKey: string | null; solanaRpcUrl: string }
   /** Kill switches the host holds paused from its environment (NEARKIT_OPS_PAUSED), for hosts without a shell. */
   ops: { hostPaused: SwitchName[] }
   logLevel: LogLevel
@@ -254,6 +261,24 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   const unknownSwitch = hostPaused.filter((s) => !SWITCHES.includes(s as SwitchName))
   if (unknownSwitch.length) issue('NEARKIT_OPS_PAUSED', `Not a kill switch: ${unknownSwitch.join(', ')} (expected ${SWITCHES.join(', ')})`)
 
+  const bridgeRaw = raw.NEARKIT_BRIDGE?.trim()
+  if (!blank(bridgeRaw) && bridgeRaw !== 'on' && bridgeRaw !== 'off') issue('NEARKIT_BRIDGE', 'Expected "on" or "off"')
+  const oneclick = blank(raw.ONECLICK_API_URL) ? new URL('https://1click.chaindefuser.com') : httpUrl(raw.ONECLICK_API_URL)
+  if (!oneclick) issue('ONECLICK_API_URL', 'Must be an https:// URL')
+  const solanaRpc = blank(raw.SOLANA_RPC_URL) ? new URL('https://api.mainnet-beta.solana.com') : httpUrl(raw.SOLANA_RPC_URL)
+  if (!solanaRpc) issue('SOLANA_RPC_URL', 'Must be an https:// URL')
+  const oneclickKey = blank(raw.ONECLICK_API_KEY) ? null : raw.ONECLICK_API_KEY.trim()
+  if (oneclickKey !== null && !/^[A-Za-z0-9._-]{16,4096}$/.test(oneclickKey)) issue('ONECLICK_API_KEY', 'Expected a 1Click partner JWT')
+  const bridgeReason =
+    bridgeRaw === 'off'
+      ? 'Turned off (NEARKIT_BRIDGE=off).'
+      : network.id !== 'mainnet' || network.kitsContract !== KITS_CONTRACT
+        ? 'Bridge & Buy runs on NEAR mainnet only.'
+        : env.feeRecipient !== PRODUCTION_FEE_RECIPIENT
+          ? 'Bridge & Buy needs the production fee account (NEARKIT_FEE_RECIPIENT).'
+          : null
+  if (bridgeRaw === 'on' && bridgeReason) issue('NEARKIT_BRIDGE', bridgeReason)
+
   const trustProxyRaw = raw.NEARKIT_API_TRUST_PROXY?.trim()
   if (!blank(trustProxyRaw) && trustProxyRaw !== 'true' && trustProxyRaw !== 'false') issue('NEARKIT_API_TRUST_PROXY', 'Expected "true" or "false"')
 
@@ -286,6 +311,13 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
       },
       volumeBot: { runner: volumeRunnerRaw === 'off' ? 'off' : 'app' },
       custody,
+      bridge: {
+        enabled: bridgeReason === null,
+        reason: bridgeReason,
+        oneclickUrl: oneclick ? oneclick.origin : 'https://1click.chaindefuser.com',
+        apiKey: oneclickKey,
+        solanaRpcUrl: solanaRpc ? solanaRpc.toString().replace(/\/$/, '') : 'https://api.mainnet-beta.solana.com',
+      },
       ops: { hostPaused: hostPaused.filter((s): s is SwitchName => SWITCHES.includes(s as SwitchName)) },
       logLevel,
     },

@@ -44,7 +44,26 @@ describe('each public page’s title and description', () => {
       'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder reward tracking is coming soon.',
       'No return, reward rate, burn amount or buyback frequency is promised.',
     ])
-    for (const p of publicPages().filter((x) => x.path !== '/kit')) expect(p.facts, p.path).toBeUndefined()
+    for (const p of publicPages().filter((x) => x.path !== '/kit' && x.path !== '/bridge')) expect(p.facts, p.path).toBeUndefined()
+  })
+
+  it('Bridge & Buy says what it does: SOL, ETH or BNB through NEAR Intents to $KITS, two steps, non-custodial, its fees apart', () => {
+    const page = pageSeo('/bridge')
+    expect(page?.title).toBe('Bridge & Buy $KITS from SOL, ETH or BNB · NEARKITS')
+    const facts = (page?.facts ?? []).join(' ')
+    for (const term of [
+      'SOL (Solana)',
+      'ETH (Ethereum)',
+      'BNB (BNB Chain)',
+      'NEAR Intents',
+      'kits.nearlytrade.near',
+      'two steps',
+      'never holds them',
+      '0.25%',
+      '0.50% trading fee',
+    ])
+      expect(facts).toContain(term)
+    expect(facts).not.toMatch(/guarantee|APR|APY|instant/i)
   })
 })
 

@@ -79,6 +79,10 @@ Every server process fails closed on its configuration: a missing or doubtful cr
 | `BUYBOT_RUNNER` | `separate` | The app keeps the groups' `/buybot` settings; the buy bot posts |
 | `NEARKIT_VOLUMEBOT_RUNNER` | `app` (default) or `off` | The Volume Bot's worker runs in the app process (no second holder of the signer credential). Each bot is stepped under a database lease, so several app instances never double up. `npm run ops -- pause volumebot <reason>` pauses every bot at once; manual trading goes on |
 | `NEAR_RPC_URL` | two or more mainnet providers | Checked at start |
+| `NEARKIT_BRIDGE` | unset (on) or `off` | Bridge & Buy $KITS (BRIDGE.md): on with mainnet and the production fee account; `off` hides it |
+| `ONECLICK_API_URL` | unset | NEAR Intents' 1Click API, `https://1click.chaindefuser.com` |
+| `ONECLICK_API_KEY` | secret, optional | A 1Click partner JWT. Never logged; sent only to 1Click |
+| `SOLANA_RPC_URL` | unset, or a private Solana RPC | Blockhash and balance reads for the page's SOL transfer |
 
 ### 3.2 Signer (`server/.env.signer.example`)
 
@@ -171,6 +175,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 | Trading | `npm run ops -- pause trading <reason>` | New quotes and Confirms of Buy/Sell from NearKit wallets | Withdrawals, deposits, unwrap, backup key, export, revoke |
 | Withdrawals | `npm run ops -- pause withdrawals <reason>` | Every withdrawal from NearKit wallets | Trading, backup key, owner-signed export (web) |
 | Volume Bots | `npm run ops -- pause volumebot <reason>` | Every Volume Bot: each pauses with the reason "Paused by NEARKITS", nothing new is sent; Start and Resume are refused | Manual trading, withdrawals, everything else |
+| Bridge & Buy | `npm run ops -- pause bridge <reason>` | New Bridge & Buy deposit addresses | Orders already under way are followed to the end; their $KITS purchase follows the trading switch |
 | One wallet | `npm run ops -- freeze <wallet or account> <reason>` | That wallet's trades and withdrawals | Its backup key, revoke, unwrap, export |
 | Signer (from the app) | `npm run ops -- signer-pause <reason>` | Every signature, export, approval and erasure | Everything read-only. Only the signer's operator resumes |
 | Signer (on its host) | `npm run signer:admin -- pause/resume <reason>`, `NEARKIT_SIGNER_PAUSED=true`, or the pause file | Same | Same |

@@ -11,6 +11,8 @@ import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { NETWORK } from '@/config/env'
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
+import { isKitToken } from '@/config/kit'
+import { NeedNear } from '../bridge/NeedNear'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { formatAmount } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
@@ -205,6 +207,7 @@ export function SwapTicket({ fromId, toId, onPairChange, walletId, onWalletChang
               />
             )}
           </Field>
+          {insufficient && fromId === NEAR && isKitToken(toId) && <NeedNear />}
           <PercentKeys
             disabled={!ready || !spend.maxSpend}
             active={activeFraction}

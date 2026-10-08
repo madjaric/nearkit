@@ -59,7 +59,7 @@ export default function KitPage() {
                 {live && listed ? (
                   <>
                     <Button variant="primary" size="lg" onClick={() => openTrade({ tokenId: listed.id, side: 'buy' })}>
-                      Trade {KIT.ticker}
+                      Buy {KIT.ticker}
                     </Button>
                     {KIT.links.token && (
                       <Link to={KIT.links.token} className={buttonClass({ variant: 'secondary', size: 'lg' })}>
@@ -70,7 +70,7 @@ export default function KitPage() {
                 ) : (
                   <>
                     <Button variant="primary" size="lg" disabled aria-describedby="kit-not-live">
-                      Trade {KIT.ticker}
+                      Buy {KIT.ticker}
                     </Button>
                     <span id="kit-not-live" className="text-sm text-fg-3">
                       {!onNetwork
@@ -81,10 +81,24 @@ export default function KitPage() {
                     </span>
                   </>
                 )}
+                {onNetwork && (
+                  <Link to="/bridge" className={buttonClass({ variant: 'outline', size: 'lg' })}>
+                    Bridge &amp; Buy {KIT.ticker}
+                  </Link>
+                )}
                 <a href={KIT.links.explorer} target="_blank" rel="noreferrer noopener" className={buttonClass({ variant: 'ghost', size: 'lg' })}>
                   Explorer <ExternalLink size={14} aria-hidden="true" />
                 </a>
               </div>
+              {onNetwork && (
+                <p className="text-sm text-fg-3">
+                  Hold SOL, ETH or BNB instead of NEAR?{' '}
+                  <Link to="/bridge" className="text-fg-2 underline decoration-fg-4 underline-offset-2 hover:text-fg">
+                    Bridge &amp; Buy
+                  </Link>{' '}
+                  brings it to NEAR through NEAR Intents and buys {KIT.ticker} in one flow.
+                </p>
+              )}
             </div>
           </div>
         </Panel>

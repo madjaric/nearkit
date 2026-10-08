@@ -20,6 +20,8 @@ import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { isComingSoon } from '@/config/release'
 import { KitSpotlight } from '@/features/kit/KitSpotlight'
 import { ActivityList } from '@/features/portfolio/ActivityList'
+import { withBridgeActivity } from '@/features/bridge/activity'
+import { useBridgeAvailability, useBridgeOrders } from '@/features/bridge/useBridge'
 import { PositionsTable } from '@/features/portfolio/PositionsTable'
 import { ValuePanel } from '@/features/portfolio/ValuePanel'
 import { QuickTrade } from '@/features/trade/QuickTrade'
@@ -229,6 +231,8 @@ export default function DashboardPage() {
   const { data: summary } = useSummary()
   const positions = usePositions()
   const activity = useActivity(6)
+  // Bridge & Buy orders (NEARKITS' server keeps them) sit in the same list, each linked to its order.
+  const bridge = useBridgeOrders(useBridgeAvailability().ok)
   const { promptConnect } = useConnectPrompt()
 
   return (
@@ -283,7 +287,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel>
             <PanelHeader title="Recent activity" actions={<span className="text-[11px] text-fg-3">{caps.mode === 'demo' ? 'Demo history' : 'Sent from this browser'}</span>} />
-            <ActivityList items={activity.data ?? []} loading={activity.isPending} />
+            <ActivityList items={withBridgeActivity(activity.data ?? [], bridge.orders, 6)} loading={activity.isPending} />
           </Panel>
           <OpenOrdersPanel />
         </div>

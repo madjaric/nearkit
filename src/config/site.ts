@@ -6,7 +6,20 @@
 export const DEFAULT_PUBLIC_URL = 'https://nearkits.com'
 
 /** The pages sitemap.xml lists: shipped, public, and the same for every visitor (no wallet-specific or COMING SOON pages). Each has its title and description in seo.ts. */
-export const SITEMAP_PATHS: readonly string[] = ['/', '/swap', '/multi-trade', '/split', '/consolidate', '/batch-send', '/scanner', '/volume-bot', '/kit', '/telegram', '/docs']
+export const SITEMAP_PATHS: readonly string[] = [
+  '/',
+  '/swap',
+  '/bridge',
+  '/multi-trade',
+  '/split',
+  '/consolidate',
+  '/batch-send',
+  '/scanner',
+  '/volume-bot',
+  '/kit',
+  '/telegram',
+  '/docs',
+]
 
 /** The public address as an origin (https, or http on localhost; no path, query, hash or credentials). Blank: NearKit's own. Null: not one. */
 export function parsePublicUrl(raw: string | undefined): string | null {

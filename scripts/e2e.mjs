@@ -469,7 +469,7 @@ await step('$KITS is live at kits.nearlytrade.near: its page trades it, names it
   await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
   await page.getByRole('heading', { name: '$KITS', exact: true }).first().waitFor()
   await visible(page, 'Near Kits, the token of NEARKITS.')
-  if (!(await page.getByRole('button', { name: 'Trade $KITS' }).isEnabled())) throw new Error('the demo can’t trade $KITS')
+  if (!(await page.getByRole('button', { name: 'Buy $KITS' }).isEnabled())) throw new Error('the demo can’t trade $KITS')
   if ((await page.getByRole('link', { name: 'Market and chart' }).getAttribute('href')) !== '/token/kits.nearlytrade.near')
     throw new Error('the market link is not $KITS’ Token Detail')
   if ((await page.getByRole('link', { name: /Explorer/ }).getAttribute('href')) !== 'https://nearblocks.io/tokens/kits.nearlytrade.near')
@@ -592,7 +592,8 @@ await step('phone: tab bar, drawer navigation and trade access', async () => {
   await phone.waitForURL(/\/scanner$/)
   await drawer.waitFor({ state: 'hidden' })
   await phone.getByRole('navigation', { name: 'Quick navigation' }).getByRole('link', { name: 'Positions' }).click()
-  await phone.getByRole('button', { name: 'Buy KITS' }).click()
+  // The row's own Buy key: during the route change the Dashboard's Quick Trade key can still be in the page for a moment.
+  await phone.getByRole('list', { name: 'Positions' }).getByRole('button', { name: 'Buy KITS' }).click()
   await phone.getByRole('dialog', { name: 'Trade ticket' }).getByText('Trade KITS').waitFor()
   await shot(phone, 'phone-trade-sheet')
 })

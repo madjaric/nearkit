@@ -1,3 +1,4 @@
+import { Link } from 'react-router'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Figures } from '@/components/ui/Figures'
 import { Led, Skeleton, Tag } from '@/components/ui/Indicators'
@@ -33,7 +34,13 @@ export function ActivityList({ items, loading = false }: { items: ActivityItem[]
           <Led tone={item.origin === 'simulated' ? 'on' : 'idle'} className="mt-[7px]" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="truncate text-sm text-fg">{item.title}</p>
+              {item.href ? (
+                <Link to={item.href} className="truncate text-sm text-fg underline decoration-fg-4 underline-offset-2 hover:decoration-fg-2">
+                  {item.title}
+                </Link>
+              ) : (
+                <p className="truncate text-sm text-fg">{item.title}</p>
+              )}
               {item.origin === 'simulated' && <Tag tone="accent">This session</Tag>}
             </div>
             <p className="truncate text-xs text-fg-3">

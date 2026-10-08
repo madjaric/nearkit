@@ -450,4 +450,46 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       CREATE UNIQUE INDEX referral_earnings_tx ON referral_earnings(network, tx_hash) WHERE tx_hash IS NOT NULL;
     `,
   },
+  {
+    version: 6,
+    name: 'Bridge & Buy $KITS: orders through NEAR Intents and the purchase after them',
+    sql: `
+      CREATE TABLE bridge_orders (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('nearkits', 'connected')),
+        user_id BIGINT REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        wallet_id TEXT REFERENCES trading_wallets(id),
+        recipient TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        origin_asset TEXT NOT NULL,
+        source_address TEXT NOT NULL,
+        amount_in TEXT NOT NULL,
+        deposit_address TEXT NOT NULL,
+        deposit_deadline BIGINT NOT NULL,
+        sign_by BIGINT NOT NULL,
+        quote TEXT NOT NULL,
+        oneclick TEXT NOT NULL,
+        kits_min_per_near TEXT,
+        kits_slippage DOUBLE PRECISION NOT NULL,
+        status TEXT NOT NULL,
+        intents_status TEXT,
+        deposit_tx TEXT,
+        delivered TEXT,
+        kits TEXT,
+        refund TEXT,
+        stage2 TEXT,
+        message TEXT,
+        next_check_at BIGINT,
+        checks INTEGER NOT NULL DEFAULT 0,
+        lease_owner TEXT,
+        lease_until BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE UNIQUE INDEX bridge_orders_deposit ON bridge_orders(deposit_address);
+      CREATE INDEX bridge_orders_due ON bridge_orders(next_check_at);
+      CREATE INDEX bridge_orders_user ON bridge_orders(user_id, created_at);
+    `,
+  },
 ]

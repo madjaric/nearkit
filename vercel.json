@@ -12,7 +12,7 @@
       "permanent": true
     },
     {
-      "source": "/(swap|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs).html",
+      "source": "/(swap|bridge|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs).html",
       "destination": "/$1",
       "permanent": true
     }
@@ -21,6 +21,10 @@
     {
       "source": "/swap",
       "destination": "/swap.html"
+    },
+    {
+      "source": "/bridge",
+      "destination": "/bridge.html"
     },
     {
       "source": "/multi-trade",

@@ -66,6 +66,12 @@ import { webRoutes } from './web/routes'
 import { WebSessions } from './web/sessions'
 import { referralsModule } from './bot/referrals'
 import { OpsSwitches } from './ops/switches'
+import { createOneClick } from './bridge/oneclick'
+import { bridgeRoutes } from './bridge/routes'
+import { createBridgeService } from './bridge/service'
+import { createSolanaReads } from './bridge/solana'
+import { BridgeStore } from './bridge/store'
+import { createBridgeWorker } from './bridge/worker'
 import { createReferrals } from './referrals/service'
 import { walletErrorText } from './bot/ui'
 import { esc } from './telegram/html'
@@ -114,9 +120,13 @@ export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
 
 export async function startServer(options: { env: Record<string, string | undefined>; fetch?: typeof fetch; log?: Logger; now?: () => number }): Promise<RunningServer> {
   const { config, issues } = loadConfig(options.env)
-  const secrets = [config.telegramToken, options.env.NEARKIT_WALLET_KEK?.trim(), options.env.NEARKIT_SIGNER_AUTH_KEY?.trim(), ...databaseSecrets(config.database)].filter(
-    (s): s is string => Boolean(s),
-  )
+  const secrets = [
+    config.telegramToken,
+    config.bridge.apiKey,
+    options.env.NEARKIT_WALLET_KEK?.trim(),
+    options.env.NEARKIT_SIGNER_AUTH_KEY?.trim(),
+    ...databaseSecrets(config.database),
+  ].filter((s): s is string => Boolean(s))
   const log = options.log ?? createLogger({ level: config.logLevel, secrets })
   if (issues.length) {
     for (const i of issues) log.error('configuration problem', { key: i.key, problem: i.message })
@@ -340,7 +350,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     const switches = new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused)
     health.pauses = await switches
       .state()
-      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused, volumebot: s.volumebot.paused }))
+      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused, volumebot: s.volumebot.paused, bridge: s.bridge.paused }))
       .catch(() => 'unknown' as const)
     if (custody) {
       const h = await custody.signer.health().catch(() => null)
@@ -356,6 +366,25 @@ export async function startServer(options: { env: Record<string, string | undefi
     await bot.notify(r.userId, linkedText(r.accountId, config.network.label))
     if (r.previousUserId !== null) await bot.notify(r.previousUserId, movedAwayText(r.accountId))
   }
+  // Bridge & Buy $KITS: NEAR Intents' 1Click API brings SOL, ETH or BNB to NEAR, then $KITS is bought (mainnet only).
+  const bridgeStore = config.bridge.enabled ? new BridgeStore(db, now) : null
+  const bridge =
+    bridgeStore && config.env.feeRecipient
+      ? createBridgeService({
+          network: config.network,
+          oneclick: createOneClick({ fetch: fetchImpl, baseUrl: config.bridge.oneclickUrl, apiKey: config.bridge.apiKey, now, log }),
+          store: bridgeStore,
+          near,
+          feeRecipient: config.env.feeRecipient,
+          custody,
+          ops: new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused),
+          fetch: fetchImpl,
+          now,
+          log,
+        })
+      : null
+  if (!bridge) log.info('Bridge & Buy off', { reason: config.bridge.reason ?? 'no fee account' })
+
   const api: Server = createApiServer({
     config,
     log,
@@ -363,6 +392,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       ...linkRoutes({ link, onLinked }),
       ...handoffRoutes(handoffs),
       ...(kitsBurns ? kitsRoutes({ burns: kitsBurns }) : {}),
+      ...(bridge ? bridgeRoutes({ bridge, sessions: web, solana: createSolanaReads({ rpcUrl: config.bridge.solanaRpcUrl, fetch: fetchImpl, now }) }) : {}),
       ...(custody
         ? recoveryRoutes({
             recovery: custody.recovery,
@@ -429,6 +459,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : config.buybot.runner === 'separate' ? 'separate process' : 'needs the bot token',
       wallets: custody ? 'on' : 'off',
       volumebot: volumeRunner ? 'running' : 'off',
+      bridge: bridge ? 'on' : 'off',
       pauses: health.pauses,
       signer: health.signer,
       boot: boot.boot,
@@ -450,6 +481,9 @@ export async function startServer(options: { env: Record<string, string | undefi
         })
       : null
   volumeRunner?.start()
+  // Bridge & Buy orders, each stepped under its own lease (NEAR Intents' status, then the $KITS purchase).
+  const bridgeWorker = bridge && bridgeStore ? createBridgeWorker({ bridge, store: bridgeStore, instanceId: instance, log }) : null
+  bridgeWorker?.start()
   if (volumeRunner) log.info('Volume Bot worker running')
 
   const apiPort = await listen(api, config.api.port, config.api.host)
@@ -507,6 +541,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       clearInterval(resolver)
       // No bot starts a new step; the one under way finishes (its trade is settled from its intent after a restart anyway).
       await volumeRunner?.stop()
+      await bridgeWorker?.stop()
       await buybotRunner?.stop()
       await poller?.stop()
       await new Promise<void>((resolve) => api.close(() => resolve()))

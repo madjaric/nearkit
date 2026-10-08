@@ -20,6 +20,7 @@ Thumbs.db
 !.env.demo
 !.env.e2e
 !.env.mainnet
+!.env.bridge-e2e
 
 # Keys and wallet data never belong in this repository.
 *.pem

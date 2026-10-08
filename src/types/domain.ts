@@ -411,7 +411,7 @@ export interface PnlReport {
   recentTrades: ClosedTrade[]
 }
 
-export type ActivityKind = 'swap' | 'multi-trade' | 'split' | 'consolidate' | 'batch-send' | 'order' | 'automation'
+export type ActivityKind = 'swap' | 'multi-trade' | 'split' | 'consolidate' | 'batch-send' | 'order' | 'automation' | 'bridge'
 
 export type ActivityStatus = 'pending' | 'success' | 'partial' | 'failed' | 'unknown'
 
@@ -429,6 +429,8 @@ export interface ActivityItem {
   accountId?: string
   txHashes?: string[]
   explorerUrl?: string | null
+  /** A page with the whole record (a Bridge & Buy order). */
+  href?: string
 }
 
 // ─── trading ────────────────────────────────────────────────────────────────

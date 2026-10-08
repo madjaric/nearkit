@@ -20,6 +20,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, lazy: page(() => import('@/pages/DashboardPage')) },
           { path: 'swap', lazy: page(() => import('@/pages/SwapPage')) },
+          { path: 'bridge', lazy: page(() => import('@/pages/BridgePage')) },
           { path: 'multi-trade', lazy: page(() => import('@/pages/MultiTradePage')) },
           { path: 'limit-orders', lazy: page(() => import('@/pages/LimitOrdersPage')) },
           { path: 'split', lazy: page(() => import('@/pages/SplitPage')) },
