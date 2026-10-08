@@ -2,8 +2,10 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { KIT_POOL_FEE_NOTE, KIT_TAX_NOTE } from '@/config/kit'
-import { buybackTracker } from './buyback'
-import { BuybackPanel, HolderRewardsPanel, KitTokenomics } from './Tokenomics'
+import type { KitsBurnView } from '@/services/kitsBurns'
+import { BurnTracker } from './BurnTracker'
+import type { BurnTrackerState } from './buyback'
+import { HolderRewardsPanel, KitTokenomics } from './Tokenomics'
 
 /** The $KITS page's tokenomics, as a visitor reads them: the panels rendered to HTML, read as text. */
 
@@ -58,26 +60,61 @@ describe('$KITS tokenomics on the $KITS page', () => {
 })
 
 describe('the Buyback & Burn tracker', () => {
-  const text = read(renderToStaticMarkup(createElement(BuybackPanel, { tracker: buybackTracker(KITS, null), kitDecimals: 18 })))
+  const VIEW: KitsBurnView = {
+    network: 'mainnet',
+    token: KITS,
+    launchpad: 'nearlytrade.near',
+    launchId: '2699',
+    decimals: 18,
+    launchSupply: '1000000000000000000000000000',
+    supply: '996766484385607587716865419',
+    burnedTotal: '3233515614392412283134581',
+    burnedByTax: '3233515614392412283134581',
+    burns: [{ tx: '8SzmYJDy4fnKkrZmuYPYkBtzPBZYrFt9frofsWVDjcg6', at: 1791418038627, amount: '78155059288019410500855', kind: 'tax' }],
+    burnCount: 6,
+    historyComplete: true,
+    readAt: 1791421447361,
+    historyReadAt: 1791421446913,
+  }
+  const html = (tracker: BurnTrackerState, priceUsd: number | null = null) => renderToStaticMarkup(createElement(BurnTracker, { tracker, priceUsd }))
 
-  it('follows kits.nearlytrade.near, and until a source reads its buybacks and burns it is an empty state: four "—", awaiting data, and the confirmed 50%', () => {
-    expect(text).toMatch(/Buyback & Burn kits\.nearlytrade\.near/)
-    expect(text).toMatch(/Awaiting data/)
-    expect(text).toContain('Not tracked yet: NEARKITS doesn’t read the buybacks and burns of kits.nearlytrade.near from the chain yet, so no figure is shown.')
-    expect(text).toMatch(/Total bought back —.*Total burned —.*\$KITS burned —.*Last buyback —/)
-    expect(text).toMatch(/50% → Buyback & Burn/)
+  it('live: the KITS burned and their share of the launch supply, the burn transactions, the last burn and the supply now; each burn linked to its transaction', () => {
+    const live = html({ state: 'live', view: VIEW, refreshFailed: false })
+    const text = read(live)
+    expect(text).toMatch(/Buyback & Burn kits\.nearlytrade\.near Updated .* ago Live/)
+    expect(text).toMatch(/Total burned 3,233,515\.61 KITS 0\.32% of the 1,000,000,000 KITS launch supply/)
+    expect(text).toMatch(/Burn transactions 6 each verified on chain/)
+    expect(text).toMatch(/Last burn .* ago 78,155\.05 KITS/)
+    expect(text).toMatch(/Supply now 996,766,484 KITS after burns/)
+    expect(text).toMatch(/Recent burns/)
+    expect(text).toContain('Tax · Buyback & Burn')
+    expect(text).toContain('Confirmed')
+    expect(live).toContain('href="https://nearblocks.io/txns/8SzmYJDy4fnKkrZmuYPYkBtzPBZYrFt9frofsWVDjcg6"')
+    expect(text).toContain('Nearly’s launchpad (nearlytrade.near, launch 2699)')
+    expect(text).not.toMatch(/today’s price/)
+    expect(read(html({ state: 'live', view: VIEW, refreshFailed: false }, 0.00000886))).toContain('≈ $28.65 at today’s price')
   })
 
-  it('makes up no activity: the only figures are the 50% allocation', () => {
-    expect(text.replace(/50%/g, '')).not.toMatch(/\d/)
-    expect(text).not.toMatch(/Tracking|after launch/)
+  it('says when a refresh failed, when the list isn’t the whole history and when some KITS were burned outside the tax', () => {
+    const text = read(html({ state: 'live', view: { ...VIEW, historyComplete: false, burnedByTax: '3000000000000000000000000' }, refreshFailed: true }))
+    expect(text).toMatch(/The last refresh didn’t come back: these figures are from .* ago\./)
+    expect(text).toContain('The list holds the burns verified so far; the total is the chain’s own.')
+    expect(text).toContain('233,515.61 KITS of the total were burned outside the tax.')
   })
 
-  it('on a network without $KITS (testnet) it says so, and still prints no figure', () => {
-    const off = read(renderToStaticMarkup(createElement(BuybackPanel, { tracker: buybackTracker(null, null), kitDecimals: null })))
-    expect(off).toMatch(/Mainnet only/)
-    expect(off).toContain('$KITS trades on NEAR mainnet: this build doesn’t follow its buybacks and burns.')
-    expect(off.replace(/50%/g, '')).not.toMatch(/\d/)
+  it('without a reading keeps its shape, shows no figure, and says why', () => {
+    const cases: [BurnTrackerState, RegExp][] = [
+      [{ state: 'unavailable' }, /Awaiting data.*can’t read \$KITS’ burns from NEAR right now/],
+      [{ state: 'no-source', reason: 'demo' }, /This preview reads nothing from NEAR\. On nearkits\.com/],
+      [{ state: 'no-source', reason: 'no-server' }, /isn’t connected to NEARKITS’ server/],
+      [{ state: 'not-on-network' }, /Mainnet only.*trades on NEAR mainnet: its burns are tracked there/],
+    ]
+    for (const [tracker, why] of cases) {
+      const text = read(html(tracker))
+      expect(text).toMatch(why)
+      expect(text).toMatch(/Total burned — KITS/)
+      expect(text.replace(/kits\.nearlytrade\.near/g, '')).not.toMatch(/\d/)
+    }
   })
 })
 

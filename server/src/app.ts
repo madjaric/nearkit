@@ -24,6 +24,8 @@ import { createLinkService } from './link/service'
 import { createLogger, type Logger } from './log'
 import { buildBuybotDeps, runBuybot } from './buybot/service'
 import { checkChainIds } from './chainId'
+import { createKitsBurnTracker } from './kits/burns'
+import { kitsRoutes } from './kits/routes'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
@@ -136,6 +138,9 @@ export async function startServer(options: { env: Record<string, string | undefi
   const boot = await store.recordBoot()
   log.info('database ready', { database: describeDatabase(config.database), schema, boot: boot.boot, since: new Date(boot.since).toISOString(), ...(await store.counts()) })
   const near = createServerNear(config, fetchImpl, now)
+  // $KITS exists on mainnet only: its Buyback & Burn tracker (a public, cached, read-only route) runs there.
+  const kitsBurns =
+    config.network.id === 'mainnet' && config.network.kitsContract ? createKitsBurnTracker({ rpc: near.ctx.rpc, fetch: fetchImpl, network: config.network, now, log }) : null
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   // Trade results reach the user through the bot once it is running; they respect /settings.
   let notifyUser: (userId: number, html: string) => Promise<void> = async () => {}
@@ -357,6 +362,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     routes: {
       ...linkRoutes({ link, onLinked }),
       ...handoffRoutes(handoffs),
+      ...(kitsBurns ? kitsRoutes({ burns: kitsBurns }) : {}),
       ...(custody
         ? recoveryRoutes({
             recovery: custody.recovery,

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useNavigation } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
-import { Freshness } from '@/components/domain/Freshness'
+import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Button, IconButton } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
 import { Figures } from '@/components/ui/Figures'
@@ -14,27 +14,40 @@ import { Pct } from '@/components/ui/Num'
 import { useToast } from '@/components/ui/toast-context'
 import { cn } from '@/lib/cn'
 import { formatAccount, formatAmount, formatPrice } from '@/lib/format'
-import { usePrevious } from '@/lib/hooks'
+import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { isStale } from '@/lib/freshness'
+import { useNow, usePrevious } from '@/lib/hooks'
 import { useNetworkWording } from '@/lib/modeCopy'
 import { useCapabilities, useDisconnect, useNearPrice, useSession, useSummary } from '@/services/queries'
 import { useConnectPrompt } from '@/state/contexts'
 import { GlobalSearch } from './GlobalSearch'
 
-export function NearTicker({ className, showAge = false }: { className?: string; showAge?: boolean }) {
+/**
+ * NEAR's price in the top bar: NEAR's mark, the pair, the price and its 24 h change. It refreshes on
+ * its own; no age, countdown or "stale" mark is printed. A price older than 20 s dims and says so to
+ * assistive tech until the next one lands (opacity only: nothing moves).
+ */
+export function NearTicker({ className }: { className?: string }) {
   const { data, isPending } = useNearPrice()
+  const now = useNow(5_000)
+  const stale = data ? isStale(data.updatedAt, now) : false
   const previous = usePrevious(data?.priceUsd)
   const dir = data && previous !== undefined ? (data.priceUsd > previous ? 'up' : data.priceUsd < previous ? 'down' : null) : null
   return (
     <div className={cn('min-w-0 items-baseline gap-2 overflow-hidden whitespace-nowrap', className)} aria-label="NEAR price">
+      <TokenGlyph symbol="NEAR" tokenId={NATIVE_TOKEN_ID} size={18} className="self-center" />
       <span className="legend max-[339px]:hidden">NEAR/USD</span>
       {data ? (
         <>
-          <span key={data.updatedAt} className={cn('num text-sm text-fg', dir === 'up' && 'animate-tick-up', dir === 'down' && 'animate-tick-down')}>
+          <span
+            key={data.updatedAt}
+            title={stale ? 'Last NEAR price: refreshing' : undefined}
+            className={cn('num text-sm text-fg transition-opacity', stale && 'opacity-60', dir === 'up' && 'animate-tick-up', dir === 'down' && 'animate-tick-down')}
+          >
             ${formatPrice(data.priceUsd)}
           </span>
-          <Pct value={data.change24hPct} className="text-xs" />
-          {/* No ticking seconds counter: the price is just there, and marked only when it goes stale. */}
-          {showAge && <Freshness at={data.updatedAt} staleOnly />}
+          <Pct value={data.change24hPct} className={cn('text-xs transition-opacity', stale && 'opacity-60')} />
+          {stale && <span className="sr-only">Last known price, refreshing</span>}
         </>
       ) : isPending ? (
         <Skeleton className="h-4 w-20 self-center" />
@@ -88,10 +101,10 @@ function WalletButton() {
   if (isPending) return <Skeleton className="h-10 w-36" />
   if (!session)
     return (
-      // A phone's bar has room for a 36px key; under 360px the label drops to its verb.
+      // A phone's bar has room for a 36px key; under 380px the label drops to its verb (its name stays "Connect wallet").
       <Button variant="primary" size="lg" aria-label="Connect wallet" className="max-sm:h-9 max-sm:px-4 max-sm:text-xs" onClick={promptConnect}>
         <span>
-          Connect<span className="max-[359px]:hidden"> wallet</span>
+          Connect<span className="max-[379px]:hidden"> wallet</span>
         </span>
       </Button>
     )
@@ -195,7 +208,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
                 <Search size={17} />
               </IconButton>
               <BalanceRefreshStatus terse />
-              <NearTicker className="hidden sm:flex" showAge />
+              <NearTicker className="hidden sm:flex" />
               <div className="hidden md:block">
                 <NetworkChip />
               </div>
@@ -217,7 +230,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
 export function StatusStrip() {
   return (
     <div className="flex h-11 items-center justify-between gap-3 border-b border-line-soft bg-well px-4 sm:hidden">
-      <NearTicker className="flex" showAge />
+      <NearTicker className="flex" />
       <NetworkChip bare />
     </div>
   )

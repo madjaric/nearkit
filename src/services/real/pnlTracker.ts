@@ -19,6 +19,8 @@ export interface AccountLedger {
   txCount: number
   /** yoctoNEAR of gas this account paid as signer, across its history. */
   gasPaid: bigint
+  /** The same, per transaction it signed, with the transaction's time: what a period sums. */
+  gas: { at: number; yocto: bigint }[]
   readAt: number
 }
 
@@ -87,14 +89,17 @@ export function createPnlTracker(ctx: NearContext) {
     }
     const byToken = new Map<string, LedgerEvent[]>()
     let gasPaid = 0n
-    const seen = new Set(txs.map((t: TxRef) => t.hash))
+    const gas: { at: number; yocto: bigint }[] = []
+    const timeOf = new Map(txs.map((t: TxRef) => [t.hash, t.timestampMs]))
     for (const [hash, c] of Object.entries(cache)) {
-      if (!seen.has(hash)) continue
+      const at = timeOf.get(hash)
+      if (at === undefined) continue
       gasPaid += BigInt(c.gas)
+      if (c.gas !== '0') gas.push({ at, yocto: BigInt(c.gas) })
       for (const e of c.events) byToken.set(e.token, [...(byToken.get(e.token) ?? []), revive(hash, e)])
     }
     for (const list of byToken.values()) list.sort((a, b) => a.at - b.at)
-    return { accountId, byToken, complete, txCount: txs.length, gasPaid, readAt: ctx.now() }
+    return { accountId, byToken, complete, txCount: txs.length, gasPaid, gas, readAt: ctx.now() }
   }
 
   return {

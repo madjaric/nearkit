@@ -28,7 +28,7 @@ const toneOf = (v: number): Tone => (v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat')
 const partialOf = (limits: readonly PnlLimitation[] | undefined): string | null => (limits?.length ? `Partial: ${limits.map((l) => LIMITATION_SHORT[l]).join(', ')}` : null)
 const networkName = (network: 'mainnet' | 'testnet' | null) => (network ? `NEAR ${network}` : null)
 
-const SCOPE: Record<PnlRange, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' }
+const SCOPE: Record<PnlRange, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' }
 
 /** A position's card, or null when there is no total to show (no current price). */
 export function cardFromPosition(position: Position, opts: { usd: boolean; network: 'mainnet' | 'testnet' | null; demo: boolean; at: number }): PnlCard | null {

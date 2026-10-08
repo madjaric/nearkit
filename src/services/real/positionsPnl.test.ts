@@ -28,6 +28,7 @@ const ledger = (accountId: string, events: LedgerEvent[]): AccountLedger => ({
   complete: true,
   txCount: events.length,
   gasPaid: 0n,
+  gas: [],
   readAt: 1,
 })
 const tracker = (ledgers: AccountLedger[]) =>

@@ -81,6 +81,7 @@ describe('PnL card: a position', () => {
 describe('PnL card: the report', () => {
   const report = (r: Partial<PnlReport>): PnlReport => ({
     range: '30d',
+    bucketMs: 86_400_000,
     points: [],
     realizedUsd: 12.5,
     unrealizedUsd: -2.5,
@@ -97,6 +98,10 @@ describe('PnL card: the report', () => {
     complete: true,
     limitations: [],
     ...r,
+  })
+
+  it('names the 24-hour period as the last 24 hours', () => {
+    expect(cardFromReport(report({ range: '24h', bucketMs: 3_600_000 }), { network: 'mainnet', at: AT }).scope).toBe('Last 24 hours')
   })
 
   it('totals realized and unrealized for the range, with the win rate of closed trades', () => {

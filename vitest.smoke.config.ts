@@ -12,7 +12,7 @@ export default defineConfig({
   define: { __NEARKIT_E2E__: 'false', __NEARKIT_VERSION__: '"test"', __NEARKIT_DEMO__: 'false' },
   test: {
     environment: 'node',
-    include: ['src/**/*.smoke.ts'],
+    include: ['src/**/*.smoke.ts', 'server/src/**/*.smoke.ts'],
     testTimeout: 60_000,
     // One at a time: public endpoints rate-limit bursts.
     fileParallelism: false,

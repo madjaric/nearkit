@@ -427,6 +427,44 @@ await step('PnL: cursor handle moves with the keyboard', async () => {
   await page.getByText('Δ PnL (B − A)').waitFor()
 })
 
+await step('PnL: 24H is a real period (its own figures, hourly chart, its trades), and switching periods changes them', async () => {
+  await page.goto(BASE + '/pnl', { waitUntil: 'networkidle' })
+  const periods = page.getByRole('radiogroup', { name: 'Period' })
+  const labels = await periods.getByRole('radio').allInnerTexts()
+  if (labels.map((l) => l.trim()).join() !== '24H,7D,30D,90D,ALL' && labels.map((l) => l.trim()).join() !== '24H,7D,30D,90D,All') throw new Error(`periods: ${labels}`)
+  const realized = () =>
+    page
+      .getByText(/closed trades? in the last|no trade closed in the last/)
+      .first()
+      .innerText()
+  const ninety = await realized()
+  await periods.getByRole('radio', { name: '24H' }).click()
+  await page
+    .getByText(/in the last 24 hours/)
+    .first()
+    .waitFor()
+  if ((await realized()) === ninety) throw new Error('24H shows the 90D figures')
+  // Hourly points, or the clean zero state; never an empty frame.
+  const chart = page.getByRole('img', { name: /realized PnL in the last 24 hours/i })
+  await chart.waitFor()
+  const name = (await chart.getAttribute('aria-label')) ?? ''
+  if (!/one hour each/.test(name) && !/^No realized PnL in the last 24 hours/.test(name)) throw new Error(`24H chart: ${name}`)
+  await shot(page, 'pnl-24h')
+  // The table view lists the period's buckets with closed trades, or says there were none.
+  await page.getByRole('radio', { name: 'Table' }).click()
+  await page
+    .getByText(/^(Period|No trade closed in the last 24 hours\.)$/)
+    .first()
+    .waitFor()
+  await page.getByRole('radio', { name: 'Chart' }).click()
+  await periods.getByRole('radio', { name: '7D' }).click()
+  await page.getByRole('img', { name: /realized PnL in the last 7 days/i }).waitFor()
+  await page
+    .getByText(/in the last 7 days/)
+    .first()
+    .waitFor()
+})
+
 await step('$KITS is live at kits.nearlytrade.near: its page trades it, names its contract and links its market and explorer; Telegram shows no invented stats', async () => {
   await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
   await page.getByRole('heading', { name: '$KITS', exact: true }).first().waitFor()
@@ -473,12 +511,17 @@ await step(
       has(pool, /70% of the 1% pool fee is allocated to NEARKITS\./, 'the pool fee note')
       // Two separate things: the 70% is the pool fee's, never the tax's.
       if (/70%|pool fee/i.test(tax + split) || /Buyback|Holders/i.test(pool)) throw new Error(`${width}px: the trading tax and the pool fee are mixed`)
-      const tracker = await p.getByRole('region', { name: /Buyback & Burn/i }).innerText()
-      has(tracker, /Awaiting data/i, 'the tracker status')
+      const trackerRegion = p.getByRole('region', { name: /Buyback & Burn/i })
+      const tracker = await trackerRegion.innerText()
+      // Buyback & Burn comes right after the token, before the tokenomics.
+      const tops = await Promise.all([trackerRegion, tokenomics].map((r) => r.evaluate((el) => el.getBoundingClientRect().top)))
+      if (!((tops[0] ?? 0) < (tops[1] ?? 0))) throw new Error(`${width}px: Buyback & Burn is not above the tokenomics`)
+      has(tracker, /Not read here/i, 'the tracker status')
       has(tracker, /Buyback & Burn\s+kits\.nearlytrade\.near/i, 'the contract the tracker follows')
-      has(tracker, /Not tracked yet: NEARKITS doesn’t read the buybacks and burns of kits\.nearlytrade\.near from the chain yet, so no figure is shown\./, 'the tracker note')
-      has(tracker, /50% → Buyback & Burn/, 'the tax allocation')
-      if ((tracker.match(/—/g) ?? []).length !== 4 || /\d/.test(tracker.replace(/50%/g, ''))) throw new Error(`${width}px: the tracker shows a figure: ${tracker}`)
+      has(tracker, /Total burned/i, 'the total burned slot')
+      has(tracker, /This preview reads nothing from NEAR\. On nearkits\.com, \$KITS’ burns are read live from kits\.nearlytrade\.near\./, 'the tracker note')
+      // The demo reads no chain: no burn figure at all, never a made-up one.
+      if (/\d/.test(tracker.replace(/kits\.nearlytrade\.near|nearkits\.com/g, ''))) throw new Error(`${width}px: the tracker shows a figure: ${tracker}`)
       const rewards = await p.getByRole('region', { name: /Holder rewards/i }).innerText()
       has(rewards, /Coming soon/i, 'holder rewards')
       has(rewards, /50%[\s\S]*of the tax/, 'the holders’ share')

@@ -1,9 +1,10 @@
+import { isStale } from '@/lib/freshness'
+import { useNow } from '@/lib/hooks'
 import { Coins, Layers, PieChart, SendHorizontal, Wallet } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Sparkline } from '@/components/chart/Sparkline'
 import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
-import { Freshness } from '@/components/domain/Freshness'
 import { SimMark } from '@/components/domain/SimMark'
 import { DataTag, StatusLamp } from '@/components/domain/Status'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
@@ -88,15 +89,27 @@ function Readouts() {
   const loading = summary.isPending
   const off = !session && !nearkitSession
   const trace = !off && history.data && history.data.length > 1 ? <Sparkline values={history.data.map((p) => p.valueUsd)} width={84} /> : undefined
+  // It refreshes on its own and prints no age; a reading past 20 s dims until the next one lands.
+  const now = useNow(5_000)
+  const stale = !off && s ? isStale(s.updatedAt, now) : false
   return (
     <ReadoutStrip cols="grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr]">
       <ReadoutSlot
         className="col-span-2 xl:col-span-1"
         size="lg"
         legend="Portfolio value"
-        aside={!off && s ? <Freshness at={s.updatedAt} /> : undefined}
         loading={loading}
-        value={off || !s ? <span className="text-fg-4">{zeroUsd}</span> : s.valueUsd === null ? <span className="text-fg-4">—</span> : formatUsd(s.valueUsd)}
+        value={
+          off || !s ? (
+            <span className="text-fg-4">{zeroUsd}</span>
+          ) : s.valueUsd === null ? (
+            <span className="text-fg-4">—</span>
+          ) : (
+            <span className={stale ? 'opacity-60 transition-opacity' : 'transition-opacity'} title={stale ? 'Last value: refreshing' : undefined}>
+              {formatUsd(s.valueUsd)}
+            </span>
+          )
+        }
         sub={
           off || !s ? (
             'Connect a wallet'

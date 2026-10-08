@@ -3,16 +3,16 @@ import { cn } from '@/lib/cn'
 import { formatDate, USD_FORMAT, type MoneyFormat } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
 import type { PnlPoint } from '@/types/domain'
-import { pct, xFrac, yScale } from './geometry'
+import { nearestAt, pct, pointerFrac, xFrac, yScale } from './geometry'
 import { niceTicks } from './scale'
 import { HoverReadout, VLine, YLabels } from './ScopeParts'
 
 const PAD = { top: 8, right: 60, bottom: 8, left: 4 }
 
 /**
- * Daily realized PnL as columns from a zero line: position carries the sign,
- * color reinforces it. Columns are HTML so their width caps at 24px with a
- * 2px gap at any container size, sharing x positions with the scope above.
+ * Realized PnL per bucket (an hour, six hours, a day) as columns from a zero line: position carries
+ * the sign, color reinforces it. Columns are HTML so their width caps at 24px with a 2px gap at any
+ * container size, sharing x positions with the scope above. The first point (the period's start) has none.
  */
 export function DailyBars({
   points,
@@ -20,17 +20,26 @@ export function DailyBars({
   window,
   dim = false,
   money = USD_FORMAT,
+  label = (p) => formatDate(p.t),
+  word = 'day',
+  fracs,
 }: {
   points: PnlPoint[]
   height?: number
   window?: [number, number]
   dim?: boolean
   money?: MoneyFormat
+  /** A bucket's name in the hover readout. */
+  label?: (p: PnlPoint) => string
+  /** What a bucket is called ("hour", "6 h", "day"). */
+  word?: string
+  /** Each point's x, shared with the chart above (by time); evenly by index without it. */
+  fracs?: readonly number[]
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const n = points.length
   const plotH = height - PAD.top - PAD.bottom
-  const values = points.map((p) => p.daily)
+  const values = points.map((p) => p.booked)
   const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values), 2)
   const lo = ticks[0] ?? -1
   const hi = ticks[ticks.length - 1] ?? 1
@@ -41,10 +50,10 @@ export function DailyBars({
   const from = window ? Math.min(...window) : -1
   const to = window ? Math.max(...window) : n
 
+  const xAt = (i: number) => fracs?.[i] ?? xFrac(i, n)
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const frac = rect.width ? (e.clientX - rect.left) / rect.width : 0
-    setHover(Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))))
+    const frac = pointerFrac(e.clientX, e.currentTarget)
+    setHover(fracs ? nearestAt(fracs, frac) : Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))))
   }
 
   return (
@@ -55,16 +64,16 @@ export function DailyBars({
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
         role="img"
-        aria-label={`Daily realized PnL for ${n} days. Winning days ${values.filter((v) => v > 0).length}, losing days ${values.filter((v) => v < 0).length}.`}
+        aria-label={`Realized PnL per ${word}, ${n - 1} of them: ${values.filter((v) => v > 0).length} winning, ${values.filter((v) => v < 0).length} losing.`}
       >
         {ticks.map((t) => (
           <span key={t} aria-hidden="true" className={cn('absolute inset-x-0 h-px', t === 0 ? 'bg-line-strong' : 'bg-line-soft')} style={{ top: y(t) }} />
         ))}
         {points.map((p, i) => {
-          if (p.daily === 0) return null
-          const up = p.daily > 0
-          const top = up ? y(p.daily) : zero
-          const h = Math.max(1, Math.abs(y(p.daily) - zero))
+          if (p.booked === 0) return null
+          const up = p.booked > 0
+          const top = up ? y(p.booked) : zero
+          const h = Math.max(1, Math.abs(y(p.booked) - zero))
           const inWindow = !window || (i > from && i <= to)
           return (
             <span
@@ -76,16 +85,16 @@ export function DailyBars({
                 !inWindow && 'opacity-30',
                 hover === i && 'brightness-125',
               )}
-              style={{ left: pct(xFrac(i, n)), top, height: h, width: `min(24px, max(1px, calc(${slot}% - 2px)))` }}
+              style={{ left: pct(xAt(i)), top, height: h, width: `min(24px, max(1px, calc(${slot}% - 2px)))` }}
             />
           )
         })}
         {hp && hover !== null && (
           <>
-            <VLine frac={xFrac(hover, n)} className="bg-fg-4" />
-            <HoverReadout frac={xFrac(hover, n)}>
-              <div className={cn('num text-sm', toneOf(hp.daily))}>{hp.daily === 0 ? 'No closed trades' : money.full(hp.daily, { signed: true })}</div>
-              <div className="text-[11px] text-fg-3">{formatDate(hp.t)}</div>
+            <VLine frac={xAt(hover)} className="bg-fg-4" />
+            <HoverReadout frac={xAt(hover)}>
+              <div className={cn('num text-sm', toneOf(hp.booked))}>{hp.booked === 0 ? 'No closed trades' : money.full(hp.booked, { signed: true })}</div>
+              <div className="text-[11px] text-fg-3">{label(hp)}</div>
             </HoverReadout>
           </>
         )}

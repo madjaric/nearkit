@@ -19,19 +19,18 @@ import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { useSort } from '@/components/ui/useSort'
 import { cn } from '@/lib/cn'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
-import { formatCompact, formatDate, formatDateTime, formatNumber, formatPrice, NEAR_FORMAT, USD_FORMAT, type MoneyFormat } from '@/lib/format'
+import { formatCompact, formatDateTime, formatNumber, formatPrice, NEAR_FORMAT, USD_FORMAT, type MoneyFormat } from '@/lib/format'
+import { bucketLabel, PNL_PERIODS } from '@/lib/pnlPeriod'
 import { useCapabilities, usePnl, useWallets } from '@/services/queries'
 import { cardFromReport } from '@/features/portfolio/pnlCard'
 import { PnlCardDialog } from '@/features/portfolio/PnlCardDialog'
 import { LIMITATION_TEXT } from '@/features/portfolio/pnlText'
-import type { PnlRange, TokenPnl } from '@/types/domain'
+import type { ClosedTrade, PnlRange, PnlReport, Token, TokenPnl } from '@/types/domain'
 
-const RANGES: { value: PnlRange; label: string }[] = [
-  { value: '7d', label: '7D' },
-  { value: '30d', label: '30D' },
-  { value: '90d', label: '90D' },
-  { value: 'all', label: 'All' },
-]
+const PERIODS = PNL_PERIODS.map((p) => ({ value: p.value, label: p.label }))
+const periodOf = (range: PnlRange) => PNL_PERIODS.find((p) => p.value === range) ?? { value: range, label: range.toUpperCase(), name: range }
+/** The next longer period, offered when this one has nothing in it. */
+const longer = (range: PnlRange): PnlRange | null => PNL_PERIODS[PNL_PERIODS.findIndex((p) => p.value === range) + 1]?.value ?? null
 
 type TokenKey = 'token' | 'trades' | 'volume' | 'realized' | 'unrealized' | 'win'
 const TOKEN_GETTERS: Record<TokenKey, (t: TokenPnl) => number | string> = {
@@ -44,7 +43,7 @@ const TOKEN_GETTERS: Record<TokenKey, (t: TokenPnl) => number | string> = {
   win: (t) => t.winRatePct,
 }
 
-/** A money figure in the report's currency. */
+/** A money figure in the report's currency: green above zero, red below, plain at zero; unknown is a ghost dash. */
 function Money({
   value,
   money,
@@ -62,40 +61,57 @@ function Money({
   return <span className={cn('num', colored && toneOf(value), className)}>{money.full(value, { signed })}</span>
 }
 
+/** A token as the Positions table shows it: its glyph, symbol and name. */
+function TokenCell({ token, sub }: { token: Token; sub?: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <TokenGlyph symbol={token.symbol} tokenId={token.id} size={28} />
+      <span className="flex min-w-0 flex-col">
+        <span className="flex items-center gap-1.5 font-medium text-fg">
+          {token.symbol}
+          {token.status === 'prelaunch' && <SimMark className="ml-0" />}
+        </span>
+        <span className="truncate text-xs text-fg-3">{sub ?? token.name}</span>
+      </span>
+    </span>
+  )
+}
+
+/** Nothing in this period: say so, and offer the next longer one. */
+function Nothing({ text, range, onRange }: { text: string; range: PnlRange; onRange: (r: PnlRange) => void }) {
+  const next = longer(range)
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <p className="text-sm text-fg-3">{text}</p>
+      {next && (
+        <Button size="sm" variant="secondary" onClick={() => onRange(next)}>
+          {`Show ${periodOf(next).label}`}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
   const { sorted, thSort } = useSort(rows, TOKEN_GETTERS, { key: 'realized', dir: 'desc' })
+  const won = (t: TokenPnl) => ((t.closed ?? t.trades) ? `${formatNumber(t.winRatePct, 0, 1)}%` : '—')
   return (
     <>
       <ul className="divide-y divide-line-soft md:hidden" aria-label="PnL by token">
         {sorted.map((t) => (
           <li key={t.token.id} className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="flex items-center gap-2.5">
-              <TokenGlyph symbol={t.token.symbol} tokenId={t.token.id} size={20} />
-              <span className="flex flex-col">
-                <span className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                  {t.token.symbol}
-                  {t.token.status === 'prelaunch' && <SimMark className="ml-0" />}
-                </span>
-                <span className="num text-[11px] text-fg-3">
-                  {t.trades} {t.trades === 1 ? 'trade' : 'trades'} · {(t.closed ?? t.trades) ? `${formatNumber(t.winRatePct, 0, 1)}% won` : 'none closed'}
-                </span>
-              </span>
-            </span>
-            <span className="text-right text-xs">
-              <span className="block">
-                <span className="text-fg-3">real </span>
-                <Money money={money} value={t.realizedUsd} signed colored />
-              </span>
-              <span className="block">
-                <span className="text-fg-3">open </span>
-                <Money money={money} value={t.unrealizedUsd} signed colored />
+            <TokenCell token={t.token} sub={`${t.trades} ${t.trades === 1 ? 'trade' : 'trades'} · ${won(t)} won`} />
+            <span className="flex shrink-0 flex-col items-end gap-0.5 text-xs">
+              <Money money={money} value={t.realizedUsd} signed colored className="text-sm" />
+              <span className="text-fg-3">
+                open <Money money={money} value={t.unrealizedUsd} signed colored />
               </span>
             </span>
           </li>
         ))}
       </ul>
       <div className="hidden md:block">
-        <Table label="PnL by token" rows="double" minWidth={560}>
+        <Table label="PnL by token" rows="double" minWidth={620}>
           <thead>
             <tr>
               <Th sort={thSort('token')}>Token</Th>
@@ -120,13 +136,7 @@ function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
             {sorted.map((t) => (
               <Tr key={t.token.id}>
                 <Td>
-                  <span className="flex items-center gap-2">
-                    <TokenGlyph symbol={t.token.symbol} tokenId={t.token.id} size={20} />
-                    <span className="flex items-center gap-1.5 font-medium text-fg">
-                      {t.token.symbol}
-                      {t.token.status === 'prelaunch' && <SimMark className="ml-0" />}
-                    </span>
-                  </span>
+                  <TokenCell token={t.token} />
                 </Td>
                 <Td align="right" mono className="text-fg-2">
                   {t.trades}
@@ -141,7 +151,7 @@ function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
                   <Money money={money} value={t.unrealizedUsd} signed colored />
                 </Td>
                 <Td align="right" mono className={(t.closed ?? t.trades) ? 'text-fg-2' : 'text-fg-4'}>
-                  {(t.closed ?? t.trades) ? `${formatNumber(t.winRatePct, 0, 1)}%` : '—'}
+                  {won(t)}
                 </Td>
               </Tr>
             ))}
@@ -149,6 +159,100 @@ function ByToken({ rows, money }: { rows: TokenPnl[]; money: MoneyFormat }) {
         </Table>
       </div>
     </>
+  )
+}
+
+function ClosedTrades({ r, money }: { r: PnlReport; money: MoneyFormat }) {
+  const { data: wallets = [] } = useWallets()
+  const tokenOf = (t: ClosedTrade) => r.byToken.find((b) => b.token.id === t.tokenId)?.token
+  const walletOf = (t: ClosedTrade) => wallets.find((w) => w.id === t.walletId)?.label ?? ''
+  const onCost = (t: ClosedTrade) => {
+    const cost = t.valueUsd - t.pnlUsd
+    return cost ? (t.pnlUsd / cost) * 100 : 0
+  }
+  return (
+    <>
+      <ul className="divide-y divide-line-soft md:hidden" aria-label="Closed trades">
+        {r.recentTrades.map((t) => {
+          const token = tokenOf(t)
+          return (
+            <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+              {token ? <TokenCell token={token} sub={`${formatDateTime(t.at)} · ${walletOf(t)}`} /> : <span className="text-sm text-fg-3">{formatDateTime(t.at)}</span>}
+              <span className="flex shrink-0 flex-col items-end gap-0.5">
+                <Money money={money} value={t.pnlUsd} signed colored className="text-sm" />
+                <Pct value={onCost(t)} className="text-[11px]" />
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      <div className="hidden md:block">
+        <Table label="Closed trades" rows="double" minWidth={620}>
+          <thead>
+            <tr>
+              <Th>Token</Th>
+              <Th>Closed</Th>
+              <Th align="right">Size</Th>
+              <Th align="right">Exit</Th>
+              <Th align="right">PnL</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {r.recentTrades.map((t) => {
+              const token = tokenOf(t)
+              return (
+                <Tr key={t.id}>
+                  <Td>{token ? <TokenCell token={token} sub={walletOf(t)} /> : '—'}</Td>
+                  <Td className="text-xs text-fg-2">{formatDateTime(t.at)}</Td>
+                  <Td align="right" mono className="text-fg-2">
+                    {formatCompact(t.amount, 2)}
+                  </Td>
+                  <Td align="right">
+                    {r.currency === 'NEAR' ? <span className="num text-fg-2">{formatPrice(t.priceUsd)} NEAR</span> : <Price value={t.priceUsd} className="text-fg-2" />}
+                  </Td>
+                  <Td align="right">
+                    <Money money={money} value={t.pnlUsd} signed colored />
+                    <div>
+                      <Pct value={onCost(t)} className="text-[11px]" />
+                    </div>
+                  </Td>
+                </Tr>
+              )
+            })}
+          </tbody>
+        </Table>
+      </div>
+    </>
+  )
+}
+
+/** The chart's table view: the buckets in which trades closed, newest first. */
+function Buckets({ r, money, range, onRange }: { r: PnlReport; money: MoneyFormat; range: PnlRange; onRange: (r: PnlRange) => void }) {
+  const active = r.points.slice(1).filter((p) => p.booked !== 0 || p.volumeUsd !== 0)
+  if (!active.length) return <Nothing text={`No trade closed in ${periodOf(range).name}.`} range={range} onRange={onRange} />
+  return (
+    <div className="max-h-[420px] overflow-y-auto">
+      <Table label="Realized PnL by period">
+        <thead className="sticky top-0 bg-panel">
+          <tr>
+            <Th>Period</Th>
+            <Th align="right">Realized</Th>
+            <Th align="right">Cumulative</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...active].reverse().map((p) => (
+            <Tr key={p.t}>
+              <Td className="text-xs text-fg-2">{bucketLabel(p, r.bucketMs)}</Td>
+              <Td align="right">{p.booked === 0 ? <span className="num text-fg-4">0.00</span> : <Money money={money} value={p.booked} signed colored />}</Td>
+              <Td align="right">
+                <Money money={money} value={p.cumulative} signed colored />
+              </Td>
+            </Tr>
+          ))}
+        </tbody>
+      </Table>
+    </div>
   )
 }
 
@@ -163,14 +267,17 @@ function Pnl() {
   const chain = r?.source === 'chain'
   const money = r?.currency === 'NEAR' ? NEAR_FORMAT : USD_FORMAT
   const caps = useCapabilities()
+  // The figures' period: while a newly picked one loads, the last one stays on screen (dimmed), named as what it is.
+  const period = periodOf(r?.range ?? range)
   /** When the card was opened: its "as of" time. */
   const [sharedAt, setSharedAt] = useState<number | null>(null)
   const accounts = [...new Set(wallets.map((w) => w.accountId))]
+  const judged = r ? r.wins + r.losses : 0
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Segmented label="Date range" value={range} onChange={setRange} options={RANGES} />
+        <Segmented label="Period" value={range} onChange={setRange} options={PERIODS} />
         <div className="flex flex-wrap items-center gap-3">
           {chain ? (
             <span className="flex items-center gap-2 text-xs text-fg-3">
@@ -193,27 +300,39 @@ function Pnl() {
           className="col-span-2 md:col-span-1"
           size="lg"
           legend={<Term term="realizedPnl" />}
+          aside={<span className="num text-[11px] text-fg-3">{period.label}</span>}
           loading={loading}
           value={r ? <Money money={money} value={r.realizedUsd} signed colored /> : '—'}
-          sub={r ? `${r.trades} closed trades` : ''}
+          sub={r ? (r.trades ? `${r.trades} closed ${r.trades === 1 ? 'trade' : 'trades'} in ${period.name}` : `no trade closed in ${period.name}`) : ''}
         />
         <ReadoutSlot
           legend={<Term term="unrealizedPnl" />}
+          aside={<span className="text-[11px] text-fg-3">now</span>}
           loading={loading}
           value={r ? <Money money={money} value={r.unrealizedUsd} signed colored /> : '—'}
-          sub={r?.unrealizedUsd === null ? 'unknown: no current price' : 'open positions, now'}
+          sub={r?.unrealizedUsd === null ? 'unknown: no current price' : 'open positions, at today’s prices'}
         />
-        <ReadoutSlot legend="Trading volume" loading={loading} value={r ? money.compact(r.volumeUsd, 2) : '—'} sub="entries + exits" />
+        <ReadoutSlot
+          legend="Trading volume"
+          aside={<span className="num text-[11px] text-fg-3">{period.label}</span>}
+          loading={loading}
+          value={r ? money.compact(r.volumeUsd, 2) : '—'}
+          sub="entries + exits"
+        />
         {chain ? (
           <ReadoutSlot
             legend={
               <>
-                Gas paid <InfoTip>NEAR these accounts paid as gas across their history. Swap fees (NEARKITS’ {NEARKIT_FEE_LABEL}, Rhea’s) are inside each trade’s value.</InfoTip>
+                Gas paid{' '}
+                <InfoTip>
+                  NEAR these accounts paid as gas in the period, transaction by transaction. Swap fees (NEARKITS’ {NEARKIT_FEE_LABEL}, Rhea’s) are inside each trade’s value.
+                </InfoTip>
               </>
             }
+            aside={<span className="num text-[11px] text-fg-3">{period.label}</span>}
             loading={loading}
             value={r?.gasNear !== undefined ? NEAR_FORMAT.full(r.gasNear) : '—'}
-            sub={r?.history && !r.history.complete ? `latest ${r.history.txs} transactions only` : 'whole history'}
+            sub={r?.history && !r.history.complete ? `partial: latest ${r.history.txs} transactions read` : `in ${period.name}`}
           />
         ) : (
           <ReadoutSlot
@@ -222,6 +341,7 @@ function Pnl() {
                 Fees paid <InfoTip>Estimated at {NEARKIT_FEE_LABEL} of volume. The demo charges no fee.</InfoTip>
               </>
             }
+            aside={<span className="num text-[11px] text-fg-3">{period.label}</span>}
             loading={loading}
             value={r ? money.full(r.feesUsd) : '—'}
             sub={`${NEARKIT_FEE_LABEL} of volume`}
@@ -230,9 +350,10 @@ function Pnl() {
         <ReadoutSlot
           className="md:col-span-2 xl:col-span-1"
           legend={<Term term="winRate" />}
+          aside={<span className="num text-[11px] text-fg-3">{period.label}</span>}
           loading={loading}
-          value={r && r.wins + r.losses > 0 ? `${formatNumber(r.winRatePct, 1, 1)}%` : '—'}
-          sub={r ? (r.wins + r.losses > 0 ? `${r.wins} won · ${r.losses} lost` : 'no closed trades with a known result') : ''}
+          value={r && judged > 0 ? `${formatNumber(r.winRatePct, 1, 1)}%` : <span className="text-fg-4">—</span>}
+          sub={r ? (judged > 0 ? `${r.wins} won · ${r.losses} lost` : 'no closed trade with a known result') : ''}
         />
       </ReadoutStrip>
 
@@ -252,137 +373,55 @@ function Pnl() {
           title="Cumulative realized PnL"
           meta={r && r.realizedUsd !== null ? <span className={cn('num', toneOf(r.realizedUsd))}>{money.compact(r.realizedUsd)}</span> : undefined}
           actions={
-            <Segmented
-              label="View"
-              size="sm"
-              value={view}
-              onChange={setView}
-              options={[
-                { value: 'chart', label: 'Chart' },
-                { value: 'table', label: 'Table' },
-              ]}
-            />
+            <span className="flex items-center gap-2">
+              <InfoTip>Drag cursor A or B on the chart, or focus a cursor handle and use the arrow keys (Shift for 7 steps), to measure the PnL between any two points.</InfoTip>
+              <Segmented
+                label="View"
+                size="sm"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'chart', label: 'Chart' },
+                  { value: 'table', label: 'Table' },
+                ]}
+              />
+            </span>
           }
         />
         <div className="p-4">
           {loading || !r ? (
-            <Skeleton className="h-[420px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
           ) : view === 'chart' ? (
-            <>
-              <p className="mb-3 text-xs text-fg-3">Drag cursor A or B, or focus a cursor handle and use the arrow keys (Shift for a week), to measure any window.</p>
-              <PnlScope key={`${range}-${r.points.length}`} points={r.points} dim={dim} money={money} />
-            </>
+            <PnlScope key={`${range}-${r.points.length}`} points={r.points} bucketMs={r.bucketMs} periodName={period.name} dim={dim} money={money} />
           ) : (
-            <div className="max-h-[420px] overflow-y-auto">
-              <Table label="Daily realized PnL">
-                <thead className="sticky top-0 bg-panel">
-                  <tr>
-                    <Th>Date</Th>
-                    <Th align="right">Daily</Th>
-                    <Th align="right">Cumulative</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...r.points].reverse().map((p) => (
-                    <Tr key={p.t}>
-                      <Td className="text-fg-2">{formatDate(p.t, true)}</Td>
-                      <Td align="right">{p.daily === 0 ? <span className="num text-fg-4">0.00</span> : <Money money={money} value={p.daily} signed colored />}</Td>
-                      <Td align="right">
-                        <Money money={money} value={p.cumulative} signed colored />
-                      </Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
+            <Buckets r={r} money={money} range={r.range} onRange={setRange} />
           )}
         </div>
       </Panel>
 
       <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-2">
         <Panel>
-          <PanelHeader title="By token" meta={r?.byToken.length} />
-          {r ? <ByToken rows={r.byToken} money={money} /> : <Skeleton className="m-4 h-40" />}
+          <PanelHeader title="By token" meta={r?.byToken.length} actions={<span className="num text-[11px] text-fg-3">{period.label}</span>} />
+          {!r ? (
+            <Skeleton className="m-4 h-40" />
+          ) : r.byToken.length === 0 ? (
+            <Nothing text={`No token traded in ${period.name}.`} range={r.range} onRange={setRange} />
+          ) : (
+            <ByToken rows={r.byToken} money={money} />
+          )}
         </Panel>
         <Panel>
-          <PanelHeader title="Recent closed trades" meta={r?.recentTrades.length} />
-          {r && r.recentTrades.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-fg-3">No trades closed in this range.</p>
-          ) : r ? (
-            <>
-              <ul className="divide-y divide-line-soft md:hidden" aria-label="Recent closed trades">
-                {r.recentTrades.map((t) => {
-                  const token = r.byToken.find((b) => b.token.id === t.tokenId)?.token
-                  const cost = t.valueUsd - t.pnlUsd
-                  return (
-                    <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                      <span className="flex min-w-0 flex-col">
-                        <span className="flex items-center gap-1.5 text-sm text-fg">
-                          {token?.symbol}
-                          {token?.status === 'prelaunch' && <SimMark className="ml-0" />}
-                        </span>
-                        <span className="truncate text-[11px] text-fg-3">
-                          {formatDateTime(t.at)} · {wallets.find((w) => w.id === t.walletId)?.label}
-                        </span>
-                      </span>
-                      <span className="text-right">
-                        <Money money={money} value={t.pnlUsd} signed colored className="text-sm" />
-                        <span className="block">
-                          <Pct value={cost ? (t.pnlUsd / cost) * 100 : 0} className="text-[11px]" />
-                        </span>
-                      </span>
-                    </li>
-                  )
-                })}
-              </ul>
-              <div className="hidden md:block">
-                <Table label="Recent closed trades" rows="double" minWidth={560}>
-                  <thead>
-                    <tr>
-                      <Th>Closed</Th>
-                      <Th>Token</Th>
-                      <Th align="right">Size</Th>
-                      <Th align="right">Exit</Th>
-                      <Th align="right">PnL</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {r.recentTrades.map((t) => {
-                      const token = r.byToken.find((b) => b.token.id === t.tokenId)?.token
-                      const cost = t.valueUsd - t.pnlUsd
-                      return (
-                        <Tr key={t.id}>
-                          <Td className="text-xs text-fg-3">{formatDateTime(t.at)}</Td>
-                          <Td>
-                            <span className="flex flex-col">
-                              <span className="flex items-center gap-1.5 text-fg">
-                                {token?.symbol}
-                                {token?.status === 'prelaunch' && <SimMark className="ml-0" />}
-                              </span>
-                              <span className="text-[11px] text-fg-4">{wallets.find((w) => w.id === t.walletId)?.label}</span>
-                            </span>
-                          </Td>
-                          <Td align="right" mono className="text-fg-2">
-                            {formatCompact(t.amount, 2)}
-                          </Td>
-                          <Td align="right">
-                            {r.currency === 'NEAR' ? <span className="num text-fg-2">{formatPrice(t.priceUsd)} NEAR</span> : <Price value={t.priceUsd} className="text-fg-2" />}
-                          </Td>
-                          <Td align="right">
-                            <Money money={money} value={t.pnlUsd} signed colored />
-                            <div>
-                              <Pct value={cost ? (t.pnlUsd / cost) * 100 : 0} className="text-[11px]" />
-                            </div>
-                          </Td>
-                        </Tr>
-                      )
-                    })}
-                  </tbody>
-                </Table>
-              </div>
-            </>
-          ) : (
+          <PanelHeader
+            title="Closed trades"
+            meta={r?.recentTrades.length}
+            actions={<span className="text-[11px] text-fg-3">{r && r.trades > r.recentTrades.length ? `latest ${r.recentTrades.length} of ${r.trades}` : period.label}</span>}
+          />
+          {!r ? (
             <Skeleton className="m-4 h-40" />
+          ) : r.recentTrades.length === 0 ? (
+            <Nothing text={`No trade closed in ${period.name}.`} range={r.range} onRange={setRange} />
+          ) : (
+            <ClosedTrades r={r} money={money} />
           )}
         </Panel>
       </div>
@@ -413,7 +452,7 @@ export default function PnlPage() {
   const caps = useCapabilities()
   return (
     <Page>
-      <PageHeader title="PnL" description="Realized and unrealized performance across every NEARKITS wallet." />
+      <PageHeader title="PnL" description="Realized and unrealized performance across every NEARKITS wallet, for the period you pick." />
       <RequireWallet feature="PnL">{caps.pnl ? <Pnl /> : <NotTracked />}</RequireWallet>
     </Page>
   )

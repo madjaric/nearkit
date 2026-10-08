@@ -13,6 +13,15 @@ import { NETWORKS } from './networks'
 /** The one $KITS contract (NEAR mainnet). */
 export const KITS_CONTRACT = 'kits.nearlytrade.near'
 
+/**
+ * Nearly's launchpad contract, where $KITS launched, and the token's tax admin: it collects the
+ * trading tax in KITS (its collect_tax calls the token's tax_take), burns the Buyback & Burn share
+ * (its process_tax calls the token's burn: an NEP-141 ft_burn event, and its own tax_burned event)
+ * and hands the rest to its tax seller for NEAR. NEARKITS' server checks on chain that it is the
+ * token's tax admin before it reads a burn from it; the launch id is read from it, never assumed.
+ */
+export const KIT_LAUNCHPAD = 'nearlytrade.near'
+
 export type KitStatus = 'live' | 'mainnet-only'
 
 export interface KitConfig {

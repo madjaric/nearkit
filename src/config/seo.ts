@@ -41,9 +41,9 @@ export const kitDescription = () => `${KIT.ticker} (${KIT.name}) is the NEARKITS
 export const kitFacts = (): string[] => [
   `${KIT.ticker} (${KIT.name}) is the NEARKITS token; its contract on NEAR is ${KITS_CONTRACT}.`,
   `${KIT.ticker} has a ${tax.buyPct}% buy tax and a ${tax.sellPct}% sell tax.`,
-  `The tax is split ${taxSplit.buybackBurnPct}% to Buyback & Burn and ${taxSplit.holdersPct}% to holder rewards; ${taxSplit.creatorPct}% goes to the creator.`,
+  `The tax is split ${taxSplit.buybackBurnPct}% Buyback & Burn and ${taxSplit.holdersPct}% Holder rewards; ${taxSplit.creatorPct}% goes to the creator.`,
   `Separately from the tax, the pool fee is ${poolFee.pct}%, and ${poolFee.nearkitsSharePct}% of the pool fee is allocated to NEARKITS.`,
-  'The Buyback & Burn tracker shows only real on-chain activity. Holder reward tracking is coming soon.',
+  'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder reward tracking is coming soon.',
   'No return, reward rate, burn amount or buyback frequency is promised.',
 ]
 

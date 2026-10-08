@@ -336,15 +336,20 @@ export interface ValuePoint {
   valueUsd: number
 }
 
-export type PnlRange = '7d' | '30d' | '90d' | 'all'
+/** The PnL page's periods (src/lib/pnlPeriod.ts): the last 24 hours, 7, 30 or 90 days, or the whole history. */
+export type PnlRange = '24h' | '7d' | '30d' | '90d' | 'all'
 
+/** One bucket of the cumulative realized PnL chart (an hour, six hours or a day: the report's `bucketMs`). */
 export interface PnlPoint {
+  /** The bucket's start. */
   t: Timestamp
-  /** Realized PnL booked that day. */
-  daily: number
-  /** Cumulative realized PnL at end of day. */
+  /** Its end (now, for the last one). The first point is the period's start, at 0: `end` equals `t`. */
+  end: Timestamp
+  /** Realized PnL booked in the bucket. */
+  booked: number
+  /** Cumulative realized PnL in the period at the bucket's end. */
   cumulative: number
-  /** Value traded that day (entries + exits), the basis for return-on-volume. */
+  /** Value traded in the bucket (entries + exits), the basis for return-on-volume. */
   volumeUsd: number
 }
 
@@ -385,8 +390,10 @@ export interface PnlReport {
   /** Every trade and unit was valued; false lists why in `limitations`. */
   complete?: boolean
   limitations?: PnlLimitation[]
-  /** Real mode: NEAR paid as gas by these accounts over the history read (swap fees are inside trade values). */
+  /** Real mode: NEAR paid as gas by these accounts in the period, over the history read (swap fees are inside trade values). */
   gasNear?: number
+  /** Length of each chart point's bucket (an hour for 24H, six hours for 7D, a day beyond). */
+  bucketMs: number
   /** Real mode: the history read. Not complete when it was capped: older trades and gas are not in this report. */
   history?: { complete: boolean; txs: number }
   points: PnlPoint[]

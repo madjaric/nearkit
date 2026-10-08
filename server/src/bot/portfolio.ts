@@ -130,8 +130,10 @@ async function showPnl(ctx: BotCtx, range: PnlRange, details: boolean) {
     const money = currency === 'USD' ? USD_FORMAT : NEAR_FORMAT
     const tokens = reportTokens({ ledgers, held, listings, currency })
     const history = historyOf(ledgers)
+    const gas = ledgers.flatMap((l) => l.gas.map((g) => ({ at: g.at, near: Number(g.yocto) / 1e24 })))
+    // Telegram states gas over the whole history read, whatever the range (its line below says so).
     const gasNear = ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0)
-    const r = buildPnlReport({ range, now: ctx.deps.now(), currency, tokens, gasNear, history, walletOf: (a) => a })
+    const r = buildPnlReport({ range, now: ctx.deps.now(), currency, tokens, gas, history, walletOf: (a) => a })
     const scope = history.complete ? `whole history, ${history.txs} ${history.txs === 1 ? 'transaction' : 'transactions'}` : `latest ${history.txs} transactions only`
     // Unknown reads as —, never 0.
     const fig = (v: number | null) => (v === null ? UNKNOWN : money.full(v, { signed: true }))
@@ -142,7 +144,7 @@ async function showPnl(ctx: BotCtx, range: PnlRange, details: boolean) {
       '',
       `Realized ${bold(fig(r.realizedUsd))} · ${r.trades} ${r.trades === 1 ? 'sale' : 'sales'}${r.wins + r.losses ? ` (${r.wins} won, ${r.losses} lost)` : ''}`,
       `Unrealized ${bold(fig(r.unrealizedUsd))}${esc(unknownWhy)}${r.complete === false && r.unrealizedUsd !== null ? ' · partial' : ''}`,
-      `Gas ${esc(NEAR_FORMAT.full(r.gasNear ?? 0))}`,
+      `Gas ${esc(NEAR_FORMAT.full(gasNear))}`,
     ]
     if (details) {
       const top = r.byToken.slice(0, 8).map((t) => `• ${bold(t.token.symbol)} realized ${esc(fig(t.realizedUsd))} · open ${esc(fig(t.unrealizedUsd))}`)

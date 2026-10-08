@@ -41,4 +41,5 @@ export const API_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   '/api/web/bots/resume': 20,
   '/api/web/bots/stop': 20,
   '/api/web/bots/delete': 10,
+  '/api/kits/burns': 60,
 })

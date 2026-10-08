@@ -9,8 +9,9 @@ import { ComingSoon, Led, Tag } from '@/components/ui/Indicators'
 import { Price } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { isKitToken, KIT, KITS_CONTRACT } from '@/config/kit'
-import { buybackTracker } from '@/features/kit/buyback'
-import { BuybackPanel, HolderRewardsPanel, KitTokenomics } from '@/features/kit/Tokenomics'
+import { BurnTracker } from '@/features/kit/BurnTracker'
+import { HolderRewardsPanel, KitTokenomics } from '@/features/kit/Tokenomics'
+import { useBurnTracker } from '@/features/kit/useBurnTracker'
 import { useTokens } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 
@@ -29,6 +30,7 @@ const UTILITY = [
 export default function KitPage() {
   const { data: tokens = [], isPending } = useTokens()
   const { openTrade } = useTradeDrawer()
+  const burns = useBurnTracker()
   const listed = tokens.find((t) => isKitToken(t.id) && t.status === 'listed')
   // On this build's network (mainnet, the demo); live to trade once the list has it.
   const onNetwork = KIT.status === 'live'
@@ -118,13 +120,12 @@ export default function KitPage() {
         </Panel>
       </div>
 
+      {/* Buyback & Burn first: the burns as NEARKITS' server reads them from NEAR mainnet, valued at today's price only where one is known. */}
+      <BurnTracker tracker={burns} priceUsd={live && listed?.market ? listed.market.priceUsd : null} />
+
       <KitTokenomics />
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        {/* The tracker follows $KITS' contract on this network. Nothing reads its buybacks and burns from the chain yet (no API or indexer here; NearBlocks indexes none of its events so far): it gets no facts, and says so. A source plugs in here. */}
-        <BuybackPanel tracker={buybackTracker(KIT.contract, null)} kitDecimals={listed?.decimals ?? null} />
-        <HolderRewardsPanel />
-      </div>
+      <HolderRewardsPanel />
 
       <Panel>
         <PanelHeader title="Planned utility" />

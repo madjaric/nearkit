@@ -1,17 +1,15 @@
 import type { ReactNode } from 'react'
 import { Figures } from '@/components/ui/Figures'
-import { ComingSoon, Led, Tag, type LedTone } from '@/components/ui/Indicators'
+import { ComingSoon } from '@/components/ui/Indicators'
 import { Legend, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { KIT, KIT_LAUNCH, KIT_POOL_FEE_NOTE, KIT_TAX_NOTE, KITS_CONTRACT } from '@/config/kit'
 import { cn } from '@/lib/cn'
-import { buybackReadouts, UNKNOWN, type BuybackTracker } from './buyback'
 
 /**
  * $KITS' tokenomics on its page, from its launch configuration (KIT_LAUNCH): the trading tax and
- * where it goes, and apart from it the pool fee with NEARKITS' share; then the Buyback & Burn
- * tracker for its contract and holder rewards. Rules are printed as rules; nothing here is a market
- * figure, and the tracker prints only what an on-chain source has read (today: nothing).
+ * where it goes, and apart from it the pool fee with NEARKITS' share; and holder rewards. Rules are
+ * printed as rules; nothing here is a market figure. The burns themselves are BurnTracker's.
  */
 
 const pct = (n: number) => `${n}%`
@@ -103,67 +101,6 @@ export function KitTokenomics() {
             <ReadoutSlot legend="NEARKITS share" value={pct(poolFee.nearkitsSharePct)} sub="of the pool fee" />
           </ReadoutStrip>
         </Part>
-      </div>
-    </Panel>
-  )
-}
-
-/** An instrument's bar graph: `cells` segments, the first `share`% of them lit. */
-function Meter({ share, label, cells = 20 }: { share: number; label: string; cells?: number }) {
-  const lit = Math.round((share / 100) * cells)
-  return (
-    <div role="img" aria-label={label} className="flex h-3 min-w-48 flex-1 gap-[3px]">
-      {Array.from({ length: cells }, (_, i) => (
-        <span key={i} className={cn('h-full min-w-0 flex-1 rounded-[1px]', i < lit ? 'bg-accent/80' : 'border border-line-strong')} />
-      ))}
-    </div>
-  )
-}
-
-const TRACKER_STATUS: Record<BuybackTracker['state'], { label: string; tone: LedTone }> = {
-  'not-on-network': { label: 'Mainnet only', tone: 'off' },
-  'awaiting-data': { label: 'Awaiting data', tone: 'off' },
-  tracking: { label: 'Tracking', tone: 'on' },
-}
-
-/** What the tracker says it follows, and where its figures come from (none until a source reads them). */
-function trackerNote(tracker: BuybackTracker): string {
-  if (tracker.state === 'not-on-network') return `${KIT.ticker} trades on NEAR mainnet: this build doesn’t follow its buybacks and burns.`
-  if (tracker.state === 'awaiting-data') return `Not tracked yet: NEARKITS doesn’t read the buybacks and burns of ${tracker.contract} from the chain yet, so no figure is shown.`
-  return `Read from the buyback and burn transactions of ${tracker.contract}.`
-}
-
-/** Buyback & Burn for $KITS' contract: the readouts an on-chain source fills in ("—" until it has), and the tax share that pays for it. */
-export function BuybackPanel({ tracker, kitDecimals }: { tracker: BuybackTracker; kitDecimals: number | null }) {
-  const status = TRACKER_STATUS[tracker.state]
-  const share = taxSplit.buybackBurnPct
-  return (
-    <Panel aria-labelledby="kit-buyback">
-      <PanelHeader
-        id="kit-buyback"
-        title="Buyback & Burn"
-        meta={tracker.state === 'not-on-network' ? undefined : tracker.contract}
-        actions={
-          <Tag tone={tracker.state === 'tracking' ? 'accent' : 'neutral'}>
-            <Led tone={status.tone} /> {status.label}
-          </Tag>
-        }
-      />
-      <ReadoutStrip inset cols="grid-cols-2 xl:grid-cols-4">
-        {buybackReadouts(tracker, kitDecimals).map((r) => (
-          // An absent figure is a ghost, as everywhere on the panel; it never reads as measured.
-          <ReadoutSlot key={r.legend} legend={r.legend} value={r.value === UNKNOWN ? <span className="text-fg-4">{r.value}</span> : r.value} sub={r.sub} />
-        ))}
-      </ReadoutStrip>
-      <div className="flex flex-col gap-3 p-4">
-        <Legend>Tax allocation</Legend>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Meter share={share} label={`${pct(share)} of the trading tax goes to Buyback & Burn`} />
-          <span className="shrink-0 text-sm text-fg-2">
-            <Figures>{`${pct(share)} → Buyback & Burn`}</Figures>
-          </span>
-        </div>
-        <p className="text-sm text-fg-3">{trackerNote(tracker)}</p>
       </div>
     </Panel>
   )

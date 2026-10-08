@@ -39,9 +39,9 @@ describe('each public page’s title and description', () => {
     expect(facts).toEqual([
       '$KITS (Near Kits) is the NEARKITS token; its contract on NEAR is kits.nearlytrade.near.',
       '$KITS has a 2% buy tax and a 2% sell tax.',
-      'The tax is split 50% to Buyback & Burn and 50% to holder rewards; 0% goes to the creator.',
+      'The tax is split 50% Buyback & Burn and 50% Holder rewards; 0% goes to the creator.',
       'Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.',
-      'The Buyback & Burn tracker shows only real on-chain activity. Holder reward tracking is coming soon.',
+      'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder reward tracking is coming soon.',
       'No return, reward rate, burn amount or buyback frequency is promised.',
     ])
     for (const p of publicPages().filter((x) => x.path !== '/kit')) expect(p.facts, p.path).toBeUndefined()
@@ -134,7 +134,7 @@ describe('crawler files', () => {
     expect(txt).toMatch(/can lose money/)
     expect(txt).toContain(kitDescription())
     expect(txt).toContain(
-      '- $KITS tokenomics, from its launch configuration on Nearly: $KITS (Near Kits) is the NEARKITS token; its contract on NEAR is kits.nearlytrade.near. $KITS has a 2% buy tax and a 2% sell tax. The tax is split 50% to Buyback & Burn',
+      '- $KITS tokenomics, from its launch configuration on Nearly: $KITS (Near Kits) is the NEARKITS token; its contract on NEAR is kits.nearlytrade.near. $KITS has a 2% buy tax and a 2% sell tax. The tax is split 50% Buyback & Burn and 50% Holder rewards',
     )
     expect(txt).not.toMatch(/\$KIT\b/)
     expect(txt).toContain('Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.')

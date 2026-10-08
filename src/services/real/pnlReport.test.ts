@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { computePnl, type LedgerEvent } from '@/lib/pnl'
+import { computePnl, type LedgerEvent, type Sale } from '@/lib/pnl'
 import type { TokenListing } from '@/types/domain'
 import { buildPnlReport, type TokenInput } from './pnlReport'
 import { combinePnl } from './pnlTracker'
 
-const base = { range: 'all' as const, now: Date.UTC(2026, 8, 29), currency: 'NEAR' as const, tokens: [], gasNear: 0.47, walletOf: (a: string) => a }
+const base = {
+  range: 'all' as const,
+  now: Date.UTC(2026, 8, 29),
+  currency: 'NEAR' as const,
+  tokens: [],
+  gas: [{ at: Date.UTC(2026, 8, 20), near: 0.47 }],
+  walletOf: (a: string) => a,
+}
 
 describe('PnL report', () => {
   it('says so when the history it read was capped: older trades are not in it', () => {
@@ -58,5 +65,55 @@ describe('PnL report: unknown is never zero', () => {
     const r = buildPnlReport({ ...base, history: { complete: true, txs: 0 } })
     expect(r.unrealizedUsd).toBe(0)
     expect(r.realizedUsd).toBe(0)
+  })
+})
+
+describe('PnL report: the selected period (24H)', () => {
+  const now = Date.UTC(2026, 9, 8, 14, 37)
+  const H = 3_600_000
+  const sale = (at: number, realized: number): { accountId: string; sale: Sale } => ({
+    accountId: 'alice.near',
+    sale: { at, tx: `s${at}`, amount: 10n * N, proceedsNear: null, costNear: 0n, realizedNear: null, proceedsUsd: 50 + realized, costUsd: 50, realizedUsd: realized },
+  })
+  const tokens = (): TokenInput[] => {
+    const t = input('aaa', [buyEvent(now - 3 * 24 * H, 10n * N, N)], { near: 0.1 })
+    return [
+      {
+        ...t,
+        sales: [sale(now - 2 * H, 12), sale(now - 2 * 24 * H, -30)],
+        trades: [
+          { at: now - 2 * H, value: 62 },
+          { at: now - 2 * 24 * H, value: 20 },
+        ],
+      },
+    ]
+  }
+  const gas = [
+    { at: now - H, near: 0.002 },
+    { at: now - 5 * 24 * H, near: 0.4 },
+  ]
+
+  it('counts only the last 24 hours: its trades, its realized PnL, its volume and its gas; hourly points', () => {
+    const r = buildPnlReport({ ...base, range: '24h', now, currency: 'USD', tokens: tokens(), gas, history: { complete: true, txs: 4 } })
+    expect(r.range).toBe('24h')
+    expect(r.bucketMs).toBe(H)
+    expect(r.trades).toBe(1)
+    expect(r.realizedUsd).toBe(12)
+    expect(r.volumeUsd).toBe(62)
+    expect(r.gasNear).toBeCloseTo(0.002)
+    expect(r.wins).toBe(1)
+    expect(r.recentTrades.map((t) => t.pnlUsd)).toEqual([12])
+    expect(r.points.at(-1)?.cumulative).toBe(12)
+    expect(r.points.at(-1)?.end).toBe(now)
+    expect(r.points[1]?.end ?? 0 - (r.points[1]?.t ?? 0)).toBeGreaterThan(0)
+  })
+
+  it('switching to 7D takes in the older trade and gas', () => {
+    const r = buildPnlReport({ ...base, range: '7d', now, currency: 'USD', tokens: tokens(), gas, history: { complete: true, txs: 4 } })
+    expect(r.trades).toBe(2)
+    expect(r.realizedUsd).toBe(-18)
+    expect(r.gasNear).toBeCloseTo(0.402)
+    expect(r.bucketMs).toBe(6 * H)
+    expect(r.recentTrades.map((t) => t.pnlUsd)).toEqual([12, -30])
   })
 })

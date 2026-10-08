@@ -1,0 +1,598 @@
+{
+  "transactions": [
+    {
+      "transaction": {
+        "hash": "CCNTAY8i2XeQtcEveZceuPs3bHjLsAHF1wkoPtpVNCyn",
+        "signer_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "actions": []
+      },
+      "execution_outcome": {
+        "outcome": {
+          "tokens_burnt": "0"
+        }
+      },
+      "receipts": [
+        {
+          "receipt": {
+            "receipt_id": "4dmsWjDy839a6WFEnAZmmvBqSsjihtvHzzTHaSBHwu2b",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "4dmsWjDy839a6WFEnAZmmvBqSsjihtvHzzTHaSBHwu2b",
+            "block_timestamp": 1791402593298830000,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"nearlytrade.near\",\"amount\":\"294875882289485198895822\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "cwrjLWxzet475DxRUAiueXcwUTZMcCdx1j4dv6M9JS2",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "cwrjLWxzet475DxRUAiueXcwUTZMcCdx1j4dv6M9JS2",
+            "block_timestamp": 1791402593298830000,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"547626638537615369377955\",\"memo\":\"tax\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "46SH87PVmX4wK8qEN3NXvPAG4SoiGyGacZwsdBMRzqLm",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "46SH87PVmX4wK8qEN3NXvPAG4SoiGyGacZwsdBMRzqLm",
+            "block_timestamp": 1791402593791079400,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_burned\",\"data\":[{\"id\":2699,\"amount\":\"294875882289485198895822\"}]}"],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "3YADRkXGjvuCbAnhxdh8DScMYU9dJ7H1UnkCMGaMjR9g",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "3YADRkXGjvuCbAnhxdh8DScMYU9dJ7H1UnkCMGaMjR9g",
+            "block_timestamp": 1791402593791079400,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":2699,\"amount\":\"547626638537615369377955\"}]}"],
+              "status": {
+                "SuccessValue": "dHJ1ZQ=="
+              },
+              "receipt_ids": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "transaction": {
+        "hash": "ABhcndUFNEPLuP5oYrfCpY27YszqytEdpBt8wcEwVmTU",
+        "signer_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "actions": []
+      },
+      "execution_outcome": {
+        "outcome": {
+          "tokens_burnt": "0"
+        }
+      },
+      "receipts": [
+        {
+          "receipt": {
+            "receipt_id": "9ZUqBumW6Ev6NM4h92PxbJr1Np32HeMrK9SoyC1fBT7F",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "9ZUqBumW6Ev6NM4h92PxbJr1Np32HeMrK9SoyC1fBT7F",
+            "block_timestamp": 1791413921353333000,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"nearlytrade.near\",\"amount\":\"104607671112471614453984\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "GJ7zHUYcu1kG3BobgDxN8uPF58vWFaDP7LYWSqUGc5kc",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "GJ7zHUYcu1kG3BobgDxN8uPF58vWFaDP7LYWSqUGc5kc",
+            "block_timestamp": 1791413921353333000,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"194271389208875855414543\",\"memo\":\"tax\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "BbCKED32JAMvgx2HjKeDfjbvKgQLHPskpyXgaYxZ7nws",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "BbCKED32JAMvgx2HjKeDfjbvKgQLHPskpyXgaYxZ7nws",
+            "block_timestamp": 1791413922019357200,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_burned\",\"data\":[{\"id\":2699,\"amount\":\"104607671112471614453984\"}]}"],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "4TsQEospNqFstT1F64V3TvbPULAzBSTCtDqtGToa7AEJ",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "4TsQEospNqFstT1F64V3TvbPULAzBSTCtDqtGToa7AEJ",
+            "block_timestamp": 1791413922019357200,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":2699,\"amount\":\"194271389208875855414543\"}]}"],
+              "status": {
+                "SuccessValue": "dHJ1ZQ=="
+              },
+              "receipt_ids": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "transaction": {
+        "hash": "DNSYUXwwwynxkmjJHKqdKxEfcGyjQEgrLRhtp8qjrmji",
+        "signer_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "actions": []
+      },
+      "execution_outcome": {
+        "outcome": {
+          "tokens_burnt": "0"
+        }
+      },
+      "receipts": [
+        {
+          "receipt": {
+            "receipt_id": "9WPcTUtsqv7gNTQcz77dfqdePMmispKeHacVQwZAXQRg",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "9WPcTUtsqv7gNTQcz77dfqdePMmispKeHacVQwZAXQRg",
+            "block_timestamp": 1791414898867252700,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"nearlytrade.near\",\"amount\":\"197224380625149214516409\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "3kRsREu81fh55dLxPiJAeAH8dEgbscD9y7AeCFX6wwYS",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "3kRsREu81fh55dLxPiJAeAH8dEgbscD9y7AeCFX6wwYS",
+            "block_timestamp": 1791414898867252700,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"366273849732419969816187\",\"memo\":\"tax\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "6oQvbNTVN7pZKfEzEomHrmqVYkTtswtQnieTs6BNergg",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "6oQvbNTVN7pZKfEzEomHrmqVYkTtswtQnieTs6BNergg",
+            "block_timestamp": 1791414899520607500,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_burned\",\"data\":[{\"id\":2699,\"amount\":\"197224380625149214516409\"}]}"],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "CtHzYFj4JGWjUFW8U7R88CW8ERQhBrMfN5sF6ZejrN74",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "CtHzYFj4JGWjUFW8U7R88CW8ERQhBrMfN5sF6ZejrN74",
+            "block_timestamp": 1791414899520607500,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":2699,\"amount\":\"366273849732419969816187\"}]}"],
+              "status": {
+                "SuccessValue": "dHJ1ZQ=="
+              },
+              "receipt_ids": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "transaction": {
+        "hash": "Hg9BwNFycTjLVBxrWvcZdxeTzCgFPpRp5PibjxYeBVN9",
+        "signer_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "actions": []
+      },
+      "execution_outcome": {
+        "outcome": {
+          "tokens_burnt": "0"
+        }
+      },
+      "receipts": [
+        {
+          "receipt": {
+            "receipt_id": "JBbphQMXAZDzFTh9aLRBPWG1FtmFtbzgZ3VXC9PECT8q",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "JBbphQMXAZDzFTh9aLRBPWG1FtmFtbzgZ3VXC9PECT8q",
+            "block_timestamp": 1791401550416504600,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"nearlytrade.near\",\"amount\":\"1007290679236373440823481\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "BtWorCLLS365wrcc5W2r8eywdLp1juPxuPLzbpCDe9g9",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "BtWorCLLS365wrcc5W2r8eywdLp1juPxuPLzbpCDe9g9",
+            "block_timestamp": 1791401550416504600,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"1870682690010407818672179\",\"memo\":\"tax\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "CUARHGQCRSemdnXzGXe1VcpQhpfZMuUyAoLftqF4MxbK",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "CUARHGQCRSemdnXzGXe1VcpQhpfZMuUyAoLftqF4MxbK",
+            "block_timestamp": 1791401551091979000,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_burned\",\"data\":[{\"id\":2699,\"amount\":\"1007290679236373440823481\"}]}"],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "8bCZhF9Ki8W7ETZRu4zSR3HhDFuW2hYguUq6cc3MNVAh",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "8bCZhF9Ki8W7ETZRu4zSR3HhDFuW2hYguUq6cc3MNVAh",
+            "block_timestamp": 1791401551091979000,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":2699,\"amount\":\"1870682690010407818672179\"}]}"],
+              "status": {
+                "SuccessValue": "dHJ1ZQ=="
+              },
+              "receipt_ids": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "transaction": {
+        "hash": "6KU1hjERFc6rqc4GsHPVVD5wfXVGgvxJC1PfxTwnW3vZ",
+        "signer_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "actions": []
+      },
+      "execution_outcome": {
+        "outcome": {
+          "tokens_burnt": "0"
+        }
+      },
+      "receipts": [
+        {
+          "receipt": {
+            "receipt_id": "Frtk8hF2e12XFswxn6tfjL5vgm5HwDgACrpRAMkVCsfV",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "Frtk8hF2e12XFswxn6tfjL5vgm5HwDgACrpRAMkVCsfV",
+            "block_timestamp": 1791408721044716300,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"nearlytrade.near\",\"amount\":\"1551361941840913403944030\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "2XXUPGrVXVPUJJR7GfFTycjw4qzx1Q6RxcmzoBtKgSmQ",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "2XXUPGrVXVPUJJR7GfFTycjw4qzx1Q6RxcmzoBtKgSmQ",
+            "block_timestamp": 1791408721044716300,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"2881100749133124893038914\",\"memo\":\"tax\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "8HB7HWGGMkpwpnZRzmjJ4bZadVKoAS2tdgTzomagm5X1",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "8HB7HWGGMkpwpnZRzmjJ4bZadVKoAS2tdgTzomagm5X1",
+            "block_timestamp": 1791408721555774000,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_burned\",\"data\":[{\"id\":2699,\"amount\":\"1551361941840913403944030\"}]}"],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "AWz3FHbHbPcirvUVjAJ8VNATnk5xrpyv4WqFPWVdbpi6",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "AWz3FHbHbPcirvUVjAJ8VNATnk5xrpyv4WqFPWVdbpi6",
+            "block_timestamp": 1791408721555774000,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":2699,\"amount\":\"2881100749133124893038914\"}]}"],
+              "status": {
+                "SuccessValue": "dHJ1ZQ=="
+              },
+              "receipt_ids": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "transaction": {
+        "hash": "8SzmYJDy4fnKkrZmuYPYkBtzPBZYrFt9frofsWVDjcg6",
+        "signer_id": "nearlytrade.near",
+        "receiver_id": "nearlytrade.near",
+        "actions": []
+      },
+      "execution_outcome": {
+        "outcome": {
+          "tokens_burnt": "0"
+        }
+      },
+      "receipts": [
+        {
+          "receipt": {
+            "receipt_id": "7r7NT7kMVr73pVRFfeYHAL4d3Mw3CAssPFxvnEcov1Q1",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "7r7NT7kMVr73pVRFfeYHAL4d3Mw3CAssPFxvnEcov1Q1",
+            "block_timestamp": 1791418038627646700,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"nearlytrade.near\",\"amount\":\"78155059288019410500855\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "Ffq9pFb1jUuHhsE2SP1UceeHRhmQaJPNL8T1eyVKfLD8",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "kits.nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "Ffq9pFb1jUuHhsE2SP1UceeHRhmQaJPNL8T1eyVKfLD8",
+            "block_timestamp": 1791418038627646700,
+            "outcome": {
+              "executor_id": "kits.nearlytrade.near",
+              "logs": [
+                "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"nearlytrade.near\",\"new_owner_id\":\"feeswap.near\",\"amount\":\"145145110106321762358731\",\"memo\":\"tax\"}]}"
+              ],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "ERz6wTihz7XRSpzXbNjdiruBxcn2PXgkTXeqRLf4t3j",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "ERz6wTihz7XRSpzXbNjdiruBxcn2PXgkTXeqRLf4t3j",
+            "block_timestamp": 1791418039237985800,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_burned\",\"data\":[{\"id\":2699,\"amount\":\"78155059288019410500855\"}]}"],
+              "status": {
+                "SuccessValue": ""
+              },
+              "receipt_ids": []
+            }
+          }
+        },
+        {
+          "receipt": {
+            "receipt_id": "9Bm3rHtZonSWYZByBX2LMXbSmzVDrNSi7xQFjaweXNxi",
+            "predecessor_id": "nearlytrade.near",
+            "receiver_id": "nearlytrade.near",
+            "receipt": {}
+          },
+          "execution_outcome": {
+            "id": "9Bm3rHtZonSWYZByBX2LMXbSmzVDrNSi7xQFjaweXNxi",
+            "block_timestamp": 1791418039237985800,
+            "outcome": {
+              "executor_id": "nearlytrade.near",
+              "logs": ["EVENT_JSON:{\"standard\":\"nearpad\",\"version\":\"2.0.0\",\"event\":\"tax_to_seller\",\"data\":[{\"id\":2699,\"amount\":\"145145110106321762358731\"}]}"],
+              "status": {
+                "SuccessValue": "dHJ1ZQ=="
+              },
+              "receipt_ids": []
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

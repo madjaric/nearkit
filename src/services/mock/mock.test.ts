@@ -166,8 +166,22 @@ describe('demo portfolio', () => {
     const a = await createMockServices().portfolio.getPnl('90d')
     const b = await createMockServices().portfolio.getPnl('90d')
     expect(a?.realizedUsd).toBe(b?.realizedUsd)
-    expect(a?.points).toHaveLength(90)
+    // A start point at 0, then a day a point across the 90 days.
+    expect(a?.points[0]?.cumulative).toBe(0)
+    expect(a?.bucketMs).toBe(86_400_000)
+    expect(a?.points.length).toBeGreaterThanOrEqual(91)
+    expect(a?.points.length).toBeLessThanOrEqual(92)
     expect(a?.feesUsd).toBeCloseTo((a?.volumeUsd ?? 0) * 0.005, 6)
+  })
+
+  it('24H is a real period: an hour a point, and only the last 24 hours’ trades', async () => {
+    const day = await createMockServices().portfolio.getPnl('24h')
+    const all = await createMockServices().portfolio.getPnl('all')
+    expect(day?.range).toBe('24h')
+    expect(day?.bucketMs).toBe(3_600_000)
+    expect(day?.points.length).toBeGreaterThanOrEqual(25)
+    expect(day?.recentTrades.every((t) => t.at >= Date.now() - 86_400_000)).toBe(true)
+    expect(day?.trades ?? 0).toBeLessThanOrEqual(all?.trades ?? 0)
   })
 })
 

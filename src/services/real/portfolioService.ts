@@ -146,13 +146,13 @@ export function createPortfolioService(
       const listings = new Map((await market.listTokens(reportTokenIds(ledgers, held))).map((t) => [t.id, t]))
       const currency = ctx.capabilities.prices ? 'USD' : 'NEAR'
       const tokens = reportTokens({ ledgers, held, listings, currency })
-      const gasNear = ledgers.reduce((s, l) => s + Number(l.gasPaid) / 1e24, 0)
+      const gas = ledgers.flatMap((l) => l.gas.map((g) => ({ at: g.at, near: Number(g.yocto) / 1e24 })))
       return buildPnlReport({
         range,
         now: ctx.now(),
         currency,
         tokens,
-        gasNear,
+        gas,
         history: historyOf(ledgers),
         walletOf: (a) => snapshots.find((s) => s.accountId === a)?.id ?? a,
       })

@@ -1,13 +1,12 @@
 import { generateValuePath } from '@/mocks/pnl'
 import { SEED_COST_BASIS, TOKEN_IDS } from '@/mocks/tokens'
-import { DAY, HOUR, startOfDay } from '@/mocks/time'
+import { HOUR } from '@/mocks/time'
 import { NEARKIT_FEE_BPS } from '@/lib/fees'
 import { executableWallets } from '@/lib/wallets'
-import type { PnlPoint, PnlRange, PnlReport, Position, TokenPnl } from '@/types/domain'
+import { BUCKET_MS, inPeriod, pnlPoints } from '@/lib/pnlPeriod'
+import type { PnlReport, Position, TokenPnl } from '@/types/domain'
 import type { PortfolioService } from '../types'
 import { balanceOf, nearPrice, tickMarket, tokenOf, wait, type MockState } from './state'
-
-const RANGE_DAYS: Record<PnlRange, number> = { '7d': 7, '30d': 30, '90d': 90, all: 180 }
 
 /** Demo positions always carry every figure; the shared type allows null for real mode. */
 type DemoPosition = Position & { avgEntryUsd: number; priceUsd: number; change24hPct: number; valueUsd: number; costUsd: number; pnlUsd: number; pnlPct: number }
@@ -97,20 +96,15 @@ export function createPortfolioService(state: MockState): PortfolioService {
     async getPnl(range): Promise<PnlReport> {
       await wait('read')
       tickMarket(state)
-      const days = RANGE_DAYS[range]
-      const today = startOfDay(Date.now())
-      const from = today - (days - 1) * DAY
-      const trades = state.trades.filter((t) => t.at >= from)
-      const points: PnlPoint[] = []
-      let cumulative = 0
-      for (let d = 0; d < days; d++) {
-        const dayStart = from + d * DAY
-        const dayTrades = trades.filter((t) => t.at >= dayStart && t.at < dayStart + DAY)
-        const daily = dayTrades.reduce((s, t) => s + t.pnlUsd, 0)
-        const volumeUsd = dayTrades.reduce((s, t) => s + t.valueUsd + (t.valueUsd - t.pnlUsd), 0)
-        cumulative += daily
-        points.push({ t: dayStart, daily, cumulative, volumeUsd })
-      }
+      // The same periods and buckets as real mode (src/lib/pnlPeriod.ts).
+      const now = Date.now()
+      const trades = state.trades.filter((t) => inPeriod(t.at, range, now))
+      const points = pnlPoints(
+        trades.map((t) => ({ at: t.at, pnl: t.pnlUsd, volume: t.valueUsd + (t.valueUsd - t.pnlUsd) })),
+        range,
+        now,
+      )
+      const cumulative = points.at(-1)?.cumulative ?? 0
       const positions = buildPositions(state)
       const wins = trades.filter((t) => t.pnlUsd > 0).length
       const volumeUsd = trades.reduce((s, t) => s + t.valueUsd + (t.valueUsd - t.pnlUsd), 0)
@@ -132,6 +126,7 @@ export function createPortfolioService(state: MockState): PortfolioService {
 
       return {
         range,
+        bucketMs: BUCKET_MS[range],
         points,
         realizedUsd: cumulative,
         unrealizedUsd: positions.reduce((s, p) => s + p.pnlUsd, 0),
