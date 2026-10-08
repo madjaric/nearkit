@@ -42,6 +42,7 @@ export const API_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   '/api/web/bots/stop': 20,
   '/api/web/bots/delete': 10,
   '/api/kits/burns': 60,
+  '/api/kits/rewards': 60,
   // Bridge & Buy: a quote asks NEAR Intents (and prices $KITS), a start makes a deposit address.
   '/api/bridge/assets': 60,
   '/api/bridge/quote': 30,

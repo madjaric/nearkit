@@ -1,158 +1,111 @@
-import { ExternalLink } from 'lucide-react'
-import { Link } from 'react-router'
-import { LogoMark } from '@/components/brand/Brand'
-import { Page, PageHeader } from '@/components/page/Page'
-import { Button } from '@/components/ui/Button'
-import { buttonClass } from '@/components/ui/buttonClass'
-import { CopyButton } from '@/components/ui/Copy'
-import { ComingSoon, Led, Tag } from '@/components/ui/Indicators'
-import { Price } from '@/components/ui/Num'
-import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
-import { isKitToken, KIT, KITS_CONTRACT } from '@/config/kit'
+import { Page } from '@/components/page/Page'
+import { ComingSoon } from '@/components/ui/Indicators'
+import { Panel, PanelHeader } from '@/components/ui/Panel'
+import { isKitToken, KIT } from '@/config/kit'
 import { BurnTracker } from '@/features/kit/BurnTracker'
-import { HolderRewardsPanel, KitTokenomics } from '@/features/kit/Tokenomics'
+import { burnFigures } from '@/features/kit/buyback'
+import { HolderRewards } from '@/features/kit/HolderRewards'
+import { KitActions, KitHero } from '@/features/kit/KitHero'
+import { KitMarket } from '@/features/kit/KitMarket'
+import { useHolderRewards } from '@/features/kit/rewards'
+import { KitTokenomics } from '@/features/kit/Tokenomics'
 import { useBurnTracker } from '@/features/kit/useBurnTracker'
-import { useTokens } from '@/services/queries'
+import { useNearPrice, usePriceHistory, useTokenMarket, useTokens } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 
 const UTILITY = [
   { title: 'Fee benefits', text: `Reduced NEARKITS fees for ${KIT.ticker} holders. Terms are published before they apply.` },
-  { title: 'Advanced tool access', text: 'Holder access to advanced multi-wallet and intelligence tools.' },
+  { title: 'Advanced tools', text: 'Advanced multi-wallet and intelligence tools for holders.' },
   { title: 'Higher limits', text: 'Larger wallet groups, batch sizes and rule counts.' },
-  { title: 'Premium automation features', text: 'Extended Volume Bot, DCA, copy trading and sniper options.' },
+  { title: 'Premium automation', text: 'Extended Volume Bot, DCA, copy trading and sniper options.' },
 ]
 
 /**
- * $KITS' page, from its one configuration (src/config/kit.ts): Near Kits at kits.nearlytrade.near,
- * live on NEAR mainnet, traded here like any token once the token list has read it from chain. On a
- * network without it (testnet) it is mainnet-only: nothing trades it and no market figure is shown.
+ * $KITS' page, from its one configuration (src/config/kit.ts): Near Kits at kits.nearlytrade.near, live
+ * on NEAR mainnet. Read top to bottom it says: this is a live token; buy it; bridge into it; here is
+ * what the tax does, the real Buyback & Burn, the real holder rewards; here is its market; and here
+ * is the utility to come. The live sections read NEAR mainnet through NEARKITS' server; the market
+ * comes from the sources the token screen uses. On a network without $KITS (testnet) it is
+ * mainnet-only: nothing trades it and no market figure is shown.
+ *
+ * Wide screens (xl) lay the market out as its own column beside the header and the two ways in;
+ * narrower ones stack every section in the order above. The header and the two ways in lay
+ * themselves out by their own width (container queries), not the window's.
  */
 export default function KitPage() {
   const { data: tokens = [], isPending } = useTokens()
   const { openTrade } = useTradeDrawer()
   const burns = useBurnTracker()
+  const rewards = useHolderRewards()
   const listed = tokens.find((t) => isKitToken(t.id) && t.status === 'listed')
   // On this build's network (mainnet, the demo); live to trade once the list has it.
   const onNetwork = KIT.status === 'live'
   const live = KIT.tradable && listed !== undefined
+  const marketId = onNetwork ? (listed?.id ?? KIT.contract) : null
+  const market = useTokenMarket(marketId)
+  const history = usePriceHistory(marketId, '1W')
+  const { data: nearQuote } = useNearPrice()
+  const priceUsd = live && listed?.market ? listed.market.priceUsd : null
+  const burnView = burns.state === 'live' ? burns.view : null
+
+  const buyReason = !onNetwork
+    ? `${KIT.ticker} trades on NEAR mainnet, not in this build.`
+    : live
+      ? null
+      : isPending
+        ? `Reading ${KIT.ticker} from NEAR…`
+        : `NEARKITS can’t read ${KIT.ticker} from NEAR right now. Try again shortly.`
 
   return (
     <Page>
-      <PageHeader title={KIT.ticker} status={onNetwork ? <Tag tone="accent">Live</Tag> : <Tag>Mainnet only</Tag>} description={`${KIT.name}, the token of NEARKITS.`} />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <KitHero onNetwork={onNetwork} price={market.data?.priceUsd} change={market.data?.change24hPct} className="pb-2 pt-1 xl:col-start-1 xl:row-start-1" />
+        <KitActions
+          onNetwork={onNetwork}
+          canBuy={live}
+          buyReason={buyReason}
+          onBuy={() => listed && openTrade({ tokenId: listed.id, side: 'buy' })}
+          className="xl:col-start-1 xl:row-start-2"
+        />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <Panel>
-          <div className="flex flex-col gap-6 p-5 sm:flex-row sm:items-start sm:p-6">
-            <LogoMark size={56} className="shrink-0" />
-            <div className="flex min-w-0 flex-col gap-4">
-              <div>
-                <h2 className="text-xl font-semibold leading-7 text-fg" style={{ fontStretch: '110%' }}>
-                  {KIT.name}
-                </h2>
-                <p className="num mt-0.5 text-md text-fg-2">{KIT.ticker}</p>
-              </div>
-              <p className="max-w-[60ch] text-base leading-6 text-fg-2">
-                {KIT.ticker} is the token of NEARKITS, the trading toolkit for NEAR. It launched on {KIT.launchVenue}: NEARKITS is a trading toolkit, not a launchpad.
-                {onNetwork ? ' It is live: trade it here like any NEAR token.' : ' It trades on NEAR mainnet; this build doesn’t trade it and shows no market figure for it.'}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                {live && listed ? (
-                  <>
-                    <Button variant="primary" size="lg" onClick={() => openTrade({ tokenId: listed.id, side: 'buy' })}>
-                      Buy {KIT.ticker}
-                    </Button>
-                    {KIT.links.token && (
-                      <Link to={KIT.links.token} className={buttonClass({ variant: 'secondary', size: 'lg' })}>
-                        Market and chart
-                      </Link>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <Button variant="primary" size="lg" disabled aria-describedby="kit-not-live">
-                      Buy {KIT.ticker}
-                    </Button>
-                    <span id="kit-not-live" className="text-sm text-fg-3">
-                      {!onNetwork
-                        ? `${KIT.ticker} trades on NEAR mainnet, not in this build.`
-                        : isPending
-                          ? `Reading ${KIT.ticker} from NEAR…`
-                          : `NEARKITS can’t read ${KIT.ticker} from NEAR right now. Try again shortly.`}
-                    </span>
-                  </>
-                )}
-                {onNetwork && (
-                  <Link to="/bridge" className={buttonClass({ variant: 'outline', size: 'lg' })}>
-                    Bridge &amp; Buy {KIT.ticker}
-                  </Link>
-                )}
-                <a href={KIT.links.explorer} target="_blank" rel="noreferrer noopener" className={buttonClass({ variant: 'ghost', size: 'lg' })}>
-                  Explorer <ExternalLink size={14} aria-hidden="true" />
-                </a>
-              </div>
-              {onNetwork && (
-                <p className="text-sm text-fg-3">
-                  Hold SOL, ETH or BNB instead of NEAR?{' '}
-                  <Link to="/bridge" className="text-fg-2 underline decoration-fg-4 underline-offset-2 hover:text-fg">
-                    Bridge &amp; Buy
-                  </Link>{' '}
-                  brings it to NEAR through NEAR Intents and buys {KIT.ticker} in one flow.
-                </p>
-              )}
-            </div>
-          </div>
-        </Panel>
+        {/* The analytics centrepiece: burns as NEARKITS' server reads them from NEAR mainnet, valued at today's price only where one is known. */}
+        <BurnTracker tracker={burns} priceUsd={priceUsd} className="xl:col-span-2" />
 
-        <Panel>
-          <PanelHeader title="Token facts" />
-          <div className="p-4">
-            <Lines>
-              <Line label="Status" mono={false}>
-                <span className="flex items-center justify-end gap-2">
-                  <Led tone={onNetwork ? 'on' : 'off'} /> {onNetwork ? 'Live' : 'Mainnet only'}
-                </span>
-              </Line>
-              <Line label="Launch venue" mono={false}>
-                {KIT.launchVenue}
-              </Line>
-              <Line label="Contract" mono={false}>
-                <span className="flex items-center justify-end gap-1.5">
-                  <span className="num break-all text-xs">{KITS_CONTRACT}</span>
-                  <CopyButton value={KITS_CONTRACT} label={`Copy the ${KIT.ticker} contract`} />
-                </span>
-              </Line>
-              <Line label="Price" mono={false}>
-                {live && listed?.market ? <Price value={listed.market.priceUsd} /> : onNetwork ? 'No market price yet' : 'On NEAR mainnet'}
-              </Line>
-            </Lines>
-            <p className="mt-3 border-t border-line-soft pt-3 text-xs text-fg-3">
-              {onNetwork
-                ? 'Market cap, supply and liquidity are on the token’s market page, from the sources that report them.'
-                : `This build reads no ${KIT.ticker} market: its price, supply and liquidity are on NEAR mainnet.`}
-            </p>
-          </div>
-        </Panel>
+        <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
+          <KitTokenomics />
+          <HolderRewards state={rewards} nearUsd={nearQuote?.priceUsd ?? null} />
+        </div>
+
+        <KitMarket
+          onNetwork={onNetwork}
+          market={market.data}
+          history={history.data}
+          supplyNow={burnView ? burnFigures(burnView, null).supply : null}
+          className="xl:col-start-2 xl:row-span-2 xl:row-start-1"
+        />
+
+        <section aria-labelledby="kit-utility" className="xl:col-span-2">
+          <Panel>
+            <PanelHeader id="kit-utility" title="Planned utility" actions={<ComingSoon />} />
+            <ul className="grid grid-cols-1 divide-y divide-line-soft sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4">
+              {UTILITY.map((u, i) => (
+                <li
+                  key={u.title}
+                  className={
+                    'flex flex-col gap-1 px-4 py-3.5 sm:border-line-soft ' +
+                    (i % 2 === 1 ? 'sm:border-l ' : '') +
+                    (i >= 2 ? 'sm:border-t xl:border-t-0 ' : '') +
+                    (i >= 1 ? 'xl:border-l' : '')
+                  }
+                >
+                  <span className="text-sm font-medium text-fg-2">{u.title}</span>
+                  <span className="text-xs leading-5 text-fg-3">{u.text}</span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </section>
       </div>
-
-      {/* Buyback & Burn first: the burns as NEARKITS' server reads them from NEAR mainnet, valued at today's price only where one is known. */}
-      <BurnTracker tracker={burns} priceUsd={live && listed?.market ? listed.market.priceUsd : null} />
-
-      <KitTokenomics />
-
-      <HolderRewardsPanel />
-
-      <Panel>
-        <PanelHeader title="Planned utility" />
-        <ul className="divide-y divide-line-soft">
-          {UTILITY.map((u) => (
-            <li key={u.title} className="flex flex-col gap-1 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-6">
-              <span className="w-56 shrink-0 text-sm font-medium text-fg">{u.title}</span>
-              <span className="flex-1 text-sm text-fg-3">{u.text}</span>
-              <ComingSoon />
-            </li>
-          ))}
-        </ul>
-      </Panel>
     </Page>
   )
 }

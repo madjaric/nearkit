@@ -465,29 +465,45 @@ await step('PnL: 24H is a real period (its own figures, hourly chart, its trades
     .waitFor()
 })
 
-await step('$KITS is live at kits.nearlytrade.near: its page trades it, names its contract and links its market and explorer; Telegram shows no invented stats', async () => {
-  await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
-  await page.getByRole('heading', { name: '$KITS', exact: true }).first().waitFor()
-  await visible(page, 'Near Kits, the token of NEARKITS.')
-  if (!(await page.getByRole('button', { name: 'Buy $KITS' }).isEnabled())) throw new Error('the demo can’t trade $KITS')
-  if ((await page.getByRole('link', { name: 'Market and chart' }).getAttribute('href')) !== '/token/kits.nearlytrade.near')
-    throw new Error('the market link is not $KITS’ Token Detail')
-  if ((await page.getByRole('link', { name: /Explorer/ }).getAttribute('href')) !== 'https://nearblocks.io/tokens/kits.nearlytrade.near')
-    throw new Error('the explorer link is not $KITS’')
-  const kit = await page.locator('main').innerText()
-  if (!kit.includes('kits.nearlytrade.near')) throw new Error('the $KITS page doesn’t name its contract')
-  // Nothing stale: no "$KIT" (NEARKITS, the platform, keeps its name) and no pre-launch copy.
-  if (/\$KIT\b|Not launched|launches on|Published at launch/.test(kit)) throw new Error('the $KITS page reads like the old $KIT')
-  // The demo has no bot server: the page says so, offers no bot button and shows no figures.
-  await page.goto(BASE + '/telegram', { waitUntil: 'networkidle' })
-  await visible(page, 'no NEARKITS bot server is connected to this build yet')
-  if (await page.getByRole('button', { name: /Open .*bot/i }).count()) throw new Error('Telegram page offers a bot that is not connected')
-  const telegram = await page.locator('main').innerText()
-  if (/\$\d|≈\s?\d/.test(telegram)) throw new Error('Telegram page shows invented figures')
-})
+await step(
+  '$KITS is live at kits.nearlytrade.near: its page names its contract, trades it, offers Bridge & Buy $KITS from SOL, ETH and BNB, and links its market and explorer; Telegram shows no invented stats',
+  async () => {
+    await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
+    await page.getByRole('heading', { name: '$KITS', exact: true }).first().waitFor()
+    await visible(page, 'The token of NEARKITS, the trading toolkit for NEAR.')
+    const ways = page.getByRole('region', { name: 'Get $KITS' })
+    if (!(await ways.getByRole('button', { name: 'Buy $KITS' }).isEnabled())) throw new Error('the demo can’t trade $KITS')
+    if ((await ways.getByRole('link', { name: 'Market and chart' }).getAttribute('href')) !== '/token/kits.nearlytrade.near')
+      throw new Error('the market link is not $KITS’ Token Detail')
+    if ((await ways.getByRole('link', { name: /Explorer/ }).getAttribute('href')) !== 'https://nearblocks.io/tokens/kits.nearlytrade.near')
+      throw new Error('the explorer link is not $KITS’')
+    // Bridge & Buy: its own half, the three routes into $KITS, and a key that opens the flow.
+    const routes = await ways.getByRole('list', { name: 'Routes' }).innerText()
+    for (const coin of ['SOL', 'ETH', 'BNB'])
+      if (!new RegExp(`${coin}\\s+NEAR\\s+\\$KITS`).test(routes)) throw new Error(`no ${coin} → NEAR → $KITS route: ${routes.replace(/\s+/g, ' ')}`)
+    await ways.getByText('Have SOL, ETH or BNB? Bridge to NEAR and buy $KITS in one flow.').waitFor()
+    await ways.getByRole('link', { name: 'Bridge & Buy $KITS' }).click()
+    await page.waitForURL(/\/bridge$/)
+    await page
+      .getByRole('heading', { name: /Bridge & Buy/ })
+      .first()
+      .waitFor()
+    await page.goto(BASE + '/kit', { waitUntil: 'networkidle' })
+    const kit = await page.locator('main').innerText()
+    if (!kit.includes('kits.nearlytrade.near')) throw new Error('the $KITS page doesn’t name its contract')
+    // Nothing stale: no "$KIT" (NEARKITS, the platform, keeps its name) and no pre-launch copy.
+    if (/\$KIT\b|Not launched|launches on|Published at launch/.test(kit)) throw new Error('the $KITS page reads like the old $KIT')
+    // The demo has no bot server: the page says so, offers no bot button and shows no figures.
+    await page.goto(BASE + '/telegram', { waitUntil: 'networkidle' })
+    await visible(page, 'no NEARKITS bot server is connected to this build yet')
+    if (await page.getByRole('button', { name: /Open .*bot/i }).count()) throw new Error('Telegram page offers a bot that is not connected')
+    const telegram = await page.locator('main').innerText()
+    if (/\$\d|≈\s?\d/.test(telegram)) throw new Error('Telegram page shows invented figures')
+  },
+)
 
 await step(
-  '$KITS tokenomics: Near Kits at kits.nearlytrade.near, a 2% buy and sell tax split 50/50, the 1% pool fee and NEARKITS’ 70% apart from it; Buyback & Burn follows the contract and is empty until a source reads it; holder rewards Coming soon; no invented figure; no sideways scroll at 375px',
+  '$KITS tokenomics: a 2% buy and sell tax split 50/50, the 1% pool fee and NEARKITS’ 70% apart from it; Buyback & Burn and holder rewards follow the chain and are empty until a source reads it (no chart, no figure); planned utility Coming soon; no sideways scroll at 375px',
   async () => {
     for (const [width, height] of [
       [1440, 900],
@@ -502,32 +518,35 @@ await step(
       const has = (text, re, what) => {
         if (!re.test(text)) throw new Error(`${width}px: ${what} reads "${text.replace(/\s+/g, ' ')}"`)
       }
-      has(await tokenomics.innerText(), /\$KITS\s+Near Kits\s+kits\.nearlytrade\.near/, 'the token')
-      has(tax, /Buy tax\s+2%[\s\S]*Sell tax\s+2%/i, 'the trading tax')
+      has(await tokenomics.innerText(), /Launch configuration on Nearly/i, 'where the tokenomics come from')
+      has(tax, /2%\s+Buy[\s\S]*2%\s+Sell/i, 'the trading tax')
       has(tax, /2% tax applies to buys and sells\. Tax revenue is split 50\/50 between Buyback & Burn and Holder rewards\./, 'the tax note')
-      has(split, /Buyback & Burn\s+50%[\s\S]*Holders\s+50%/i, 'the tax distribution')
+      has(split, /50%\s+Buyback & Burn[\s\S]*Holders\s+50%/i, 'the tax distribution')
       has(split, /Creator\s+0%/i, 'the creator share')
-      has(pool, /Pool fee\s+1%[\s\S]*NEARKITS share\s+70%/i, 'the pool fee')
+      has(pool, /1%\s+Pool fee[\s\S]*70%\s+NEARKITS share/i, 'the pool fee')
       has(pool, /70% of the 1% pool fee is allocated to NEARKITS\./, 'the pool fee note')
       // Two separate things: the 70% is the pool fee's, never the tax's.
       if (/70%|pool fee/i.test(tax + split) || /Buyback|Holders/i.test(pool)) throw new Error(`${width}px: the trading tax and the pool fee are mixed`)
       const trackerRegion = p.getByRole('region', { name: /Buyback & Burn/i })
       const tracker = await trackerRegion.innerText()
-      // Buyback & Burn comes right after the token, before the tokenomics.
+      // Buyback & Burn, the page's centrepiece, comes before the tokenomics.
       const tops = await Promise.all([trackerRegion, tokenomics].map((r) => r.evaluate((el) => el.getBoundingClientRect().top)))
       if (!((tops[0] ?? 0) < (tops[1] ?? 0))) throw new Error(`${width}px: Buyback & Burn is not above the tokenomics`)
       has(tracker, /Not read here/i, 'the tracker status')
       has(tracker, /Buyback & Burn\s+kits\.nearlytrade\.near/i, 'the contract the tracker follows')
       has(tracker, /Total burned/i, 'the total burned slot')
+      has(tracker, /KITS burned over time/i, 'the chart slot')
       has(tracker, /This preview reads nothing from NEAR\. On nearkits\.com, \$KITS’ burns are read live from kits\.nearlytrade\.near\./, 'the tracker note')
-      // The demo reads no chain: no burn figure at all, never a made-up one.
+      // The demo reads no chain: no burn on the chart, no burn figure at all, never a made-up one.
+      if (await trackerRegion.getByRole('link', { name: /^Burn of / }).count()) throw new Error(`${width}px: the chart draws a burn the demo never read`)
       if (/\d/.test(tracker.replace(/kits\.nearlytrade\.near|nearkits\.com/g, ''))) throw new Error(`${width}px: the tracker shows a figure: ${tracker}`)
       const rewards = await p.getByRole('region', { name: /Holder rewards/i }).innerText()
-      has(rewards, /Coming soon/i, 'holder rewards')
-      has(rewards, /50%[\s\S]*of the tax/, 'the holders’ share')
-      has(rewards, /Holder reward tracking is coming soon\./, 'the holder rewards note')
-      if (/\d/.test(rewards.replace(/50%/g, ''))) throw new Error(`${width}px: holder rewards show a figure: ${rewards}`)
-      // What the tokenomics say (the phone's status strip above the page prints NEAR's own price).
+      has(rewards, /Not read here/i, 'the holder rewards status')
+      has(rewards, /Paid to holders/i, 'the paid slot')
+      has(rewards, /This preview reads nothing from NEAR\. On nearkits\.com, \$KITS holder rewards are read live from Nearly’s launchpad\./, 'the holder rewards note')
+      if (/\d/.test(rewards)) throw new Error(`${width}px: holder rewards show a figure: ${rewards}`)
+      has(await p.getByRole('region', { name: /Planned utility/i }).innerText(), /Coming soon/i, 'the planned utility')
+      // What the tokenomics and the live sections say (the phone's status strip above the page prints NEAR's own price).
       const said = [await tokenomics.innerText(), tracker, rewards].join('\n')
       if (/\$\d|APR|APY|guarantee/i.test(said)) throw new Error(`${width}px: the $KITS tokenomics promise or price something`)
       const wide = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)

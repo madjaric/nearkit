@@ -43,7 +43,7 @@ export const kitFacts = (): string[] => [
   `${KIT.ticker} has a ${tax.buyPct}% buy tax and a ${tax.sellPct}% sell tax.`,
   `The tax is split ${taxSplit.buybackBurnPct}% Buyback & Burn and ${taxSplit.holdersPct}% Holder rewards; ${taxSplit.creatorPct}% goes to the creator.`,
   `Separately from the tax, the pool fee is ${poolFee.pct}%, and ${poolFee.nearkitsSharePct}% of the pool fee is allocated to NEARKITS.`,
-  'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder reward tracking is coming soon.',
+  `Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder rewards are tracked live too: what Nearly’s launchpad has paid to ${KIT.ticker} holders in NEAR and what it holds for them, each payout round verified on chain.`,
   'No return, reward rate, burn amount or buyback frequency is promised.',
 ]
 

@@ -41,7 +41,7 @@ describe('each public page’s title and description', () => {
       '$KITS has a 2% buy tax and a 2% sell tax.',
       'The tax is split 50% Buyback & Burn and 50% Holder rewards; 0% goes to the creator.',
       'Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.',
-      'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder reward tracking is coming soon.',
+      'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder rewards are tracked live too: what Nearly’s launchpad has paid to $KITS holders in NEAR and what it holds for them, each payout round verified on chain.',
       'No return, reward rate, burn amount or buyback frequency is promised.',
     ])
     for (const p of publicPages().filter((x) => x.path !== '/kit' && x.path !== '/bridge')) expect(p.facts, p.path).toBeUndefined()

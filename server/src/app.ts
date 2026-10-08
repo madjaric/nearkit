@@ -25,6 +25,7 @@ import { createLogger, type Logger } from './log'
 import { buildBuybotDeps, runBuybot } from './buybot/service'
 import { checkChainIds } from './chainId'
 import { createKitsBurnTracker } from './kits/burns'
+import { createKitsRewardsTracker } from './kits/rewards'
 import { kitsRoutes } from './kits/routes'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
@@ -151,6 +152,17 @@ export async function startServer(options: { env: Record<string, string | undefi
   // $KITS exists on mainnet only: its Buyback & Burn tracker (a public, cached, read-only route) runs there.
   const kitsBurns =
     config.network.id === 'mainnet' && config.network.kitsContract ? createKitsBurnTracker({ rpc: near.ctx.rpc, fetch: fetchImpl, network: config.network, now, log }) : null
+  // Its holder rewards beside it: the scan of the launchpad's payouts keeps its progress in `meta`.
+  const kitsRewards = kitsBurns
+    ? createKitsRewardsTracker({
+        rpc: near.ctx.rpc,
+        fetch: fetchImpl,
+        network: config.network,
+        kv: { get: (key) => store.getMeta(key), set: (key, value) => store.setMeta(key, value) },
+        now,
+        log,
+      })
+    : null
   const link = createLinkService({ store, config, rpc: near.ctx.rpc, now })
   // Trade results reach the user through the bot once it is running; they respect /settings.
   let notifyUser: (userId: number, html: string) => Promise<void> = async () => {}
@@ -391,7 +403,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     routes: {
       ...linkRoutes({ link, onLinked }),
       ...handoffRoutes(handoffs),
-      ...(kitsBurns ? kitsRoutes({ burns: kitsBurns }) : {}),
+      ...(kitsBurns ? kitsRoutes({ burns: kitsBurns, rewards: kitsRewards }) : {}),
       ...(bridge ? bridgeRoutes({ bridge, sessions: web, solana: createSolanaReads({ rpcUrl: config.bridge.solanaRpcUrl, fetch: fetchImpl, now }) }) : {}),
       ...(custody
         ? recoveryRoutes({
@@ -507,6 +519,11 @@ export async function startServer(options: { env: Record<string, string | undefi
   const resolver = setInterval(() => void resolve(), 15_000)
   resolver.unref()
 
+  // $KITS holder rewards: the payout history is read a little at a time (NearBlocks' free API is shared
+  // with the burn tracker), so it keeps moving even when nobody opens the page. Cheap once caught up.
+  const rewardsWarm = kitsRewards ? setInterval(() => void kitsRewards.view().catch(() => undefined), 45_000) : null
+  rewardsWarm?.unref()
+
   const housekeeping = setInterval(() => {
     void (async () => {
       try {
@@ -539,6 +556,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       clearInterval(healthTimer)
       clearInterval(housekeeping)
       clearInterval(resolver)
+      if (rewardsWarm) clearInterval(rewardsWarm)
       // No bot starts a new step; the one under way finishes (its trade is settled from its intent after a restart anyway).
       await volumeRunner?.stop()
       await bridgeWorker?.stop()

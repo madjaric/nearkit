@@ -100,6 +100,8 @@
   --animate-fade: fade 180ms ease-out;
   --animate-drain: drain linear forwards;
   --animate-scan: scan 1.1s ease-in-out infinite;
+  /* A trace drawing itself in, left to right, once (the Buyback & Burn chart). */
+  --animate-reveal: reveal 1100ms var(--ease-out) both;
 
   @keyframes ghost {
     0%,
@@ -174,6 +176,14 @@
     }
     to {
       opacity: 1;
+    }
+  }
+  @keyframes reveal {
+    from {
+      clip-path: inset(0 100% 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
     }
   }
   @keyframes drain {
