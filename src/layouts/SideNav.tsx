@@ -3,7 +3,7 @@ import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { Led, Tag } from '@/components/ui/Indicators'
 import { KIT } from '@/config/kit'
 import { isComingSoon } from '@/config/release'
-import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
+import { useQuickTradeToken } from '@/features/trade/useDefaultToken'
 import { cn } from '@/lib/cn'
 import { useNetworkWording } from '@/lib/modeCopy'
 import { useCapabilities } from '@/services/queries'
@@ -64,10 +64,10 @@ function GroupLegend({ label }: { label: string }) {
   )
 }
 
-/** Opens the Quick Trade ticket over the current page, on the default trade token. */
+/** Opens the Quick Trade ticket over the current page, on Quick Trade's token ($KITS where it trades). */
 function QuickTradeEntry({ entry, onNavigate }: { entry: NavAction; onNavigate?: () => void }) {
   const { openTrade } = useTradeDrawer()
-  const tokenId = useDefaultTradeToken()
+  const tokenId = useQuickTradeToken()
   const Icon = entry.icon
   return (
     <li>

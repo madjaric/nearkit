@@ -19,7 +19,7 @@ import { OperationModal } from '../tools/OperationModal'
 import { ArmStatus } from './ArmStatus'
 import { QuoteDetails } from './QuoteDetails'
 import { useArm } from './useArm'
-import { useDefaultTradeToken } from './useDefaultToken'
+import { useQuickTradeToken } from './useDefaultToken'
 import { useSpend } from './useSpend'
 import { TradeWalletSelect } from './TradeWalletSelect'
 import { useTradeWallets } from './useTradeWallets'
@@ -36,7 +36,8 @@ interface QuickTradeProps {
 }
 
 /**
- * Buy or sell one token against NEAR from one wallet: the dashboard's trade ticket. From a
+ * Buy or sell one token against NEAR from one wallet: the dashboard's trade ticket. It opens on
+ * $KITS where $KITS trades (useQuickTradeToken), unless it was opened for a token. From a
  * NearKit wallet NearKit's server executes it (no wallet prompt, no browser wallet needed);
  * from a connected account it is signed in that wallet.
  */
@@ -47,7 +48,7 @@ export function QuickTrade({ initialTokenId, initialSide = 'buy', variant = 'pan
   const { promptConnect } = useConnectPrompt()
   const { data: tokens = [] } = useTokens()
   const planners = usePlanners()
-  const defaultToken = useDefaultTradeToken()
+  const defaultToken = useQuickTradeToken()
   const now = useNow(500)
   const { armed, armedAt, arm, disarm } = useArm()
 

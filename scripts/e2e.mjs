@@ -71,12 +71,29 @@ await step('dashboard renders readouts, positions and ticket', async () => {
   await page.getByRole('heading', { name: 'Quick trade' }).waitFor()
 })
 
+await step('Quick Trade opens on $KITS, the NEARKITS token: its ticket, the Dashboard’s Buy key and the sidebar’s Quick Trade', async () => {
+  const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
+  await ticket.getByRole('button', { name: 'Token: KITS' }).waitFor()
+  await ticket.getByRole('button', { name: 'Buy KITS' }).waitFor()
+  for (const open of [
+    () => page.getByRole('button', { name: 'Buy', exact: true }).first().click(),
+    () => page.locator('aside').getByRole('button', { name: 'Quick Trade' }).click(),
+  ]) {
+    await open()
+    const drawer = page.getByRole('dialog', { name: 'Trade ticket' })
+    await drawer.getByText('Trade KITS').waitFor()
+    await drawer.getByRole('button', { name: 'Token: KITS' }).waitFor()
+    await page.keyboard.press('Escape')
+    await drawer.waitFor({ state: 'hidden' })
+  }
+})
+
 // NearKit's fee is set once, in src/lib/fees.ts (NEARKIT_FEE): 50 bps.
 await step('quick trade: MAX fills, quote prints, fee is 0.50%', async () => {
   const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
   await ticket.getByRole('button', { name: 'MAX' }).click()
   await ticket.getByText('You receive (est.)').waitFor()
-  await ticket.getByText(/1 NEAR ≈ [\d,.]+[KMB]? BLACKDRAGON/).waitFor({ timeout: 6000 })
+  await ticket.getByText(/1 NEAR ≈ [\d,.]+[KMB]? KITS/).waitFor({ timeout: 6000 })
   await ticket.getByText('0.50%').first().waitFor()
 })
 
@@ -85,19 +102,20 @@ await step('quick trade: two-step arm then confirm simulates and toasts', async 
   const amount = ticket.getByLabel('You pay')
   await amount.fill('5')
   await page.waitForTimeout(700)
-  await ticket.getByRole('button', { name: /^Buy BLACKDRAGON$/i }).click()
+  await ticket.getByRole('button', { name: /^Buy KITS$/i }).click()
   await ticket.getByText('Armed. Press again to confirm').waitFor()
   await shot(page, 'quick-trade-armed')
-  await ticket.getByRole('button', { name: /Confirm buy BLACKDRAGON/i }).click()
+  await ticket.getByRole('button', { name: /Confirm buy KITS/i }).click()
   // Confirming opens the review of the exact plan; signing it runs the (simulated) execution.
   const review = page.getByRole('dialog', { name: 'Review buy' })
   await review.getByText('You pay').waitFor({ timeout: 6000 })
   await review.getByText('Minimum received').waitFor()
   await review.getByText(/NEARKITS fee \(0\.50%\)/).waitFor()
+  await review.getByText('kits.nearlytrade.near').first().waitFor()
   await shot(page, 'quick-trade-review')
-  await review.getByRole('button', { name: /^Buy BLACKDRAGON$/i }).click()
+  await review.getByRole('button', { name: /^Buy KITS$/i }).click()
   await page.getByRole('dialog', { name: 'Simulation complete' }).waitFor({ timeout: 8000 })
-  await visible(page, /Simulated · Buy BLACKDRAGON/)
+  await visible(page, /Simulated · Buy KITS/)
   await visible(page, 'Nothing was signed or sent. Balances are unchanged.')
   await page.getByRole('dialog', { name: 'Simulation complete' }).getByRole('button', { name: 'Close' }).last().click()
 })
@@ -106,7 +124,7 @@ await step('quick trade: insufficient balance blocks the key', async () => {
   const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
   await ticket.getByLabel('You pay').fill('999999')
   await ticket.getByText(/Main holds 8,420\.55 NEAR/).waitFor()
-  if (await ticket.getByRole('button', { name: /^Buy BLACKDRAGON$/i }).isEnabled()) throw new Error('Buy key should be disabled when the balance is short')
+  if (await ticket.getByRole('button', { name: /^Buy KITS$/i }).isEnabled()) throw new Error('Buy key should be disabled when the balance is short')
   await ticket.getByLabel('You pay').fill('')
 })
 
@@ -504,13 +522,13 @@ await step('settings: one-click mode fires without arming', async () => {
   const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
   await ticket.getByLabel('You pay').fill('3')
   await page.waitForTimeout(700)
-  await ticket.getByRole('button', { name: /^Buy BLACKDRAGON$/i }).click()
+  await ticket.getByRole('button', { name: /^Buy KITS$/i }).click()
   // One press goes straight to the review: no arming step.
   const review = page.getByRole('dialog', { name: 'Review buy' })
   await review.getByText('3 NEAR').first().waitFor({ timeout: 6000 })
   if (await ticket.getByText('Armed. Press again to confirm').isVisible()) throw new Error('one-click mode still armed')
-  await review.getByRole('button', { name: /^Buy BLACKDRAGON$/i }).click()
-  await visible(page, /Simulated · Buy BLACKDRAGON/)
+  await review.getByRole('button', { name: /^Buy KITS$/i }).click()
+  await visible(page, /Simulated · Buy KITS/)
 })
 
 await step('404 route renders inside the shell', async () => {
