@@ -31,6 +31,8 @@ async function telegramBridge(options: { wallet?: boolean } = {}) {
   const step = async () => {
     app.h.advance(130_000)
     await worker.tick()
+    // Notices go out beside the worker's pass, not in it: wait for them before looking at the chat.
+    await worker.idle()
   }
   const text = () => app.h.last()?.text ?? ''
   const data = (label: string) => app.h.buttons().find((b) => b.text.includes(label))?.data ?? ''
@@ -299,6 +301,31 @@ describe('notices: what the worker saw, each once', () => {
     expect(chatOf(app).filter((m) => /Deposit detected/.test(m.text))).toHaveLength(1)
   })
 
+  it('Unwrap now that fails again says so again (the bot promised a message), and the order stays unwrap-needed', async () => {
+    const app = await telegramBridge()
+    const o = await app.ordered()
+    if (!o || !app.w) throw new Error('no order')
+    const amount = 19n * ONE
+    app.h.chain.tokens.get(WRAP)?.balances.set(app.w.accountId, amount)
+    app.fast.wnear(NEAR_HASH(2), WRAP, app.w.accountId, amount)
+    app.status('SUCCESS', { destinationChainTxHashes: [{ hash: NEAR_HASH(2), explorerUrl: '' }], amountOut: amount.toString() })
+    const account = app.h.chain.accounts.get(app.w.accountId)
+    if (account) account.amount = 1n
+    await app.step()
+    await app.step()
+    const stuck = () => chatOf(app).filter((m) => m.method === 'sendMessage' && /Bridged, not unwrapped/.test(m.text))
+    expect(stuck()).toHaveLength(1)
+    // Pressed with the wallet still out of NEAR for the fee: it fails again, and the user hears it.
+    await app.h.press(`brg:uw:${o.id}`)
+    await app.step()
+    await app.step()
+    expect((await app.store.get(o.id))?.status).toBe('unwrap-needed')
+    expect(stuck()).toHaveLength(2)
+    // Nothing else is announced: no second deposit notice, no completion.
+    expect(chatOf(app).filter((m) => /Deposit detected/.test(m.text))).toHaveLength(1)
+    expect(chatOf(app).filter((m) => /Bridge complete/.test(m.text))).toHaveLength(0)
+  })
+
   it('refunded, and an order nobody paid into expiring: each said once, never as delivered', async () => {
     const app = await telegramBridge()
     const o = await app.ordered()
@@ -321,6 +348,39 @@ describe('notices: what the worker saw, each once', () => {
     await app.step()
     expect((await app.store.get(second.id))?.status).toBe('expired')
     expect(chatOf(app).filter((m) => /Bridge order expired/.test(m.text) && /Don’t send to that address any more/.test(m.text))).toHaveLength(1)
+  })
+
+  it('a slow Telegram never holds up the worker: the next order is stepped while a notice is still on its way', async () => {
+    const app = await telegramBridge()
+    const first = await app.ordered()
+    await app.toReview('sol', '0.5')
+    await app.h.press(app.data('Create deposit address'))
+    const second = (await app.store.ofUser(ALICE.id, 'testnet'))[0]
+    if (!first || !second) throw new Error('no orders')
+    let release = () => undefined as void
+    const held = new Promise<void>((r) => (release = r))
+    const sent: string[] = []
+    const worker = createBridgeWorker({
+      bridge: app.bridge,
+      store: app.store,
+      instanceId: 'slow',
+      log: app.h.deps.log,
+      onChange: async (o) => {
+        await held
+        sent.push(o.id)
+      },
+    })
+    app.status('KNOWN_DEPOSIT_TX', {}, first.depositAddress)
+    app.status('KNOWN_DEPOSIT_TX', {}, second.depositAddress)
+    app.h.advance(130_000)
+    await worker.tick()
+    // Both orders moved in one pass although the first notice hasn't gone yet.
+    expect((await app.store.get(first.id))?.status).toBe('deposit-seen')
+    expect((await app.store.get(second.id))?.status).toBe('deposit-seen')
+    expect(sent).toEqual([])
+    release()
+    await worker.idle()
+    expect(sent.sort()).toEqual([first.id, second.id].sort())
   })
 
   it('Telegram busy for a second: the notice waits and goes once; Telegram refusing it: it is not sent again by later steps', async () => {

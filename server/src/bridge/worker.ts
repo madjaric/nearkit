@@ -18,12 +18,25 @@ export function createBridgeWorker(deps: {
   instanceId: string
   log: Logger
   tickMs?: number
-  /** An order's status changed in a step (the bot tells its user); a failure here never stops the worker. */
+  /**
+   * An order's status changed in a step (the bot tells its user). It runs beside the pass, never in it:
+   * a slow or failing Telegram never holds up stepping the other orders, and a failure never stops the worker.
+   */
   onChange?: (order: BridgeOrder) => Promise<void>
 }) {
   const owner = `${deps.instanceId}/bridge/${randomToken(6)}`
   let timer: ReturnType<typeof setInterval> | null = null
   let running: Promise<void> | null = null
+  const notices = new Set<Promise<void>>()
+
+  function announce(order: BridgeOrder) {
+    if (!deps.onChange) return
+    const sent: Promise<void> = deps
+      .onChange(order)
+      .catch((e: unknown) => deps.log.warn('bridge notice failed', { order: order.id, error: e }))
+      .finally(() => notices.delete(sent))
+    notices.add(sent)
+  }
 
   async function tick(): Promise<void> {
     for (const order of await deps.store.due(10)) {
@@ -34,7 +47,7 @@ export function createBridgeWorker(deps: {
         if (fresh && fresh.nextCheckAt !== null) {
           await deps.bridge.step(fresh)
           const after = deps.onChange ? await deps.store.get(order.id) : null
-          if (after && after.status !== fresh.status) await deps.onChange?.(after).catch((e: unknown) => deps.log.warn('bridge notice failed', { order: order.id, error: e }))
+          if (after && after.status !== fresh.status) announce(after)
         }
       } catch (e) {
         deps.log.error('bridge order step failed', { order: order.id, error: e })
@@ -52,6 +65,10 @@ export function createBridgeWorker(deps: {
         running = null
       })
       return running
+    },
+    /** Until every notice started so far has been sent or has failed (tests). */
+    async idle() {
+      while (notices.size) await Promise.all([...notices])
     },
     start() {
       timer ??= setInterval(() => void this.tick().catch((e) => deps.log.warn('bridge tick failed', { error: e })), deps.tickMs ?? BRIDGE_TICK_MS)

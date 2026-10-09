@@ -291,6 +291,24 @@ export async function startServer(options: { env: Record<string, string | undefi
   const web = custody ? new WebSessions(db, now) : null
   // Volume Bots: configured on the web, stepped by the worker below, trading only through custody.
   const volumeBots = custody && web ? new VolumeBotStore(db, now) : null
+  // Bridge & Buy $KITS: NEAR Intents' 1Click API brings SOL, ETH or BNB to NEAR, then $KITS is bought (mainnet only).
+  const bridgeStore = config.bridge.enabled ? new BridgeStore(db, now) : null
+  const bridge =
+    bridgeStore && config.env.feeRecipient
+      ? createBridgeService({
+          network: config.network,
+          oneclick: createOneClick({ fetch: fetchImpl, baseUrl: config.bridge.oneclickUrl, apiKey: config.bridge.apiKey, now, log }),
+          store: bridgeStore,
+          near,
+          feeRecipient: config.env.feeRecipient,
+          custody,
+          ops: new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused),
+          fetch: fetchImpl,
+          now,
+          log,
+        })
+      : null
+  if (!bridge) log.info('Bridge & Buy off', { reason: config.bridge.reason ?? 'no fee account' })
   let botDeps: BotDeps | null = null
 
   let tg: TelegramApi | null = null
@@ -329,6 +347,9 @@ export async function startServer(options: { env: Record<string, string | undefi
       web,
       volumeBots,
       kits: kitsBurns ? { burns: kitsBurns, rewards: kitsRewards } : null,
+      // The bot's Bridge to NEAR (Send manually, My bridge orders, notices) runs on this very service and its orders,
+      // there before the bot handles its first update.
+      bridge: bridge && bridgeStore ? { service: bridge, store: bridgeStore } : null,
     }
     botDeps = deps
     let list: () => { name: string; command: Command }[] = () => []
@@ -384,26 +405,6 @@ export async function startServer(options: { env: Record<string, string | undefi
     await bot.notify(r.userId, linkedText(r.accountId, config.network.label))
     if (r.previousUserId !== null) await bot.notify(r.previousUserId, movedAwayText(r.accountId))
   }
-  // Bridge & Buy $KITS: NEAR Intents' 1Click API brings SOL, ETH or BNB to NEAR, then $KITS is bought (mainnet only).
-  const bridgeStore = config.bridge.enabled ? new BridgeStore(db, now) : null
-  const bridge =
-    bridgeStore && config.env.feeRecipient
-      ? createBridgeService({
-          network: config.network,
-          oneclick: createOneClick({ fetch: fetchImpl, baseUrl: config.bridge.oneclickUrl, apiKey: config.bridge.apiKey, now, log }),
-          store: bridgeStore,
-          near,
-          feeRecipient: config.env.feeRecipient,
-          custody,
-          ops: new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused),
-          fetch: fetchImpl,
-          now,
-          log,
-        })
-      : null
-  if (!bridge) log.info('Bridge & Buy off', { reason: config.bridge.reason ?? 'no fee account' })
-  // The bot's Bridge to NEAR (Send manually, My bridge orders, notices) runs on this very service and its orders.
-  if (botDeps) botDeps.bridge = bridge && bridgeStore ? { service: bridge, store: bridgeStore } : null
   // NEARKITS' Mini App names its Telegram user with launch data Telegram signed for this bot (its id is the token's public prefix).
   const miniAppCheck = config.telegramToken ? { botId: Number(config.telegramToken.split(':')[0]), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS.production) as Uint8Array } : null
 

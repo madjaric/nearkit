@@ -464,6 +464,8 @@ async function unwrapNow(ctx: BotCtx, id: string) {
   } catch (e) {
     return ctx.answer(refusal(e, ctx), true)
   }
+  // The answer promises a message: how this unwrap ends is announced even if it stops again.
+  await b.store.claimNotice(o.id, UNWRAP_ASKED, [])
   await ctx.answer('Unwrapping: NEARKITS messages you when it’s done.')
   await orderScreen(ctx, (await b.store.get(o.id)) as BridgeOrder)
 }
@@ -484,7 +486,12 @@ const NOTICE: Partial<Record<BridgeOrderStatus, string>> = {
   expired: 'expired',
 }
 const FINAL_NOTICES = ['complete', 'unwrap-needed', 'refunded', 'failed', 'expired']
-const LATER: Record<string, readonly string[]> = { deposit: ['incomplete', ...FINAL_NOTICES], incomplete: FINAL_NOTICES }
+/**
+ * Not a notice: what the order records when its user presses Unwrap to NEAR now, so that how that
+ * unwrap ends is said too (complete, or unwrap-needed once more), and nothing said before it is repeated.
+ */
+const UNWRAP_ASKED = 'unwrap-asked'
+const LATER: Record<string, readonly string[]> = { deposit: ['incomplete', UNWRAP_ASKED, ...FINAL_NOTICES], incomplete: [UNWRAP_ASKED, ...FINAL_NOTICES] }
 
 export function bridgeNoticeText(v: BridgeOrderView): { text: string; markup: InlineKeyboard } | null {
   const chain = chainOf(v.chain)
