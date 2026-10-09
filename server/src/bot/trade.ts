@@ -439,7 +439,9 @@ async function showToken(ctx: BotCtx, args: string) {
     taxLine(ctx, t),
   ])
   const pair = market?.pair
-  const state = (side: Side) => ctx.deps.store.putCallback({ side, account: account ?? '', token: t.id, native: nearkit !== null }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
+  // A NEARKITS wallet's keys carry that wallet, as every other trade key does: the flow acts on it (flowWallet), whatever is selected later.
+  const state = (side: Side) =>
+    ctx.deps.store.putCallback({ side, account: account ?? '', token: t.id, native: nearkit !== null, walletId: nearkit?.id ?? '' }, ctx.user.id, ctx.chat.id, CALLBACK_TTL_MS)
   const [buyId, sellId] = account ? await Promise.all([state('buy'), state('sell')]) : ['', '']
   await ctx.reply(
     [
