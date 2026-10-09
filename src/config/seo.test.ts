@@ -123,17 +123,18 @@ describe('the head of a page', () => {
 })
 
 describe('structured data', () => {
-  it('the organization and the site on every page; the Telegram bot as the organization’s profile when the build names it', () => {
+  it('the organization and the site on every page; its official profiles (the Telegram community, X, and the bot when the build names it)', () => {
     const [org, site] = siteGraph(URL, 'NearKitBot')
     expect(org).toMatchObject({
       '@type': 'Organization',
       name: 'NEARKITS',
       url: 'https://nearkits.com/',
       logo: 'https://nearkits.com/icon-512.png',
-      sameAs: ['https://t.me/NearKitBot'],
+      sameAs: ['https://t.me/NearKitBot', 'https://t.me/NearKitsCommunity', 'https://x.com/Near_Kits'],
     })
     expect(site).toMatchObject({ '@type': 'WebSite', url: 'https://nearkits.com/', publisher: { '@id': 'https://nearkits.com/#organization' } })
-    expect(siteGraph(URL, null)[0]).not.toHaveProperty('sameAs')
+    // The community and X are NEARKITS' own on every build; the bot only where the build names it.
+    expect(siteGraph(URL, null)[0]).toMatchObject({ sameAs: ['https://t.me/NearKitsCommunity', 'https://x.com/Near_Kits'] })
   })
 
   it('the Volume Bot page: the app, its visible breadcrumb and its visible FAQ, question for question; no rating or review anywhere', () => {
@@ -185,7 +186,15 @@ describe('crawler files', () => {
     // The Bridge, apart from Bridge & Buy: what it delivers and its fee, nothing bought.
     expect(txt).toMatch(/- The Bridge \(https:\/\/[^)]+\/bridge-near\), apart from Bridge & Buy: [^\n]*Nothing is bought\.[^\n]*wNEAR[^\n]*0\.25%[^\n]*no trading fee/)
     expect(txt).toMatch(/Coming soon[^\n]*limit orders[^\n]*DCA[^\n]*copy trading[^\n]*sniper/i)
-    expect(llmsTxt(URL)).not.toContain('t.me/')
+    // The bot only where the build names it; the community and X, NEARKITS' own accounts, always.
+    expect(llmsTxt(URL)).not.toContain('t.me/NearKitBot')
+    expect(txt).toContain(
+      [
+        '## Community',
+        '- [NEARKITS Community on Telegram](https://t.me/NearKitsCommunity): the official NEARKITS community chat on Telegram (@NearKitsCommunity).',
+        '- [NEARKITS on X](https://x.com/Near_Kits): NEARKITS’ official account on X (@Near_Kits).',
+      ].join('\n'),
+    )
   })
 })
 

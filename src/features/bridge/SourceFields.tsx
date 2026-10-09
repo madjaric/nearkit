@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Wallet as WalletIcon } from 'lucide-react'
 import { ChainMark } from '@/components/brand/ChainMark'
 import { Button } from '@/components/ui/Button'
@@ -116,7 +117,8 @@ export function SourceStatus({ source, chain, manual }: { source: Source; chain:
   return <span className="text-xs text-fg-3">{manual ? `Sending from another ${chain.name} wallet` : `${chain.name} wallet not connected`}</span>
 }
 
-export function SourceConnect({ chain, side }: { chain: BridgeChain; side: SourceSide }) {
+/** `noWalletHint`: what to say when this browser has no wallet for the chain (the Mini App says why, inside Telegram). */
+export function SourceConnect({ chain, side, noWalletHint }: { chain: BridgeChain; side: SourceSide; noWalletHint?: ReactNode }) {
   const { source, manual, setManual, manualAddress, setManualAddress, manualError } = side
   if (source.connection) return source.error ? <p className="text-xs text-warn">{source.error}</p> : null
   return (
@@ -130,6 +132,8 @@ export function SourceConnect({ chain, side }: { chain: BridgeChain; side: Sourc
             </Button>
           ))}
         </div>
+      ) : noWalletHint ? (
+        <p className="text-xs leading-5 text-fg-3">{noWalletHint}</p>
       ) : (
         <p className="text-xs text-fg-3">
           No {chain.name} wallet found in this browser. {chain.family === 'solana' ? 'Phantom, Solflare or Backpack' : 'MetaMask, Rabby or any EVM wallet'} connects here, or send

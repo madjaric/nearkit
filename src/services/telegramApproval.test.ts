@@ -40,6 +40,15 @@ describe('where the Mini App was opened from', () => {
     expect(telegramLaunchContext(hashOf(plain), `?tgWebAppStartParam=${DIGEST}`)).toEqual({ kind: 'approval', launch: { initData: plain, startParam: DIGEST } })
   })
 
+  it('the Bridge: the bot’s Connect wallet opens it with the start parameter “bridge”, which approves nothing', () => {
+    expect(telegramLaunchContext(hashOf(initData('bridge')), '')).toEqual({ kind: 'bridge', initData: initData('bridge') })
+    const plain = new URLSearchParams({ auth_date: '1790000000', user: '{"id":101}', signature: 'x', hash: 'y' }).toString()
+    expect(telegramLaunchContext(hashOf(plain), '?tgWebAppStartParam=bridge')).toEqual({ kind: 'bridge', initData: plain })
+    expect(readTelegramLaunch(hashOf(initData('bridge')), '')).toBeNull()
+    // Outside Telegram the parameter alone opens nothing.
+    expect(telegramLaunchContext('', '?tgWebAppStartParam=bridge')).toEqual({ kind: 'outside' })
+  })
+
   it('the approval launch is exactly what readTelegramLaunch reads: nothing changed for the signer', () => {
     const data = initData(DIGEST)
     const context = telegramLaunchContext(hashOf(data), '')

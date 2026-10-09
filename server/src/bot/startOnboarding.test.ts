@@ -13,15 +13,22 @@ describe('/start with no NEARKITS wallet yet', () => {
     await h.say('/start')
     const text = h.last()?.text ?? ''
     expect(text).toContain('👜 <b>No NEARKITS wallet yet</b>')
-    expect(text).toContain('Create a wallet instantly and start trading.')
+    // What NEARKITS is, then three steps: create, fund, trade; then where $KITS and the community are.
+    expect(text).toContain('NEARKITS is a NEAR trading toolkit, right here in Telegram.')
+    expect(text).toContain('1. <b>Create a wallet</b>: one tap, below.')
+    // No Bridge on this (testnet) bot: funding says only what exists here.
+    expect(text).toContain('2. <b>Fund it</b>: send NEAR to its address.')
+    expect(text).not.toContain('Bridge to NEAR')
+    expect(text).toContain('3. <b>Trade</b>: buy and sell NEAR tokens from the menu.')
+    expect(text).toContain('🪙 $KITS is the NEARKITS token; 👥 Community has the Telegram group and X. Both are in the menu.')
     expect(text).toContain('🔒 NEARKITS never asks for your seed phrase or private key.')
     expect(text).not.toContain('No wallet linked yet')
     const [first, second] = h.buttons()
     expect(first?.text).toBe('💼 Create wallet')
     expect(first?.data).toMatch(/^cw:new:[A-Za-z0-9_-]{8,}$/)
     expect(second).toMatchObject({ text: '🔗 Link wallet', data: 'acct:link' })
-    // The rest of the menu is as it was.
-    expect(h.buttons().map((b) => b.text)).toEqual(expect.arrayContaining(['⚙️ Settings', '❓ Help']))
+    // The rest of the menu is as it was, with $KITS and Community added.
+    expect(h.buttons().map((b) => b.text)).toEqual(expect.arrayContaining(['⚙️ Settings', '❓ Help', '🪙 $KITS', '👥 Community']))
   })
 
   it('Create wallet makes the NEARKITS wallet in one tap, with no link', async () => {

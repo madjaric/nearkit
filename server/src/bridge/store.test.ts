@@ -83,3 +83,79 @@ describe.each(TEST_ENGINES)('bridge orders on %s', (engine) => {
     ENGINE_TIMEOUT_MS,
   )
 })
+
+/** The schema each engine had before Telegram's Bridge: the generic Bridge, no request key, no notices. */
+const BEFORE_TELEGRAM: Record<TestEngine, number> = { sqlite: 16, pglite: 7, postgres: 7 }
+
+describe.each(TEST_ENGINES)('bridge orders for Telegram on %s', (engine) => {
+  it(
+    'an order made before Telegram’s Bridge reads back unchanged, with no request key and nothing announced',
+    async () => {
+      const db = await openTestDatabase(engine, { migrateTo: BEFORE_TELEGRAM[engine] })
+      await db.run(
+        `INSERT INTO bridge_orders (id, network, product, kind, user_id, wallet_id, recipient, chain, origin_asset, source_address, amount_in, deposit_address,
+           deposit_deadline, sign_by, quote, oneclick, kits_min_per_near, kits_slippage, status, next_check_at, checks, created_at, updated_at)
+         VALUES ('old-bridge-1', 'mainnet', 'bridge', 'external', NULL, NULL, 'carol.near', 'sol', 'nep141:sol.omft.near', 'So1ana', '1000000000', 'dep-old-2',
+           2, 1, ?, '{}', NULL, 0, 'complete', NULL, 0, 10, 10)`,
+        [JSON.stringify(QUOTE)],
+      )
+      await migrate(db)
+      const o = await new BridgeStore(db).get('old-bridge-1')
+      expect(o).toMatchObject({ id: 'old-bridge-1', product: 'bridge', kind: 'external', status: 'complete', requestKey: null, notified: null })
+    },
+    ENGINE_TIMEOUT_MS,
+  )
+
+  it(
+    'one request key is one order: found again by it, and the database refuses a second order with it',
+    async () => {
+      const db = await openTestDatabase(engine)
+      const store = new BridgeStore(db)
+      const key = 'tg-key-0123456789abcdef'
+      const o = await store.create(order({ product: 'bridge', kind: 'nearkits', recipient: 'w.near', kitsMinPerNear: null, kitsSlippage: 0, requestKey: key }))
+      expect(o.requestKey).toBe(key)
+      expect((await store.byRequestKey(key))?.id).toBe(o.id)
+      expect(await store.byRequestKey('another-key-0123456789')).toBeNull()
+      await expect(store.create(order({ requestKey: key }))).rejects.toThrow()
+      // Orders without a key are as many as there are deposit addresses.
+      await store.create(order())
+      await store.create(order())
+    },
+    ENGINE_TIMEOUT_MS,
+  )
+
+  it(
+    'a notice is claimed once: the same one again, or an earlier one after a later one, is refused',
+    async () => {
+      const db = await openTestDatabase(engine)
+      const store = new BridgeStore(db)
+      const o = await store.create(order({ product: 'bridge', kind: 'nearkits', recipient: 'w.near', kitsMinPerNear: null, kitsSlippage: 0 }))
+      expect(await store.claimNotice(o.id, 'deposit', [])).toBe(true)
+      expect(await store.claimNotice(o.id, 'deposit', [])).toBe(false)
+      expect(await store.claimNotice(o.id, 'complete', [])).toBe(true)
+      // 'deposit' comes before 'complete': once the order announced it was complete, a late deposit notice is not sent.
+      expect(await store.claimNotice(o.id, 'deposit', ['complete'])).toBe(false)
+      expect((await store.get(o.id))?.notified).toBe('complete')
+    },
+    ENGINE_TIMEOUT_MS,
+  )
+
+  it(
+    'the source address a user last sent from on a chain, for their next order there',
+    async () => {
+      const db = await openTestDatabase(engine)
+      const store = new BridgeStore(db)
+      const now = { t: 1 }
+      const timed = new BridgeStore(db, () => now.t)
+      await db.run("INSERT INTO telegram_users (user_id, username, first_name, language_code, created_at, updated_at) VALUES (7, NULL, 'U', NULL, 1, 1)").catch(() => undefined)
+      await timed.create(order({ userId: 7, kind: 'nearkits', chain: 'sol', sourceAddress: 'OldSolAddress' }))
+      now.t = 5
+      await timed.create(order({ userId: 7, kind: 'nearkits', chain: 'sol', sourceAddress: 'NewSolAddress' }))
+      await timed.create(order({ userId: 7, kind: 'nearkits', chain: 'eth', sourceAddress: '0xabc' }))
+      expect(await store.lastSourceAddress(7, 'mainnet', 'sol')).toBe('NewSolAddress')
+      expect(await store.lastSourceAddress(7, 'mainnet', 'bsc')).toBeNull()
+      expect(await store.lastSourceAddress(8, 'mainnet', 'sol')).toBeNull()
+    },
+    ENGINE_TIMEOUT_MS,
+  )
+})

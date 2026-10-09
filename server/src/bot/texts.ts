@@ -1,3 +1,4 @@
+import { SOCIAL } from '@/config/social'
 import { NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL } from '@/lib/fees'
 import type { ServerConfig } from '../config'
 import { bold, code, esc, shortAccount } from '../telegram/html'
@@ -14,19 +15,28 @@ export function networkNote(config: Pick<ServerConfig, 'network'>): string {
 export function welcome(config: Pick<ServerConfig, 'network'>, wallet: { accountId: string; near: string | null; nearkit?: boolean } | null): string {
   const who = wallet ? (wallet.nearkit ? `NEARKITS wallet ${esc(shortAccount(wallet.accountId))}` : code(wallet.accountId)) : null
   return [
-    `${bold('NEARKITS')} · NEAR trading`,
+    `${bold('NEARKITS')} · NEAR trading toolkit`,
     wallet ? `👛 ${who}${wallet.near !== null ? ` · ${esc(wallet.near)} NEAR` : ''}` : '👛 No wallet linked yet',
     ...(config.network.id === 'testnet' ? [esc(networkNote(config))] : []),
   ].join('\n')
 }
 
-/** The first screen for someone with no NearKit wallet yet, where one can be made right away: creating comes first, linking is optional. */
-export function noWalletYet(config: Pick<ServerConfig, 'network'>, linked: { accountId: string; near: string | null } | null): string {
+/**
+ * The first screen for someone with no NearKit wallet yet, where one can be made right away: what
+ * NEARKITS is, then the three steps (create a wallet, fund it, trade), then where $KITS and the
+ * community are. Creating comes first; linking is optional. `bridge`: the Bridge to NEAR runs here.
+ */
+export function noWalletYet(config: Pick<ServerConfig, 'network'>, linked: { accountId: string; near: string | null } | null, options: { bridge?: boolean } = {}): string {
   return [
     `👜 ${bold('No NEARKITS wallet yet')}`,
     ...(linked ? [`🔗 Linked wallet ${code(linked.accountId)}${linked.near !== null ? ` · ${esc(linked.near)} NEAR` : ''}`] : []),
     '',
-    'Create a wallet instantly and start trading.',
+    'NEARKITS is a NEAR trading toolkit, right here in Telegram.',
+    `1. ${bold('Create a wallet')}: one tap, below.`,
+    options.bridge ? `2. ${bold('Fund it')}: send NEAR to it, or bring SOL, ETH or BNB with 🌉 Bridge to NEAR.` : `2. ${bold('Fund it')}: send NEAR to its address.`,
+    `3. ${bold('Trade')}: buy and sell NEAR tokens from the menu.`,
+    '',
+    '🪙 $KITS is the NEARKITS token; 👥 Community has the Telegram group and X. Both are in the menu.',
     '🔒 NEARKITS never asks for your seed phrase or private key.',
     ...(config.network.id === 'testnet' ? [esc(networkNote(config))] : []),
   ].join('\n')
@@ -54,6 +64,7 @@ export function help(config: Pick<ServerConfig, 'network'>, commands: { name: st
     '',
     esc(feeNote(config)),
     'Paste a token’s contract ID on its own to buy it.',
+    `👥 Community: ${esc(SOCIAL.telegram.url)} · X: ${esc(SOCIAL.x.url)}`,
     'Trades from your NEARKITS wallet run right here when you confirm. Trades from a linked wallet are signed in your own wallet.',
     SAFETY,
   ].join('\n')

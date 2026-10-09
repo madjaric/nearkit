@@ -1,5 +1,5 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 import { ENV } from '@/config/env'
 import { BRIDGE_FINAL, BRIDGE_IN_TRANSIT, type BridgeOrderView } from '@/lib/bridge/types'
 import { createBridgeClient, rememberedOrders, type BridgeClient, type BridgeQuoteRequest } from '@/services/bridge'
@@ -22,9 +22,17 @@ export function useBridgeAvailability(): BridgeAvailability {
   return { ok: true }
 }
 
+/**
+ * A bridge client for everything below it: the Mini App's, whose requests carry Telegram's launch data
+ * instead of a NEARKITS web session. Absent (the web pages), the session's own client is used.
+ */
+export const BridgeClientContext = createContext<BridgeClient | null>(null)
+
 export function useBridgeClient(): BridgeClient {
   const { nearkit } = useServices()
-  return useMemo(() => createBridgeClient({ apiUrl: ENV.apiUrl, session: () => nearkit.session()?.token ?? null }), [nearkit])
+  const provided = useContext(BridgeClientContext)
+  const own = useMemo(() => createBridgeClient({ apiUrl: ENV.apiUrl, session: () => nearkit.session()?.token ?? null }), [nearkit])
+  return provided ?? own
 }
 
 export const bridgeKeys = {

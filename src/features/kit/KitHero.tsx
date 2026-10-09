@@ -11,6 +11,7 @@ import { Pct, Price } from '@/components/ui/Num'
 import { BRIDGE_CHAINS } from '@/config/bridge'
 import { KIT, KITS_CONTRACT } from '@/config/kit'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { SocialLinks } from '@/components/brand/Social'
 import { cn } from '@/lib/cn'
 import { formatAgo } from '@/lib/format'
 import { useNow, usePageTitle } from '@/lib/hooks'
@@ -56,6 +57,7 @@ export function KitHero({ onNetwork, price, change, className }: { onNetwork: bo
               <span className="num truncate text-fg-2">{KITS_CONTRACT}</span>
               <CopyButton value={KITS_CONTRACT} label={`Copy the ${KIT.ticker} contract`} />
             </p>
+            <SocialLinks variant="inline" className="mt-1" />
           </div>
         </div>
         {onNetwork && (

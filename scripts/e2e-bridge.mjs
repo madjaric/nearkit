@@ -5,6 +5,8 @@
 // The test answers NEARKITS' Bridge & Buy API itself (a scripted order that moves one step per read),
 // injects a fake EVM wallet (EIP-6963) and a fake Solana wallet (Wallet Standard) that record what
 // they are asked to sign, and aborts every other external request: no quote is live, no funds move.
+// The Telegram Mini App's Bridge (/tg, opened with Telegram's launch data and start parameter
+// "bridge") runs on the same scripted API, which checks how each request names the user.
 import { chromium } from 'playwright-core'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -62,7 +64,7 @@ const parseUnits = (text, decimals) => {
 /** NEARKITS' Bridge & Buy API, scripted: quotes from fixed rates, orders that move one step per read. */
 function fakeServer() {
   const orders = new Map()
-  const log = { quotes: [], starts: [], deposits: [], unwraps: [] }
+  const log = { quotes: [], starts: [], deposits: [], unwraps: [], identities: [] }
   /** A Bridge's delivery facts, as the server checks them: an unregistered external account can't receive wNEAR. */
   const deliveryOf = (d) => {
     const unwrap = d.kind === 'nearkits' ? 'nearkits' : d.kind === 'connected' ? 'wallet' : 'none'
@@ -210,7 +212,16 @@ function fakeServer() {
     log,
     orders,
     handle(path, body) {
+      // How each bridge request names its user: a web session, or (the Mini App) Telegram's launch data.
+      if (path.startsWith('/api/bridge/')) log.identities.push({ path, telegram: typeof body.telegram === 'string' ? body.telegram : null, session: body.session ?? null })
       if (path === '/api/web/wallets') return { status: 200, body: { wallets, limit: 10, canCreate: true } }
+      if (path === '/api/bridge/wallets') {
+        // The server checks Telegram's signature and the launch's age; here an hour-old launch (auth_date 1) stands for one it refuses.
+        if (typeof body.telegram === 'string' && /(^|&)auth_date=1(&|$)/.test(body.telegram))
+          return { status: 401, body: { error: { code: 'telegram', message: 'Telegram’s sign-in for this page ended. Open Bridge from the NEARKITS bot again.' } } }
+        if (!body.telegram && !body.session) return { status: 401, body: { error: { code: 'session', message: 'Sign in to NEARKITS web to use your NEARKITS wallets.' } } }
+        return { status: 200, body: { wallets: wallets.map((w) => ({ id: w.id, accountId: w.accountId, name: w.name, slot: w.slot, frozen: w.frozen })) } }
+      }
       if (path === '/api/bridge/assets')
         return {
           status: 200,
@@ -300,8 +311,15 @@ function fakeServer() {
 }
 
 /** The fake wallets, injected before the app loads: they record what they are asked to sign. */
-function injectWallets({ solAddress, evmAddress }) {
+function injectWallets({ solAddress, evmAddress, withWallets }) {
   const log = (window.__bb = { evm: [], sol: [] })
+  // A NEARKITS web session in this browser (the Mini App must never send it).
+  localStorage.setItem(
+    'nearkit:web-session:mainnet',
+    JSON.stringify({ token: 'e2e-session-token-000000000000000000', expiresAt: Date.now() + 3_600_000, userName: 'E2E', userHandle: null }),
+  )
+  // Telegram's own browser: no wallet extension injects anything.
+  if (!withWallets) return
   let chainId = '0x1'
   let bscKnown = false
   const listeners = {}
@@ -362,14 +380,13 @@ function injectWallets({ solAddress, evmAddress }) {
   const register = (api) => api.register(wallet)
   window.addEventListener('wallet-standard:app-ready', (e) => register(e.detail))
   window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', { detail: register }))
-  localStorage.setItem(
-    'nearkit:web-session:mainnet',
-    JSON.stringify({ token: 'e2e-session-token-000000000000000000', expiresAt: Date.now() + 3_600_000, userName: 'E2E', userHandle: null }),
-  )
 }
 
 const results = []
+// --only <text>: run just the steps whose name contains it.
+const ONLY = opt('only', null)
 const step = async (name, fn) => {
+  if (ONLY && !name.includes(ONLY)) return
   const started = Date.now()
   try {
     await fn()
@@ -381,10 +398,10 @@ const step = async (name, fn) => {
   }
 }
 
-async function openPage(width = 1440) {
+async function openPage(width = 1440, { wallets = true } = {}) {
   const server = fakeServer()
   const context = await browser.newContext({ viewport: { width, height: width < 768 ? 844 : 900 } })
-  await context.addInitScript(injectWallets, { solAddress: SOL_ADDRESS, evmAddress: EVM_ADDRESS })
+  await context.addInitScript(injectWallets, { solAddress: SOL_ADDRESS, evmAddress: EVM_ADDRESS, withWallets: wallets })
   const external = []
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -788,6 +805,134 @@ for (const width of [1920, 1440, 1280, 1024, 820, 768, 430, 390, 375, 360]) {
     await page.getByRole('region', { name: 'Bridge progress' }).getByText('You received').waitFor({ timeout: 60_000 })
     const done = await overflow(page)
     if (SHOTS) await page.screenshot({ path: join(SHOTS, `near-bridge-complete-${width}.png`), fullPage: true })
+    if (form > 0 || done > 0) throw new Error(`horizontal overflow: form ${form}px, order ${done}px`)
+    if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+    await context.close()
+  })
+}
+
+// ─── the Telegram Mini App's Bridge ─────────────────────────────────────────
+
+/** What Telegram opens when the bot's Connect wallet is tapped: /tg with its launch data (start parameter "bridge"). */
+function telegramLaunch({ authDate = Math.floor(Date.now() / 1000) } = {}) {
+  const initData = new URLSearchParams({
+    auth_date: String(authDate),
+    start_param: 'bridge',
+    user: JSON.stringify({ id: 777, first_name: 'Tess', username: 'tester' }),
+    signature: 'e2e-telegram-signature',
+    hash: 'e2e-hash',
+  }).toString()
+  return { initData, url: `${BASE}/tg#${new URLSearchParams({ tgWebAppData: initData, tgWebAppVersion: '8.0', tgWebAppPlatform: 'ios' })}` }
+}
+
+async function openMiniApp(page, launch) {
+  await page.goto(launch.url, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('heading', { level: 1, name: 'Bridge to NEAR' }).waitFor({ timeout: 20_000 })
+}
+
+async function pickNearkitsWallet(page, name) {
+  const select = page.getByLabel('NEARKITS wallet', { exact: true })
+  const option = select.locator('option', { hasText: name }).first()
+  await option.waitFor({ state: 'attached', timeout: 15_000 })
+  await select.selectOption(await option.getAttribute('value'))
+}
+
+await step(
+  'Mini App (the bot’s Connect wallet): every bridge request names the user with Telegram’s launch data, never a web session; NEARKITS wallets only; the wallet sends exactly the quote, with the review’s request key; the page can be closed',
+  async () => {
+    const { context, page, server, errors } = await openPage(390)
+    const launch = telegramLaunch()
+    await openMiniApp(page, launch)
+    const modes = await page.getByRole('radiogroup', { name: 'Destination' }).getByRole('radio').allInnerTexts()
+    if (modes.length !== 1 || !/My NEARKITS wallet/.test(modes[0])) throw new Error(`destinations offered: ${modes.join(' | ')}`)
+    await pickNearkitsWallet(page, 'Degen 1')
+    await page.getByRole('radio', { name: /^SOL/ }).click()
+    await page.getByRole('button', { name: 'Connect E2E Solana' }).click()
+    await page.getByLabel('You send').fill('1')
+    await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
+    const text = await summary(page).innerText()
+    for (const want of ['NEARKITS bridge fee (0.25%)', '0.0025 SOL', 'NEAR Intents fee (0.25%)', 'None: nothing is traded', 'NEARKITS unwraps it to native NEAR'])
+      if (!text.includes(want)) throw new Error(`summary lacks “${want}”: ${text.replace(/\s+/g, ' ')}`)
+    if (/Bridge & Buy/.test(text)) throw new Error('the Mini App links out of Telegram to Bridge & Buy')
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tg-bridge-form-390.png'), fullPage: true })
+    await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+    await dialog.waitFor()
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tg-bridge-review-390.png') })
+    await dialog.getByRole('button', { name: 'Confirm in E2E Solana' }).click()
+    const progress = page.getByRole('region', { name: 'Bridge progress' })
+    await progress.getByText('You received').waitFor({ timeout: 60_000 })
+    const tx = (await wallet(page)).sol[0]
+    const msg = tx.slice(65)
+    const lamports = msg.slice(-8).reduce((n, b, i) => n | (BigInt(b) << BigInt(8 * i)), 0n)
+    if (b58(msg.slice(4 + 32, 4 + 64)) !== DEPOSIT.sol || lamports !== 1_000_000_000n) throw new Error('the wallet didn’t send exactly 1 SOL to the deposit address')
+    const start = server.log.starts.at(-1)
+    if (start.product !== 'bridge' || start.destination.kind !== 'nearkits' || start.destination.walletId !== 'w2') throw new Error(`started: ${JSON.stringify(start)}`)
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(start.requestKey ?? '')) throw new Error(`no request key on the start: ${JSON.stringify(start)}`)
+    const ids = server.log.identities
+    const wrong = ids.filter((i) => i.telegram !== launch.initData || i.session !== null)
+    if (!ids.length || wrong.length) throw new Error(`requests not named by Telegram’s launch only: ${JSON.stringify(wrong.slice(0, 3))}`)
+    if ((await page.getByRole('button', { name: /Back to/ }).count()) !== 1 || !(await page.getByRole('button', { name: 'Back to NEARKITS bot' }).isVisible()))
+      throw new Error('not exactly one way back to the bot')
+    if (await page.getByRole('link', { name: 'Trade on Swap' }).count()) throw new Error('the Mini App links to a web page')
+    await page.getByText('You can close this page').waitFor()
+    const over = await overflow(page)
+    if (over > 0) throw new Error(`horizontal overflow ${over}px`)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tg-bridge-complete-390.png'), fullPage: true })
+    if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+    await context.close()
+  },
+)
+
+await step(
+  'Mini App in Telegram’s own browser (no wallet extension): says so, and the address to send from can still be pasted; the review shows the order’s deposit address',
+  async () => {
+    const { context, page, errors } = await openPage(390, { wallets: false })
+    await openMiniApp(page, telegramLaunch())
+    await pickNearkitsWallet(page, 'Main')
+    await page.getByRole('radio', { name: /^SOL/ }).click()
+    await page.getByText('Telegram’s in-app browser has no wallet extension').waitFor()
+    if (await page.getByRole('button', { name: /^Connect / }).count()) throw new Error('a wallet is offered that isn’t there')
+    await page.getByLabel(/Send from another wallet/).check()
+    await page.getByLabel('Your Solana address').fill(SOL_ADDRESS)
+    await page.getByLabel('You send').fill('1')
+    await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
+    await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+    await dialog.waitFor()
+    const review = await dialog.innerText()
+    if (!review.includes(DEPOSIT.sol) || !/I’ve sent it/i.test(review)) throw new Error(`review: ${review.replace(/\s+/g, ' ')}`)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tg-bridge-no-wallet-390.png') })
+    if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+    await context.close()
+  },
+)
+
+await step('Mini App with an expired launch: the server refuses it, and the page says to open Bridge from the bot again (nothing else is offered)', async () => {
+  const { context, page, server } = await openPage(390)
+  await openMiniApp(page, telegramLaunch({ authDate: 1 }))
+  await page.getByText('Telegram’s sign-in for this page ended. Open Bridge from the NEARKITS bot again.').waitFor({ timeout: 15_000 })
+  if (await page.getByRole('button', { name: 'Bridge to NEAR' }).count()) throw new Error('the form is offered without a valid launch')
+  if (server.log.starts.length) throw new Error('an order was asked for')
+  await context.close()
+})
+
+for (const width of [360, 390, 430, 768]) {
+  await step(`Mini App layout at ${width}px: the form with a quote and a finished order fit, no horizontal scroll, no page error`, async () => {
+    const { context, page, errors } = await openPage(width)
+    await openMiniApp(page, telegramLaunch())
+    await pickNearkitsWallet(page, 'Main')
+    await page.getByRole('radio', { name: /^SOL/ }).click()
+    await page.getByRole('button', { name: 'Connect E2E Solana' }).click()
+    await page.getByLabel('You send').fill('1')
+    await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
+    const form = await overflow(page)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, `tg-bridge-form-${width}.png`), fullPage: true })
+    await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
+    await page.getByRole('dialog', { name: 'Review Bridge' }).getByRole('button', { name: 'Confirm in E2E Solana' }).click()
+    await page.getByRole('region', { name: 'Bridge progress' }).getByText('You received').waitFor({ timeout: 60_000 })
+    const done = await overflow(page)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, `tg-bridge-complete-${width}.png`), fullPage: true })
     if (form > 0 || done > 0) throw new Error(`horizontal overflow: form ${form}px, order ${done}px`)
     if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
     await context.close()

@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { ArrowDown, ArrowRight, ShieldCheck } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ChainMark } from '@/components/brand/ChainMark'
 import { AccountText } from '@/components/domain/Account'
@@ -23,7 +23,7 @@ import { formatAgo, formatUsd, truncateMiddle } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
 import { accountIdError } from '@/lib/validation'
 import { tradeWalletPool } from '@/lib/wallets'
-import { rememberOrder, type BridgeDestinationRequest, type BridgeQuoteRequest } from '@/services/bridge'
+import { newRequestKey, rememberOrder, type BridgeDestinationRequest, type BridgeQuoteRequest, type BridgeWalletOption } from '@/services/bridge'
 import { usePlanners, useWallets } from '@/services/queries'
 import { WRAP_NETWORK_FEE_YOCTO } from '@/services/near/wrap'
 import type { Wallet } from '@/types/domain'
@@ -42,7 +42,20 @@ import type { SourceWallet } from './useSourceWallet'
  * it at all, before anything can be sent. "Bridge to NEAR" asks for the order and opens the review;
  * Confirm has the user's own wallet send exactly that amount. Nothing is bought; no figure is shown
  * that wasn't quoted.
+ *
+ * In Telegram's Mini App (`miniApp`) the same form bridges to the user's own NEARKITS wallets only: they
+ * come from Telegram's launch (the bridge lists them), there is no other destination and no link out of
+ * Telegram, and a browser with no wallet (Telegram's own) says what to do instead.
  */
+
+/** The Mini App's form: the user's NEARKITS wallets from the bridge, and what to say without a source wallet. */
+export interface MiniAppDestinations {
+  wallets: BridgeWalletOption[]
+  loading: boolean
+  noWalletHint: ReactNode
+}
+
+type DestinationWallet = Pick<Wallet, 'id' | 'accountId' | 'label' | 'nearkitId'>
 
 const WRAP = NETWORKS.mainnet.wrapContract
 
@@ -64,11 +77,16 @@ function externalProblem(raw: string): string | null {
   return accountIdError(id)
 }
 
-export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderId: string) => void; initialChain?: BridgeChainId }) {
+export function NearBridgeForm({ onStarted, initialChain, miniApp }: { onStarted: (orderId: string) => void; initialChain?: BridgeChainId; miniApp?: MiniAppDestinations }) {
   const client = useBridgeClient()
   const assets = useBridgeAssets(true)
   const { data: wallets = [] } = useWallets()
-  const { nearkit, browser } = tradeWalletPool(wallets)
+  const pool = tradeWalletPool(wallets)
+  const nearkit: DestinationWallet[] = miniApp
+    ? miniApp.wallets.filter((w) => !w.frozen).map((w) => ({ id: w.id, nearkitId: w.id, accountId: w.accountId, label: w.name }))
+    : pool.nearkit
+  const browser = miniApp ? [] : pool.browser
+  const modes = miniApp ? MODES.filter((m) => m.value === 'nearkits') : MODES
 
   const [chainId, setChainId] = useState<BridgeChainId>(initialChain ?? 'sol')
   const chain = bridgeChain(chainId) as BridgeChain
@@ -76,7 +94,7 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
   const side = useSourceSide(chain)
   const { source, amountText, setAmountText, settled, amountRaw, precision, insufficient, manual, sourceAddress } = side
 
-  const [mode, setMode] = useState<DestinationMode>(nearkit.length ? 'nearkits' : browser.length ? 'connected' : 'nearkits')
+  const [mode, setMode] = useState<DestinationMode>(miniApp || nearkit.length ? 'nearkits' : browser.length ? 'connected' : 'nearkits')
   const [nearkitId, setNearkitId] = useState<string | null>(null)
   const [connectedId, setConnectedId] = useState<string | null>(null)
   const [externalText, setExternalText] = useState('')
@@ -109,9 +127,12 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
   const settling = amountText.trim() !== settled || quote.isFetching
   const [review, setReview] = useState<BridgeOrderView | null>(null)
 
+  // One review, one order: the same request sent again (a retry after a lost answer) carries the same key.
+  const keyFor = useRef<{ request: string; key: string } | null>(null)
   const start = useMutation({
-    mutationFn: (req: BridgeQuoteRequest) => client.start(req),
+    mutationFn: ({ req, key }: { req: BridgeQuoteRequest; key: string }) => client.start(req, key),
     onSuccess: (order) => {
+      keyFor.current = null
       rememberOrder(order.id)
       setReview(order)
     },
@@ -121,7 +142,11 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
     ? mode === 'external'
       ? (externalError ?? 'Enter the NEAR account that receives the NEAR')
       : mode === 'nearkits'
-        ? 'Sign in to NEARKITS web to use your NEARKITS wallets'
+        ? miniApp
+          ? miniApp.loading
+            ? 'Loading your NEARKITS wallets…'
+            : 'Create a NEARKITS wallet in the bot first'
+          : 'Sign in to NEARKITS web to use your NEARKITS wallets'
         : 'Connect a NEAR wallet'
     : offered !== null && !offered.includes(chainId)
       ? `NEAR Intents isn’t taking ${chain.symbol} right now`
@@ -143,7 +168,10 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
 
   const begin = () => {
     if (!request || !sourceAddress || reason) return
-    start.mutate({ ...request, sourceAddress })
+    const req = { ...request, sourceAddress }
+    const id = JSON.stringify(req)
+    if (keyFor.current?.request !== id) keyFor.current = { request: id, key: newRequestKey() }
+    start.mutate({ req, key: keyFor.current.key })
   }
 
   return (
@@ -167,7 +195,7 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
                 setAmountText('')
               }}
             />
-            <SourceConnect chain={chain} side={side} />
+            <SourceConnect chain={chain} side={side} noWalletHint={miniApp?.noWalletHint} />
             <SendAmountField chain={chain} side={side} />
           </section>
 
@@ -209,8 +237,8 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
             <h2 id="br-dest" className="legend">
               Destination
             </h2>
-            <div role="radiogroup" aria-label="Destination" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {MODES.map((m) => {
+            <div role="radiogroup" aria-label="Destination" className={cn('grid grid-cols-1 gap-2', modes.length > 1 && 'sm:grid-cols-3')}>
+              {modes.map((m) => {
                 const on = m.value === mode
                 return (
                   <button
@@ -243,7 +271,11 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
                     </Select>
                   ) : (
                     <p id={id} className="rounded-md border border-dashed border-line px-3 py-2.5 text-sm text-fg-3">
-                      Sign in to NEARKITS web to use your NEARKITS wallets: send /web to the NEARKITS bot.
+                      {miniApp
+                        ? miniApp.loading
+                          ? 'Loading your NEARKITS wallets…'
+                          : 'No NEARKITS wallet yet. Create one in the bot (👛 Wallet), then open Bridge again.'
+                        : 'Sign in to NEARKITS web to use your NEARKITS wallets: send /web to the NEARKITS bot.'}
                     </p>
                   )
                 }
@@ -287,6 +319,7 @@ export function NearBridgeForm({ onStarted, initialChain }: { onStarted: (orderI
         error={start.error ? (start.error as Error).message : null}
         busy={start.isPending}
         onStart={begin}
+        crossLink={!miniApp}
       />
 
       {review && (
@@ -394,6 +427,7 @@ function QuoteSummary({
   error,
   busy,
   onStart,
+  crossLink,
 }: {
   chain: BridgeChain
   quote: BridgeQuoteView | undefined
@@ -403,6 +437,8 @@ function QuoteSummary({
   error: string | null
   busy: boolean
   onStart: () => void
+  /** The link to Bridge & Buy (not in the Mini App, which stays inside Telegram). */
+  crossLink: boolean
 }) {
   const now = useNow(5_000)
   const rate = q ? rateText(chain, q) : null
@@ -449,12 +485,14 @@ function QuoteSummary({
           <ShieldCheck size={14} className="mt-0.5 shrink-0 text-fg-3" aria-hidden="true" />
           Powered by NEAR Intents. Your own wallet sends; NEARKITS never holds your {chain.symbol}. A failed bridge refunds your address.
         </p>
-        <p className="text-xs text-fg-3">
-          Want $KITS with it?{' '}
-          <Link to="/bridge" className="font-semibold text-fg-2 underline decoration-fg-4 underline-offset-2 hover:text-fg">
-            Bridge &amp; Buy $KITS
-          </Link>
-        </p>
+        {crossLink && (
+          <p className="text-xs text-fg-3">
+            Want $KITS with it?{' '}
+            <Link to="/bridge" className="font-semibold text-fg-2 underline decoration-fg-4 underline-offset-2 hover:text-fg">
+              Bridge &amp; Buy $KITS
+            </Link>
+          </p>
+        )}
       </div>
     </Panel>
   )

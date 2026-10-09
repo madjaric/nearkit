@@ -14,6 +14,10 @@ import type { BuyMarket } from '../buybot/market'
 import type { Follower, TxIndex } from '../buybot/follower'
 import type { ForceReply, InlineButton, InlineKeyboard, TgChat, TgChatMemberUpdated, TgMessage, TgUser } from '../telegram/types'
 import type { Referrals } from '../referrals/service'
+import type { BridgeService } from '../bridge/service'
+import type { BridgeStore } from '../bridge/store'
+import type { KitsBurnTracker } from '../kits/burns'
+import type { KitsRewardsTracker } from '../kits/rewards'
 
 /** Everything a bot handler may use. Handlers never see the bot token. */
 export interface BotDeps {
@@ -39,6 +43,10 @@ export interface BotDeps {
   web: WebSessions | null
   /** The user's Volume Bots (/volume); null or absent when NEARKITS wallets are off here. */
   volumeBots?: VolumeBotStore | null
+  /** The Bridge to NEAR (NEAR Intents' 1Click): the web's own service and orders; null or absent where it doesn't run (testnet). */
+  bridge?: { service: BridgeService; store: BridgeStore } | null
+  /** $KITS' Buyback & Burn and holder rewards, read from chain (mainnet); null or absent where they aren't read. */
+  kits?: { burns: KitsBurnTracker | null; rewards: KitsRewardsTracker | null } | null
 }
 
 export interface BuybotDeps {

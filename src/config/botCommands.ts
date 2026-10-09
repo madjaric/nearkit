@@ -19,6 +19,7 @@ export interface BotCommandDoc {
 export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'wallet', description: 'your NEARKITS wallet: balance, deposit, withdraw, recovery', section: 'Account', scope: 'private' },
   { name: 'deposit', description: 'the address to fund your NEARKITS wallet', section: 'Account', scope: 'private' },
+  { name: 'bridge', description: 'bring SOL, ETH or BNB to NEAR in your NEARKITS wallet, through NEAR Intents', section: 'Account', scope: 'private' },
   {
     name: 'withdraw',
     description: 'send NEAR or tokens from your NEARKITS wallet to your owner wallet, your other NEARKITS wallets, or an address you approved',
@@ -51,6 +52,8 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'remove', description: 'stop following a token here', section: 'Groups', scope: 'group' },
   { name: 'pause', description: 'pause every buy alert in this group', section: 'Groups', scope: 'group' },
   { name: 'resume', description: 'resume buy alerts in this group', section: 'Groups', scope: 'group' },
+  { name: 'kits', description: '$KITS, the NEARKITS token: contract, live market, burns and holder rewards', section: 'General', scope: 'private' },
+  { name: 'community', description: 'the NEARKITS community on Telegram, and NEARKITS on X', section: 'General', scope: 'private' },
   { name: 'help', description: 'what the bot can do', section: 'General', scope: 'any' },
   { name: 'cancel', description: 'stop what the bot is waiting for', section: 'General', scope: 'any' },
 ])

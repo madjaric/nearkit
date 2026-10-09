@@ -9,6 +9,8 @@ NEARKITS has two bridge products on one engine (one 1Click client, one quote and
 | **Bridge & Buy $KITS** (`buy-kits`) | SOL / ETH / BNB → NEAR → $KITS | `/bridge` | NEARKITS buys $KITS with it (below) |
 | **Bridge** (`bridge`) | SOL / ETH / BNB → NEAR | `/bridge-near` | Unwrapped to native NEAR where an authorized unwrap exists ([The Bridge to NEAR](#the-bridge-to-near)) |
 
+The Bridge also runs in Telegram, on the same service and orders ([In Telegram](#in-telegram)).
+
 The Bridge never buys $KITS. It funds NEARKITS wallets (gas, Multi Trade, Batch Send, transfers) or any NEAR account. Everything below up to [The Bridge to NEAR](#the-bridge-to-near) describes Bridge & Buy; the Bridge shares it all except stage 2.
 
 A user holding SOL, ETH or BNB gets $KITS (`kits.nearlytrade.near`, NEAR mainnet) in one flow on `/bridge`. NEARKITS runs no bridge, deploys no contract, runs no solver and never holds the user's source-chain funds: the user's own wallet sends them to the deposit address of a NEAR Intents quote.
@@ -221,6 +223,55 @@ Activity shows it as "Bridge · 0.06 SOL → 1.42 NEAR · Solana → NEAR · Com
 - **`/bridge`:** unchanged, with every $KITS link, order link and canonical.
 - **`/bridge-near`:** has its own title, description, canonical, sitemap entry, prerendered facts and `llms.txt` lines.
 
+## In Telegram
+
+The bot's **🌉 Bridge to NEAR** (main menu, `/bridge`, `/start bridge`) is the Bridge (`product: 'bridge'`) to one of the user's own NEARKITS wallets. It is not a second bridge: the bot calls the same service (`server/src/bridge/service.ts`), so the quote, the exact 0.25% fee check, the order, the worker, the on-chain delivery check, the unwrap and the kill switch are the web's. Code: `server/src/bot/bridge.ts` (bot), `src/features/bridge/TelegramBridge.tsx` (Mini App).
+
+### Connect wallet (the Mini App)
+
+- The button is `https://t.me/<bot>?startapp=bridge`: Telegram opens NEARKITS' Mini App (`/tg`) with its signed launch data and the start parameter `bridge`. The page shows the `/bridge-near` form and order view, limited to the user's NEARKITS wallets, with no links out of Telegram.
+- **Identity.** Every bridge request carries the launch data (`telegram`), never a web session. The server checks it with the same Ed25519 verifier the signer uses for approvals (`server/src/signer/telegram.ts`), for this bot only, and only within an hour of the launch (`TELEGRAM_LAUNCH_MAX_AGE_MS`). A user id the page states is never trusted. The launch data reaches the bridge routes only: it can't trade, send or reach any other route.
+- `/api/bridge/wallets` lists the caller's own active NEARKITS wallets (frozen ones marked, and refused at start).
+- **Source wallets.** Only the existing injected adapters (EIP-6963 / `window.ethereum`, the Solana Wallet Standard). Telegram's in-app browser (phones, Telegram Desktop) has no wallet extension, so there is usually nothing to connect there; the page says so and offers "Send from another wallet" (paste the source address) or Send manually in the bot. No WalletConnect or wallet deep link was added (a new wallet provider would be an owner decision).
+- Once an order exists the page can be closed: the bot sends the notices below.
+
+### Send manually (the bot)
+
+1. Chain: Solana · SOL, Ethereum · ETH, BNB Chain · BNB (only what 1Click lists now).
+2. The NEARKITS wallet (asked only when there are several; frozen wallets aren't offered).
+3. The amount (text).
+4. The refund address on the source chain (text; the last one used on that chain is offered). 1Click refunds there.
+5. **Review**: a dry quote with both fees, the expected and minimum NEAR, the destination, the refund address, the time estimate, and NEAR Intents' own rules for a transfer that isn't exactly the order's. No deposit address exists yet.
+6. **Create deposit address**: `start()` with the review's request key (`tg-…`), so a double tap, a retry or a press after a restart finds the same order. A review older than 3 minutes is priced again first. 5 per user, then one every 2 minutes.
+7. The order's own deposit address, exact amount (copy keys), network, asset, "send by" (`signBy`) and "closes at" (`depositDeadline`), with the rules again.
+
+What the screens say about a transfer that isn't exactly the order's comes from 1Click's API documentation: less than the amount is refunded to the refund address by the deadline; more is bridged and the excess refunded there; after the deadline the address is inactive and funds may be lost; another coin or network isn't the order's and can be lost. Nothing is marked paid by a press or a reply: only the worker, from 1Click's status and the delivery on NEAR, moves an order. Past its send window an order that saw nothing says not to send, and never gets a new address.
+
+### My bridge orders and notices
+
+- **My bridge orders** lists the user's NEARKITS orders (both products, newest first, 6 per page). Each opens a screen with the status, the amounts expected and received, the destination, the refund address and status, and links to the source transfer, the NEAR delivery and the unwrap. While open and unpaid: the deposit address with copy keys. **Unwrap to NEAR now** for `unwrap-needed` (the same `retryUnwrap`). Bridge & Buy orders show their status and link to the web, where their actions are.
+- **Ownership.** Every order screen and button checks the order's `user_id` against the Telegram user who pressed it; anyone else gets "That bridge order isn't yours, or it's gone." and nothing of it. Step buttons carry their data server-side, per user (`callbacks`).
+- **Notices.** After each worker step that changed an order's status, a Bridge to a NEARKITS wallet tells its Telegram user: Deposit detected, Less arrived than quoted, Bridge complete (the native NEAR, with Buy and Wallet), Bridged, not unwrapped (with Unwrap now), Refunded, Failed, Expired. Each notice is claimed in the order's `notified` column (compare-and-set), so it is sent at most once across instances and retries, and an earlier one never follows a later one. Bridge & Buy orders send none (unchanged).
+
+| Status | Telegram |
+|---|---|
+| `awaiting-deposit` | Waiting for deposit (or Transfer sent / Deposit address closed) |
+| `deposit-seen` | Deposit detected |
+| `bridging` | Bridge processing |
+| `incomplete-deposit` | Less arrived than quoted |
+| `unwrapping` | Unwrapping wNEAR to NEAR |
+| `complete` | Completed: native NEAR available |
+| `unwrap-needed` | Bridged, not unwrapped |
+| `refunded` | Refunded |
+| `failed` | Failed at NEAR Intents: refund processing |
+| `expired` | Expired: nothing arrived |
+
+### Database (Telegram)
+
+SQLite v17 / Postgres v8 add two nullable columns to `bridge_orders`, and no row changes:
+- `request_key` (unique): the review a deposit address was asked for;
+- `notified`: the last notice its Telegram user got.
+
 ## Activity, navigation, entry points
 
 - **Activity** (Dashboard). Each order is a "Bridge & Buy" row with the summary, the route and the status, linked to `/bridge?order=<id>`. NEARKITS wallets' orders come from `/api/bridge/orders`; a connected wallet's orders are remembered in this browser by id.
@@ -253,6 +304,7 @@ The web app needs nothing new: it calls `VITE_NEARKIT_API_URL`.
    - Bridge & Buy: SQLite v15 / Postgres v6.
    - The Bridge: SQLite v16 / Postgres v7 (`product`, the 'external' kind, and `/api/bridge/unwrap`).
    - An older server doesn't know `product` and refuses the Bridge's requests ("Missing slippage": they carry none), so the order matters. Nothing is sent either way.
+   - Telegram's Bridge: SQLite v17 / Postgres v8 (`request_key`, `notified`), `/api/bridge/wallets` and the Mini App identity. An older server refuses the Mini App's requests (no web session), so again the server goes first.
 2. Optional: set `ONECLICK_API_KEY`. The fee check works either way. Confirm with `npm run smoke:live -- server/src/bridge/oneclick.smoke.ts` (dry quotes only).
 3. `/health` reports `bridge: on|off` and the `bridge` pause.
 
@@ -266,6 +318,8 @@ The web app needs nothing new: it calls `VITE_NEARKIT_API_URL`.
 | Service and routes | `server/src/bridge/bridge.test.ts` (Bridge & Buy), `server/src/bridge/nearBridge.test.ts` (Bridge) |
 | Orders table and its migration | `server/src/bridge/store.test.ts` |
 | How a Bridge reads (steps, Activity) | `src/features/bridge/nearBridge.test.ts` |
+| The Mini App's identity, `/api/bridge/wallets`, request keys | `server/src/bridge/telegramBridge.test.ts`, `src/services/bridgeClient.test.ts`, `src/services/telegramApproval.test.ts` |
+| The bot: home, Send manually, My bridge orders, ownership, notices | `server/src/bot/bridge.test.ts` |
 | SEO | `src/config/seo.test.ts` |
 | Live, read only | `server/src/bridge/oneclick.smoke.ts`, `src/lib/bridge/solanaTx.smoke.ts` |
 | End to end (both products) | `npm run dev:bridge-e2e`, then `npm run e2e:bridge` |
@@ -286,4 +340,5 @@ The end-to-end run uses a mainnet build against a scripted Bridge API, with fake
 - below-minimum, refund and buy-needed;
 - Activity and reload;
 - the entry points;
-- layout at 1920, 1440, 1280, 1024, 820, 768, 390, 375 and 360px.
+- layout at 1920, 1440, 1280, 1024, 820, 768, 390, 375 and 360px;
+- the Telegram Mini App: every request named by Telegram's launch data and never a web session, NEARKITS wallets only, the request key, the no-wallet case, an expired launch, and layout at 360, 390, 430 and 768px (`--only <text>` runs matching steps).

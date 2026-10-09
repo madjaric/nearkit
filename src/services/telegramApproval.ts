@@ -31,16 +31,22 @@ export interface TelegramLaunch {
  *   the main Mini App);
  * - `approval`: the launch data carries a request's digest as the start parameter Telegram
  *   signed (the Approve button in the chat, `startapp=<digest>`), or the direct-link parameter.
+ * - `bridge`: the bot's Connect wallet (`startapp=bridge`): the Bridge to NEAR, whose requests
+ *   carry the launch data so NEARKITS' server knows the Telegram user (it checks Telegram's signature).
  * Being inside Telegram never makes an approval: only the digest does, and the signer checks
  * Telegram's signature over it.
  */
-export type TelegramLaunchContext = { kind: 'outside' } | { kind: 'direct'; initData: string } | { kind: 'approval'; launch: TelegramLaunch }
+export type TelegramLaunchContext = { kind: 'outside' } | { kind: 'direct'; initData: string } | { kind: 'bridge'; initData: string } | { kind: 'approval'; launch: TelegramLaunch }
+
+/** The start parameter of the bot's Connect wallet: the Mini App's Bridge. */
+export const BRIDGE_START_PARAM = 'bridge'
 
 export function telegramLaunchContext(hash: string, search: string): TelegramLaunchContext {
   const initData = new URLSearchParams(hash.replace(/^#/, '')).get('tgWebAppData')
   if (!initData) return { kind: 'outside' }
   const startParam = new URLSearchParams(initData).get('start_param') ?? new URLSearchParams(search).get('tgWebAppStartParam') ?? ''
-  return /^[A-Za-z0-9_-]{43}$/.test(startParam) ? { kind: 'approval', launch: { initData, startParam } } : { kind: 'direct', initData }
+  if (/^[A-Za-z0-9_-]{43}$/.test(startParam)) return { kind: 'approval', launch: { initData, startParam } }
+  return startParam === BRIDGE_START_PARAM ? { kind: 'bridge', initData } : { kind: 'direct', initData }
 }
 
 /** The approval launch in this page's address (`#tgWebAppData=…`), or null outside Telegram or without a request's digest. */

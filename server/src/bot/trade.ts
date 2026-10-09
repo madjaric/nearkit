@@ -90,10 +90,10 @@ async function balanceOf(ctx: BotCtx, account: string, tokenId: string): Promise
 }
 
 /** How long the BUY screen waits for the market before saying it didn't load (the market service keeps reading). */
-const MARKET_WAIT_MS = 3_000
+export const MARKET_WAIT_MS = 3_000
 
 /** `p`, or null when it fails or takes longer than `ms`. */
-async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+export async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([p.catch(() => null), new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ms)))])
@@ -110,7 +110,7 @@ const figure = (f: MarketFigure, format: (v: number) => string): string | null =
  * Token Detail reads it). Market Cap only where a source knows the circulating supply, with FDV
  * beside it; with FDV alone, FDV (never called a market cap); with neither, "unavailable".
  */
-function marketLines(m: TokenMarket | null): string[] {
+export function marketLines(m: TokenMarket | null): string[] {
   if (!m) return ['📊 Market data didn’t load. Refresh to try again.']
   if (m.priceUsd.state === 'not-applicable' && m.marketCapUsd.state === 'not-applicable') return [`📊 ${esc(m.priceUsd.reason)}`]
   const mcap = figure(m.marketCapUsd, (v) => formatUsdCompact(v, 2))

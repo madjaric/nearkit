@@ -2,6 +2,7 @@ import { FAQ, VOLUME_BOT_DESCRIPTION, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_
 import { BRIDGE_FEE_LABEL, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { KIT, KIT_LAUNCH, KITS_CONTRACT } from './kit'
 import { BETA_COMING_SOON } from './release'
+import { SOCIAL, SOCIAL_ACCOUNTS } from './social'
 import { canonicalUrl, SITEMAP_PATHS } from './site'
 
 /**
@@ -158,7 +159,8 @@ export function siteGraph(publicUrl: string, telegramBot: string | null): Json[]
       url: `${publicUrl}/`,
       logo: `${publicUrl}${LOGO_PATH}`,
       description: HOME_DESCRIPTION,
-      ...(telegramBot ? { sameAs: [`https://t.me/${telegramBot}`] } : {}),
+      // Its official profiles: the bot (when the build names it), the Telegram community and X.
+      sameAs: [...(telegramBot ? [`https://t.me/${telegramBot}`] : []), ...SOCIAL_ACCOUNTS.map((a) => a.url)],
     },
     { '@type': 'WebSite', '@id': `${publicUrl}/#website`, name: SITE_NAME, url: `${publicUrl}/`, publisher: { '@id': orgId(publicUrl) } },
   ]
@@ -344,6 +346,12 @@ export function llmsTxt(publicUrl: string, telegramBot: string | null = null): s
     '## Telegram and the token',
     ...of('/telegram'),
     ...of('/kit'),
+    '',
+    '## Community',
+    ...SOCIAL_ACCOUNTS.map(
+      (a) =>
+        `- [${a.label}](${a.url}): ${a === SOCIAL.x ? `${SITE_NAME}’ official account on X (${a.handle}).` : `the official ${SITE_NAME} community chat on Telegram (${a.handle}).`}`,
+    ),
     '',
     '## Documentation',
     ...of('/docs'),

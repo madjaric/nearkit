@@ -4,6 +4,7 @@ import { HttpError, type Route } from '../api/http'
 import { ALICE } from '../bot/testing'
 import { ONE, USDT, walletBot } from '../bot/walletTesting'
 import type { TgUser } from '../telegram/types'
+import { telegramSigner } from '../signer/testing'
 import { webRoutes } from '../web/routes'
 import { createOneClick } from './oneclick'
 import { bridgeRoutes } from './routes'
@@ -100,7 +101,13 @@ export function fakeOneClick(now: () => number) {
         ...(body.dry
           ? {}
           : {
-              depositAddress: (deposits += 1) === 1 ? DEPOSIT_SOL : base58Encode(Uint8Array.from({ length: 32 }, (_, i) => (deposits * 13 + i) % 256)),
+              // Each chain's own address shape: a Solana address for SOL, an EVM one for ETH and BNB.
+              depositAddress:
+                body.originAsset === SOL
+                  ? (deposits += 1) === 1
+                    ? DEPOSIT_SOL
+                    : base58Encode(Uint8Array.from({ length: 32 }, (_, i) => (deposits * 13 + i) % 256))
+                  : `0x${((deposits += 1) * 7919).toString(16).padStart(40, 'e')}`,
               deadline: new Date(now() + 20 * 60_000).toISOString(),
               timeWhenInactive: new Date(now() + 15 * 60_000).toISOString(),
             }),
@@ -196,7 +203,20 @@ export async function bridgeApp() {
     },
     USDT,
   )
-  const routes = bridgeRoutes({ bridge, sessions: web, solana })
+  const routes = bridgeRoutes({ bridge, sessions: web, solana, telegram: h.telegram.check, now })
+  /** Another bot's Telegram key: launch data signed for it never counts here. */
+  const elsewhere = await telegramSigner(999)
+  /**
+   * The launch data Telegram hands the Mini App when `user` opens it (the Bridge view), signed for this
+   * bot; `ageMs` ago, or for another bot.
+   */
+  const launch = async (user: TgUser = ALICE, o: { botId?: number; ageMs?: number; startParam?: string } = {}) =>
+    (o.botId ? elsewhere : h.telegram).launch({
+      userId: user.id,
+      startParam: o.startParam ?? 'bridge',
+      authDate: Math.floor((now() - (o.ageMs ?? 0)) / 1000),
+      user: { id: user.id, first_name: user.first_name, username: user.username },
+    })
   const call = async (path: string, body: unknown) => (routes[path] as Route)(body, {} as IncomingMessage) as Promise<Record<string, unknown>>
   const failure = async (path: string, body: unknown) => {
     try {
@@ -259,5 +279,5 @@ export async function bridgeApp() {
       quoteResponse: {},
       swapDetails: { intentHashes: [], nearTxHashes: [], originChainTxHashes: [], destinationChainTxHashes: [], ...details },
     })
-  return { h, custody, oc, fast, store, bridge, call, failure, signIn, tick, order, input, bridgeInput, status }
+  return { h, custody, oc, fast, store, bridge, call, failure, signIn, launch, tick, order, input, bridgeInput, status }
 }

@@ -34,7 +34,8 @@ import { useBridgeClient, useBridgeOrder, useRefreshOrder } from './useBridge'
 
 const WRAP = NETWORKS.mainnet.wrapContract
 
-export function NearOrderView({ id, onNew }: { id: string; onNew: () => void }) {
+/** `inTelegram`: in the Mini App, where the next step is back in the bot (its notice has Buy and the wallet), not a web page: no links to web pages. */
+export function NearOrderView({ id, onNew, inTelegram }: { id: string; onNew: () => void; inTelegram?: { back: () => void } }) {
   const order = useBridgeOrder(id)
   const now = useNow(5_000)
   const o = order.data
@@ -78,7 +79,7 @@ export function NearOrderView({ id, onNew }: { id: string; onNew: () => void }) 
             <p className="text-base text-fg">{o.message ?? bridgeHeadline(o)}</p>
           )}
           <StepList steps={nearBridgeSteps(o)} />
-          <Actions order={o} chain={chain} onNew={onNew} />
+          <Actions order={o} chain={chain} onNew={onNew} inTelegram={inTelegram} />
         </div>
       </Panel>
 
@@ -166,13 +167,14 @@ function received(o: BridgeOrderView): string | null {
 }
 
 /** What the user can do now, for this state. Nothing here retries a cross-chain step by itself. */
-function Actions({ order: o, chain, onNew }: { order: BridgeOrderView; chain: BridgeChain; onNew: () => void }) {
-  const next = (
+function Actions({ order: o, chain, onNew, inTelegram }: { order: BridgeOrderView; chain: BridgeChain; onNew: () => void; inTelegram?: { back: () => void } }) {
+  // In Telegram the page's own Back to NEARKITS bot is the way on (the bot's notice has Buy and the wallet).
+  const next = inTelegram ? null : (
     <Link to="/swap" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
       Trade on Swap
     </Link>
   )
-  const activity = (
+  const activity = inTelegram ? null : (
     <Link to="/" className={buttonClass({ variant: 'ghost', size: 'lg' })}>
       View activity
     </Link>
@@ -189,7 +191,7 @@ function Actions({ order: o, chain, onNew }: { order: BridgeOrderView; chain: Br
       </div>
     )
   if ((o.status === 'delivered' || o.status === 'unwrap-needed') && o.destination.kind === 'connected') return <ConnectedUnwrap order={o} />
-  if (o.status === 'unwrap-needed' && o.destination.kind === 'nearkits') return <UnwrapAgain order={o} />
+  if (o.status === 'unwrap-needed' && o.destination.kind === 'nearkits') return <UnwrapAgain order={o} swapLink={!inTelegram} />
   if (o.status === 'refunded' || o.status === 'failed' || o.status === 'expired')
     return (
       <div className="flex flex-wrap gap-2">
@@ -210,7 +212,7 @@ function Actions({ order: o, chain, onNew }: { order: BridgeOrderView; chain: Br
  * A NEARKITS wallet whose wNEAR wasn't unwrapped: its owner asks NEARKITS to unwrap it now (the same
  * engine unwrap, once per request), or does it on Swap.
  */
-function UnwrapAgain({ order: o }: { order: BridgeOrderView }) {
+function UnwrapAgain({ order: o, swapLink }: { order: BridgeOrderView; swapLink: boolean }) {
   const client = useBridgeClient()
   const refresh = useRefreshOrder()
   const again = useMutation({ mutationFn: () => client.unwrap(o.id), onSuccess: () => refresh(o.id) })
@@ -221,12 +223,14 @@ function UnwrapAgain({ order: o }: { order: BridgeOrderView }) {
         <Button variant="primary" size="lg" onClick={() => again.mutate()} loading={again.isPending}>
           Unwrap to NEAR now
         </Button>
-        <Link
-          to={`/swap?from=${encodeURIComponent(WRAP)}&token=${encodeURIComponent(NATIVE_TOKEN_ID)}&amount=${encodeURIComponent(amount)}`}
-          className={buttonClass({ variant: 'ghost', size: 'lg' })}
-        >
-          Unwrap on Swap
-        </Link>
+        {swapLink && (
+          <Link
+            to={`/swap?from=${encodeURIComponent(WRAP)}&token=${encodeURIComponent(NATIVE_TOKEN_ID)}&amount=${encodeURIComponent(amount)}`}
+            className={buttonClass({ variant: 'ghost', size: 'lg' })}
+          >
+            Unwrap on Swap
+          </Link>
+        )}
       </div>
       {again.error && <p className="text-xs text-neg">{(again.error as Error).message}</p>}
     </div>

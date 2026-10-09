@@ -53,6 +53,10 @@ export interface BridgeOrder {
   message: string | null
   nextCheckAt: number | null
   checks: number
+  /** The review's key the deposit address was asked with (a Telegram button, a Mini App review): one order per key. */
+  requestKey: string | null
+  /** The last notice the order's Telegram user got about it (bot/bridge.ts), so each is sent once. */
+  notified: string | null
   createdAt: number
   updatedAt: number
 }
@@ -86,6 +90,8 @@ interface Row {
   message: string | null
   next_check_at: number | string | null
   checks: number | string
+  request_key: string | null
+  notified: string | null
   created_at: number | string
   updated_at: number | string
 }
@@ -123,6 +129,8 @@ function fromRow(r: Row): BridgeOrder {
     message: r.message,
     nextCheckAt: r.next_check_at === null ? null : n(r.next_check_at),
     checks: n(r.checks),
+    requestKey: r.request_key ?? null,
+    notified: r.notified ?? null,
     createdAt: n(r.created_at),
     updatedAt: n(r.updated_at),
   }
@@ -130,8 +138,8 @@ function fromRow(r: Row): BridgeOrder {
 
 export type NewBridgeOrder = Omit<
   BridgeOrder,
-  'id' | 'status' | 'intentsStatus' | 'depositTx' | 'delivered' | 'kits' | 'refund' | 'stage2' | 'message' | 'checks' | 'createdAt' | 'updatedAt'
->
+  'id' | 'status' | 'intentsStatus' | 'depositTx' | 'delivered' | 'kits' | 'refund' | 'stage2' | 'message' | 'checks' | 'requestKey' | 'notified' | 'createdAt' | 'updatedAt'
+> & { requestKey?: string | null }
 
 /** Fields the worker and the purchase move; anything else of an order never changes after it is created. */
 export type BridgeOrderPatch = Partial<
@@ -163,8 +171,8 @@ export class BridgeStore {
     const t = this.now()
     await this.db.run(
       `INSERT INTO bridge_orders (id, network, product, kind, user_id, wallet_id, recipient, chain, origin_asset, source_address, amount_in, deposit_address,
-         deposit_deadline, sign_by, quote, oneclick, kits_min_per_near, kits_slippage, status, next_check_at, checks, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting-deposit', ?, 0, ?, ?)`,
+         deposit_deadline, sign_by, quote, oneclick, kits_min_per_near, kits_slippage, status, next_check_at, checks, request_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting-deposit', ?, 0, ?, ?, ?)`,
       [
         id,
         o.network,
@@ -185,6 +193,7 @@ export class BridgeStore {
         o.kitsMinPerNear,
         o.kitsSlippage,
         o.nextCheckAt,
+        o.requestKey ?? null,
         t,
         t,
       ],
@@ -195,6 +204,36 @@ export class BridgeStore {
   async get(id: string): Promise<BridgeOrder | null> {
     const r = await this.db.get<Row>('SELECT * FROM bridge_orders WHERE id = ?', [id])
     return r ? fromRow(r) : null
+  }
+
+  /** The order a review's key already asked for, if any. */
+  async byRequestKey(key: string): Promise<BridgeOrder | null> {
+    const r = await this.db.get<Row>('SELECT * FROM bridge_orders WHERE request_key = ?', [key])
+    return r ? fromRow(r) : null
+  }
+
+  /**
+   * Claims a notice about an order (compare-and-set): true for the one caller that may send it. Never the
+   * same notice twice, and never one once a notice in `after` (those that come later) was already claimed.
+   */
+  async claimNotice(id: string, notice: string, after: readonly string[]): Promise<boolean> {
+    const not = [notice, ...after]
+    return (
+      (await this.db.run(`UPDATE bridge_orders SET notified = ? WHERE id = ? AND (notified IS NULL OR notified NOT IN (${not.map(() => '?').join(', ')}))`, [
+        notice,
+        id,
+        ...not,
+      ])) === 1
+    )
+  }
+
+  /** The address this user last sent from on this chain (their newest order there), for the next order's refunds. */
+  async lastSourceAddress(userId: number, network: string, chain: string): Promise<string | null> {
+    const r = await this.db.get<{ source_address: string }>(
+      'SELECT source_address FROM bridge_orders WHERE user_id = ? AND network = ? AND chain = ? ORDER BY created_at DESC LIMIT 1',
+      [userId, network, chain],
+    )
+    return r?.source_address ?? null
   }
 
   /** A user's orders to their NEARKITS wallets (both products), newest first. */

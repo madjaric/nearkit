@@ -812,6 +812,27 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     await store.update(o.id, { stage2: next, nextCheckAt: deps.now() + 20_000 })
   }
 
+  /**
+   * The order a request key already made, if it is this very request (the same product, destination,
+   * chain, amount and source address, for the same user); a key that made anything else is refused.
+   */
+  async function sameRequest(o: BridgeOrder, input: BridgeQuoteInput): Promise<BridgeOrderView> {
+    const d = input.destination
+    const chain = bridgeChain(input.chain)
+    const parsed = chain ? tryParseUnits(input.amount.trim(), chain.decimals) : null
+    const same =
+      o.network === network.id &&
+      o.product === input.product &&
+      o.kind === d.kind &&
+      o.chain === input.chain &&
+      parsed?.ok === true &&
+      parsed.value.toString() === o.amountIn &&
+      (input.sourceAddress ?? '').trim() === o.sourceAddress &&
+      (d.kind === 'nearkits' ? o.userId === d.userId && o.walletId === d.walletId : o.userId === null && o.recipient === d.accountId.trim().toLowerCase())
+    if (!same) throw new HttpError(409, 'request', 'This review already made a different bridge order. Get a new quote.')
+    return viewOf(o)
+  }
+
   /** The purchase's minimum is at least what the user accepted per NEAR, for what it spends. */
   function withinBound(o: BridgeOrder, spend: bigint, minOut: bigint): boolean {
     if (!o.kitsMinPerNear) return false
@@ -846,9 +867,18 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     /**
      * The order: a real quote with its deposit address, bound to the destination, amount and fee.
      * Nothing moves until the user's own wallet sends the amount to the deposit address.
+     *
+     * `requestKey`: the review's key (a Telegram button, a Mini App review). Asked again with it (a
+     * double tap, a resent request, two at once), this returns the order it already made: one review
+     * is one deposit address, never two. A key that made a different order is refused, never reused.
      */
-    async start(input: BridgeQuoteInput): Promise<BridgeOrderView> {
+    async start(input: BridgeQuoteInput, opts: { requestKey?: string | null } = {}): Promise<BridgeOrderView> {
       const { product } = input
+      const key = opts.requestKey ?? null
+      if (key) {
+        const made = await store.byRequestKey(key)
+        if (made) return sameRequest(made, input)
+      }
       const paused = await deps.ops.bridgeBlocked()
       if (paused) throw new HttpError(409, 'paused', product === 'bridge' ? paused.replace(/^Bridge & Buy/, 'Bridge') : paused)
       const dest = await destinationOf(input.destination, product)
@@ -902,12 +932,17 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
           kitsMinPerNear,
           kitsSlippage: product === 'buy-kits' ? (input.kitsSlippagePct as number) : 0,
           nextCheckAt: now + 12_000,
+          requestKey: key,
         })
-        .catch((e: unknown) => {
+        .catch(async (e: unknown) => {
+          // The same review asked twice at once: the other request saved its order first, and this is it.
+          const made = key ? await store.byRequestKey(key).catch(() => null) : null
+          if (made) return made
           // One deposit address is one order: 1Click handing out one twice is refused, never merged.
           log.error('bridge: could not save the order', { chain: r.chain.id, error: e })
           throw new HttpError(502, 'route', 'Route temporarily unavailable. Nothing was sent.')
         })
+      if (order.depositAddress !== r.q.depositAddress) return sameRequest(order, input)
       log.info('bridge order created', { order: order.id, product, chain: r.chain.id, usd: r.q.amountInUsd, destination: order.kind })
       return view(order, dest.wallet)
     },
@@ -1011,6 +1046,19 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       const o = typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id) ? await store.get(id) : null
       if (!o || o.network !== network.id || (o.kind === 'nearkits' && o.userId !== userId)) throw new HttpError(404, 'not-found', 'That bridge order isn’t yours, or it’s gone.')
       return o
+    },
+
+    /** The user's own NEARKITS wallets on this network, as destinations: a frozen one is listed, and refused at start. */
+    async destinationsOf(userId: number): Promise<{ id: string; accountId: string; name: string; slot: number; frozen: boolean }[]> {
+      if (!deps.custody) return []
+      const wallets = await deps.custody.store.activeWallets(userId, network.id)
+      return wallets.map((w) => ({ id: w.id, accountId: w.accountId, name: walletName(w), slot: w.slot, frozen: w.frozenAt !== null }))
+    },
+
+    /** Why new deposit addresses aren't given out now (the bridge kill switch), or null. */
+    async pausedReason(product: BridgeProduct): Promise<string | null> {
+      const paused = await deps.ops.bridgeBlocked()
+      return paused ? (product === 'bridge' ? paused.replace(/^Bridge & Buy/, 'Bridge') : paused) : null
     },
 
     async ordersOf(userId: number): Promise<BridgeOrderView[]> {

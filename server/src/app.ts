@@ -9,7 +9,9 @@ import { handoffRoutes } from './api/handoffRoutes'
 import { linkRoutes } from './api/linkRoutes'
 import { accountsModule, linkedText, movedAwayText, startLink } from './bot/accounts'
 import { createBotApp, type BotApp } from './bot/app'
+import { bridgeHome, bridgeModule, notifyBridgeOrder } from './bot/bridge'
 import { buybotModule } from './bot/buybot'
+import { kitsModule, kitsScreen } from './bot/kits'
 import type { BotDeps, BotModule, BuybotDeps, Command } from './bot/context'
 import { coreModule } from './bot/core'
 import { portfolioModule } from './bot/portfolio'
@@ -93,9 +95,10 @@ export interface RunningServer {
 
 export function botModules(_deps: BotDeps, list: () => { name: string; command: Command }[]): BotModule[] {
   // `/start link` (from the "open a private chat" button) goes straight to linking; `/start web`
-  // (NearKit web's "Sign in with Telegram") sends the one-time sign-in link.
+  // (NearKit web's "Sign in with Telegram") sends the one-time sign-in link; `/start bridge` and
+  // `/start kits` open the Bridge to NEAR and $KITS' screen (links from NEARKITS web).
   return [
-    coreModule(list, { link: startLink, web: startWeb }),
+    coreModule(list, { link: startLink, web: startWeb, bridge: bridgeHome, kits: kitsScreen }),
     accountsModule(),
     settingsModule(),
     tradeModule(),
@@ -108,6 +111,8 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     referralsModule(),
     webModule(),
     volumeModule(),
+    bridgeModule(),
+    kitsModule(),
   ]
 }
 
@@ -323,6 +328,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       referrals,
       web,
       volumeBots,
+      kits: kitsBurns ? { burns: kitsBurns, rewards: kitsRewards } : null,
     }
     botDeps = deps
     let list: () => { name: string; command: Command }[] = () => []
@@ -396,6 +402,10 @@ export async function startServer(options: { env: Record<string, string | undefi
         })
       : null
   if (!bridge) log.info('Bridge & Buy off', { reason: config.bridge.reason ?? 'no fee account' })
+  // The bot's Bridge to NEAR (Send manually, My bridge orders, notices) runs on this very service and its orders.
+  if (botDeps) botDeps.bridge = bridge && bridgeStore ? { service: bridge, store: bridgeStore } : null
+  // NEARKITS' Mini App names its Telegram user with launch data Telegram signed for this bot (its id is the token's public prefix).
+  const miniAppCheck = config.telegramToken ? { botId: Number(config.telegramToken.split(':')[0]), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS.production) as Uint8Array } : null
 
   const api: Server = createApiServer({
     config,
@@ -404,7 +414,9 @@ export async function startServer(options: { env: Record<string, string | undefi
       ...linkRoutes({ link, onLinked }),
       ...handoffRoutes(handoffs),
       ...(kitsBurns ? kitsRoutes({ burns: kitsBurns, rewards: kitsRewards }) : {}),
-      ...(bridge ? bridgeRoutes({ bridge, sessions: web, solana: createSolanaReads({ rpcUrl: config.bridge.solanaRpcUrl, fetch: fetchImpl, now }) }) : {}),
+      ...(bridge
+        ? bridgeRoutes({ bridge, sessions: web, solana: createSolanaReads({ rpcUrl: config.bridge.solanaRpcUrl, fetch: fetchImpl, now }), telegram: miniAppCheck, now })
+        : {}),
       ...(custody
         ? recoveryRoutes({
             recovery: custody.recovery,
@@ -494,7 +506,20 @@ export async function startServer(options: { env: Record<string, string | undefi
       : null
   volumeRunner?.start()
   // Bridge & Buy orders, each stepped under its own lease (NEAR Intents' status, then the $KITS purchase).
-  const bridgeWorker = bridge && bridgeStore ? createBridgeWorker({ bridge, store: bridgeStore, instanceId: instance, log }) : null
+  // A Bridge to a NEARKITS wallet tells its Telegram user what the worker saw (deposit, delivery, unwrap, refund), each once.
+  const bridgeWorker =
+    bridge && bridgeStore
+      ? createBridgeWorker({
+          bridge,
+          store: bridgeStore,
+          instanceId: instance,
+          log,
+          onChange: async (o) => {
+            const app = bot
+            if (app && botDeps) await notifyBridgeOrder(botDeps, o, (userId, html, markup) => app.notify(userId, html, markup))
+          },
+        })
+      : null
   bridgeWorker?.start()
   if (volumeRunner) log.info('Volume Bot worker running')
 

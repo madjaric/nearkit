@@ -501,4 +501,13 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       ALTER TABLE bridge_orders ADD COLUMN product TEXT NOT NULL DEFAULT 'buy-kits' CHECK (product IN ('buy-kits', 'bridge'));
     `,
   },
+  {
+    version: 8,
+    name: 'Telegram’s Bridge: one order per request key, and what Telegram was last told about an order',
+    sql: `
+      ALTER TABLE bridge_orders ADD COLUMN request_key TEXT;
+      ALTER TABLE bridge_orders ADD COLUMN notified TEXT;
+      CREATE UNIQUE INDEX bridge_orders_request ON bridge_orders(request_key);
+    `,
+  },
 ]

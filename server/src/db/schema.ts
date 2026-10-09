@@ -666,6 +666,19 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE INDEX bridge_orders_user ON bridge_orders(user_id, created_at);
     `,
   },
+  {
+    version: 17,
+    name: 'Telegram’s Bridge: one order per request key, and what Telegram was last told about an order',
+    sql: `
+      -- request_key: the key of the review a deposit address was asked for (a Telegram button, a Mini App
+      -- review): asking again with it finds the same order instead of a second deposit address.
+      -- notified: the last notice the order's Telegram user got about it, so each is sent once.
+      -- Both empty on every order before this one. New columns only: no row changes.
+      ALTER TABLE bridge_orders ADD COLUMN request_key TEXT;
+      ALTER TABLE bridge_orders ADD COLUMN notified TEXT;
+      CREATE UNIQUE INDEX bridge_orders_request ON bridge_orders(request_key);
+    `,
+  },
 ]
 
 /**

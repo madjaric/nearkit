@@ -231,6 +231,28 @@ await step('the bot greets a new user and never asks for keys', async () => {
   if (!/never asks for your seed phrase/.test(m.text)) throw new Error('safety line missing')
 })
 
+await step('the menu offers $KITS and Community; /kits names the one contract, /community the two official accounts, and /bridge (mainnet only) says so here', async () => {
+  let from = tg.sent.length
+  say(TG_USER, '/start')
+  const menu = await tg.waitFor(TG_USER.id, (x) => x.buttons.some((b) => b.callback_data === 'kit:show'), { from })
+  if (!menu.buttons.some((b) => b.callback_data === 'kit:community')) throw new Error('no Community key in the menu')
+  // This server runs on testnet: no Bridge key, and /bridge explains why instead of starting anything.
+  if (menu.buttons.some((b) => b.callback_data === 'brg:home')) throw new Error('a Bridge key on a testnet bot')
+  from = tg.sent.length
+  press(TG_USER, 'kit:show')
+  const kits = await tg.waitFor(TG_USER.id, (x) => x.text.includes('$KITS · Near Kits'), { from })
+  if (!kits.text.includes('<code>kits.nearlytrade.near</code>') || !kits.buttons.some((b) => b.copy_text?.text === 'kits.nearlytrade.near'))
+    throw new Error('$KITS screen lacks its contract')
+  from = tg.sent.length
+  say(TG_USER, '/community')
+  const community = await tg.waitFor(TG_USER.id, (x) => x.text.includes('NEARKITS community'), { from })
+  const urls = community.buttons.map((b) => b.url)
+  if (!urls.includes('https://t.me/NearKitsCommunity') || !urls.includes('https://x.com/Near_Kits')) throw new Error(`community links: ${urls.join(', ')}`)
+  from = tg.sent.length
+  say(TG_USER, '/bridge')
+  await tg.waitFor(TG_USER.id, (x) => x.text.includes('The Bridge runs on NEAR mainnet'), { from })
+})
+
 await step('/link answers with a one-time link to the web app', async () => {
   const from = tg.sent.length
   say(TG_USER, '/link')

@@ -159,8 +159,15 @@ if (WIDTH >= 1024) {
   await step('the sidebar lists the live features first and every held-back one under COMING SOON', async () => {
     const groups = await navGroups(page.locator('aside nav[aria-label="Main"]'))
     if (!sameNav(groups)) throw new Error(`Sidebar is ${JSON.stringify(groups)}`)
-    const footer = await page.locator('aside nav[aria-label="Main"] + div li').allInnerTexts()
+    const footer = await page.locator('aside nav[aria-label="Main"] + div > ul:first-child > li').allInnerTexts()
     if (footer.map((t) => t.trim()).join() !== 'Settings,Documentation') throw new Error(`Footer is ${footer}`)
+    // Under it, NEARKITS' community: the Telegram group and X, the two official accounts.
+    const community = await page
+      .locator('aside')
+      .getByRole('list', { name: 'NEARKITS community' })
+      .getByRole('link')
+      .evaluateAll((as) => as.map((a) => a.getAttribute('href')))
+    if (community.join() !== 'https://t.me/NearKitsCommunity,https://x.com/Near_Kits') throw new Error(`Community links are ${community}`)
     await shot('beta-00-sidebar')
   })
 

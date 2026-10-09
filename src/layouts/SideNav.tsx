@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
+import { SocialLinks } from '@/components/brand/Social'
 import { Led, Tag } from '@/components/ui/Indicators'
 import { KIT } from '@/config/kit'
 import { isComingSoon } from '@/config/release'
@@ -155,6 +156,8 @@ export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
             <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
           ))}
         </ul>
+        {/* NEARKITS' community: the Telegram group and X, on every page (the phone drawer shows the same). */}
+        <SocialLinks variant="nav" className="mt-2 border-t border-line-soft pt-2" />
       </div>
       <div className="flex items-center gap-2 border-t border-line px-5 py-3 text-xs text-fg-3">
         <BuildStatus />

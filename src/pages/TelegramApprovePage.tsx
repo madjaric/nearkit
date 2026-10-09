@@ -1,5 +1,5 @@
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { Button } from '@/components/ui/Button'
 import { buttonClass } from '@/components/ui/buttonClass'
@@ -22,8 +22,12 @@ import {
  * it shows the request only if it is exactly what the link names (its digest is the start
  * parameter Telegram signed), and on Approve sends Telegram's signed launch data, which
  * NearKit's signer checks itself. Opened directly from the bot (its Open button), it is a
- * plain landing: nothing to approve, nothing wrong. Outside Telegram it says where to open it.
+ * plain landing: nothing to approve, nothing wrong. Opened by the bot's Connect wallet
+ * (`startapp=bridge`), it is the Bridge to NEAR (features/bridge/TelegramBridge.tsx), loaded
+ * only then. Outside Telegram it says where to open it.
  */
+
+const TelegramBridge = lazy(() => import('@/features/bridge/TelegramBridge'))
 
 /** Captured at load: Telegram puts its launch data in the address the page was opened with. */
 const context: TelegramLaunchContext = typeof window === 'undefined' ? { kind: 'outside' } : telegramLaunchContext(window.location.hash, window.location.search)
@@ -56,16 +60,17 @@ type Shown = { request: TelegramRequestView; walletName: string | null; facts: E
 type View =
   | { step: 'loading' }
   | { step: 'home' }
+  | { step: 'bridge' }
   | { step: 'outside' }
   | { step: 'refused'; message: string }
   | ({ step: 'review'; status: Status; error?: string } & Shown)
   | ({ step: 'sending' } & Shown)
   | { step: 'done'; request: TelegramRequestView }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
     <main className="flex min-h-dvh justify-center bg-canvas px-4 py-6 text-fg">
-      <div className="flex w-full max-w-md flex-col gap-5">
+      <div className={`flex w-full min-w-0 flex-col gap-5 ${wide ? 'max-w-xl' : 'max-w-md'}`}>
         <span className="flex items-center gap-1.5">
           <LogoMark size={20} />
           <Wordmark height={13} />
@@ -122,7 +127,7 @@ function Landing({ children }: { children: ReactNode }) {
 export default function TelegramApprovePage() {
   useTelegramScript()
   useEffect(() => {
-    document.title = context.kind === 'approval' ? 'Approve · NEARKITS' : 'NEARKITS · Telegram'
+    document.title = context.kind === 'approval' ? 'Approve · NEARKITS' : context.kind === 'bridge' ? 'Bridge to NEAR · NEARKITS' : 'NEARKITS · Telegram'
   }, [])
   const [view, setView] = useState<View>({ step: 'loading' })
   const apiUrl = ENV.apiUrl
@@ -132,6 +137,7 @@ export default function TelegramApprovePage() {
     const run = async (): Promise<View> => {
       if (context.kind === 'outside') return { step: 'outside' }
       if (context.kind === 'direct') return { step: 'home' }
+      if (context.kind === 'bridge') return { step: 'bridge' }
       // An approval: exactly the request the link names, or nothing.
       const { launch } = context
       if (!apiUrl) return { step: 'refused', message: 'This NEARKITS build has no server to send approvals to.' }
@@ -166,6 +172,14 @@ export default function TelegramApprovePage() {
     return (
       <Shell>
         <p className="text-sm text-fg-2">Reading the request…</p>
+      </Shell>
+    )
+  if (view.step === 'bridge')
+    return (
+      <Shell wide>
+        <Suspense fallback={<p className="text-sm text-fg-2">Opening the Bridge…</p>}>
+          {context.kind === 'bridge' && <TelegramBridge initData={context.initData} onBack={backToBot} />}
+        </Suspense>
       </Shell>
     )
   if (view.step === 'home')

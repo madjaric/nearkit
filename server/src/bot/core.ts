@@ -19,7 +19,11 @@ async function canCreateWallet(ctx: BotCtx, linked: boolean): Promise<boolean> {
   return ctx.deps.custody !== null && ctx.deps.custody !== undefined && (linked || (await telegramApprovalsOn(ctx.deps)))
 }
 
-/** The main menu. With no NearKit wallet yet, Create wallet leads (when one can be made), Link wallet is the alternative. */
+/**
+ * The main menu. With no NearKit wallet yet, Create wallet leads (when one can be made), Link wallet is
+ * the alternative. Then trading, the wallet and funding it (Bridge to NEAR, where the bridge runs),
+ * then $KITS and the community, then the rest. Each entry is offered only where it exists.
+ */
 export async function mainMenu(ctx: BotCtx, known?: { create: boolean }) {
   const has = (name: string) => ctx.deps.features.has(name)
   const wallet = (await tradingWallet(ctx.deps, ctx.user.id)) !== null
@@ -30,9 +34,10 @@ export async function mainMenu(ctx: BotCtx, known?: { create: boolean }) {
     linked || wallet ? [] : [btn('🔗 Link wallet', 'acct:link')],
     [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
     [has('positions') ? btn('📊 Positions', 'pf:positions') : null, has('pnl') ? btn('📈 PnL', 'pf:pnl') : null],
-    [has('balance') ? btn('👛 Wallet', 'menu:wallet') : null, btn('⚙️ Settings', 'set:show')],
+    [has('balance') ? btn('👛 Wallet', 'menu:wallet') : null, has('bridge') && ctx.deps.bridge ? btn('🌉 Bridge to NEAR', 'brg:home') : null],
+    [has('kits') ? btn('🪙 $KITS', 'kit:show') : null, has('community') ? btn('👥 Community', 'kit:community') : null],
+    [btn('⚙️ Settings', 'set:show'), btn('❓ Help', 'menu:help')],
     [has('buybot') ? btn('📣 Buybot', 'menu:buybot') : null, has('referral') ? btn('🎁 Invite', 'ref:show') : null],
-    [btn('❓ Help', 'menu:help')],
   )
 }
 
@@ -45,8 +50,9 @@ async function home(ctx: BotCtx, edit: boolean) {
   const linked = await linkedAccount(ctx)
   const create = nearkit === null && (await canCreateWallet(ctx, linked !== null))
   const account = nearkit ?? linked
+  const bridge = Boolean(ctx.deps.bridge) && ctx.deps.features.has('bridge')
   const text = create
-    ? noWalletYet(ctx.deps.config, linked ? { accountId: linked, near: await nearAvailable(ctx, linked) } : null)
+    ? noWalletYet(ctx.deps.config, linked ? { accountId: linked, near: await nearAvailable(ctx, linked) } : null, { bridge })
     : [welcome(ctx.deps.config, account ? { accountId: account, near: await nearAvailable(ctx, account), nearkit: nearkit !== null } : null), SAFETY].join('\n')
   const menu = await mainMenu(ctx, { create })
   if (edit) await ctx.show(text, menu)
