@@ -88,6 +88,55 @@ await step('Quick Trade opens on $KITS, the NEARKITS token: its ticket, the Dash
   }
 })
 
+await step('Swap from the sidebar opens NEAR → $KITS (kits.nearlytrade.near), quoted as KITS; Black Dragon can be chosen, and a reload opens on $KITS again', async () => {
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  await page.locator('aside').getByRole('link', { name: 'Swap', exact: true }).click()
+  await page.waitForURL(/\/swap$/)
+  await page.getByRole('button', { name: 'To token: KITS' }).waitFor()
+  await page.getByRole('button', { name: 'From token: NEAR' }).waitFor()
+  await page.getByText('kits.nearlytrade.near').first().waitFor()
+  await page.getByPlaceholder('0.00').first().fill('1')
+  await page
+    .getByText(/1 NEAR ≈ [\d,.]+[KMB]? KITS/)
+    .first()
+    .waitFor({ timeout: 8000 })
+  // Chosen on purpose: the ticket, the quote and the contract follow Black Dragon.
+  await page.getByRole('button', { name: 'To token: KITS' }).click()
+  await page.getByRole('textbox', { name: 'Search tokens' }).fill('BLACKDRAGON')
+  await page
+    .getByRole('option', { name: /BLACKDRAGON/ })
+    .first()
+    .click()
+  await page.getByRole('button', { name: 'To token: BLACKDRAGON' }).waitFor()
+  await page
+    .getByText(/1 NEAR ≈ [\d,.]+[KMB]? BLACKDRAGON/)
+    .first()
+    .waitFor({ timeout: 8000 })
+  await page.getByText('blackdragon.tkn.near').first().waitFor()
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'To token: KITS' }).waitFor()
+})
+
+await step('Multi Trade from the sidebar opens on $KITS; Black Dragon can be chosen, and a reload opens on $KITS again', async () => {
+  await page.locator('aside').getByRole('link', { name: 'Multi Trade', exact: true }).click()
+  await page.waitForURL(/\/multi-trade$/)
+  // Let the page settle (wallets, balances, quotes) before using its token picker.
+  await page.waitForLoadState('networkidle')
+  const main = page.locator('main')
+  await main.getByRole('button', { name: 'Token: KITS' }).waitFor()
+  await main.getByRole('button', { name: 'Token: KITS' }).click()
+  await page.getByRole('textbox', { name: 'Search tokens' }).fill('BLACKDRAGON')
+  await page
+    .getByRole('option', { name: /BLACKDRAGON/ })
+    .first()
+    .click()
+  await main.getByRole('button', { name: 'Token: BLACKDRAGON' }).waitFor()
+  await page.reload({ waitUntil: 'networkidle' })
+  await main.getByRole('button', { name: 'Token: KITS' }).waitFor()
+  // Back where the next steps start: the Dashboard and its ticket.
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+})
+
 // NearKit's fee is set once, in src/lib/fees.ts (NEARKIT_FEE): 50 bps.
 await step('quick trade: MAX fills, quote prints, fee is 0.50%', async () => {
   const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })

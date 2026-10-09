@@ -30,7 +30,7 @@ import { useCapabilities, useHoldings, useMultiQuote, usePlanners, usePresets, u
 import { useConnectPrompt, useInComingSoon, useSettings } from '@/state/contexts'
 import type { MultiTradeRequest, TradeSide } from '@/types/domain'
 import { OperationModal } from '../tools/OperationModal'
-import { useDefaultTradeToken } from '../trade/useDefaultToken'
+import { useKitsFirstToken } from '../trade/useDefaultToken'
 import { NearKitTradeModal, type NearKitTradeRequest } from './NearKitTrade'
 
 const NEAR = NATIVE_TOKEN_ID
@@ -63,7 +63,7 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
   const { promptConnect } = useConnectPrompt()
   const navigate = useNavigate()
   const planners = usePlanners()
-  const defaultToken = useDefaultTradeToken()
+  const defaultToken = useKitsFirstToken()
   const [side, setSide] = useState<TradeSide>(initialSide)
   const [pickedToken, setTokenId] = useState<string | null>(initialTokenId)
   const tokenId = pickedToken ?? defaultToken

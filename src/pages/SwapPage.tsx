@@ -18,7 +18,7 @@ import { cn } from '@/lib/cn'
 import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatPrice, formatUsdCompact } from '@/lib/format'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
-import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
+import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { executesViaNearKit, signsInBrowser } from '@/lib/wallets'
 import { useCapabilities, useHoldings, useTokens, useWallets } from '@/services/queries'
 import { readPrefill, type Prefill } from '@/features/trade/swapPrefill'
@@ -207,7 +207,7 @@ function SwapScreen({ initialFrom, initialTo, prefill }: { initialFrom: TokenId;
 export default function SwapPage() {
   const [params] = useSearchParams()
   const location = useLocation()
-  const defaultToken = useDefaultTradeToken()
+  const defaultToken = useKitsFirstToken()
   const requested = params.get('to') ?? params.get('token')
   const from = params.get('from')
   const token = requested ?? defaultToken

@@ -25,7 +25,7 @@ import { useBridgeAvailability, useBridgeOrders } from '@/features/bridge/useBri
 import { PositionsTable } from '@/features/portfolio/PositionsTable'
 import { ValuePanel } from '@/features/portfolio/ValuePanel'
 import { QuickTrade } from '@/features/trade/QuickTrade'
-import { useQuickTradeToken } from '@/features/trade/useDefaultToken'
+import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { formatAmount, formatUsd } from '@/lib/format'
 import { toneOf } from '@/lib/tone'
 import { useActivity, useCapabilities, useNearKitSession, useOrders, usePositions, useSession, useSummary, useTokens, useValueHistory } from '@/services/queries'
@@ -53,7 +53,7 @@ function useOrderView() {
 /** BUY, SELL, SEND and MULTI BUY: the page's actions, always in view. */
 function QuickActions() {
   const { openTrade } = useTradeDrawer()
-  const tokenId = useQuickTradeToken()
+  const tokenId = useKitsFirstToken()
   const multiSoon = isComingSoon('/multi-trade')
   return (
     <>

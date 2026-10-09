@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { kitConfig, KITS_CONTRACT } from '@/config/kit'
 import { NETWORKS } from '@/config/networks'
 import type { TokenListing } from '@/types/domain'
-import { listedKit, openingToken } from './openingToken'
+import { kitsFirstToken, listedKit, openingToken } from './openingToken'
 
 /**
- * The token a trade tool opens on. Quick Trade opens on $KITS, the NEARKITS token, read from its one
- * configuration (config/kit.ts), while it is listed; every other trade tool keeps the network's
- * configured default. The id is the contract the quote and the plan are built for, not a label.
+ * The token a trade tool opens on. Quick Trade, Swap, Multi Trade and the Volume Bot open on $KITS,
+ * the NEARKITS token, read from its one configuration (config/kit.ts), while it is listed; DCA and
+ * Limit Orders keep the network's configured default. The id is the contract the quote and the plan
+ * are built for, not a label.
  */
 
 const token = (id: string, status: TokenListing['status'] = 'listed', isNative = false) => ({ id, status, isNative })
@@ -41,7 +42,17 @@ describe('Quick Trade opens on $KITS', () => {
   })
 })
 
-describe('the other trade tools keep the network’s default', () => {
+describe('Quick Trade, Swap, Multi Trade and the Volume Bot share one rule', () => {
+  it('$KITS while listed, by its canonical contract; the network’s default otherwise; testnet’s own default there', () => {
+    expect(kitsFirstToken([NEAR, BLACKDRAGON, USDT, KITS], 'mainnet', mainnetKit)).toBe('kits.nearlytrade.near')
+    expect(kitsFirstToken([NEAR, BLACKDRAGON, USDT, token(KITS_CONTRACT, 'prelaunch')], 'mainnet', mainnetKit)).toBe('blackdragon.tkn.near')
+    expect(kitsFirstToken([NEAR, token('usdt.itachicara.testnet'), KITS], 'testnet', testnetKit)).toBe('usdt.itachicara.testnet')
+    // Before the token list has loaded: NEAR, never a stale guess (the pages move on once it loads).
+    expect(kitsFirstToken([], 'mainnet', mainnetKit)).toBe('near')
+  })
+})
+
+describe('DCA and Limit Orders keep the network’s default', () => {
   it('opens on the configured default when it is in the list, $KITS listed or not', () => {
     expect(openingToken([NEAR, KITS, BLACKDRAGON, USDT], [NETWORKS.mainnet.defaultTradeToken])).toBe('blackdragon.tkn.near')
   })

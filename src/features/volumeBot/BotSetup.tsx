@@ -12,7 +12,7 @@ import { formatAccount, formatAmount } from '@/lib/format'
 import type { BotConfigIssue, BotSummary } from '@/lib/volumeBot/api'
 import { defaultBotConfig, MAX_BOT_WALLETS, validateBotConfig } from '@/lib/volumeBot/config'
 import { BOT_STRATEGIES, type BotConfig, type BotStrategy, type HourWindow, type SizingMode } from '@/lib/volumeBot/types'
-import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
+import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { LinkRequestError } from '@/services/telegramLink'
 import { useHoldings, useNearKitWallets, useTokens } from '@/services/queries'
 import { applyText, fieldsFor, GUARDIAN_FIELDS, RISK_FIELDS, SCHEDULE_FIELDS, SIZING_LABEL, sizingFields, sizingModes, strategyFields, textOf, type NumField } from './fields'
@@ -91,7 +91,7 @@ export function BotSetup({ editing, onSaved, onCancel }: { editing?: { bot: BotS
   const { data: holdings = [] } = useHoldings()
   const { data: list } = useNearKitWallets()
   const wallets = list?.wallets ?? []
-  const defaultToken = useDefaultTradeToken()
+  const defaultToken = useKitsFirstToken()
 
   const [config, setConfig] = useState<BotConfig>(() => editing?.config ?? defaultBotConfig('market-maker', { id: '', symbol: '', decimals: 0 }, []))
   const [text, setText] = useState<Record<string, string>>(() => textOf(config))
@@ -99,7 +99,7 @@ export function BotSetup({ editing, onSaved, onCancel }: { editing?: { bot: BotS
   const [serverIssues, setServerIssues] = useState<BotConfigIssue[]>([])
   const [failure, setFailure] = useState<string | null>(null)
 
-  // Until one is chosen, the token the trade tools open on.
+  // Until one is chosen, the token the trade tools open on ($KITS where it is listed).
   const tokenId = config.tokenId || (defaultToken === NATIVE_TOKEN_ID ? '' : defaultToken)
   const token = tokens.find((t) => t.id === tokenId)
   const symbol = token?.symbol ?? config.tokenSymbol
