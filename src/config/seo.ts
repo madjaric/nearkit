@@ -55,6 +55,14 @@ export const bridgeFacts = (): string[] => [
   `NEARKITS’ fee on the bridge is ${BRIDGE_FEE_LABEL}, with NEAR Intents’ own fee shown beside it; the $KITS purchase carries NEARKITS’ ${NEARKIT_FEE_LABEL} trading fee and $KITS’ own buy tax.`,
 ]
 
+/** What the Bridge (to NEAR, no purchase) does, as its page states it. */
+export const nearBridgeFacts = (): string[] => [
+  'The Bridge brings SOL (Solana), ETH (Ethereum) or BNB (BNB Chain) to NEAR through NEAR Intents, to fund a NEARKITS wallet, a connected NEAR wallet or any NEAR account. Nothing is bought.',
+  'NEAR Intents delivers NEAR as wNEAR: in a NEARKITS wallet NEARKITS unwraps it to native NEAR, and a connected wallet unwraps it with one signature; an external NEAR account receives the wNEAR.',
+  `Your own wallet sends the funds; NEARKITS never holds them. If the bridge can’t complete, NEAR Intents refunds your address.`,
+  `NEARKITS’ fee on the bridge is ${BRIDGE_FEE_LABEL}, with NEAR Intents’ own fee shown beside it; there is no trading fee, because nothing is traded.`,
+]
+
 /** Every page the sitemap lists, in its order. */
 export function publicPages(): PageSeo[] {
   const pages: Record<string, Omit<PageSeo, 'path'>> = {
@@ -69,6 +77,12 @@ export function publicPages(): PageSeo[] {
       description: 'Bring SOL, ETH or BNB to NEAR through NEAR Intents and buy $KITS in one flow. Your own wallet sends; every fee is shown before you confirm.',
       name: 'Bridge & Buy',
       facts: bridgeFacts(),
+    },
+    '/bridge-near': {
+      title: 'Bridge SOL, ETH or BNB to NEAR · NEARKITS',
+      description: 'Move SOL, ETH or BNB into NEAR through NEAR Intents, to fund a NEARKITS wallet or any NEAR account. Your own wallet sends; every fee is shown first.',
+      name: 'Bridge',
+      facts: nearBridgeFacts(),
     },
     '/multi-trade': {
       title: 'Multi Trade: buy or sell from many NEAR wallets · NEARKITS',
@@ -341,6 +355,7 @@ export function llmsTxt(publicUrl: string, telegramBot: string | null = null): s
     '- Trading can lose money: prices move, pools can lose liquidity, and fees and gas apply to every trade. NEARKITS promises no profit, volume, liquidity or returns.',
     `- ${kitDescription()}`,
     `- ${KIT.ticker} tokenomics, from its launch configuration on ${KIT.launchVenue}: ${kitFacts().join(' ')}`,
+    `- The Bridge (${publicUrl}/bridge-near), apart from Bridge & Buy: ${nearBridgeFacts().join(' ')}`,
     ...(soon.length ? [`- Coming soon (nothing runs or executes for them yet): ${soon.join(', ')}.`] : []),
     '',
   ].join('\n')

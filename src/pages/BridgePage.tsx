@@ -30,7 +30,8 @@ export default function BridgePage() {
   const orderId = params.get('order')
   const from = params.get('from')
   const initialChain = from && bridgeChain(from) ? (from as BridgeChainId) : undefined
-  const { orders } = useBridgeOrders(availability.ok)
+  const { orders: all } = useBridgeOrders(availability.ok)
+  const orders = all.filter((o) => o.product !== 'bridge')
 
   return (
     <Page>

@@ -123,7 +123,15 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
   for (const item of [...ALL_NAV, ...SEARCH_ONLY_NAV]) {
     if (results.some((r) => r.to === item.to)) continue
     if (item.label.toLowerCase().includes(q) || item.keywords?.some((k) => k.includes(q))) {
-      results.push({ id: `p-${item.to}`, group: 'Go to', label: item.label, to: item.to, icon: item.icon, soon: isComingSoon(item.to) })
+      results.push({
+        id: `p-${item.to}`,
+        group: 'Go to',
+        label: item.label,
+        ...(item.hint ? { detail: item.hint } : {}),
+        to: item.to,
+        icon: item.icon,
+        soon: isComingSoon(item.to),
+      })
     }
   }
   return results.slice(0, 9)

@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { ArrowDown, ArrowRight, ShieldCheck, Wallet as WalletIcon } from 'lucide-react'
+import { ArrowDown, ArrowRight, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { ChainMark } from '@/components/brand/ChainMark'
 import { AccountText } from '@/components/domain/Account'
@@ -8,30 +8,28 @@ import { Button } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
 import { Modal } from '@/components/ui/Dialog'
 import { Figures } from '@/components/ui/Figures'
-import { AmountInput, Field, Input, Segmented, Select } from '@/components/ui/Form'
-import { Led, Tag } from '@/components/ui/Indicators'
+import { Field, Input, Segmented, Select } from '@/components/ui/Form'
+import { Tag } from '@/components/ui/Indicators'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
-import { BRIDGE_CHAINS, BRIDGE_SIGN_WINDOW_MS, bridgeChain, type BridgeChain, type BridgeChainId } from '@/config/bridge'
+import { BRIDGE_SIGN_WINDOW_MS, bridgeChain, type BridgeChain, type BridgeChainId } from '@/config/bridge'
 import { ENV } from '@/config/env'
 import { KITS_CONTRACT } from '@/config/kit'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
-import { tryParseUnits } from '@/lib/amounts'
-import { sourceAddressError } from '@/lib/bridge/addresses'
 import { bpsPct } from '@/lib/bridge/fee'
 import type { BridgeOrderView, BridgeQuoteView } from '@/lib/bridge/types'
 import { cn } from '@/lib/cn'
 import { BRIDGE_FEE_LABEL, DEFAULT_SLIPPAGE, NEARKIT_FEE_LABEL, SLIPPAGE_PRESETS } from '@/lib/fees'
 import { formatAgo, formatUsd, truncateMiddle } from '@/lib/format'
-import { useDebouncedValue, useNow } from '@/lib/hooks'
+import { useNow } from '@/lib/hooks'
 import { tradeWalletPool } from '@/lib/wallets'
 import { rememberOrder, type BridgeDestinationRequest, type BridgeQuoteRequest } from '@/services/bridge'
 import { useWallets } from '@/services/queries'
 import type { Wallet } from '@/types/domain'
 import { countdown, etaText, kitsText, nearText, rawText } from './format'
 import { useBridgeAssets, useBridgeClient, useBridgeQuote } from './useBridge'
-import { useSourceWallet, type SourceWallet } from './useSourceWallet'
-import { sendEvmNative, ensureEvmChain, SourceWalletError } from './wallets/evm'
-import { sendSol } from './wallets/solana'
+import { ChainPicker, SendAmountField, SourceConnect, SourceStatus } from './SourceFields'
+import { useSendToDeposit, useSourceSide } from './useSourceSide'
+import type { SourceWallet } from './useSourceWallet'
 
 /**
  * Bridge & Buy $KITS: the form. The user picks the coin they hold (SOL, ETH or BNB), how much, and
@@ -42,8 +40,6 @@ import { sendSol } from './wallets/solana'
  */
 
 const KITS = KITS_CONTRACT
-
-const chainTitle = (c: BridgeChain) => `${c.symbol} · ${c.name}`
 
 /** A destination as the server takes it, from a wallet the page lists. */
 function destinationOf(w: Wallet): BridgeDestinationRequest | null {
@@ -62,22 +58,13 @@ export function BridgeForm({ onStarted, initialChain }: { onStarted: (orderId: s
   const [chainId, setChainId] = useState<BridgeChainId>(initialChain ?? 'sol')
   const chain = bridgeChain(chainId) as BridgeChain
   const offered = assets.data?.chains.map((c) => c.id) ?? null
-  const [amountText, setAmountText] = useState('')
+  const side = useSourceSide(chain)
+  const { source, amountText, setAmountText, settled, amountRaw, precision, insufficient, manual, sourceAddress } = side
   const [destId, setDestId] = useState<string | null>(null)
   const dest = destinations.find((w) => w.id === destId) ?? destinations[0] ?? null
   const [slippage, setSlippage] = useState<number>(DEFAULT_SLIPPAGE)
-  const [manual, setManual] = useState(false)
-  const [manualAddress, setManualAddress] = useState('')
   const [review, setReview] = useState<BridgeOrderView | null>(null)
 
-  const source = useSourceWallet(chain, client.solanaBalance)
-  const manualError = manual && manualAddress.trim() ? sourceAddressError(chain, manualAddress) : null
-  const sourceAddress = source.connection?.address ?? (manual && manualAddress.trim() && !manualError ? manualAddress.trim() : null)
-
-  const settled = useDebouncedValue(amountText.trim(), 400)
-  const parsed = settled ? tryParseUnits(settled, chain.decimals) : null
-  const amountRaw = parsed?.ok ? parsed.value : null
-  const precision = parsed && !parsed.ok ? `At most ${chain.decimals} decimals for ${chain.symbol}.` : null
   const destination = dest ? destinationOf(dest) : null
   const request: BridgeQuoteRequest | null =
     amountRaw !== null && amountRaw > 0n && destination && (offered === null || offered.includes(chainId))
@@ -86,10 +73,6 @@ export function BridgeForm({ onStarted, initialChain }: { onStarted: (orderId: s
   const quote = useBridgeQuote(request)
   const q = request ? quote.data : undefined
   const settling = amountText.trim() !== settled || quote.isFetching
-
-  const balance = source.balance
-  const insufficient = balance !== null && amountRaw !== null && amountRaw > balance
-  const leavesNoFee = balance !== null && amountRaw !== null && !insufficient && balance - amountRaw < chain.maxReserve
 
   const start = useMutation({
     mutationFn: (req: BridgeQuoteRequest) => client.start(req),
@@ -137,83 +120,16 @@ export function BridgeForm({ onStarted, initialChain }: { onStarted: (orderId: s
               </h2>
               <SourceStatus source={source} chain={chain} manual={manual} />
             </div>
-            <div role="radiogroup" aria-label="Source chain" className="grid grid-cols-3 gap-2">
-              {BRIDGE_CHAINS.map((c) => {
-                const on = c.id === chainId
-                const down = offered !== null && !offered.includes(c.id)
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    aria-label={chainTitle(c)}
-                    onClick={() => {
-                      setChainId(c.id)
-                      setAmountText('')
-                    }}
-                    className={cn(
-                      'flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors sm:px-3',
-                      on ? 'border-accent/70 bg-accent/8' : 'border-line bg-well hover:border-line-strong',
-                      down && 'opacity-50',
-                    )}
-                  >
-                    <ChainMark chain={c.id} size={24} />
-                    <span className="min-w-0">
-                      <span className={cn('block text-sm font-semibold leading-5', on ? 'text-fg' : 'text-fg-2')}>{c.symbol}</span>
-                      <span className="hidden truncate text-2xs text-fg-3 min-[420px]:block">{c.name}</span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-            <SourceConnect
-              source={source}
-              chain={chain}
-              manual={manual}
-              setManual={setManual}
-              manualAddress={manualAddress}
-              setManualAddress={setManualAddress}
-              manualError={manualError}
+            <ChainPicker
+              chainId={chainId}
+              offered={offered}
+              onPick={(id) => {
+                setChainId(id)
+                setAmountText('')
+              }}
             />
-            <Field
-              label="You send"
-              aside={
-                balance !== null ? (
-                  <span className="flex items-center gap-1.5">
-                    Balance{' '}
-                    <span className="num text-fg-2">
-                      {rawText(balance, chain.decimals)} {chain.symbol}
-                    </span>
-                    <button
-                      type="button"
-                      className="rounded-sm px-1 text-2xs font-semibold uppercase tracking-[0.08em] text-accent hover:bg-accent/10"
-                      onClick={() => {
-                        const max = balance - chain.maxReserve
-                        if (max > 0n) setAmountText(rawText(max, chain.decimals, chain.decimals).replace(/,/g, ''))
-                      }}
-                    >
-                      Max
-                    </button>
-                  </span>
-                ) : null
-              }
-              error={insufficient ? `Your wallet holds ${rawText(balance as bigint, chain.decimals)} ${chain.symbol}.` : (precision ?? undefined)}
-              warning={leavesNoFee ? `Leaves less than ${rawText(chain.maxReserve, chain.decimals)} ${chain.symbol} for ${chain.name}’s own network fee.` : undefined}
-            >
-              {({ id, describedBy, invalid }) => (
-                <AmountInput
-                  id={id}
-                  size="lg"
-                  placeholder="0.00"
-                  value={amountText}
-                  onValueChange={setAmountText}
-                  unit={chain.symbol}
-                  aria-describedby={describedBy}
-                  aria-invalid={invalid}
-                />
-              )}
-            </Field>
+            <SourceConnect chain={chain} side={side} />
+            <SendAmountField chain={chain} side={side} />
           </section>
 
           <div className="flex items-center gap-3 text-fg-3" aria-hidden="true">
@@ -335,87 +251,6 @@ function DestinationHint({ wallet }: { wallet: Wallet }) {
   )
 }
 
-type Source = ReturnType<typeof useSourceWallet>
-
-function SourceStatus({ source, chain, manual }: { source: Source; chain: BridgeChain; manual: boolean }) {
-  if (source.connection)
-    return (
-      <span className="flex min-w-0 items-center gap-1.5 text-xs text-fg-3">
-        <Led tone="on" />
-        <span className="truncate">{source.connection.name}</span>
-        <span className="num text-fg-2" title={source.connection.address}>
-          {truncateMiddle(source.connection.address, 6, 4)}
-        </span>
-        <button type="button" onClick={source.disconnect} className="text-fg-3 underline decoration-fg-4 underline-offset-2 hover:text-fg">
-          Change
-        </button>
-      </span>
-    )
-  return <span className="text-xs text-fg-3">{manual ? `Sending from another ${chain.name} wallet` : `${chain.name} wallet not connected`}</span>
-}
-
-function SourceConnect({
-  source,
-  chain,
-  manual,
-  setManual,
-  manualAddress,
-  setManualAddress,
-  manualError,
-}: {
-  source: Source
-  chain: BridgeChain
-  manual: boolean
-  setManual: (v: boolean) => void
-  manualAddress: string
-  setManualAddress: (v: string) => void
-  manualError: string | null
-}) {
-  if (source.connection) return source.error ? <p className="text-xs text-warn">{source.error}</p> : null
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-line-soft bg-well/50 p-3">
-      {source.wallets.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {source.wallets.map((w: SourceWallet) => (
-            <Button key={w.wallet.id} size="sm" variant="secondary" loading={source.busy} onClick={() => source.connect(w)}>
-              {w.wallet.icon ? <img src={w.wallet.icon} alt="" width={16} height={16} className="size-4 rounded-sm" /> : <WalletIcon size={14} aria-hidden="true" />}
-              Connect {w.wallet.name}
-            </Button>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-fg-3">
-          No {chain.name} wallet found in this browser. {chain.family === 'solana' ? 'Phantom, Solflare or Backpack' : 'MetaMask, Rabby or any EVM wallet'} connects here, or send
-          from any wallet below.
-        </p>
-      )}
-      {source.error && <p className="text-xs text-warn">{source.error}</p>}
-      <label className="flex items-center gap-2 text-xs text-fg-2">
-        <input type="checkbox" className="accent-[var(--color-accent)]" checked={manual} onChange={(e) => setManual(e.target.checked)} />
-        Send from another wallet (paste its {chain.name} address)
-      </label>
-      {manual && (
-        <Field label={`Your ${chain.name} address`} hint="It sends the amount, and any refund goes back to it." error={manualError ?? undefined}>
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              mono
-              inputSize="sm"
-              spellCheck={false}
-              autoComplete="off"
-              placeholder={chain.family === 'solana' ? 'Solana address' : '0x…'}
-              value={manualAddress}
-              onChange={(e) => setManualAddress(e.target.value)}
-              aria-describedby={describedBy}
-              aria-invalid={invalid}
-            />
-          )}
-        </Field>
-      )}
-    </div>
-  )
-}
-
 function RouteSummary({
   chain,
   quote: q,
@@ -534,51 +369,13 @@ function ReviewModal({
   onClose: () => void
   onSent: (orderId: string) => void
 }) {
-  const client = useBridgeClient()
   const now = useNow(1_000)
-  const [error, setError] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
-  const [manualHash, setManualHash] = useState('')
   const q = order.quote
   const expired = now >= order.signBy
   const viaWallet = source !== null && sourceAddress === order.sourceAddress
   const amount = `${rawText(q.amountIn, chain.decimals, chain.decimals)} ${chain.symbol}`
-
-  const send = async () => {
-    if (!source || expired) return
-    setError(null)
-    setSending(true)
-    let hash: string
-    try {
-      if (source.family === 'evm') {
-        await ensureEvmChain(source.wallet.provider, chain.evmChainId as number)
-        hash = await sendEvmNative(source.wallet.provider, { from: order.sourceAddress, to: order.depositAddress, value: BigInt(q.amountIn), chainId: chain.evmChainId as number })
-      } else {
-        const blockhash = await client.solanaBlockhash()
-        hash = await sendSol(source.wallet, { from: order.sourceAddress, to: order.depositAddress, lamports: BigInt(q.amountIn), recentBlockhash: blockhash })
-      }
-    } catch (e) {
-      setError(e instanceof SourceWalletError ? e.message : 'Your wallet couldn’t send it. Check your wallet before trying again.')
-      setSending(false)
-      return
-    }
-    // Sent: whatever happens to this call, the order follows the deposit address itself.
-    await client.deposit(order.id, hash).catch(() => undefined)
-    onSent(order.id)
-  }
-
-  const sentManually = async () => {
-    const hash = manualHash.trim()
-    if (hash) {
-      try {
-        await client.deposit(order.id, hash)
-      } catch (e) {
-        setError((e as Error).message)
-        return
-      }
-    }
-    onSent(order.id)
-  }
+  const { send: sendNow, sentManually, sending, error, manualHash, setManualHash } = useSendToDeposit(order, chain, source, onSent)
+  const send = () => sendNow(expired)
 
   return (
     <Modal

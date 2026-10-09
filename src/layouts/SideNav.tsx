@@ -40,13 +40,26 @@ const entryOff = 'text-fg-2 hover:bg-raised/60 hover:text-fg'
 
 function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const Icon = item.icon
+  // An entry with a hint is two lines (the label, then what tells it from its neighbour); the rest keep one.
   return (
     <li>
-      <NavLink to={item.to} end={item.end} onClick={onNavigate} className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
+      <NavLink
+        to={item.to}
+        end={item.end}
+        onClick={onNavigate}
+        className={({ isActive }) => cn(entryBase, item.hint && 'h-auto min-h-10 items-start py-2', isActive ? entryOn : entryOff)}
+      >
         {({ isActive }) => (
           <>
-            <Icon size={18} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? 'text-accent' : 'text-fg-3 group-hover:text-fg-2')} />
-            <span className="flex-1 truncate">{item.label}</span>
+            <Icon size={18} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', item.hint && 'mt-0.5', isActive ? 'text-accent' : 'text-fg-3 group-hover:text-fg-2')} />
+            {item.hint ? (
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{item.label}</span>
+                <span className="text-2xs leading-4 text-fg-3">{item.hint}</span>
+              </span>
+            ) : (
+              <span className="flex-1 truncate">{item.label}</span>
+            )}
             {isSoon(item) && <Tag tone="soon">Soon</Tag>}
           </>
         )}

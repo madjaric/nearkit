@@ -616,6 +616,56 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
       CREATE INDEX bridge_orders_user ON bridge_orders(user_id, created_at);
     `,
   },
+  {
+    version: 16,
+    name: 'The generic Bridge beside Bridge & Buy: an order says which product it is, and may go to any NEAR account',
+    sql: `
+      -- product 'buy-kits': Bridge & Buy $KITS (every order before this one); 'bridge': the plain Bridge to
+      -- NEAR (SOL, ETH or BNB → NEAR, no purchase). kind 'external': a Bridge to a NEAR account typed in.
+      -- SQLite can't change a CHECK, so the table is rebuilt with the same rows, ids and indexes.
+      CREATE TABLE bridge_orders_v16 (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        product TEXT NOT NULL DEFAULT 'buy-kits' CHECK (product IN ('buy-kits', 'bridge')),
+        kind TEXT NOT NULL CHECK (kind IN ('nearkits', 'connected', 'external')),
+        user_id INTEGER REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        wallet_id TEXT REFERENCES trading_wallets(id),
+        recipient TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        origin_asset TEXT NOT NULL,
+        source_address TEXT NOT NULL,
+        amount_in TEXT NOT NULL,
+        deposit_address TEXT NOT NULL,
+        deposit_deadline INTEGER NOT NULL,
+        sign_by INTEGER NOT NULL,
+        quote TEXT NOT NULL,
+        oneclick TEXT NOT NULL,
+        kits_min_per_near TEXT,
+        kits_slippage REAL NOT NULL,
+        status TEXT NOT NULL,
+        intents_status TEXT,
+        deposit_tx TEXT,
+        delivered TEXT,
+        kits TEXT,
+        refund TEXT,
+        stage2 TEXT,
+        message TEXT,
+        next_check_at INTEGER,
+        checks INTEGER NOT NULL DEFAULT 0,
+        lease_owner TEXT,
+        lease_until INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO bridge_orders_v16 (id, network, kind, user_id, wallet_id, recipient, chain, origin_asset, source_address, amount_in, deposit_address, deposit_deadline, sign_by, quote, oneclick, kits_min_per_near, kits_slippage, status, intents_status, deposit_tx, delivered, kits, refund, stage2, message, next_check_at, checks, lease_owner, lease_until, created_at, updated_at)
+        SELECT id, network, kind, user_id, wallet_id, recipient, chain, origin_asset, source_address, amount_in, deposit_address, deposit_deadline, sign_by, quote, oneclick, kits_min_per_near, kits_slippage, status, intents_status, deposit_tx, delivered, kits, refund, stage2, message, next_check_at, checks, lease_owner, lease_until, created_at, updated_at FROM bridge_orders;
+      DROP TABLE bridge_orders;
+      ALTER TABLE bridge_orders_v16 RENAME TO bridge_orders;
+      CREATE UNIQUE INDEX bridge_orders_deposit ON bridge_orders(deposit_address);
+      CREATE INDEX bridge_orders_due ON bridge_orders(next_check_at);
+      CREATE INDEX bridge_orders_user ON bridge_orders(user_id, created_at);
+    `,
+  },
 ]
 
 /**

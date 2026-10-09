@@ -1,9 +1,10 @@
 import type { BridgeChainId } from '@/config/bridge'
-import type { BridgeOrderView, BridgeQuoteView } from '@/lib/bridge/types'
+import type { BridgeOrderView, BridgeProduct, BridgeQuoteView } from '@/lib/bridge/types'
 import { apiPost } from './telegramLink'
 
 /**
- * Bridge & Buy $KITS, the page's side (the server half is server/src/bridge/). Every figure comes
+ * NEARKITS' bridge, the pages' side, for both products: Bridge & Buy $KITS (/bridge) and the plain
+ * Bridge to NEAR (/bridge-near). The server half is server/src/bridge/. Every figure comes
  * from NEARKITS' server, which asks NEAR Intents' 1Click API and checks its answers: this module
  * only carries requests and answers, and remembers which orders this browser started so a reload
  * (or coming back later) finds them again. A NEARKITS wallet is named by the NEARKITS web session;
@@ -21,15 +22,18 @@ export interface BridgeAssets {
   custody: boolean
 }
 
-export type BridgeDestinationRequest = { kind: 'nearkits'; walletId: string } | { kind: 'connected'; accountId: string }
+export type BridgeDestinationRequest = { kind: 'nearkits'; walletId: string } | { kind: 'connected' | 'external'; accountId: string }
 
 export interface BridgeQuoteRequest {
+  /** The plain Bridge to NEAR; absent for Bridge & Buy (as its page has always sent it). */
+  product?: Exclude<BridgeProduct, 'buy-kits'>
   chain: BridgeChainId
   /** Decimal source amount, as entered. */
   amount: string
   sourceAddress: string | null
   destination: BridgeDestinationRequest
-  kitsSlippagePct: number
+  /** The $KITS purchase's slippage (Bridge & Buy only). */
+  kitsSlippagePct?: number
 }
 
 export interface BridgeClient {
@@ -42,6 +46,8 @@ export interface BridgeClient {
   /** The signed-in NEARKITS user's orders (their NEARKITS wallets). */
   orders(): Promise<BridgeOrderView[]>
   settle(orderId: string, txHash: string): Promise<BridgeOrderView>
+  /** A Bridge to a NEARKITS wallet whose wNEAR wasn't unwrapped: its owner asks NEARKITS to unwrap it now. */
+  unwrap(orderId: string): Promise<BridgeOrderView>
   solanaBlockhash(): Promise<string>
   solanaBalance(address: string): Promise<bigint>
 }
@@ -62,6 +68,7 @@ export function createBridgeClient(options: { apiUrl: string | null; fetch?: typ
     order: (orderId) => post<BridgeOrderView>('/api/bridge/order', { orderId }),
     orders: async () => (await post<{ orders: BridgeOrderView[] }>('/api/bridge/orders')).orders,
     settle: (orderId, txHash) => post<BridgeOrderView>('/api/bridge/settle', { orderId, txHash }),
+    unwrap: (orderId) => post<BridgeOrderView>('/api/bridge/unwrap', { orderId }),
     solanaBlockhash: async () => (await post<{ blockhash: string }>('/api/bridge/solana', { method: 'blockhash' })).blockhash,
     solanaBalance: async (address) => BigInt((await post<{ lamports: string }>('/api/bridge/solana', { method: 'balance', address })).lamports),
   }

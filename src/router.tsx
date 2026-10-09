@@ -21,6 +21,7 @@ export const router = createBrowserRouter([
           { index: true, lazy: page(() => import('@/pages/DashboardPage')) },
           { path: 'swap', lazy: page(() => import('@/pages/SwapPage')) },
           { path: 'bridge', lazy: page(() => import('@/pages/BridgePage')) },
+          { path: 'bridge-near', lazy: page(() => import('@/pages/NearBridgePage')) },
           { path: 'multi-trade', lazy: page(() => import('@/pages/MultiTradePage')) },
           { path: 'limit-orders', lazy: page(() => import('@/pages/LimitOrdersPage')) },
           { path: 'split', lazy: page(() => import('@/pages/SplitPage')) },

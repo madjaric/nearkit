@@ -13,12 +13,23 @@ import { orderSummary } from './format'
 
 const TONE = { accent: 'accent', warn: 'warn', danger: 'neg', neutral: 'neutral' } as const
 
-export function RecentOrders({ orders, current, onOpen }: { orders: BridgeOrderView[]; current: string | null; onOpen: (id: string) => void }) {
+/** The orders this user can see for one product, newest first, each opening its own page. */
+export function RecentOrders({
+  orders,
+  current,
+  onOpen,
+  title = 'Your Bridge & Buy orders',
+}: {
+  orders: BridgeOrderView[]
+  current: string | null
+  onOpen: (id: string) => void
+  title?: string
+}) {
   const now = useNow(30_000)
   if (!orders.length) return null
   return (
-    <Panel aria-label="Your Bridge & Buy orders">
-      <PanelHeader title="Your Bridge & Buy orders" meta={orders.length} />
+    <Panel aria-label={title}>
+      <PanelHeader title={title} meta={orders.length} />
       <ul className="divide-y divide-line-soft">
         {orders.slice(0, 8).map((o) => (
           <li key={o.id}>

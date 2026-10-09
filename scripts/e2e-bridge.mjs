@@ -1,4 +1,5 @@
-// End-to-end pass over Bridge & Buy $KITS in a mainnet build, with nothing live:
+// End-to-end pass over both bridge products, Bridge & Buy $KITS (/bridge) and the Bridge to NEAR
+// (/bridge-near), in a mainnet build, with nothing live:
 //   npm run dev:bridge-e2e     (vite --mode bridge-e2e: mainnet, NEARKITS server = https://api.bridge-e2e.test)
 //   node scripts/e2e-bridge.mjs [--base http://localhost:5234] [--shots <dir>]
 // The test answers NEARKITS' Bridge & Buy API itself (a scripted order that moves one step per read),
@@ -61,12 +62,38 @@ const parseUnits = (text, decimals) => {
 /** NEARKITS' Bridge & Buy API, scripted: quotes from fixed rates, orders that move one step per read. */
 function fakeServer() {
   const orders = new Map()
-  const log = { quotes: [], starts: [], deposits: [] }
+  const log = { quotes: [], starts: [], deposits: [], unwraps: [] }
+  /** A Bridge's delivery facts, as the server checks them: an unregistered external account can't receive wNEAR. */
+  const deliveryOf = (d) => {
+    const unwrap = d.kind === 'nearkits' ? 'nearkits' : d.kind === 'connected' ? 'wallet' : 'none'
+    if (d.kind === 'external' && d.accountId === 'unregistered.near')
+      return { asset: 'wnear', unwrap, blocked: 'unregistered.near isn’t registered with wNEAR (wrap.near), so NEAR Intents can’t deliver to it.', fix: null }
+    return { asset: 'wnear', unwrap, blocked: null, fix: null }
+  }
   const quoteOf = (req) => {
     const c = CHAINS[req.chain]
     const amountIn = parseUnits(req.amount, c.decimals)
     if (amountIn < c.min) return { status: 400, body: { error: { code: 'minimum', message: 'The amount is below the minimum for this route.' } } }
     const nearOut = (amountIn * c.nearPerUnit * 9950n) / (10n ** BigInt(c.decimals) * 10_000n)
+    if (req.product === 'bridge')
+      return {
+        status: 200,
+        body: {
+          chain: req.chain,
+          amountIn: amountIn.toString(),
+          amountInUsd: 115,
+          nearOut: nearOut.toString(),
+          nearMinOut: ((nearOut * 99n) / 100n).toString(),
+          nearOutUsd: 114,
+          fee: { nearkitsBps: 25, intentsBps: 25, nearkitsRaw: ((amountIn * 25n) / 10_000n).toString(), intentsRaw: ((amountIn * 25n) / 10_000n).toString() },
+          timeEstimateSec: 20,
+          refundFee: null,
+          kits: null,
+          kitsUnavailable: null,
+          delivery: deliveryOf(req.destination),
+          quotedAt: Date.now(),
+        },
+      }
     const kitsOut = (nearOut * KITS_PER_NEAR * 9_800n) / (ONE_NEAR * 10_000n)
     return {
       status: 200,
@@ -100,7 +127,52 @@ function fakeServer() {
       : amount === '0.7'
         ? ['awaiting-deposit', 'deposit-seen', 'bridging', 'delivered', 'buying', 'buy-needed']
         : ['awaiting-deposit', 'deposit-seen', 'bridging', 'delivered', 'buying', 'complete']
+  /** A Bridge's path: 0.5 is refunded, 0.7 bridges but isn't unwrapped, else it completes (as wNEAR to an external account). */
+  const bridgePathOf = (amount, kind) =>
+    amount === '0.5'
+      ? ['awaiting-deposit', 'deposit-seen', 'bridging', 'refunded']
+      : amount === '0.7'
+        ? ['awaiting-deposit', 'deposit-seen', 'bridging', 'unwrapping', 'unwrap-needed']
+        : kind === 'external'
+          ? ['awaiting-deposit', 'deposit-seen', 'bridging', 'complete']
+          : ['awaiting-deposit', 'deposit-seen', 'bridging', 'unwrapping', 'complete']
+  const bridgeView = (o) => {
+    const status = o.path[o.step]
+    const q = o.quote
+    const arrived = !['awaiting-deposit', 'deposit-seen', 'bridging', 'refunded'].includes(status)
+    return {
+      id: o.id,
+      product: 'bridge',
+      status,
+      chain: o.chain,
+      sourceAddress: o.sourceAddress,
+      depositAddress: DEPOSIT[o.chain],
+      depositDeadline: o.createdAt + 20 * 60_000,
+      signBy: o.createdAt + 5 * 60_000,
+      quote: q,
+      destination: { kind: o.kind, accountId: o.accountId, walletId: o.walletId, name: o.walletName },
+      depositTx: o.depositTx ? { hash: o.depositTx, url: `https://explorer.test/tx/${o.depositTx}` } : null,
+      delivered: arrived ? { amount: q.nearOut, asset: 'wnear', txs: [{ hash: 'Dlv1111111111111111111111111111111111111111', url: 'https://nearblocks.io/txns/Dlv' }] } : null,
+      kits: null,
+      unwrapped:
+        status === 'complete' && o.kind !== 'external'
+          ? { amount: q.nearOut, txs: [{ hash: 'Unw1111111111111111111111111111111111111111', url: 'https://nearblocks.io/txns/Unw' }] }
+          : null,
+      refund: status === 'refunded' ? { amount: q.amountIn, reason: 'Deposit deadline passed', txs: [] } : null,
+      message:
+        status === 'unwrap-needed'
+          ? 'Unwrapping needs a little NEAR for gas. Deposit some NEAR first. The wNEAR is in the wallet: unwrap it when you’re ready.'
+          : status === 'complete' && o.kind === 'external'
+            ? `Delivered as wNEAR to ${o.accountId}: it unwraps to NEAR from that account (wrap.near's near_withdraw).`
+            : status === 'refunded'
+              ? 'NEAR Intents couldn’t complete it and refunded your address on the source chain. No NEAR was delivered.'
+              : null,
+      createdAt: o.createdAt,
+      updatedAt: Date.now(),
+    }
+  }
   const view = (o) => {
+    if (o.product === 'bridge') return bridgeView(o)
     const status = o.path[o.step]
     const q = o.quote
     const reached = (s) => o.path.indexOf(s) >= 0 && o.step >= o.path.indexOf(s)
@@ -158,6 +230,28 @@ function fakeServer() {
         log.starts.push(body)
         const q = quoteOf(body)
         if (q.status !== 200) return q
+        if (body.product === 'bridge') {
+          if (q.body.delivery.blocked) return { status: 409, body: { error: { code: 'not-registered', message: `${q.body.delivery.blocked} Nothing was sent.` } } }
+          const d = body.destination
+          const w = d.kind === 'nearkits' ? wallets.find((x) => x.id === d.walletId) : null
+          const id = `brg${orders.size + 1}xxxxxxxx`
+          orders.set(id, {
+            id,
+            product: 'bridge',
+            kind: d.kind,
+            chain: body.chain,
+            sourceAddress: body.sourceAddress,
+            quote: q.body,
+            path: bridgePathOf(body.amount, d.kind),
+            step: 0,
+            depositTx: null,
+            createdAt: Date.now(),
+            accountId: w ? w.accountId : d.accountId,
+            walletId: w ? w.id : null,
+            walletName: w ? w.name : null,
+          })
+          return { status: 200, body: view(orders.get(id)) }
+        }
         const w = wallets.find((x) => x.id === body.destination.walletId)
         const id = `ord${orders.size + 1}xxxxxxxx`
         orders.set(id, {
@@ -188,6 +282,13 @@ function fakeServer() {
         return { status: 200, body: view(o) }
       }
       if (path === '/api/bridge/orders') return { status: 200, body: { orders: [...orders.values()].map(view) } }
+      if (path === '/api/bridge/unwrap') {
+        log.unwraps.push(body)
+        if (!o || o.path[o.step] !== 'unwrap-needed') return { status: 409, body: { error: { code: 'state', message: 'This order moved on already.' } } }
+        o.path = [...o.path, 'unwrapping', 'complete']
+        o.step += 1
+        return { status: 200, body: view(o) }
+      }
       if (path === '/api/bridge/solana')
         return {
           status: 200,
@@ -461,6 +562,232 @@ for (const width of [1920, 1440, 1280, 1024, 820, 768, 390, 375, 360]) {
     await page.getByText('$KITS purchase complete').first().waitFor({ timeout: 60_000 })
     const done = await overflow(page)
     if (SHOTS) await page.screenshot({ path: join(SHOTS, `bridge-complete-${width}.png`), fullPage: true })
+    if (form > 0 || done > 0) throw new Error(`horizontal overflow: form ${form}px, order ${done}px`)
+    if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+    await context.close()
+  })
+}
+
+// ─── the Bridge to NEAR (/bridge-near) ─────────────────────────────────────
+
+async function fillBridge(page, { chain, amount, walletButton, mode = 'My NEARKITS wallet', wallet = 'Degen 1', account = null }) {
+  await page.goto(BASE + '/bridge-near', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('heading', { level: 1, name: 'Bridge' }).waitFor()
+  await page.getByRole('radio', { name: new RegExp(`^${chain}`) }).click()
+  const connect = page.getByRole('button', { name: `Connect ${walletButton}` })
+  if (await connect.isVisible().catch(() => false)) await connect.click()
+  await page.getByLabel('You send').fill(amount)
+  await page.getByRole('radio', { name: new RegExp(`^${mode}`) }).click()
+  if (mode === 'My NEARKITS wallet') {
+    const select = page.getByLabel('NEARKITS wallet', { exact: true })
+    const value = await select.locator('option', { hasText: wallet }).first().getAttribute('value')
+    await select.selectOption(value)
+  }
+  if (account) await page.getByLabel('NEAR account', { exact: true }).fill(account)
+}
+
+const summary = (page) => page.getByRole('region', { name: 'Quote summary' })
+const startBridge = async (page, walletName) => {
+  await page.getByRole('button', { name: 'Bridge to NEAR' }).click({ timeout: 15_000 })
+  const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+  await dialog.waitFor()
+  await dialog.getByRole('button', { name: `Confirm in ${walletName}` }).click()
+  await page.waitForURL(/\/bridge-near\?order=/)
+}
+
+await step(
+  'Bridge SOL → NEAR to a NEARKITS wallet: the 0.25% fee and NEAR Intents’ fee, no trading fee, NEAR not $KITS; the wallet sends exactly the quote; complete with the NEAR unwrapped',
+  async () => {
+    const { context, page, server, errors } = await openPage()
+    await fillBridge(page, { chain: 'SOL', amount: '1', walletButton: 'E2E Solana' })
+    await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
+    const text = await summary(page).innerText()
+    for (const want of [
+      'NEARKITS bridge fee (0.25%)',
+      '0.0025 SOL',
+      'NEAR Intents fee (0.25%)',
+      'None: nothing is traded',
+      '1 SOL ≈ 20.895 NEAR',
+      'NEARKITS unwraps it to native NEAR',
+    ])
+      if (!text.includes(want)) throw new Error(`summary lacks “${want}”: ${text.replace(/\s+/g, ' ')}`)
+    if (/KITS purchase|\$KITS trading fee/.test(text)) throw new Error('the Bridge talks about a $KITS purchase')
+    const q = server.log.quotes.at(-1)
+    if (q.product !== 'bridge' || q.kitsSlippagePct !== undefined || q.destination.walletId !== 'w2') throw new Error(`quote asked: ${JSON.stringify(q)}`)
+    await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+    await dialog.waitFor()
+    const review = await dialog.innerText()
+    for (const want of ['Send within', '1 SOL', 'Degen 1', 'wNEAR, then unwrapped to NEAR', 'Nothing is bought', 'Refunds go to'])
+      if (!review.includes(want)) throw new Error(`review lacks “${want}”`)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'near-bridge-review-1440.png') })
+    await dialog.getByRole('button', { name: 'Confirm in E2E Solana' }).click()
+    await page.waitForURL(/\/bridge-near\?order=/)
+    const tx = (await wallet(page)).sol[0]
+    const msg = tx.slice(65)
+    const lamports = msg.slice(-8).reduce((n, b, i) => n | (BigInt(b) << BigInt(8 * i)), 0n)
+    if (b58(msg.slice(4 + 32, 4 + 64)) !== DEPOSIT.sol || lamports !== 1_000_000_000n) throw new Error('the wallet didn’t send exactly 1 SOL to the deposit address')
+    if (server.log.starts.at(-1).product !== 'bridge') throw new Error('started as something else than a Bridge')
+    const progress = page.getByRole('region', { name: 'Bridge progress' })
+    await progress.getByText('You received').waitFor({ timeout: 60_000 })
+    const done = await progress.innerText()
+    if (!/You received\s+20\.895 NEAR/i.test(done)) throw new Error(`complete screen: ${done.replace(/\s+/g, ' ').slice(0, 200)}`)
+    for (const want of ['Awaiting SOL transfer', 'Bridge processing (NEAR Intents)', 'wNEAR received on NEAR', 'Unwrapping to NEAR (NEARKITS)', 'Complete'])
+      if (!done.includes(want)) throw new Error(`steps lack “${want}”`)
+    if (/\$KITS|\bKITS\b/.test(done)) throw new Error('a Bridge order mentions $KITS')
+    const details = await page.getByRole('region', { name: 'Order details' }).innerText()
+    if (!/Unwrapped to NEAR\s+20\.895 NEAR/.test(details)) throw new Error(`details: ${details.replace(/\s+/g, ' ')}`)
+    if (!(await page.getByRole('link', { name: 'Trade on Swap' }).isVisible())) throw new Error('no way on to trading')
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'near-bridge-complete-1440.png'), fullPage: true })
+    if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+    await context.close()
+  },
+)
+
+await step('Bridge ETH → NEAR and BNB → NEAR: the EVM wallet is put on chain 1, then has BNB Chain added, and sends exactly the quoted wei', async () => {
+  const { context, page, errors } = await openPage()
+  await fillBridge(page, { chain: 'ETH', amount: '0.1', walletButton: 'E2E EVM', wallet: 'Main' })
+  await summary(page).getByText('0.00025 ETH').first().waitFor({ timeout: 15_000 })
+  await startBridge(page, 'E2E EVM')
+  let sent = (await wallet(page)).evm.filter((r) => r.method === 'eth_sendTransaction')
+  if (sent.length !== 1 || sent[0].params[0].to !== DEPOSIT.eth || BigInt(sent[0].params[0].value) !== 10n ** 17n) throw new Error(`ETH sent ${JSON.stringify(sent)}`)
+  await fillBridge(page, { chain: 'BNB', amount: '2', walletButton: 'E2E EVM' })
+  await summary(page).getByText('0.005 BNB').first().waitFor({ timeout: 15_000 })
+  await startBridge(page, 'E2E EVM')
+  const calls = (await wallet(page)).evm
+  if (!calls.some((r) => r.method === 'wallet_addEthereumChain' && r.params[0].chainId === '0x38')) throw new Error('BNB Chain was never added')
+  sent = calls.filter((r) => r.method === 'eth_sendTransaction')
+  const bnb = sent.at(-1)?.params[0]
+  if (!bnb || bnb.to !== DEPOSIT.bsc || BigInt(bnb.value) !== 2n * 10n ** 18n) throw new Error(`BNB sent ${JSON.stringify(bnb)}`)
+  if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+  await context.close()
+})
+
+await step('Bridge to an external NEAR address: the full account in the review with copy and an irreversible-transfer warning; it completes as wNEAR, said so', async () => {
+  const { context, page, server } = await openPage()
+  await fillBridge(page, { chain: 'SOL', amount: '1', walletButton: 'E2E Solana', mode: 'External NEAR address', account: 'carol.near' })
+  await summary(page).getByText('Arrives as wNEAR (wrap.near) in that account.', { exact: false }).waitFor({ timeout: 15_000 })
+  if (!(await page.getByText('NEARKITS can’t unwrap it there').first().isVisible())) throw new Error('the destination note doesn’t say it stays wNEAR')
+  await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+  await dialog.waitFor()
+  const review = await dialog.innerText()
+  for (const want of ['carol.near', 'wNEAR (wrap.near)', 'irreversible']) if (!review.includes(want)) throw new Error(`review lacks “${want}”`)
+  if (!(await dialog.getByRole('button', { name: 'Copy destination account' }).isVisible())) throw new Error('no copy for the destination')
+  await dialog.getByRole('button', { name: 'Confirm in E2E Solana' }).click()
+  await page.waitForURL(/\/bridge-near\?order=/)
+  if (server.log.starts.at(-1).destination.kind !== 'external' || server.log.starts.at(-1).destination.accountId !== 'carol.near') throw new Error('not started to carol.near')
+  await page.getByText('Delivered as wNEAR').first().waitFor({ timeout: 60_000 })
+  const done = await page.getByRole('region', { name: 'Bridge progress' }).innerText()
+  if (!/You received\s+20\.895 wNEAR/i.test(done)) throw new Error(`external result: ${done.replace(/\s+/g, ' ').slice(0, 200)}`)
+  await context.close()
+})
+
+await step(
+  'a destination that can’t receive wNEAR (an unregistered account) is said before anything can be started; a connected wallet that isn’t there is asked for',
+  async () => {
+    const { context, page, server } = await openPage()
+    await fillBridge(page, { chain: 'SOL', amount: '1', walletButton: 'E2E Solana', mode: 'External NEAR address', account: 'unregistered.near' })
+    await page.getByText('isn’t registered with wNEAR').first().waitFor({ timeout: 15_000 })
+    if (await page.getByRole('button', { name: 'Bridge to NEAR' }).isEnabled()) throw new Error('the key is enabled for a destination that can’t receive it')
+    await page.getByRole('radio', { name: /^Connected NEAR wallet/ }).click()
+    await page.getByText('Connect a NEAR wallet (Connect wallet, top right).').waitFor()
+    if (await page.getByRole('button', { name: 'Bridge to NEAR' }).isEnabled()) throw new Error('the key is enabled without a destination')
+    if (server.log.starts.length) throw new Error('an order was started')
+    await context.close()
+  },
+)
+
+await step('bridged but not unwrapped: “Bridged, not unwrapped”, the wNEAR said to be in the wallet; its owner asks once and it completes (no automatic retry)', async () => {
+  const { context, page, server } = await openPage()
+  await fillBridge(page, { chain: 'SOL', amount: '0.7', walletButton: 'E2E Solana' })
+  await startBridge(page, 'E2E Solana')
+  await page.getByText('Bridged, not unwrapped').first().waitFor({ timeout: 60_000 })
+  const progress = page.getByRole('region', { name: 'Bridge progress' })
+  if (!/wNEAR is in the wallet/.test(await progress.innerText())) throw new Error('the wNEAR isn’t said to be in the wallet')
+  if (server.log.unwraps.length) throw new Error('unwrapped again without being asked')
+  const swap = await page.getByRole('link', { name: 'Unwrap on Swap' }).getAttribute('href')
+  if (!/\/swap\?from=wrap\.near&token=near&amount=/.test(swap ?? '')) throw new Error(`Swap link: ${swap}`)
+  await progress.getByRole('button', { name: 'Unwrap to NEAR now' }).click()
+  await progress.getByText('You received').waitFor({ timeout: 60_000 })
+  if (server.log.unwraps.length !== 1) throw new Error(`${server.log.unwraps.length} unwrap requests`)
+  if (server.log.starts.length !== 1) throw new Error('a second order was started')
+  await context.close()
+})
+
+await step('Bridge refunded and below the minimum: said plainly, nothing claimed, a new Bridge offered', async () => {
+  const { context, page } = await openPage()
+  await fillBridge(page, { chain: 'SOL', amount: '0.0001', walletButton: 'E2E Solana' })
+  await page.getByText('The amount is below the minimum for this route.').first().waitFor({ timeout: 15_000 })
+  if (await page.getByRole('button', { name: 'Bridge to NEAR' }).isEnabled()) throw new Error('the key is enabled below the minimum')
+  await fillBridge(page, { chain: 'SOL', amount: '0.5', walletButton: 'E2E Solana' })
+  await startBridge(page, 'E2E Solana')
+  const progress = page.getByRole('region', { name: 'Bridge progress' })
+  await progress.getByRole('button', { name: 'New Bridge' }).waitFor({ timeout: 60_000 })
+  const text = await progress.innerText()
+  if (!/Refunded/i.test(text) || /You received/.test(text)) throw new Error(`refund screen: ${text.replace(/\s+/g, ' ').slice(0, 200)}`)
+  if ((await page.locator('body').innerText()).includes('NaN')) throw new Error('NaN on the page')
+  await context.close()
+})
+
+await step('Activity: a “Bridge” row, distinct from Bridge & Buy, linked to its order on /bridge-near; a reload finds the order; each page lists only its own orders', async () => {
+  const { context, page } = await openPage()
+  await fillBridge(page, { chain: 'SOL', amount: '1', walletButton: 'E2E Solana' })
+  await startBridge(page, 'E2E Solana')
+  const url = page.url()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.getByRole('region', { name: 'Bridge progress' }).waitFor()
+  await page.getByRole('region', { name: 'Your Bridge orders' }).waitFor({ timeout: 20_000 })
+  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
+  const entry = page
+    .getByRole('list', { name: 'Recent activity' })
+    .getByRole('link', { name: /^Bridge\b(?! &)/ })
+    .first()
+  await entry.waitFor({ timeout: 20_000 })
+  const href = await entry.getAttribute('href')
+  if (!href?.startsWith('/bridge-near?order=') || !url.endsWith(href)) throw new Error(`activity links ${href}, the order is ${url}`)
+  await page.goto(BASE + '/bridge', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('heading', { level: 1, name: 'Bridge & Buy' }).waitFor()
+  await page.waitForTimeout(1500)
+  if (await page.getByRole('region', { name: 'Your Bridge & Buy orders' }).count()) throw new Error('Bridge & Buy lists a Bridge order')
+  await context.close()
+})
+
+await step('navigation: the sidebar has Bridge and Bridge & Buy, each with its own line; search for “bridge” offers both; /bridge stays Bridge & Buy', async () => {
+  const { context, page } = await openPage()
+  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
+  const nav = page.getByRole('navigation').first()
+  const bridge = nav.getByRole('link', { name: /^Bridge Move assets from other chains into NEAR\.$/ })
+  const buy = nav.getByRole('link', { name: /^Bridge & Buy Bridge your assets and automatically buy \$KITS\.$/ })
+  await bridge.waitFor()
+  await buy.waitFor()
+  if ((await bridge.getAttribute('href')) !== '/bridge-near' || (await buy.getAttribute('href')) !== '/bridge') throw new Error('the entries point elsewhere')
+  await bridge.click()
+  await page.waitForURL(/\/bridge-near$/)
+  await page.getByRole('heading', { level: 1, name: 'Bridge' }).waitFor()
+  await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().click()
+  await page.keyboard.type('bridge')
+  const results = page.getByRole('listbox', { name: 'Search results' })
+  await results.getByRole('option', { name: /Move assets from other chains into NEAR/ }).waitFor()
+  await results.getByRole('option', { name: /automatically buy \$KITS/ }).waitFor()
+  await context.close()
+})
+
+for (const width of [1920, 1440, 1280, 1024, 820, 768, 430, 390, 375, 360]) {
+  await step(`Bridge layout at ${width}px: the form with a quote, the review and a finished order fit, no horizontal scroll, no page error`, async () => {
+    const { context, page, errors } = await openPage(width)
+    await fillBridge(page, { chain: 'SOL', amount: '1', walletButton: 'E2E Solana' })
+    await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
+    const form = await overflow(page)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, `near-bridge-form-${width}.png`), fullPage: true })
+    await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+    await dialog.waitFor()
+    if (SHOTS && (width === 1440 || width === 390)) await page.screenshot({ path: join(SHOTS, `near-bridge-review-${width}.png`) })
+    await dialog.getByRole('button', { name: 'Confirm in E2E Solana' }).click()
+    await page.getByRole('region', { name: 'Bridge progress' }).getByText('You received').waitFor({ timeout: 60_000 })
+    const done = await overflow(page)
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, `near-bridge-complete-${width}.png`), fullPage: true })
     if (form > 0 || done > 0) throw new Error(`horizontal overflow: form ${form}px, order ${done}px`)
     if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
     await context.close()

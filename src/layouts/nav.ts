@@ -1,4 +1,5 @@
 import {
+  ArrowDownToLine,
   ArrowLeftRight,
   BookOpen,
   Bot,
@@ -31,6 +32,8 @@ export interface NavItem {
   icon: LucideIcon
   /** Words the command search also matches. */
   keywords?: string[]
+  /** A line under the label (sidebar and search) where two entries need telling apart. */
+  hint?: string
   soon?: boolean
   end?: boolean
 }
@@ -58,11 +61,21 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/swap', label: 'Swap', icon: ArrowLeftRight, keywords: ['buy', 'sell', 'trade', 'exchange'] },
       // The Quick Trade ticket, opened over the current page (the trade drawer).
       { action: 'quick-trade', label: 'Quick Trade', icon: ChevronsRight },
+      // SOL, ETH or BNB → NEAR (NEAR Intents), to fund NEARKITS wallets; nothing is bought. NEAR mainnet with NEARKITS' server; the demo previews it.
+      {
+        to: '/bridge-near',
+        label: 'Bridge',
+        icon: ArrowDownToLine,
+        hint: 'Move assets from other chains into NEAR.',
+        soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
+        keywords: ['bridge', 'deposit', 'fund', 'top up', 'gas', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents'],
+      },
       // SOL, ETH or BNB → NEAR (NEAR Intents) → $KITS. NEAR mainnet with NEARKITS' server; the demo previews it.
       {
         to: '/bridge',
         label: 'Bridge & Buy',
         icon: Route,
+        hint: 'Bridge your assets and automatically buy $KITS.',
         soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
         keywords: ['bridge', 'buy kits', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents', 'deposit'],
       },

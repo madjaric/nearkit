@@ -10,6 +10,7 @@ export const SITEMAP_PATHS: readonly string[] = [
   '/',
   '/swap',
   '/bridge',
+  '/bridge-near',
   '/multi-trade',
   '/split',
   '/consolidate',

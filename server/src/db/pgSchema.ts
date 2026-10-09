@@ -492,4 +492,13 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       CREATE INDEX bridge_orders_user ON bridge_orders(user_id, created_at);
     `,
   },
+  {
+    version: 7,
+    name: 'The generic Bridge beside Bridge & Buy: an order says which product it is, and may go to any NEAR account',
+    sql: `
+      ALTER TABLE bridge_orders DROP CONSTRAINT bridge_orders_kind_check;
+      ALTER TABLE bridge_orders ADD CONSTRAINT bridge_orders_kind_check CHECK (kind IN ('nearkits', 'connected', 'external'));
+      ALTER TABLE bridge_orders ADD COLUMN product TEXT NOT NULL DEFAULT 'buy-kits' CHECK (product IN ('buy-kits', 'bridge'));
+    `,
+  },
 ]

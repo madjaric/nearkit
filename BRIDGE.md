@@ -1,6 +1,15 @@
-# Bridge & Buy $KITS
+# Bridge & Buy $KITS, and the Bridge to NEAR
 
-**NEARKITS is the interface and orchestration layer. NEAR Intents provides the cross-chain infrastructure. $KITS is the destination.**
+**NEARKITS is the interface and orchestration layer. NEAR Intents provides the cross-chain infrastructure.**
+
+NEARKITS has two bridge products on one engine (one 1Click client, one quote and fee check, one order table, one worker):
+
+| Product | Route | Page | What happens after the NEAR arrives |
+|---|---|---|---|
+| **Bridge & Buy $KITS** (`buy-kits`) | SOL / ETH / BNB → NEAR → $KITS | `/bridge` | NEARKITS buys $KITS with it (below) |
+| **Bridge** (`bridge`) | SOL / ETH / BNB → NEAR | `/bridge-near` | Unwrapped to native NEAR where an authorized unwrap exists ([The Bridge to NEAR](#the-bridge-to-near)) |
+
+The Bridge never buys $KITS. It funds NEARKITS wallets (gas, Multi Trade, Batch Send, transfers) or any NEAR account. Everything below up to [The Bridge to NEAR](#the-bridge-to-near) describes Bridge & Buy; the Bridge shares it all except stage 2.
 
 A user holding SOL, ETH or BNB gets $KITS (`kits.nearlytrade.near`, NEAR mainnet) in one flow on `/bridge`. NEARKITS runs no bridge, deploys no contract, runs no solver and never holds the user's source-chain funds: the user's own wallet sends them to the deposit address of a NEAR Intents quote.
 
@@ -151,6 +160,67 @@ When NEAR or $KITS arrives, the receiving wallet's NEAR, wNEAR and $KITS reconci
 | NEAR delivered, purchase didn't run (price moved past the bound, trading paused, wallet frozen or busy, too little left after gas) | `buy-needed`: "Bridge completed, $KITS not bought", plus the reason. The NEAR stays in the wallet. Safe next action: "Buy $KITS on Swap", prefilled. No automatic retry beyond a busy wallet (3 tries, 20 s apart) |
 | Destination not on NEAR yet | Refused before any quote: a new NEARKITS wallet needs a first NEAR deposit for network fees |
 
+## The Bridge to NEAR
+
+`/bridge-near`. The same quote, fee, order, worker and on-chain delivery check as Bridge & Buy; requests carry `product: 'bridge'` (absent means Bridge & Buy, as the pages before the Bridge sent). Nothing is bought, so there is no slippage and no trading fee.
+
+### What NEAR Intents delivers: wNEAR
+
+Checked 2026-10-09:
+
+- 1Click's token list has **no native NEAR asset** on NEAR. Its only NEAR is `nep141:wrap.near` (wNEAR, 24 decimals).
+- 1Click's quote API says withdrawals to NEAR use `ft_transfer` unless `customRecipientMsg` is set (it isn't; see above). So the destination receives **wNEAR**.
+- An `ft_transfer` to an account wrap.near doesn't know fails. So the destination must exist on NEAR **and be registered with wrap.near**.
+
+The server still reads the delivery from chain and accepts native NEAR too, exactly as Bridge & Buy does. A native delivery needs no unwrap.
+
+### Destinations and the unwrap
+
+| Destination | Checked by the server | After the wNEAR arrives (checked on chain) |
+|---|---|---|
+| **My NEARKITS wallet** | One of the session user's own wallets, active, not frozen; on NEAR; registered with wrap.near; NEAR for the unwrap's network fee; the unwrap allowed now | `unwrapping`: NEARKITS runs the engine's existing `unwrap` intent of exactly the wNEAR delivered (one `near_withdraw`, the signer's policy unchanged), once; then `complete` with the native NEAR |
+| **Connected NEAR wallet** | A valid mainnet account, on NEAR, registered with wrap.near | `delivered`: the owner unwraps it in their wallet (the ordinary Swap review, wNEAR → NEAR). `/api/bridge/settle` checks the transaction: signed by that account, final, native NEAR back from wrap.near. Then `complete` |
+| **External NEAR address** | A valid mainnet account, on NEAR, registered with wrap.near | `complete` as **wNEAR**: no authorized unwrap exists there, and the page says so before the user confirms (and warns the transfer is irreversible) |
+
+- A destination that can't receive it is refused **before** any deposit address exists. The quote carries `delivery: { asset, unwrap, blocked, fix }`, and the page shows the reason and keeps Confirm disabled.
+- A connected wallet that isn't registered can register by signing: a 0.001 NEAR wrap, whose review includes wrap.near's one-time registration (`fix: 'register'`).
+- A NEARKITS wallet that isn't registered yet gets registered by its first trade. No new signer operation was added for it.
+- The unwrap is not a trading or withdrawal operation. The `trading` switch doesn't stop it, and it is allowed on a frozen wallet (`ALLOWED_WHEN_FROZEN`). A frozen wallet is still never a destination.
+- **`unwrap-needed`** (partial): the bridge succeeded but the wNEAR wasn't unwrapped. Causes: no NEAR left for the unwrap's fee, a busy wallet three times, the unwrap failing.
+  - The order says how much wNEAR is in the wallet.
+  - Nothing retries by itself. The owner can press "Unwrap to NEAR now" (`/api/bridge/unwrap`, session-bound, one new unwrap intent per request, of the delivered wNEAR or what the wallet still holds of it), or unwrap on Swap.
+
+### Fee
+
+- **NEARKITS bridge fee:** 0.25%. It is the same `appFees` request (50 bps) and the same check on 1Click's echo; a quote that doesn't pay `nearkitfee.near` exactly 25 bps is refused.
+- **NEAR Intents' fee:** as its quote charges it.
+- **Network fees:** the source chain's network fee is shown in the user's wallet; the unwrap's network fee is about 0.0005 NEAR, on NEAR.
+- **No trading fee.** The fee is charged once, on the bridge.
+
+### Statuses and progress
+
+The progress has five steps: Awaiting the transfer → Bridge processing (NEAR Intents) → wNEAR received on NEAR → Unwrapping (if required) → Complete.
+
+Bridge-only statuses:
+
+- `unwrapping`
+- `unwrap-needed`, which is final and shown as partial in Activity.
+
+Activity shows it as "Bridge · 0.06 SOL → 1.42 NEAR · Solana → NEAR · Completed", from the unwrap's or the delivery's own record. It links `/bridge-near?order=<id>`.
+
+### Database
+
+`bridge_orders` gained `product` ('buy-kits' default, 'bridge') and the destination kind 'external'.
+
+- **Migration:** SQLite v16 (a table rebuild, same rows and indexes) and Postgres v7 (the kind check replaced, the column added).
+- **Existing orders:** existing rows read back as Bridge & Buy, unchanged.
+
+### Navigation and SEO
+
+- **Sidebar:** Trade → "Bridge" ("Move assets from other chains into NEAR.") and Trade → "Bridge & Buy" ("Bridge your assets and automatically buy $KITS."). Search for "bridge" offers both, each with its line.
+- **`/bridge`:** unchanged, with every $KITS link, order link and canonical.
+- **`/bridge-near`:** has its own title, description, canonical, sitemap entry, prerendered facts and `llms.txt` lines.
+
 ## Activity, navigation, entry points
 
 - **Activity** (Dashboard). Each order is a "Bridge & Buy" row with the summary, the route and the status, linked to `/bridge?order=<id>`. NEARKITS wallets' orders come from `/api/bridge/orders`; a connected wallet's orders are remembered in this browser by id.
@@ -179,7 +249,10 @@ The web app needs nothing new: it calls `VITE_NEARKIT_API_URL`.
 
 ## Production setup
 
-1. Deploy the server first. It carries the `bridge_orders` migration (SQLite v15 / Postgres v6), the routes and the worker. Then deploy the web.
+1. Deploy the server first. It carries the `bridge_orders` migrations, the routes and the worker. Then deploy the web.
+   - Bridge & Buy: SQLite v15 / Postgres v6.
+   - The Bridge: SQLite v16 / Postgres v7 (`product`, the 'external' kind, and `/api/bridge/unwrap`).
+   - An older server doesn't know `product` and refuses the Bridge's requests ("Missing slippage": they carry none), so the order matters. Nothing is sent either way.
 2. Optional: set `ONECLICK_API_KEY`. The fee check works either way. Confirm with `npm run smoke:live -- server/src/bridge/oneclick.smoke.ts` (dry quotes only).
 3. `/health` reports `bridge: on|off` and the `bridge` pause.
 
@@ -190,10 +263,12 @@ The web app needs nothing new: it calls `VITE_NEARKIT_API_URL`.
 | Shared rules (fee, chains, addresses, progress) | `src/lib/bridge/bridge.test.ts` |
 | Solana transfer bytes | `src/lib/bridge/solanaTx.test.ts` |
 | 1Click parsing and error classes | `server/src/bridge/oneclick.test.ts` |
-| Service and routes | `server/src/bridge/bridge.test.ts` |
+| Service and routes | `server/src/bridge/bridge.test.ts` (Bridge & Buy), `server/src/bridge/nearBridge.test.ts` (Bridge) |
+| Orders table and its migration | `server/src/bridge/store.test.ts` |
+| How a Bridge reads (steps, Activity) | `src/features/bridge/nearBridge.test.ts` |
 | SEO | `src/config/seo.test.ts` |
 | Live, read only | `server/src/bridge/oneclick.smoke.ts`, `src/lib/bridge/solanaTx.smoke.ts` |
-| End to end | `npm run dev:bridge-e2e`, then `npm run e2e:bridge` |
+| End to end (both products) | `npm run dev:bridge-e2e`, then `npm run e2e:bridge` |
 
 The service and route tests in `server/src/bridge/bridge.test.ts` run against a fake 1Click over HTTP, FastNEAR records, and the test chain with the real custody engine. They cover:
 - the quote request and fee injection;

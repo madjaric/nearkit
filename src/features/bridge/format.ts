@@ -30,10 +30,19 @@ export function etaText(seconds: number): string {
   return `~${Math.round(seconds / 60)} min`
 }
 
-/** "1 SOL → 123,456 KITS": what was received when it was, what is expected while it isn't. */
+/**
+ * "1 SOL → 123,456 KITS" (Bridge & Buy) or "0.06 SOL → 1.42 NEAR" (Bridge): what was received when it
+ * was (the unwrap's or the delivery's own record), what is expected while it isn't.
+ */
 export function orderSummary(o: BridgeOrderView): string {
   const chain = bridgeChain(o.chain) as BridgeChain
   const from = `${rawText(o.quote.amountIn, chain.decimals)} ${chain.symbol}`
+  if (o.product === 'bridge') {
+    if (o.unwrapped) return `${from} → ${nearText(o.unwrapped.amount)} NEAR`
+    if (o.delivered) return `${from} → ${nearText(o.delivered.amount)} ${o.delivered.asset === 'wnear' ? 'wNEAR' : 'NEAR'}`
+    if (o.status !== 'refunded' && o.status !== 'expired' && o.status !== 'failed') return `${from} → ≈ ${nearText(o.quote.nearOut)} NEAR`
+    return `${from} → NEAR`
+  }
   if (o.kits) return `${from} → ${kitsText(o.kits.amount)} KITS`
   if (o.quote.kits && o.status !== 'refunded' && o.status !== 'expired' && o.status !== 'failed') return `${from} → ≈ ${kitsText(o.quote.kits.amountOut)} KITS`
   return `${from} → $KITS`

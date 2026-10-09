@@ -44,7 +44,7 @@ describe('each public page’s title and description', () => {
       'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder rewards are tracked live too: what Nearly’s launchpad has paid to $KITS holders in NEAR and what it holds for them, each payout round verified on chain.',
       'No return, reward rate, burn amount or buyback frequency is promised.',
     ])
-    for (const p of publicPages().filter((x) => x.path !== '/kit' && x.path !== '/bridge')) expect(p.facts, p.path).toBeUndefined()
+    for (const p of publicPages().filter((x) => !['/kit', '/bridge', '/bridge-near'].includes(x.path))) expect(p.facts, p.path).toBeUndefined()
   })
 
   it('Bridge & Buy says what it does: SOL, ETH or BNB through NEAR Intents to $KITS, two steps, non-custodial, its fees apart', () => {
@@ -64,6 +64,30 @@ describe('each public page’s title and description', () => {
     ])
       expect(facts).toContain(term)
     expect(facts).not.toMatch(/guarantee|APR|APY|instant/i)
+  })
+
+  it('the Bridge is its own page: SOL, ETH or BNB into NEAR, nothing bought, what arrives and who unwraps it, its fee and no trading fee', () => {
+    const page = pageSeo('/bridge-near')
+    expect(page?.title).toBe('Bridge SOL, ETH or BNB to NEAR · NEARKITS')
+    expect(page?.description).toMatch(/into NEAR/)
+    expect(page?.title).not.toBe(pageSeo('/bridge')?.title)
+    expect(page?.description).not.toBe(pageSeo('/bridge')?.description)
+    const facts = (page?.facts ?? []).join(' ')
+    for (const term of [
+      'SOL (Solana)',
+      'ETH (Ethereum)',
+      'BNB (BNB Chain)',
+      'NEAR Intents',
+      'Nothing is bought',
+      'wNEAR',
+      'native NEAR',
+      'never holds them',
+      '0.25%',
+      'no trading fee',
+    ])
+      expect(facts).toContain(term)
+    expect(facts).not.toMatch(/kits\.nearlytrade\.near|guarantee|APR|APY|instant/i)
+    expect(SITEMAP_PATHS).toContain('/bridge-near')
   })
 })
 
@@ -158,6 +182,8 @@ describe('crawler files', () => {
     expect(txt).not.toMatch(/\$KIT\b/)
     expect(txt).toContain('Separately from the tax, the pool fee is 1%, and 70% of the pool fee is allocated to NEARKITS.')
     expect(txt).not.toMatch(/APR|APY|guaranteed/i)
+    // The Bridge, apart from Bridge & Buy: what it delivers and its fee, nothing bought.
+    expect(txt).toMatch(/- The Bridge \(https:\/\/[^)]+\/bridge-near\), apart from Bridge & Buy: [^\n]*Nothing is bought\.[^\n]*wNEAR[^\n]*0\.25%[^\n]*no trading fee/)
     expect(txt).toMatch(/Coming soon[^\n]*limit orders[^\n]*DCA[^\n]*copy trading[^\n]*sniper/i)
     expect(llmsTxt(URL)).not.toContain('t.me/')
   })

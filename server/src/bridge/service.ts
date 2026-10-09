@@ -4,12 +4,23 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/net
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { isEvmAddress, isSolanaAddress, isSourceTxHash, sourceAddressError } from '@/lib/bridge/addresses'
 import { bpsOf, bridgeAppFeeRequestBps, feeSplitOf } from '@/lib/bridge/fee'
-import { BRIDGE_IN_TRANSIT, type BridgeKitsEstimate, type BridgeOrderStatus, type BridgeOrderView, type BridgeQuoteView, type BridgeTx } from '@/lib/bridge/types'
+import {
+  BRIDGE_IN_TRANSIT,
+  type BridgeDelivery,
+  type BridgeKitsEstimate,
+  type BridgeOrderStatus,
+  type BridgeOrderView,
+  type BridgeProduct,
+  type BridgeQuoteView,
+  type BridgeTx,
+} from '@/lib/bridge/types'
 import { BRIDGE_FEE_BPS, MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountIdError } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { explorerTxUrl } from '@/services/near/explorer'
 import { flowsOf, fromFastnear, isComplete, type NormalizedTx } from '@/services/near/flows'
+import { estimateUpfrontYocto, GAS } from '@/services/near/gas'
+import { storageStatus } from '@/services/near/storage'
 import { createSwapRouter } from '@/services/real/swapRouting'
 import { HttpError } from '../api/http'
 import { walletName } from '../custody/limits'
@@ -39,11 +50,21 @@ import type { BridgeOrder, BridgeStore } from './store'
  *    $KITS per NEAR the user accepted at review; anything else stops and asks. A connected wallet's
  *    owner signs it in their own wallet.
  *
- * Every input is the server's to check: the chain and asset (V1: SOL, ETH, BNB, and only while
- * 1Click lists them), the amount, the source address's shape, the destination (one of the user's
- * own NEARKITS wallets by session, or an existing NEAR account), the fee (BRIDGE_FEE_BPS, confirmed
- * from 1Click's echo of every quote), the destination token (kits.nearlytrade.near only, here).
- * An order's destination, amount, deposit address and fee never change after it is created.
+ * The same service runs the plain Bridge to NEAR (product 'bridge', /bridge-near): stage 1 exactly
+ * as above (the same quote, fee check, order, worker and on-chain delivery check), and no purchase.
+ * NEAR Intents delivers NEAR as wNEAR (1Click has no native NEAR asset; its NEAR withdrawals are
+ * wrap.near's ft_transfer), so what follows the delivery is the unwrap to native NEAR, where an
+ * authorized one exists: for a NEARKITS wallet NEARKITS' engine runs its existing `unwrap` intent
+ * (one near_withdraw, the signer's policy unchanged); a connected wallet's owner signs it; an
+ * external address keeps the wNEAR, and the page says so before the user confirms. A destination
+ * that can't receive wNEAR (not on NEAR, not registered with wrap.near) is refused before any
+ * deposit address exists.
+ *
+ * Every input is the server's to check: the product, the chain and asset (V1: SOL, ETH, BNB, and
+ * only while 1Click lists them), the amount, the source address's shape, the destination (one of the
+ * user's own NEARKITS wallets by session, or an existing NEAR account), the fee (BRIDGE_FEE_BPS,
+ * confirmed from 1Click's echo of every quote), the purchase's token (kits.nearlytrade.near only,
+ * here). An order's product, destination, amount, deposit address and fee never change after it is created.
  */
 
 /** 1Click's verifier contract on NEAR mainnet: NEAR Intents delivers from it. */
@@ -70,17 +91,19 @@ const FAILED_FOLLOW_MS = 24 * 60 * 60_000
 /** A busy wallet (its own trade running) is tried this many times before the user is asked. */
 const BUSY_TRIES = 3
 
-export type BridgeDestinationInput = { kind: 'nearkits'; userId: number; walletId: string } | { kind: 'connected'; accountId: string }
+export type BridgeDestinationInput = { kind: 'nearkits'; userId: number; walletId: string } | { kind: 'connected' | 'external'; accountId: string }
 
 export interface BridgeQuoteInput {
+  /** Bridge & Buy $KITS, or the plain Bridge to NEAR. */
+  product: BridgeProduct
   chain: string
   /** Decimal amount of the source coin, as entered. */
   amount: string
   /** The user's address on the source chain (required for a real quote: it sends and is refunded). */
   sourceAddress: string | null
   destination: BridgeDestinationInput
-  /** Slippage for the $KITS purchase, percent. */
-  kitsSlippagePct: number
+  /** Slippage for the $KITS purchase, percent (Bridge & Buy only; a Bridge buys nothing). */
+  kitsSlippagePct: number | null
 }
 
 export interface BridgeServiceDeps {
@@ -121,6 +144,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
   const router = createSwapRouter(near.ctx)
   const wrap = network.wrapContract
   const nearTx = (hash: string): BridgeTx => ({ hash, url: explorerTxUrl(network, hash) })
+  const productName = (product: BridgeProduct) => (product === 'bridge' ? 'Bridge' : 'Bridge & Buy')
 
   /** The V1 chains 1Click supports right now, with the decimals NEARKITS expects, and only while it delivers wNEAR. */
   async function enabledChains(): Promise<{ chain: BridgeChain; priceUsd: number | null }[]> {
@@ -132,20 +156,21 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     })
   }
 
-  async function chainOf(id: string): Promise<BridgeChain> {
+  async function chainOf(id: string, product: BridgeProduct): Promise<BridgeChain> {
     const chain = bridgeChain(id)
     let on: { chain: BridgeChain }[]
     try {
       on = await enabledChains()
     } catch (e) {
-      throw toHttp(e)
+      throw toHttp(e, product)
     }
-    if (!chain || !on.some((c) => c.chain.id === chain.id)) throw new HttpError(400, 'chain', 'Bridge & Buy brings SOL from Solana, ETH from Ethereum or BNB from BNB Chain.')
+    if (!chain || !on.some((c) => c.chain.id === chain.id))
+      throw new HttpError(400, 'chain', `${productName(product)} brings SOL from Solana, ETH from Ethereum or BNB from BNB Chain.`)
     return chain
   }
 
   /** The NEAR account the order delivers to: one of the user's own NEARKITS wallets, or a NEAR account. */
-  async function destinationOf(d: BridgeDestinationInput): Promise<{ accountId: string; wallet: TradingWallet | null; userId: number | null }> {
+  async function destinationOf(d: BridgeDestinationInput, product: BridgeProduct): Promise<{ accountId: string; wallet: TradingWallet | null; userId: number | null }> {
     if (d.kind === 'nearkits') {
       if (!deps.custody) throw new HttpError(409, 'no-custody', 'NEARKITS wallets aren’t available on this server. Use a connected NEAR wallet.')
       const wallet = await deps.custody.store.ownedWallet(d.userId, d.walletId)
@@ -153,14 +178,67 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       if (wallet.frozenAt !== null) throw new HttpError(409, 'frozen', `${walletName(wallet)} is frozen by NEARKITS for your protection: it doesn’t trade.`)
       return { accountId: wallet.accountId, wallet, userId: d.userId }
     }
+    // Any NEAR account typed in is the plain Bridge's only: Bridge & Buy's purchase needs a wallet that signs.
+    if (d.kind === 'external' && product !== 'bridge') throw new HttpError(400, 'destination', 'Choose the NEAR wallet that receives $KITS.')
     const accountId = d.accountId.trim().toLowerCase()
     const problem = accountIdError(accountId)
     const elsewhere = network.id === 'mainnet' ? accountId.endsWith('.testnet') : accountId.endsWith('.near')
-    if (problem || elsewhere) throw new HttpError(400, 'destination', problem ?? `That account isn’t on NEAR ${network.id}, where Bridge & Buy delivers.`)
+    if (problem || elsewhere) throw new HttpError(400, 'destination', problem ?? `That account isn’t on NEAR ${network.id}, where ${productName(product)} delivers.`)
     return { accountId, wallet: null, userId: null }
   }
 
-  function toHttp(e: unknown): HttpError {
+  /**
+   * Bridge: whether the destination can receive what NEAR Intents delivers (wNEAR), and who turns it
+   * into native NEAR. It must exist on NEAR and be registered with wrap.near (an ft_transfer to an
+   * account the token doesn't know fails); a NEARKITS wallet also needs NEAR for the unwrap's own
+   * network fee, and the unwrap must be allowed now (the trading switch, the wallet's freeze).
+   */
+  async function receivability(dest: { accountId: string; wallet: TradingWallet | null }, kind: BridgeDestinationInput['kind']): Promise<BridgeDelivery & { code: string | null }> {
+    const unwrap: BridgeDelivery['unwrap'] = kind === 'nearkits' ? 'nearkits' : kind === 'connected' ? 'wallet' : 'none'
+    const no = (code: string, blocked: string, fix: BridgeDelivery['fix'] = null) => ({ asset: 'wnear' as const, unwrap, blocked, fix, code })
+    const unread = `NEARKITS can’t read ${dest.accountId} on NEAR right now. Try again in a moment.`
+    const [state, registered] = await Promise.all([
+      accountState(near.ctx.rpc, dest.accountId, 'final').catch(() => null),
+      storageStatus(near.ctx.rpc, wrap, [dest.accountId])
+        .then((m) => m.get(dest.accountId) ?? null)
+        .catch(() => null),
+    ])
+    if (!state) return no('chain', unread)
+    const who = kind === 'nearkits' ? 'This NEARKITS wallet' : dest.accountId
+    if (!state.exists)
+      return no('not-on-chain', `${who} isn’t on NEAR yet. NEAR Intents delivers NEAR as wNEAR, which only an account already on NEAR can receive: send it a little NEAR first.`)
+    if (registered === null) return no('chain', unread)
+    if (!registered) {
+      if (kind === 'nearkits')
+        return no(
+          'not-registered',
+          'This NEARKITS wallet isn’t registered with wNEAR (wrap.near) yet, so NEAR Intents can’t deliver to it. Its first trade registers it; or choose another wallet.',
+        )
+      if (kind === 'connected')
+        return no(
+          'not-registered',
+          `${dest.accountId} isn’t registered with wNEAR (wrap.near) yet, so NEAR Intents can’t deliver to it. Register it once: your wallet signs, about 0.00125 NEAR.`,
+          'register',
+        )
+      return no(
+        'not-registered',
+        `${dest.accountId} isn’t registered with wNEAR (wrap.near), so NEAR Intents can’t deliver to it. Its owner registers it once (wrapping a little NEAR does), or choose another destination.`,
+      )
+    }
+    if (kind === 'nearkits' && dest.wallet) {
+      const blocked = deps.custody ? await deps.custody.ops.blocked('unwrap', dest.wallet) : null
+      if (blocked) return no('paused', `${blocked} NEAR Intents delivers wNEAR, and NEARKITS couldn’t unwrap it now.`)
+      const fee = estimateUpfrontYocto({ transactions: 1, actions: 1, attachedGas: GAS.NEAR_WITHDRAW, deposits: 1n })
+      if (state.availableYocto < fee)
+        return no(
+          'no-gas',
+          `This NEARKITS wallet has no NEAR for the network fee of unwrapping (about ${formatUnits(fee, NEAR_DECIMALS, { maxFraction: 4 })} NEAR). Send it a little NEAR first, or choose another wallet.`,
+        )
+    }
+    return { asset: 'wnear', unwrap, blocked: null, fix: null, code: null }
+  }
+
+  function toHttp(e: unknown, product: BridgeProduct = 'buy-kits'): HttpError {
     if (e instanceof HttpError) return e
     if (e instanceof OneClickError) {
       if (e.kind === 'below-minimum') return new HttpError(400, 'minimum', e.message, { minimum: e.minimum?.toString() ?? null, minimumUsd: e.minimumUsd })
@@ -169,7 +247,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       return new HttpError(503, 'unavailable', e.message)
     }
     log.error('bridge request failed', { error: e })
-    return new HttpError(503, 'unavailable', 'Bridge & Buy can’t answer right now. Try again in a moment.')
+    return new HttpError(503, 'unavailable', `${productName(product)} can’t answer right now. Try again in a moment.`)
   }
 
   /**
@@ -203,6 +281,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     nearkitsBps: number,
     intentsBps: number,
     est: { kits: BridgeKitsEstimate | null; reason: string | null },
+    delivery: BridgeDelivery | null,
   ): BridgeQuoteView {
     return {
       chain: chain.id,
@@ -216,17 +295,23 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       refundFee: q.refundFee?.toString() ?? null,
       kits: est.kits,
       kitsUnavailable: est.reason,
+      ...(delivery ? { delivery } : {}),
       quotedAt: deps.now(),
     }
   }
 
-  /** One 1Click quote for this input, checked (fee included), with stage 2's estimate. */
+  /**
+   * One 1Click quote for this input, checked (fee included), with stage 2's estimate (Bridge & Buy)
+   * or whether the destination can receive the wNEAR and who unwraps it (Bridge).
+   */
   async function quoteFor(input: BridgeQuoteInput, dry: boolean) {
-    const chain = await chainOf(input.chain)
+    const { product } = input
+    const chain = await chainOf(input.chain, product)
     const parsed = tryParseUnits(input.amount.trim(), chain.decimals)
     if (!parsed.ok || parsed.value <= 0n) throw new HttpError(400, 'amount', `Enter an amount of ${chain.symbol} above 0, with at most ${chain.decimals} decimals.`)
-    const slippage = input.kitsSlippagePct
-    if (!(Number.isFinite(slippage) && slippage > 0 && slippage <= MAX_SLIPPAGE)) throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${MAX_SLIPPAGE}%.`)
+    const slippage = input.kitsSlippagePct ?? Number.NaN
+    if (product === 'buy-kits' && !(Number.isFinite(slippage) && slippage > 0 && slippage <= MAX_SLIPPAGE))
+      throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${MAX_SLIPPAGE}%.`)
     let refundTo: string
     if (input.sourceAddress !== null && input.sourceAddress.trim() !== '') {
       const problem = sourceAddressError(chain, input.sourceAddress)
@@ -236,7 +321,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       if (!dry) throw new HttpError(400, 'source', `Connect your ${chain.name} wallet, or enter the ${chain.name} address you send from.`)
       refundTo = DRY_REFUND[chain.family]
     }
-    const dest = await destinationOf(input.destination)
+    const dest = await destinationOf(input.destination, product)
     const request: OneClickQuoteRequest = {
       dry,
       swapType: 'EXACT_INPUT',
@@ -259,24 +344,28 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     try {
       q = await oneclick.quote(request)
     } catch (e) {
-      log.info('bridge quote refused', { chain: chain.id, dry, error: e, ms: deps.now() - started })
-      throw toHttp(e)
+      log.info('bridge quote refused', { product, chain: chain.id, dry, error: e, ms: deps.now() - started })
+      throw toHttp(e, product)
     }
     // The fee as 1Click will really charge it: NEARKITS' share must be exactly the configured fee.
     const split = feeSplitOf(q.appFees, deps.feeRecipient)
     if (!split || split.nearkitsBps !== BRIDGE_FEE_BPS) {
-      log.error('bridge: 1Click charges a different NEARKITS fee than configured; quote refused', { chain: chain.id, echoed: q.appFees, expected: BRIDGE_FEE_BPS })
-      throw new HttpError(503, 'fee', 'Bridge & Buy is unavailable right now: its fee couldn’t be confirmed. Nothing was sent.')
+      log.error('bridge: 1Click charges a different NEARKITS fee than configured; quote refused', { product, chain: chain.id, echoed: q.appFees, expected: BRIDGE_FEE_BPS })
+      throw new HttpError(503, 'fee', `${productName(product)} is unavailable right now: its fee couldn’t be confirmed. Nothing was sent.`)
     }
-    const est = await estimateKits(q.amountOut, slippage, dest.accountId)
-    log.info('bridge quote', { chain: chain.id, dry, usd: q.amountInUsd, kits: est.kits !== null, ms: deps.now() - started, destination: input.destination.kind })
-    return { chain, q, split, est, dest, refundTo, view: quoteView(chain, q, split.nearkitsBps, split.intentsBps, est) }
+    // Bridge & Buy prices its purchase; a Bridge buys nothing, and says instead what arrives and whether it can.
+    const est = product === 'buy-kits' ? await estimateKits(q.amountOut, slippage, dest.accountId) : { kits: null, reason: null }
+    const receivable = product === 'bridge' ? await receivability(dest, input.destination.kind) : null
+    const delivery: BridgeDelivery | null = receivable ? { asset: receivable.asset, unwrap: receivable.unwrap, blocked: receivable.blocked, fix: receivable.fix } : null
+    log.info('bridge quote', { product, chain: chain.id, dry, usd: q.amountInUsd, kits: est.kits !== null, ms: deps.now() - started, destination: input.destination.kind })
+    return { chain, q, split, est, dest, refundTo, receivable, view: quoteView(chain, q, split.nearkitsBps, split.intentsBps, est, delivery) }
   }
 
   function view(o: BridgeOrder, wallet?: TradingWallet | null): BridgeOrderView {
     const chain = bridgeChain(o.chain) as BridgeChain
     return {
       id: o.id,
+      product: o.product,
       status: o.status,
       chain: o.chain,
       sourceAddress: o.sourceAddress,
@@ -288,6 +377,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       depositTx: o.depositTx ? { hash: o.depositTx, url: chain.explorerTx(o.depositTx) } : null,
       delivered: o.delivered ? { amount: o.delivered.amount, asset: o.delivered.asset, txs: o.delivered.txs } : null,
       kits: o.kits,
+      unwrapped: o.stage2.unwrapped ?? null,
       refund: o.refund,
       message: o.message,
       createdAt: o.createdAt,
@@ -358,6 +448,8 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       case 'deposit-seen':
       case 'bridging':
         return now + 6_000
+      case 'unwrapping':
+        return now + 2_000
       case 'incomplete-deposit':
         return now + 60_000
       case 'delivered':
@@ -414,7 +506,10 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
             ...base,
             status: 'refunded',
             refund: { amount: s.refundedAmount?.toString() ?? null, reason: s.refundReason, txs: s.originTxs.map((t) => ({ hash: t.hash, url: t.url })) },
-            message: 'NEAR Intents couldn’t complete it and refunded your address on the source chain. No NEAR was delivered and no $KITS was bought.',
+            message:
+              o.product === 'bridge'
+                ? 'NEAR Intents couldn’t complete it and refunded your address on the source chain. No NEAR was delivered.'
+                : 'NEAR Intents couldn’t complete it and refunded your address on the source chain. No NEAR was delivered and no $KITS was bought.',
             nextCheckAt: null,
           },
           BRIDGE_IN_TRANSIT,
@@ -457,6 +552,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
           )
           return
         }
+        if (o.product === 'bridge') return arrived(o, base, d)
         const connected = o.kind === 'connected'
         await store.update(
           o.id,
@@ -473,6 +569,27 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
         return
       }
     }
+  }
+
+  /**
+   * A Bridge's NEAR, checked on chain in the destination: native NEAR is the result as it is; wNEAR
+   * is unwrapped by NEARKITS for a NEARKITS wallet, waits for its owner's signature in a connected
+   * wallet, and is the result for an external address (the page said so before the user confirmed).
+   */
+  async function arrived(o: BridgeOrder, base: { intentsStatus: string; checks: number; depositTx: string | null }, d: Delivered) {
+    const wnear = d.asset === 'wnear'
+    const next: Parameters<BridgeStore['update']>[1] =
+      !wnear || o.kind === 'external'
+        ? {
+            status: 'complete',
+            message: wnear ? `Delivered as wNEAR to ${o.recipient}: it unwraps to NEAR from that account (wrap.near's near_withdraw).` : null,
+            nextCheckAt: null,
+          }
+        : o.kind === 'nearkits'
+          ? { status: 'unwrapping', message: 'wNEAR arrived. NEARKITS is unwrapping it to NEAR in your wallet.', nextCheckAt: deps.now() }
+          : { status: 'delivered', message: 'wNEAR arrived in your wallet. Unwrap it to NEAR: your wallet signs.', nextCheckAt: null }
+    await store.update(o.id, { ...base, delivered: d, ...next }, BRIDGE_IN_TRANSIT)
+    log.info('bridge delivered', { order: o.id, product: o.product, asset: d.asset, next: next.status })
   }
 
   async function moveTo(o: BridgeOrder, status: BridgeOrderStatus, patch: Parameters<BridgeStore['update']>[1]) {
@@ -614,6 +731,78 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     log.info('bridge order complete', { order: o.id })
   }
 
+  /** A Bridge's unwrap stopped: the wNEAR stays in the wallet, said as such, and its owner decides (no automatic retry). */
+  async function unwrapNeeded(o: BridgeOrder, why: string, stage2 = o.stage2) {
+    const d = o.delivered as Delivered | null
+    const held = d?.wnear ? `${formatUnits(BigInt(d.wnear), NEAR_DECIMALS, { maxFraction: 4 })} wNEAR` : 'The wNEAR'
+    await store.update(o.id, { status: 'unwrap-needed', message: `${why} ${held} is in the wallet: unwrap it when you’re ready.`, stage2, nextCheckAt: null }, ['unwrapping'])
+    log.info('bridge: unwrap needs the user', { order: o.id, reason: why })
+  }
+
+  /**
+   * A Bridge to a NEARKITS wallet: exactly the wNEAR delivered, unwrapped to native NEAR through the
+   * engine's existing `unwrap` intent (one near_withdraw, the signer's policy unchanged), once (the
+   * intent id is saved before it runs, so a restart follows it instead of starting another).
+   */
+  async function stepUnwrap(o: BridgeOrder): Promise<void> {
+    const custody = deps.custody
+    const d = o.delivered as Delivered | null
+    if (!custody || !d?.wnear || o.kind !== 'nearkits' || o.userId === null || !o.walletId) return unwrapNeeded(o, 'NEARKITS can’t unwrap it here.')
+    const wallet = await custody.store.ownedWallet(o.userId, o.walletId)
+    if (!wallet) return unwrapNeeded(o, 'The wallet isn’t one of your active NEARKITS wallets any more.')
+    const stage2 = { ...o.stage2 }
+    if (!stage2.unwrapIntent) {
+      const blocked = await custody.ops.blocked('unwrap', wallet)
+      if (blocked) return unwrapNeeded(o, blocked, stage2)
+      const params: UnwrapParams = { amount: d.wnear }
+      const intent = await custody.store.createIntent({ walletId: wallet.id, userId: o.userId, chatId: 0, kind: 'unwrap', params, ttlMs: UNWRAP_TTL_MS, groupId: `br-${o.id}` })
+      stage2.unwrapIntent = intent.id
+      await store.update(o.id, { stage2 })
+      const r = await custody.engine.execute(intent.id, o.userId)
+      if (r.kind === 'refused') {
+        await custody.store.setStatus(intent.id, ['quoted'], 'cancelled')
+        const tries = (stage2.attempts ?? 0) + 1
+        const next = { ...stage2, unwrapIntent: null, attempts: tries }
+        if (tries >= BUSY_TRIES) return unwrapNeeded(o, 'The wallet stayed busy with another transaction, so it wasn’t unwrapped.', next)
+        return void (await store.update(o.id, { stage2: next, nextCheckAt: deps.now() + 20_000 }))
+      }
+      if (r.kind === 'pending') return void (await store.update(o.id, { nextCheckAt: deps.now() + 10_000 }))
+    }
+    const u = settled(await custody.store.intent(stage2.unwrapIntent as string))
+    if (!u) return void (await store.update(o.id, { nextCheckAt: deps.now() + 10_000 }))
+    if (u.status !== 'done' || !u.result?.ok) return unwrapNeeded(o, `${failText(u.result, 'Unwrapping failed')}.`, stage2)
+    const unwrapped = { amount: d.wnear, txs: u.result.hashes.map(nearTx) }
+    await store.update(o.id, { status: 'complete', stage2: { ...stage2, unwrapped }, message: null, nextCheckAt: null }, ['unwrapping'])
+    log.info('bridge order complete (unwrapped)', { order: o.id })
+  }
+
+  /**
+   * A connected wallet's own unwrap of a Bridge's wNEAR, from its transaction: signed by the order's
+   * account, final, and native NEAR came back to that account from the wrap contract (its
+   * near_withdraw succeeded). Only then is the order complete.
+   */
+  async function settleUnwrap(o: BridgeOrder, txHash: string): Promise<BridgeOrderView> {
+    if (o.status !== 'delivered' && o.status !== 'unwrap-needed') throw new HttpError(409, 'state', 'The wNEAR hasn’t arrived yet.')
+    const hash = txHash.trim()
+    if (!/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash)) throw new HttpError(400, 'tx', 'That isn’t a NEAR transaction hash.')
+    let tx: NormalizedTx | null
+    try {
+      tx = await nearTxOf(hash)
+    } catch {
+      throw new HttpError(503, 'chain', 'NEARKITS can’t read that transaction right now. Try again in a moment.')
+    }
+    if (!tx || !isComplete(tx)) throw new HttpError(409, 'pending', 'That transaction isn’t final on NEAR yet. Try again in a moment.')
+    if (tx.signerId !== o.recipient) throw new HttpError(400, 'tx', `That transaction wasn’t signed by ${o.recipient}.`)
+    const native = flowsOf(tx, { wrapContract: wrap })
+      .filter((f) => f.asset === 'near' && f.kind === 'native' && f.from === wrap && f.to === o.recipient)
+      .reduce((s, f) => s + f.amount, 0n)
+    if (native === 0n) throw new HttpError(400, 'tx', `That transaction didn’t unwrap wNEAR to NEAR in ${o.recipient}.`)
+    const unwrapped = { amount: native.toString(), txs: [nearTx(hash)] }
+    await store.update(o.id, { status: 'complete', stage2: { ...o.stage2, unwrapped }, message: null, nextCheckAt: null }, ['delivered', 'unwrap-needed'])
+    log.info('bridge order complete (connected wallet unwrapped)', { order: o.id })
+    return viewOf((await store.get(o.id)) as BridgeOrder)
+  }
+
   /** The engine didn't take the intent (the wallet was busy): nothing ran. Drop it and try again shortly, a few times. */
   async function busy(o: BridgeOrder, stage2: BridgeOrder['stage2'], intentId: string, key: 'unwrapIntent' | 'buyIntent', giveUp: string) {
     await deps.custody?.store.setStatus(intentId, ['quoted'], 'cancelled')
@@ -659,28 +848,44 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
      * Nothing moves until the user's own wallet sends the amount to the deposit address.
      */
     async start(input: BridgeQuoteInput): Promise<BridgeOrderView> {
+      const { product } = input
       const paused = await deps.ops.bridgeBlocked()
-      if (paused) throw new HttpError(409, 'paused', paused)
-      const dest = await destinationOf(input.destination)
-      if (dest.wallet && deps.custody) {
-        const blocked = await deps.custody.ops.blocked('buy', dest.wallet)
-        if (blocked) throw new HttpError(409, 'paused', blocked)
+      if (paused) throw new HttpError(409, 'paused', product === 'bridge' ? paused.replace(/^Bridge & Buy/, 'Bridge') : paused)
+      const dest = await destinationOf(input.destination, product)
+      if (product === 'buy-kits') {
+        if (dest.wallet && deps.custody) {
+          const blocked = await deps.custody.ops.blocked('buy', dest.wallet)
+          if (blocked) throw new HttpError(409, 'paused', blocked)
+        }
+        // NEAR Intents delivers to an existing account: a new NEARKITS wallet needs a first deposit.
+        const state = await accountState(near.ctx.rpc, dest.accountId, 'final').catch(() => null)
+        if (!state) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
+        if (!state.exists)
+          throw new HttpError(409, 'not-on-chain', `${dest.accountId} isn’t on NEAR yet. Send it a little NEAR first: it needs NEAR for the network fees of the $KITS purchase.`)
       }
-      // NEAR Intents delivers to an existing account: a new NEARKITS wallet needs a first deposit.
-      const state = await accountState(near.ctx.rpc, dest.accountId, 'final').catch(() => null)
-      if (!state) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
-      if (!state.exists)
-        throw new HttpError(409, 'not-on-chain', `${dest.accountId} isn’t on NEAR yet. Send it a little NEAR first: it needs NEAR for the network fees of the $KITS purchase.`)
+      // A Bridge goes only where the wNEAR can arrive (and, for a NEARKITS wallet, be unwrapped now): checked
+      // before NEAR Intents is asked for a deposit address, so a refused destination never gets one.
+      if (product === 'bridge') {
+        const pre = await receivability(dest, input.destination.kind)
+        if (pre.blocked) {
+          const code = pre.code ?? 'destination'
+          throw new HttpError(code === 'chain' ? 503 : 409, code, `${pre.blocked} Nothing was sent.`)
+        }
+      }
       const r = await quoteFor(input, false)
       const okAddress = r.chain.family === 'solana' ? isSolanaAddress(r.q.depositAddress ?? '') : isEvmAddress(r.q.depositAddress ?? '')
       if (!okAddress || r.q.deadline === null) throw new HttpError(502, 'route', 'Route temporarily unavailable. Nothing was sent.')
       const now = deps.now()
       if (r.q.deadline < now + BRIDGE_SIGN_WINDOW_MS + 5 * 60_000) throw new HttpError(502, 'route', 'NEAR Intents offered too short a window. Get a new quote.')
-      if (!r.est.kits) throw new HttpError(503, 'kits-price', `${r.est.reason ?? 'NEARKITS can’t price $KITS right now.'} Nothing was sent.`)
-      const kitsMinPerNear = ((BigInt(r.est.kits.minOut) * ONE_NEAR) / BigInt(r.est.kits.nearIn)).toString()
+      let kitsMinPerNear: string | null = null
+      if (product === 'buy-kits') {
+        if (!r.est.kits) throw new HttpError(503, 'kits-price', `${r.est.reason ?? 'NEARKITS can’t price $KITS right now.'} Nothing was sent.`)
+        kitsMinPerNear = ((BigInt(r.est.kits.minOut) * ONE_NEAR) / BigInt(r.est.kits.nearIn)).toString()
+      }
       const order = await store
         .create({
           network: network.id,
+          product,
           kind: input.destination.kind,
           userId: dest.userId,
           walletId: dest.wallet?.id ?? null,
@@ -695,7 +900,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
           quote: r.view,
           oneclick: r.q.raw,
           kitsMinPerNear,
-          kitsSlippage: input.kitsSlippagePct,
+          kitsSlippage: product === 'buy-kits' ? (input.kitsSlippagePct as number) : 0,
           nextCheckAt: now + 12_000,
         })
         .catch((e: unknown) => {
@@ -703,8 +908,46 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
           log.error('bridge: could not save the order', { chain: r.chain.id, error: e })
           throw new HttpError(502, 'route', 'Route temporarily unavailable. Nothing was sent.')
         })
-      log.info('bridge order created', { order: order.id, chain: r.chain.id, usd: r.q.amountInUsd, destination: order.kind })
+      log.info('bridge order created', { order: order.id, product, chain: r.chain.id, usd: r.q.amountInUsd, destination: order.kind })
       return view(order, dest.wallet)
+    },
+
+    /**
+     * A Bridge whose unwrap stopped (unwrap-needed): its owner asks NEARKITS to unwrap it now. Once
+     * per request, never by itself: the order moves back to unwrapping and the worker runs one new
+     * unwrap intent of exactly the wNEAR delivered (or what the wallet still holds of it, if less).
+     */
+    async retryUnwrap(o: BridgeOrder): Promise<BridgeOrderView> {
+      if (o.product !== 'bridge' || o.kind !== 'nearkits' || o.status !== 'unwrap-needed')
+        throw new HttpError(409, 'state', 'Only a Bridge to a NEARKITS wallet whose wNEAR wasn’t unwrapped can be unwrapped here.')
+      const d = o.delivered as Delivered | null
+      if (!d?.wnear || !deps.custody || !o.walletId || o.userId === null) throw new HttpError(409, 'state', 'There’s no wNEAR to unwrap for this order.')
+      const wallet = await deps.custody.store.ownedWallet(o.userId, o.walletId)
+      if (!wallet) throw new HttpError(409, 'state', 'The wallet isn’t one of your active NEARKITS wallets any more.')
+      const blocked = await deps.custody.ops.blocked('unwrap', wallet)
+      if (blocked) throw new HttpError(409, 'paused', blocked)
+      let held: bigint
+      try {
+        held = await near.ctx.reader.balanceOf(wrap, wallet.accountId)
+      } catch {
+        throw new HttpError(503, 'chain', 'NEARKITS can’t read the wallet on NEAR right now. Try again in a moment.')
+      }
+      const amount = held < BigInt(d.wnear) ? held : BigInt(d.wnear)
+      if (amount === 0n) throw new HttpError(409, 'state', 'The wallet holds no wNEAR now: it was unwrapped or used already.')
+      const moved = await store.update(
+        o.id,
+        {
+          status: 'unwrapping',
+          delivered: { ...d, wnear: amount.toString() } as BridgeOrder['delivered'],
+          stage2: { ...o.stage2, unwrapIntent: null, attempts: 0 },
+          message: 'Unwrapping the wNEAR to NEAR.',
+          nextCheckAt: deps.now(),
+        },
+        ['unwrap-needed'],
+      )
+      if (!moved) throw new HttpError(409, 'state', 'This order moved on already.')
+      log.info('bridge: unwrap asked again by its owner', { order: o.id })
+      return viewOf((await store.get(o.id)) as BridgeOrder)
     },
 
     /** The user's source transaction, after their wallet sent it (or as they paste it): followed sooner. */
@@ -728,8 +971,10 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
      * and $KITS arrived in that account. Only then is the order complete.
      */
     async settleConnected(o: BridgeOrder, txHash: string): Promise<BridgeOrderView> {
-      if (o.kind !== 'connected') throw new HttpError(409, 'state', 'NEARKITS buys $KITS for NEARKITS wallets itself.')
+      if (o.kind !== 'connected')
+        throw new HttpError(409, 'state', o.product === 'bridge' ? 'Only a connected wallet’s unwrap is checked here.' : 'NEARKITS buys $KITS for NEARKITS wallets itself.')
       if (o.status === 'complete') return viewOf(o)
+      if (o.product === 'bridge') return settleUnwrap(o, txHash)
       if (o.status !== 'delivered' && o.status !== 'buy-needed') throw new HttpError(409, 'state', 'The NEAR hasn’t arrived yet.')
       const hash = txHash.trim()
       if (!/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash)) throw new HttpError(400, 'tx', 'That isn’t a NEAR transaction hash.')
@@ -753,17 +998,18 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     /** One step of an order: NEAR Intents' status while in transit, the purchase once NEAR arrived. */
     async step(o: BridgeOrder): Promise<void> {
       if (BRIDGE_IN_TRANSIT.includes(o.status) || o.status === 'failed') return stepTransit(o)
-      if ((o.status === 'delivered' || o.status === 'buying') && o.kind === 'nearkits') return stepPurchase(o)
+      if (o.product === 'bridge') {
+        if (o.status === 'unwrapping' && o.kind === 'nearkits') return stepUnwrap(o)
+      } else if ((o.status === 'delivered' || o.status === 'buying') && o.kind === 'nearkits') return stepPurchase(o)
       await store.update(o.id, { nextCheckAt: null })
     },
 
     view: viewOf,
 
-    /** An order by id: a NEARKITS order only for its own user; a connected one for whoever holds its id. */
+    /** An order by id: a NEARKITS order only for its own user; a connected or external one for whoever holds its id. */
     async orderFor(id: string, userId: number | null): Promise<BridgeOrder> {
       const o = typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id) ? await store.get(id) : null
-      if (!o || o.network !== network.id || (o.kind === 'nearkits' && o.userId !== userId))
-        throw new HttpError(404, 'not-found', 'That Bridge & Buy order isn’t yours, or it’s gone.')
+      if (!o || o.network !== network.id || (o.kind === 'nearkits' && o.userId !== userId)) throw new HttpError(404, 'not-found', 'That bridge order isn’t yours, or it’s gone.')
       return o
     },
 

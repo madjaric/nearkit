@@ -51,5 +51,6 @@ export const API_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   '/api/bridge/order': 120,
   '/api/bridge/orders': 60,
   '/api/bridge/settle': 20,
+  '/api/bridge/unwrap': 10,
   '/api/bridge/solana': 60,
 })

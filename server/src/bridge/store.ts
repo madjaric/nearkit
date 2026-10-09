@@ -1,11 +1,12 @@
 import type { BridgeChainId } from '@/config/bridge'
-import type { BridgeOrderStatus, BridgeQuoteView, BridgeTx } from '@/lib/bridge/types'
+import type { BridgeOrderStatus, BridgeProduct, BridgeQuoteView, BridgeTx } from '@/lib/bridge/types'
 import type { Database } from '../db/database'
 import { randomToken } from '../ids'
 
 /**
- * Bridge & Buy orders (table bridge_orders): one per deposit address. Created when the user asks
- * for a deposit address, moved by the worker as NEAR Intents reports it, and by the purchase after
+ * Bridge orders (table bridge_orders), both products: Bridge & Buy $KITS ('buy-kits') and the plain
+ * Bridge to NEAR ('bridge'). One per deposit address. Created when the user asks for a deposit
+ * address, moved by the worker as NEAR Intents reports it, and by the purchase or the unwrap after
  * it. A row holds no key or secret: addresses, amounts, hashes, and 1Click's signed quote.
  */
 
@@ -13,6 +14,8 @@ export interface BridgeStage2 {
   /** The unwrap (wNEAR → NEAR) and the buy, each an engine intent, created once and followed. */
   unwrapIntent?: string | null
   buyIntent?: string | null
+  /** Bridge: the native NEAR the unwrap produced (yocto) and its transactions, from its own record. */
+  unwrapped?: { amount: string; txs: BridgeTx[] } | null
   /** NEAR spent on the buy (yocto). */
   nearIn?: string | null
   attempts?: number
@@ -21,7 +24,10 @@ export interface BridgeStage2 {
 export interface BridgeOrder {
   id: string
   network: string
-  kind: 'nearkits' | 'connected'
+  /** Bridge & Buy $KITS, or the plain Bridge to NEAR. */
+  product: BridgeProduct
+  /** One of the user's NEARKITS wallets, a connected NEAR wallet, or (Bridge only) a NEAR account typed in. */
+  kind: 'nearkits' | 'connected' | 'external'
   userId: number | null
   walletId: string | null
   recipient: string
@@ -54,7 +60,8 @@ export interface BridgeOrder {
 interface Row {
   id: string
   network: string
-  kind: 'nearkits' | 'connected'
+  product: BridgeProduct
+  kind: 'nearkits' | 'connected' | 'external'
   user_id: number | string | null
   wallet_id: string | null
   recipient: string
@@ -90,6 +97,7 @@ function fromRow(r: Row): BridgeOrder {
   return {
     id: r.id,
     network: r.network,
+    product: r.product,
     kind: r.kind,
     userId: r.user_id === null ? null : n(r.user_id),
     walletId: r.wallet_id,
@@ -154,12 +162,13 @@ export class BridgeStore {
     const id = randomToken(16)
     const t = this.now()
     await this.db.run(
-      `INSERT INTO bridge_orders (id, network, kind, user_id, wallet_id, recipient, chain, origin_asset, source_address, amount_in, deposit_address,
+      `INSERT INTO bridge_orders (id, network, product, kind, user_id, wallet_id, recipient, chain, origin_asset, source_address, amount_in, deposit_address,
          deposit_deadline, sign_by, quote, oneclick, kits_min_per_near, kits_slippage, status, next_check_at, checks, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting-deposit', ?, 0, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting-deposit', ?, 0, ?, ?)`,
       [
         id,
         o.network,
+        o.product,
         o.kind,
         o.userId,
         o.walletId,
@@ -188,7 +197,7 @@ export class BridgeStore {
     return r ? fromRow(r) : null
   }
 
-  /** A user's orders to their NEARKITS wallets, newest first. */
+  /** A user's orders to their NEARKITS wallets (both products), newest first. */
   async ofUser(userId: number, network: string, limit = 20): Promise<BridgeOrder[]> {
     const rows = await this.db.all<Row>('SELECT * FROM bridge_orders WHERE user_id = ? AND network = ? ORDER BY created_at DESC LIMIT ?', [userId, network, limit])
     return rows.map(fromRow)

@@ -12,7 +12,7 @@
       "permanent": true
     },
     {
-      "source": "/(swap|bridge|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs).html",
+      "source": "/(swap|bridge|bridge-near|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs).html",
       "destination": "/$1",
       "permanent": true
     }
@@ -25,6 +25,10 @@
     {
       "source": "/bridge",
       "destination": "/bridge.html"
+    },
+    {
+      "source": "/bridge-near",
+      "destination": "/bridge-near.html"
     },
     {
       "source": "/multi-trade",

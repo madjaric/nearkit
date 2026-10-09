@@ -85,7 +85,20 @@ const SIDEBAR = [
   ['Intelligence', ['Scanner']],
   // $KITS sits under the Dashboard, MAINNET on this testnet build: it isn't coming soon, it trades on mainnet.
   // Bridge & Buy brings SOL, ETH or BNB to $KITS on mainnet: a testnet build can't run it.
-  ['Coming soon', ['Bridge & Buy', 'Limit Orders', 'Volume Bot', 'DCA', 'Copy Trade', 'Sniper', 'Telegram'].map((l) => `${l} SOON`)],
+  [
+    'Coming soon',
+    [
+      // The two bridge products, each with its own line (mainnet only: held back on the testnet beta).
+      'Bridge Move assets from other chains into NEAR.',
+      'Bridge & Buy Bridge your assets and automatically buy $KITS.',
+      'Limit Orders',
+      'Volume Bot',
+      'DCA',
+      'Copy Trade',
+      'Sniper',
+      'Telegram',
+    ].map((l) => `${l} SOON`),
+  ],
 ]
 /** Group names and entries of a navigation body, as rendered. */
 const navGroups = (nav) =>
