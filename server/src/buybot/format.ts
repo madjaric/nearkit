@@ -14,7 +14,9 @@ import { bold, code, esc, link, shortAccount } from '../telegram/html'
  *   supply (CoinGecko); FDV from that service too, else total supply (from the token
  *   contract) × this trade's price. An FDV is never called a market cap, and no market cap is
  *   invented.
- * - Holders: NearBlocks' count, when it answers.
+ * - Holders: NearBlocks' count (the accounts its FT index records with a balance above zero).
+ *   When it can't give one it can stand behind (an error, a timeout, an unreadable answer, or a
+ *   0 for a token with supply), the line says unavailable: never 0, never another metric.
  * - The contract (CA), the buyer and the transaction link are the chain's own.
  */
 
@@ -43,8 +45,8 @@ export interface BuyView {
   marketCapUsd: number | null
   /** Total supply × price. */
   fdvUsd: number | null
-  /** Holder count from NearBlocks, when it answered. */
-  holders: number | null
+  /** Holder count from NearBlocks; 'unavailable' when it was asked and couldn't give one; null when not asked (a preview). */
+  holders: number | 'unavailable' | null
   emoji: string
   emojiCount: number
   networkLabel: string
@@ -89,7 +91,7 @@ export function renderBuy(v: BuyView): string {
     ...(v.fdvUsd !== null ? [`FDV ${esc(formatUsdCompact(v.fdvUsd))}`] : []),
   ]
   if (caps.length) lines.push(`🏦 ${caps.join(' · ')}`)
-  if (v.holders !== null) lines.push(`👥 Holders ${esc(v.holders.toLocaleString('en-US'))} (NearBlocks)`)
+  if (v.holders !== null) lines.push(`👥 Holders ${v.holders === 'unavailable' ? 'unavailable' : esc(v.holders.toLocaleString('en-US'))} (NearBlocks)`)
   lines.push(`📄 CA ${code(v.token)}`)
   lines.push(`🔗 ${link(v.txUrl, 'Transaction')} · ⚡ NEARKITS`)
   return lines.join('\n')

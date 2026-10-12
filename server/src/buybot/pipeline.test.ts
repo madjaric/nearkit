@@ -329,19 +329,27 @@ describe('buybot V2 in the pipeline', () => {
     expect(next.tgFake.messages()).toHaveLength(1)
   })
 
-  it('a holder count NearBlocks can’t give, or a price nobody has, is left out: never guessed', async () => {
+  it('a holder count NearBlocks can’t give says unavailable, in its place: never guessed, never 0', async () => {
     w.setHolders({ data: null, errors: [{ message: 'Server Error' }] })
     const [post] = await bothTrades()
-    expect(post?.text).not.toContain('Holders')
-    const next = await world()
-    next.setHolders({ holders: [{ count: 'lots' }] })
-    await next.follower.step()
-    next.publish(BUY)
-    next.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
-    await next.follower.step()
-    await next.process()
-    await next.deliver()
-    expect(next.tgFake.messages()[0]?.text).not.toContain('Holders')
+    expect(post?.text).toContain('👥 Holders unavailable (NearBlocks)')
+    const alertFor = async (answer: unknown) => {
+      const next = await world()
+      next.setHolders(answer)
+      await next.follower.step()
+      next.publish(BUY)
+      next.setHead(BUY.block_height + FINAL_MARGIN + TRAIL)
+      await next.follower.step()
+      await next.process()
+      await next.deliver()
+      return next.tgFake.messages()[0]?.text ?? ''
+    }
+    expect(await alertFor({ holders: [{ count: 'lots' }] })).toContain('👥 Holders unavailable (NearBlocks)')
+    // As NearBlocks answered for $KITS on 2026-10-12: 0 holders for a token with supply (here 1e9 SING).
+    const zero = await alertFor({ holders: [{ count: '0' }] })
+    expect(zero).toContain('👥 Holders unavailable (NearBlocks)')
+    expect(zero).not.toContain('Holders 0')
+    expect(zero.indexOf('👥 Holders')).toBeLessThan(zero.indexOf('📄 CA'))
   })
 
   it('a restart picks up where it left off: nothing is posted twice, nothing is lost', async () => {

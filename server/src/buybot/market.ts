@@ -7,7 +7,8 @@ import type { ServerNear } from '../near'
  * Prices, supply and holders for buy alerts: NEAR/USD from Coinbase (CoinGecko
  * fallback), token prices from Rhea's price list (NearKit's own market module), supply
  * from the token contract, the holder count from NearBlocks. Anything unknown is null
- * and simply not shown. Slow or failing sources never hold an alert back for long.
+ * (a holder count the alert then calls unavailable; other figures simply aren't shown).
+ * Slow or failing sources never hold an alert back for long.
  */
 
 const SUPPLY_TTL_MS = 10 * 60_000
@@ -37,6 +38,14 @@ export function createBuyMarket(near: ServerNear, now: () => number = Date.now) 
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  async function totalSupply(token: string): Promise<bigint | null> {
+    const hit = supply.get(token)
+    if (hit && now() - hit.at < SUPPLY_TTL_MS) return hit.value
+    const value = near.ctx.reader.totalSupply(token).catch(() => null)
+    supply.set(token, { at: now(), value })
+    return value
   }
 
   async function nearUsd(): Promise<number | null> {
@@ -84,11 +93,17 @@ export function createBuyMarket(near: ServerNear, now: () => number = Date.now) 
       const m = await within(near.tokens.getMarketData(token), MARKET_WAIT_MS)
       return { marketCapUsd: valueOf(m?.marketCapUsd), fdvUsd: valueOf(m?.fdvUsd) }
     },
-    /** How many accounts hold the token, per NearBlocks; null when it doesn't answer. */
+    /**
+     * How many accounts hold the token, per NearBlocks: the accounts its FT index records with a
+     * balance above zero, built from the NEP-141 events it has indexed. Its index can lag or lack a
+     * token: for $KITS on 2026-10-12 it answered 0 while 995.7M KITS were in supply. So a 0 is kept
+     * only when the token's own supply is 0 too; otherwise, like an error, a rate limit, a timeout or
+     * an unreadable answer, it is null: unavailable, never a number.
+     */
     async holders(token: string): Promise<number | null> {
       const hit = holderCounts.get(token)
       if (hit && now() - hit.at < HOLDERS_TTL_MS) return hit.value
-      const value = fetchHolders(token)
+      const value = fetchHolders(token).then(async (count) => (count === 0 && (await totalSupply(token)) !== 0n ? null : count))
       holderCounts.set(token, { at: now(), value })
       // A failure is not cached for long: ask again in a minute.
       void value.then((v) => {
@@ -96,13 +111,7 @@ export function createBuyMarket(near: ServerNear, now: () => number = Date.now) 
       })
       return value
     },
-    async totalSupply(token: string): Promise<bigint | null> {
-      const hit = supply.get(token)
-      if (hit && now() - hit.at < SUPPLY_TTL_MS) return hit.value
-      const value = near.ctx.reader.totalSupply(token).catch(() => null)
-      supply.set(token, { at: now(), value })
-      return value
-    },
+    totalSupply,
     /** USD value of what was paid; null unless every leg has a price. */
     async usdOf(legs: readonly Leg[]): Promise<number | null> {
       let total = 0

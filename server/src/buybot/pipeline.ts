@@ -133,7 +133,8 @@ export async function buyView(
     priceUsd,
     marketCapUsd: caps.marketCapUsd,
     fdvUsd,
-    holders,
+    // Asked and not known: the alert says so rather than leaving it out or showing 0.
+    holders: holders ?? 'unavailable',
     emoji: cfg.emoji,
     emojiCount:
       cfg.unit === 'USD' ? emojiCount(paidUsd, cfg.stepUsd, cfg.maxEmoji) : emojiCount(value === null ? null : Number(value) / 1e24, Number(cfg.stepNear) / 1e24, cfg.maxEmoji),
