@@ -6,6 +6,8 @@ import { createServer } from 'node:http'
 export async function startFakeTelegram({ token, username = 'NearKitTestBot' }) {
   const queue = []
   const sent = []
+  /** Every setMyCommands call: the scope and language it names, and the commands in the order sent. */
+  const commands = []
   const waiters = new Set()
   let updateId = 1
   let messageId = 1
@@ -49,6 +51,9 @@ export async function startFakeTelegram({ token, username = 'NearKitTestBot' }) 
         }
         case 'getChatMember':
           return ok({ status: 'administrator', user: { id: params.user_id, is_bot: false, first_name: 'Admin' } })
+        case 'setMyCommands':
+          commands.push({ scope: params.scope?.type ?? 'default', languageCode: params.language_code ?? null, commands: params.commands ?? [] })
+          return ok(true)
         default:
           return ok(true)
       }
@@ -60,6 +65,7 @@ export async function startFakeTelegram({ token, username = 'NearKitTestBot' }) 
   return {
     url,
     sent,
+    commands,
     /** A user action; returns the update as queued. */
     push(update) {
       const full = { update_id: updateId++, ...update }

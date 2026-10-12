@@ -3,6 +3,7 @@ import { botRoutes } from './volumebot/routes'
 import { createVolumeBotRunner } from './volumebot/runner'
 import { VolumeBotStore } from './volumebot/store'
 import type { Server } from 'node:http'
+import { MENU_FIRST } from '@/config/botCommands'
 import { API_LIMITS } from './api/limits'
 import { createApiServer, listen } from './api/http'
 import { handoffRoutes } from './api/handoffRoutes'
@@ -116,12 +117,18 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
   ]
 }
 
-/** Commands for Telegram's menu, per chat type. */
+/**
+ * Commands for Telegram's menu, per chat type, in the order Telegram shows them: MENU_FIRST's
+ * (/start, /bridge, /kits, …) lead, every other command follows in the order the bot registers it.
+ */
 export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
+  const rank = (name: string) => (MENU_FIRST.includes(name) ? MENU_FIRST.indexOf(name) : MENU_FIRST.length)
   return bot
     .commands()
     .filter((c) => c.command.description && (c.command.scope === 'any' || c.command.scope === scope))
-    .map((c) => ({ command: c.name, description: (c.command.description as string).slice(0, 256) }))
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => rank(a.c.name) - rank(b.c.name) || a.i - b.i)
+    .map(({ c }) => ({ command: c.name, description: (c.command.description as string).slice(0, 256) }))
 }
 
 export async function startServer(options: { env: Record<string, string | undefined>; fetch?: typeof fetch; log?: Logger; now?: () => number }): Promise<RunningServer> {

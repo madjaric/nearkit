@@ -52,11 +52,19 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'remove', description: 'stop following a token here', section: 'Groups', scope: 'group' },
   { name: 'pause', description: 'pause every buy alert in this group', section: 'Groups', scope: 'group' },
   { name: 'resume', description: 'resume buy alerts in this group', section: 'Groups', scope: 'group' },
+  { name: 'start', description: 'open the main menu: your wallet, trading, the Bridge and $KITS', section: 'General', scope: 'any' },
   { name: 'kits', description: '$KITS, the NEARKITS token: contract, live market, burns and holder rewards', section: 'General', scope: 'private' },
   { name: 'community', description: 'the NEARKITS community on Telegram, and NEARKITS on X', section: 'General', scope: 'private' },
   { name: 'help', description: 'what the bot can do', section: 'General', scope: 'any' },
   { name: 'cancel', description: 'stop what the bot is waiting for', section: 'General', scope: 'any' },
 ])
+
+/**
+ * What Telegram's command menu leads with, in this order, for new and returning users: /start, then
+ * bringing funds in and $KITS, then help and the account basics, then /cancel. Every other command
+ * follows in the order the bot registers it; this changes the order only, never which commands exist.
+ */
+export const MENU_FIRST: readonly string[] = Object.freeze(['start', 'bridge', 'kits', 'community', 'help', 'accounts', 'link', 'unlink', 'cancel'])
 
 export function commandDoc(name: string): BotCommandDoc {
   const doc = BOT_COMMANDS.find((c) => c.name === name)

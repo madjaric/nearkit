@@ -93,7 +93,7 @@ export function coreModule(commandList: () => { name: string; command: Command }
 
   return {
     commands: {
-      start: { scope: 'any', run: (ctx, args) => start(ctx, args.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)) },
+      start: { ...documented('start'), run: (ctx, args) => start(ctx, args.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)) },
       help: {
         ...documented('help'),
         // In a group the menu is someone's private screen: offer the private chat instead.

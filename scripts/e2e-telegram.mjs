@@ -224,6 +224,24 @@ try {
 }
 
 let linkUrl = ''
+await step('the command menu the server registers: /start first, then /bridge, /kits, /community, /help, /accounts, /link, /unlink, /cancel; groups lead with /start', async () => {
+  const names = (scope) =>
+    tg.commands
+      .filter((c) => c.scope === scope)
+      .at(-1)
+      ?.commands.map((c) => c.command) ?? []
+  const first = ['start', 'bridge', 'kits', 'community', 'help', 'accounts', 'link', 'unlink', 'cancel']
+  const priv = names('all_private_chats')
+  if (priv.slice(0, first.length).join() !== first.join()) throw new Error(`private menu: ${priv.join(', ')}`)
+  for (const kept of ['wallet', 'deposit', 'withdraw', 'buy', 'sell', 'quote', 'token', 'balance', 'positions', 'pnl', 'settings', 'referral', 'web', 'volume', 'buybot'])
+    if (!priv.includes(kept)) throw new Error(`/${kept} left the private menu`)
+  const group = names('all_group_chats')
+  if (group.slice(0, 3).join() !== 'start,help,cancel' || !group.includes('buybot')) throw new Error(`group menu: ${group.join(', ')}`)
+  // Only these two scopes, with no language of their own: nothing narrower overrides them.
+  const other = tg.commands.filter((c) => !['all_private_chats', 'all_group_chats'].includes(c.scope) || c.languageCode !== null)
+  if (other.length) throw new Error(`other command lists registered: ${JSON.stringify(other.map((c) => [c.scope, c.languageCode]))}`)
+})
+
 await step('the bot greets a new user and never asks for keys', async () => {
   const from = tg.sent.length
   say(TG_USER, '/start')
