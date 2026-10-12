@@ -3,6 +3,7 @@ import { mulBps } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
 import { MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
 import { createDclPoolReader, type DclPoolReader } from '@/services/dcl/pools'
+import { dclImpactPct } from '@/services/dcl/impact'
 import { bestDclRoute } from '@/services/dcl/quote'
 import { dclSwapMsg, directFee } from '@/services/dcl/swap'
 import { readTransferTax } from '@/services/dcl/tax'
@@ -74,6 +75,11 @@ export interface RoutedSwap {
   pools?: string[]
   /** Direct DCL routes: the tokens' own tax on this trade (what enters the pool, what leaves it), already in the amounts. */
   tax?: { inBps: number; outBps: number }
+  /**
+   * Direct DCL routes: price impact (%) measured on the pools themselves, against their price before
+   * the trade (dcl/impact.ts); null when a pool didn't report its point. Absent on other routes.
+   */
+  impactPct?: number | null
   deadline: number | null
   fee: SwapFeeInfo | null
   quotedAt: number
@@ -304,6 +310,8 @@ export function createSwapRouter(ctx: NearContext) {
       msg: dclSwapMsg({ pools: best.pools, outputToken: p.routeOut, minOut: poolMin, skipUnwrapNear: !p.nativeOut && p.routeOut === ctx.network.wrapContract }),
       pools: best.pools,
       tax: { inBps: inTax.sellBps, outBps: outTax.buyBps },
+      // On what the pools themselves receive and pay: NEARKITS' fee and the tax are costs, not impact.
+      impactPct: dclImpactPct(best.hops, best.amountIn, best.amountOut),
       deadline: null,
       fee: recipient ? { stage: 'input', token: p.routeIn, appPpm: NEARKIT_FEE_BPS * 100, protocolPpm: 0, routerShareBps: 0, recipient, transfer: { amount: fee } } : null,
       quotedAt: p.quotedAt,

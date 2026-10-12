@@ -46,7 +46,10 @@ describe('pool ids', () => {
     expect(dclPoolTokens('a|b')).toBeNull()
   })
   it('parse the contract’s pool, and nothing else', () => {
-    expect(parseDclPool(livePool)).toEqual({ id: livePool.pool_id, tokenX: SING, tokenY: WRAP, fee: 10000, liquidity: 50498695734733140569374n, running: true })
+    expect(parseDclPool(livePool)).toEqual({ id: livePool.pool_id, tokenX: SING, tokenY: WRAP, fee: 10000, liquidity: 50498695734733140569374n, running: true, point: 40114 })
+    // The point is the pool's price before a trade (price impact): unknown when missing or not a whole number.
+    expect(parseDclPool({ ...livePool, current_point: undefined })?.point).toBeNull()
+    expect(parseDclPool({ ...livePool, current_point: 1.5 })?.point).toBeNull()
     expect(parseDclPool(null)).toBeNull()
     expect(parseDclPool({ ...livePool, pool_id: 'other|wrap.near|10000' })).toBeNull()
     expect(parseDclPool({ ...livePool, liquidity: 'lots' })).toBeNull()
@@ -146,7 +149,12 @@ describe('quotes', () => {
     const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: fake.fetch })
     const reader = createDclPoolReader(rpc, DCL)
     const best = await bestDclRoute(rpc, DCL, reader, NETWORKS.mainnet, WRAP, NEW, ONE)
-    expect(best).toEqual({ pools: [dclPoolId(USDC, WRAP, 400), dclPoolId(NEW, USDC, 10000)], tokens: [WRAP, USDC, NEW], amountIn: ONE, amountOut: 12500n * ONE })
+    expect(best).toMatchObject({ pools: [dclPoolId(USDC, WRAP, 400), dclPoolId(NEW, USDC, 10000)], tokens: [WRAP, USDC, NEW], amountIn: ONE, amountOut: 12500n * ONE })
+    // The pools it chose, each with the token it receives (for the price impact).
+    expect(best?.hops.map((h) => [h.pool.id, h.tokenIn])).toEqual([
+      [dclPoolId(USDC, WRAP, 400), WRAP],
+      [dclPoolId(NEW, USDC, 10000), USDC],
+    ])
     // Nothing fills a pair with no pools.
     expect(await bestDclRoute(rpc, DCL, reader, NETWORKS.mainnet, WRAP, 'nobody.near', ONE)).toBeNull()
   })

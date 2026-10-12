@@ -1451,3 +1451,97 @@ describe('NEAR ↔ wNEAR on the Swap page (connected wallet, testnet fake chain)
     await expect(services.trading.prepareSwap(wrapRequest('6'))).rejects.toMatchObject({ code: 'INSUFFICIENT_BALANCE' })
   })
 })
+
+// ─── price impact on a DCL route: the pool's own, never a price list ───────
+
+describe('price impact on a DCL route (fake chain): measured on the pool, never from a price list', () => {
+  const KITS = 'kits.nearlytrade.near'
+  const DCL = 'dclv2.ref-labs.near'
+  const POOL = `${KITS}|wrap.near|10000`
+  const FEES = 'fees.example.near'
+  /** The pool's point before any trade: 1 NEAR ≈ 588,679 KITS (the live KITS pool on 2026-10-12). */
+  const POINT = 5299
+  const MID = Math.pow(1.0001, POINT) // wNEAR raw per KITS raw
+  /** A trade of x into the pool fills x / DEPTH below the pool's marginal price (its mid less its 1% fee). */
+  const DEPTH = 1000e24
+  const rate = (tokenIn: string, amountIn: bigint) => {
+    const x = Number(amountIn)
+    const nearIn = tokenIn === 'wrap.near' ? x : x * MID
+    const out = tokenIn === 'wrap.near' ? (x / MID) * 0.99 * (1 - nearIn / DEPTH) : x * MID * 0.99 * (1 - nearIn / DEPTH)
+    return BigInt(Math.floor(out))
+  }
+  const chainWith = (point: number | undefined): FakeChainOptions => ({
+    accounts: {
+      'example.near': { amount: NEAR(10) },
+      [FEES]: { amount: NEAR(1) },
+      [DCL]: { amount: NEAR(1), code: true },
+      [KITS]: { amount: NEAR(1), code: true },
+    },
+    tokens: {
+      // A launch token with KITS' own tax: 2% on tokens leaving its pool (buy) and entering it (sell).
+      [KITS]: {
+        symbol: 'KITS',
+        name: 'Near Kits',
+        decimals: 18,
+        boundsMin: MIN_STORAGE,
+        registered: [DCL, 'example.near', FEES],
+        balances: { 'example.near': 1_000_000n * 10n ** 18n },
+        tax: { buyBps: 200, sellBps: 200, pairs: [DCL] },
+      },
+      'wrap.near': { symbol: 'wNEAR', decimals: 24, registered: [AGG, DCL, 'example.near', FEES], boundsMin: MIN_STORAGE },
+      [USDC_MAIN]: { symbol: 'USDC', decimals: 6, registered: [AGG, DCL], boundsMin: MIN_STORAGE },
+    },
+    aggregator: { contract: AGG, whitelist: ['wrap.near', USDC_MAIN], protocolPpm: 1000, registered: { 'example.near': ['wrap.near'] } },
+    dcl: { contract: DCL, pools: { [POOL]: { tokenX: KITS, tokenY: 'wrap.near', fee: 10000, liquidity: 10n ** 22n, rate, ...(point === undefined ? {} : { point }) } } },
+  })
+  /** Rhea doesn't route KITS (code 1008); its price list has KITS 25% away from the pool, as it had on 2026-10-12. */
+  const feeds = (chain: FakeChain) => {
+    chain.route('https://smartx.rhea.finance/swapMultiDexPath', () => ({ result_code: 1008, result_message: '', result_data: null }))
+    chain.route('https://api.rhea.finance/list-token-price', () => ({
+      [KITS]: { price: '0.000007832993087158374', symbol: 'KITS', decimal: 18 },
+      'wrap.near': { price: '5.77', symbol: 'wNEAR', decimal: 24 },
+    }))
+    chain.route('https://api.exchange.coinbase.com/products/NEAR-USD/ticker', () => ({ price: '5.773' }))
+  }
+  const buy = { tokenIn: 'near', tokenOut: KITS, amountIn: '0.332845', slippagePct: 1, walletId: 'example.near' }
+
+  it('the screenshot’s trade: 0.332845 NEAR → KITS is about 0.03% (its size against the pool’s pre-trade price), not 22% from a price list', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(POINT), session: session(['example.near']) })
+    feeds(chain)
+    const q = await services.trading.quote(buy)
+    expect(q).toMatchObject({ router: 'dcl', source: 'dcl' })
+    const swapIn = NEAR(0.332845) - (NEAR(0.332845) * 50n) / 10_000n
+    // The pool sees 0.331180775 NEAR: 0.0331% of the pool's depth here.
+    expect(q.priceImpactPct).not.toBeNull()
+    expect(q.priceImpactPct as number).toBeCloseTo((Number(swapIn) / DEPTH) * 100, 4)
+    // Fees and the tax are in the amounts once, and nowhere in the impact: the pool's output less KITS' 2% buy tax.
+    const poolOut = rate('wrap.near', swapIn)
+    expect(q.amountOutRaw).toBe((poolOut - (poolOut * 200n) / 10_000n).toString())
+  })
+
+  it('a high-impact trade still says so: 300 NEAR into this pool is about 30%', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(POINT), session: session(['example.near']) })
+    feeds(chain)
+    const q = await services.trading.quote({ ...buy, amountIn: '300' })
+    expect(q.priceImpactPct as number).toBeCloseTo(((300 * 0.995 * 1e24) / DEPTH) * 100, 3)
+    expect(q.priceImpactPct as number).toBeGreaterThan(10)
+  })
+
+  it('selling KITS: the sell tax comes off before the pool, and the impact is measured on what the pool received', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(POINT), session: session(['example.near']) })
+    feeds(chain)
+    const q = await services.trading.quote({ tokenIn: KITS, tokenOut: 'near', amountIn: '100000', slippagePct: 1, walletId: 'example.near' })
+    const amountIn = 100_000n * 10n ** 18n
+    const swapIn = amountIn - (amountIn * 50n) / 10_000n
+    const poolGets = swapIn - (swapIn * 200n) / 10_000n
+    expect(q.priceImpactPct as number).toBeCloseTo(((Number(poolGets) * MID) / DEPTH) * 100, 4)
+  })
+
+  it('without the pool’s pre-trade state the impact is unknown, never the price list’s figure', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(undefined), session: session(['example.near']) })
+    feeds(chain)
+    const q = await services.trading.quote(buy)
+    expect(q.router).toBe('dcl')
+    expect(q.priceImpactPct).toBeNull()
+  })
+})

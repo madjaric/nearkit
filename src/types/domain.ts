@@ -474,7 +474,10 @@ export interface Quote {
   minAmountOutRaw: string | null
   /** tokenOut received per tokenIn, after fee and impact. */
   rate: number
-  /** Estimated from spot prices; null when it can't be estimated (testnet). */
+  /**
+   * How far this order moves the pool price, in %: measured on the pools themselves for a direct DCL
+   * route, estimated from listed USD prices otherwise; null when it can't be known.
+   */
   priceImpactPct: number | null
   nearkitFee: QuoteFee
   networkFeeNear: number

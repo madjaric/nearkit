@@ -31,6 +31,8 @@ export interface FakeDclPool {
   /** Output for an input through this pool, after its fee. */
   rate: (tokenIn: string, amountIn: bigint) => bigint
   state?: 'Running' | 'Paused'
+  /** The pool's current point (`get_pool`'s `current_point`): its price before any trade, 1.0001^point of Y per X. */
+  point?: number
 }
 
 export interface FakeChainOptions {
@@ -157,7 +159,17 @@ export function createFakeChain(options: FakeChainOptions = {}) {
         case 'get_pool': {
           const p = pools.get(String(args.pool_id))
           if (!p) return { result: null }
-          return { result: { pool_id: args.pool_id, token_x: p.tokenX, token_y: p.tokenY, fee: p.fee, liquidity: p.liquidity.toString(), state: p.state ?? 'Running' } }
+          return {
+            result: {
+              pool_id: args.pool_id,
+              token_x: p.tokenX,
+              token_y: p.tokenY,
+              fee: p.fee,
+              liquidity: p.liquidity.toString(),
+              state: p.state ?? 'Running',
+              ...(p.point === undefined ? {} : { current_point: p.point }),
+            },
+          }
         }
         case 'quote': {
           const ids = Array.isArray(args.pool_ids) ? (args.pool_ids as string[]) : []

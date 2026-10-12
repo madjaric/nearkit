@@ -42,7 +42,7 @@ export interface RuntimeState {
   /** A DCL v2 contract: `ft_on_transfer` with a `Swap` message over its pools. */
   dcl: {
     contract: string
-    pools: Map<string, { tokenX: string; tokenY: string; fee: number; liquidity: bigint; rate: (tokenIn: string, amountIn: bigint) => bigint; state?: string }>
+    pools: Map<string, { tokenX: string; tokenY: string; fee: number; liquidity: bigint; rate: (tokenIn: string, amountIn: bigint) => bigint; state?: string; point?: number }>
   } | null
   /** Gas refunds land after `lag` more reads of the signer's balance (0: with the transaction). */
   refunds: { lag: number; pending: { account: string; amount: bigint; reads: number }[] }

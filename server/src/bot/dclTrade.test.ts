@@ -117,3 +117,28 @@ describe('a token outside every list, routed on DCL directly, from the NEARKITS 
     expect(h.last()?.text).toContain('Route NEAR → USDT · Rhea')
   })
 })
+
+describe('price impact of a DCL route in Telegram: measured on the pool itself', () => {
+  it('a buy that fills 1% below the pool’s pre-trade price says 1.00%, even on testnet where no price list exists', async () => {
+    // FRESH (X) and wNEAR (Y) at point 0: one raw unit each way before the pool's 1% fee; a trade of x NEAR fills x / 10 NEAR below that.
+    const depth = 10n * ONE
+    const sized = (tokenIn: string, amountIn: bigint) => {
+      void tokenIn
+      return (((amountIn * 99n) / 100n) * (depth - amountIn)) / depth
+    }
+    const h = await bot({ [POOL]: { tokenX: FRESH, tokenY: WRAP, fee: 10000, liquidity: 10n ** 23n, rate: sized, point: 0 } as never })
+    await h.funded(3n * ONE)
+    await h.say(`/buy ${FRESH} 0.1`)
+    const quote = h.last()?.text ?? ''
+    expect(quote).toContain('Route NEAR → FRESH · DCL')
+    // The bot's own format signs it (formatPct), as for every quote.
+    expect(quote).toContain('Price impact +1.00%')
+  })
+
+  it('a pool that doesn’t report its pre-trade state: the impact is unknown, never a guess', async () => {
+    const h = await bot()
+    await h.funded(3n * ONE)
+    await h.say(`/buy ${FRESH} 0.1`)
+    expect(h.last()?.text ?? '').toMatch(/Price impact —/)
+  })
+})

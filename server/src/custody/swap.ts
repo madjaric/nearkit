@@ -225,7 +225,9 @@ export function createSwapService(near: ServerNear) {
       .catch(() => (contract.length > 16 ? `${contract.slice(0, 8)}…` : contract))
   }
 
+  /** As the web's (services/real/tradingService.ts): a DCL route's impact is its pools', never a USD price list's. */
   async function impactOf(r: RoutedSwap): Promise<number | null> {
+    if (r.router === 'dcl') return r.impactPct ?? null
     if (!ctx.capabilities.prices) return null
     const price = async (id: string) => (await near.market.quoteFor(id).catch(() => null))?.priceUsd ?? null
     const [pIn, pOut] = await Promise.all([price(r.tokenIn.contract ?? NATIVE_TOKEN_ID), price(r.tokenOut.contract ?? NATIVE_TOKEN_ID)])

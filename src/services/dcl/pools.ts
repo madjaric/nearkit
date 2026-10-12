@@ -19,6 +19,8 @@ export interface DclPool {
   /** Liquidity at the current point; 0 means nothing can be swapped right now. */
   liquidity: bigint
   running: boolean
+  /** The current point: the pool's price before any trade is 1.0001^point of Y per X (raw units). Null when not reported. */
+  point: number | null
 }
 
 export function dclPoolId(a: string, b: string, fee: number): string {
@@ -42,12 +44,13 @@ const INT = /^\d+$/
 /** The pool as `get_pool` returns it; null for `null` (no pool) or anything malformed. */
 export function parseDclPool(json: unknown): DclPool | null {
   if (!obj(json)) return null
-  const { pool_id, token_x, token_y, fee, liquidity, state } = json
+  const { pool_id, token_x, token_y, fee, liquidity, state, current_point } = json
   if (typeof pool_id !== 'string' || typeof token_x !== 'string' || typeof token_y !== 'string') return null
   if (typeof fee !== 'number' || !DCL_FEE_TIERS.includes(fee)) return null
   if (typeof liquidity !== 'string' || !INT.test(liquidity)) return null
   if (pool_id !== dclPoolId(token_x, token_y, fee)) return null
-  return { id: pool_id, tokenX: token_x, tokenY: token_y, fee, liquidity: BigInt(liquidity), running: state === 'Running' }
+  const point = typeof current_point === 'number' && Number.isInteger(current_point) ? current_point : null
+  return { id: pool_id, tokenX: token_x, tokenY: token_y, fee, liquidity: BigInt(liquidity), running: state === 'Running', point }
 }
 
 /** Which tiers of a pair have a pool is remembered this long (a `null` too); state is re-read on each use. */

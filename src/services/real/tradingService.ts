@@ -99,7 +99,12 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     return (await market.quoteFor(token.contract === null ? NATIVE_TOKEN_ID : token.id).catch(() => null))?.priceUsd ?? null
   }
 
+  /**
+   * A DCL route's impact is measured on its pools (dcl/impact.ts), never from USD prices: a token's
+   * listed price can sit far from its pool. Other routes compare USD in and out at listed prices.
+   */
   async function impactOf(r: RoutedSwap): Promise<number | null> {
+    if (r.router === 'dcl') return r.impactPct ?? null
     if (!ctx.capabilities.prices) return null
     const [pIn, pOut] = await Promise.all([priceUsd(r.tokenIn), priceUsd(r.tokenOut)])
     if (!pIn || !pOut) return null

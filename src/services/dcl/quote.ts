@@ -1,6 +1,7 @@
 import type { NetworkConfig } from '@/config/networks'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { RpcError, type RpcClient } from '@/services/near/rpc'
+import type { DclHop } from './impact'
 import { type DclPool, type DclPoolReader } from './pools'
 
 /**
@@ -44,6 +45,8 @@ export interface DclRoute {
   tokens: string[]
   amountIn: bigint
   amountOut: bigint
+  /** Each pool as it was read for this quote, with the token it receives: its price before the trade (impact.ts). */
+  hops: DclHop[]
 }
 
 /** Token paths to try for a pair: the pair itself, then through each of the network's stablecoins. */
@@ -55,11 +58,11 @@ export function dclTokenPaths(network: Pick<NetworkConfig, 'stableTokens' | 'wra
 }
 
 /** Pool combinations of a token path, at most the two deepest pools per hop, so a two-hop path costs at most four quotes. */
-function poolPaths(hops: DclPool[][]): string[][] {
-  let combos: string[][] = [[]]
+function poolPaths(hops: DclPool[][]): DclPool[][] {
+  let combos: DclPool[][] = [[]]
   for (const pools of hops) {
-    const next: string[][] = []
-    for (const c of combos) for (const p of pools.slice(0, 2)) next.push([...c, p.id])
+    const next: DclPool[][] = []
+    for (const c of combos) for (const p of pools.slice(0, 2)) next.push([...c, p])
     combos = next
   }
   return combos
@@ -85,7 +88,18 @@ export async function bestDclRoute(
     dclTokenPaths(network, tokenIn, tokenOut).map(async (tokens) => {
       const hops = await Promise.all(tokens.slice(1).map((t, i) => reader.pools(tokens[i] as string, t)))
       if (hops.some((h) => h.length === 0)) return []
-      return Promise.all(poolPaths(hops).map(async (pools) => ({ pools, tokens, amountIn, amountOut: await dclQuote(rpc, contract, { pools, tokenIn, tokenOut, amountIn }) })))
+      return Promise.all(
+        poolPaths(hops).map(async (path) => {
+          const pools = path.map((p) => p.id)
+          return {
+            pools,
+            tokens,
+            amountIn,
+            amountOut: await dclQuote(rpc, contract, { pools, tokenIn, tokenOut, amountIn }),
+            hops: path.map((pool, i) => ({ pool, tokenIn: tokens[i] as string })),
+          }
+        }),
+      )
     }),
   )
   let best: DclRoute | null = null
