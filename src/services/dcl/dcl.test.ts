@@ -5,7 +5,7 @@ import { createFakeChain } from '@/services/real/testing/fakeChain'
 import { createDclPoolReader, DCL_FEE_TIERS, dclPoolId, dclPoolTokens, parseDclPool } from './pools'
 import { bestDclRoute, dclQuote, dclTokenPaths } from './quote'
 import { dclPathTokens, dclSwapMsg, directFee } from './swap'
-import { NO_TAX, readTransferTax } from './tax'
+import { NO_TAX, NO_TAX_TERMS, readTaxTerms, readTransferTax, routeTax, taxOn } from './tax'
 
 /**
  * DCL v2 read from the contract itself: deterministic pool ids per fee tier, on-chain quotes
@@ -180,6 +180,61 @@ describe('transfer tax', () => {
     const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: chain().fetch })
     expect(await readTransferTax(rpc, 'plain.near', DEX)).toEqual(NO_TAX)
     expect(await readTransferTax(rpc, 'elsewhere.nearlytrade.near', DEX)).toEqual(NO_TAX)
+  })
+
+  it('reads the terms once, with the pairs, so any route can ask which of its exchanges are taxed', async () => {
+    const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: chain().fetch })
+    const terms = await readTaxTerms(rpc, 'taxed.nearlytrade.near')
+    expect(terms).toEqual({ buyBps: 100, sellBps: 250, pairs: [DEX] })
+    expect(taxOn(terms, DEX)).toEqual({ buyBps: 100, sellBps: 250 })
+    expect(taxOn(terms, 'v2.ref-finance.near')).toEqual(NO_TAX)
+    expect(await readTaxTerms(rpc, 'plain.near')).toEqual(NO_TAX_TERMS)
+  })
+
+  it('fails when the chain can’t be asked: an unread tax is never taken for no tax', async () => {
+    const down = (async () => {
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    const rpc = createRpcClient({ urls: ['https://rpc.test'], fetch: down })
+    await expect(readTaxTerms(rpc, 'taxed.nearlytrade.near')).rejects.toMatchObject({ code: 'RPC_ERROR' })
+  })
+})
+
+describe('the tax a route through several exchanges pays (Rhea’s aggregator)', () => {
+  const DEX = 'dclv2.ref-labs.near'
+  const V1 = 'v2.ref-finance.near'
+  const KITS = 'kits.nearlytrade.near'
+  const terms = (token: string) => (token === KITS ? { buyBps: 200, sellBps: 200, pairs: [DEX] } : NO_TAX_TERMS)
+
+  it('a buy whose last exchange is the token’s taxed pair pays its buy tax; a sell whose first exchange is pays its sell tax', () => {
+    expect(routeTax([{ contract: WRAP, receiver: DEX, output: KITS }], terms)).toEqual({ inBps: 0, outBps: 200 })
+    expect(routeTax([{ contract: KITS, receiver: DEX, output: WRAP }], terms)).toEqual({ inBps: 200, outBps: 0 })
+  })
+
+  it('an exchange that isn’t one of the token’s pairs pays nothing', () => {
+    expect(routeTax([{ contract: WRAP, receiver: V1, output: KITS }], terms)).toEqual({ inBps: 0, outBps: 0 })
+    expect(routeTax([{ contract: WRAP, receiver: DEX, output: USDC }], terms)).toEqual({ inBps: 0, outBps: 0 })
+  })
+
+  it('a taxed token passed between two exchanges in the middle of a route can’t be priced: null', () => {
+    expect(
+      routeTax(
+        [
+          { contract: WRAP, receiver: DEX, output: KITS },
+          { contract: KITS, receiver: V1, output: USDC },
+        ],
+        terms,
+      ),
+    ).toBeNull()
+    expect(
+      routeTax(
+        [
+          { contract: WRAP, receiver: V1, output: USDC },
+          { contract: USDC, receiver: DEX, output: KITS },
+        ],
+        terms,
+      ),
+    ).toEqual({ inBps: 0, outBps: 200 })
   })
 })
 
