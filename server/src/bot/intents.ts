@@ -1,5 +1,7 @@
 import { explorerTxUrl } from '@/services/near/explorer'
-import type { Intent, IntentKind } from '../custody/store'
+import type { ExecuteResult } from '../custody/engine'
+import { IN_FLIGHT, type Intent, type IntentKind } from '../custody/store'
+import { TelegramError } from '../telegram/api'
 import { bold, esc, link } from '../telegram/html'
 import type { InlineKeyboard } from '../telegram/types'
 import { btn, keyboard, type BotCtx, type BotDeps, type BotModule } from './context'
@@ -40,6 +42,11 @@ const walletRow = () => [btn('👛 Wallet', 'cw:home'), btn('« Menu', 'menu:hom
 export async function resultScreen(deps: BotDeps, intent: Intent): Promise<{ text: string; markup: InlineKeyboard }> {
   const s = screens[intent.kind]
   if (s) return s.result(deps, intent)
+  return plainResult(deps, intent)
+}
+
+/** The outcome from the intent's own record alone (nothing to read from the chain). */
+function plainResult(deps: BotDeps, intent: Intent): { text: string; markup: InlineKeyboard } {
   const r = intent.result
   const text = [r?.ok ? '✅ Done.' : `❌ ${esc(r?.message ?? 'Failed.')}`, r?.hashes.length ? `Tx ${txLinks(deps, r.hashes)}` : null].filter(Boolean).join('\n')
   return { text, markup: keyboard(walletRow()) }
@@ -65,7 +72,14 @@ async function confirm(ctx: BotCtx, id: string) {
   await ctx.answer('Sending…')
   // The buttons go away at once, so this message can't be pressed again.
   await ctx.show(`⏳ ${bold('Sending')}…\nNEARKITS is signing and waiting for the chain.`)
-  const r = await custody.engine.execute(id, ctx.user.id)
+  try {
+    await showOutcome(ctx, intent, await custody.engine.execute(id, ctx.user.id))
+  } catch (e) {
+    await confirmFailed(ctx, id, e)
+  }
+}
+
+async function showOutcome(ctx: BotCtx, intent: Intent, r: ExecuteResult): Promise<void> {
   const kindScreens = screens[intent.kind]
   switch (r.kind) {
     case 'finished': {
@@ -92,6 +106,31 @@ async function confirm(ctx: BotCtx, id: string) {
               : 'Already confirmed: see the result above.'
       return ctx.show(text, keyboard(retry, walletRow()))
     }
+  }
+}
+
+/**
+ * Confirm failed once the engine had the intent: it threw (a database error, a crash in a step)
+ * or its outcome couldn't be shown. A transaction may be out by then, so the answer is never
+ * "nothing was sent": an intent still in flight (or unreadable) shows Processing, as the resolver
+ * settles it from the chain and messages the user (failing it if nothing was ever signed), and a
+ * settled one shows its result. Only an intent Confirm never ran (still quoted, re-quoted, refused)
+ * goes on to the error boundary, which rightly says nothing was sent.
+ */
+async function confirmFailed(ctx: BotCtx, id: string, e: unknown): Promise<void> {
+  const now = await ctx.deps.custody?.store.intent(id).catch(() => undefined)
+  const settled = now?.status === 'done' || now?.status === 'failed'
+  if (now && !settled && !IN_FLIGHT.includes(now.status)) throw e
+  ctx.deps.log.error('confirm failed once the engine had the intent', { intent: id, status: now?.status ?? 'unknown', error: e })
+  const s = now && settled ? await resultScreen(ctx.deps, now).catch(() => plainResult(ctx.deps, now)) : { text: PENDING_TEXT, markup: keyboard(walletRow()) }
+  try {
+    await ctx.show(s.text, s.markup)
+  } catch {
+    // The message can't be edited (deleted, or Telegram refused it): a new one says it instead.
+    await ctx.reply(s.text, s.markup).catch((replied: unknown) => {
+      if (replied instanceof TelegramError && replied.blocked) throw replied
+      ctx.deps.log.warn('couldn’t tell the user how Confirm went; the resolver reports it if still in flight', { intent: id, error: replied })
+    })
   }
 }
 
