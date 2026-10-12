@@ -238,6 +238,20 @@ describe('a Bridge to a NEARKITS wallet: NEARKITS unwraps exactly what NEAR Inte
     expect(unwraps(app)).toEqual([])
   })
 
+  it('failed at NEAR Intents, then SUCCESS with the wNEAR seen on chain: unwrapped once and complete, like any delivery', async () => {
+    const app = await startedBridge()
+    app.status('FAILED')
+    await app.tick()
+    expect((await app.order(app.v.id)).status).toBe('failed')
+    const amount = delivers(app, app.w.accountId, 'wnear')
+    app.h.advance(5 * 60_000)
+    await app.tick()
+    expect(await app.order(app.v.id)).toMatchObject({ status: 'unwrapping', delivered: { asset: 'wnear', amount: amount.toString() } })
+    await app.tick()
+    expect((await app.order(app.v.id)).status).toBe('complete')
+    expect(unwraps(app)).toEqual([{ amount: amount.toString() }])
+  })
+
   it('a source transfer is recorded once: the same hash again is fine, a different one is refused', async () => {
     const app = await startedBridge()
     await app.call('/api/bridge/deposit', { session: app.token, orderId: app.v.id, txHash: SOL_SIG })

@@ -5,6 +5,7 @@ import type { BridgeOrderView, BridgeQuoteView } from '@/lib/bridge/types'
 import { ONE, USDT, WRAP } from '../bot/walletTesting'
 import { createBridgeService } from './service'
 import { BOB, bridgeApp, DEPOSIT_SOL, FEE, NEAR_HASH, SOL, SOL_ADDR, SOL_SIG } from './testing'
+import { BRIDGE_TICK_MS, createBridgeWorker } from './worker'
 
 /**
  * Bridge & Buy on NEARKITS' server, end to end against the stand-ins of ./testing.ts: a fake 1Click
@@ -224,6 +225,141 @@ describe('following an order: NEAR Intents’ status, then the delivery checked 
     expect((await order(v.id)).status).toBe('bridging')
     expect(h.chain.sent.length).toBe(sent)
   })
+})
+
+describe('a failed order: asked about slowly for what NEAR Intents does next, never in a loop, then let go', () => {
+  /** A Bridge & Buy order to Alice's NEARKITS wallet (registered with wrap.near) that NEAR Intents reported FAILED. */
+  const failed = async () => {
+    const app = await bridgeApp()
+    const w = await app.h.funded(ONE)
+    app.h.chain.tokens.get(WRAP)?.registered.add(w.accountId)
+    const token = await app.signIn()
+    const v = (await app.call('/api/bridge/start', app.input(token, w.id))) as unknown as BridgeOrderView
+    app.status('FAILED', { originChainTxHashes: [{ hash: SOL_SIG, explorerUrl: 'https://solscan.io/tx/x' }] })
+    await app.tick()
+    expect(await app.order(v.id)).toMatchObject({ status: 'failed', refund: null })
+    /** The checks due after `ms` more on the clock, each stepped once. */
+    const later = async (ms: number) => {
+      app.h.advance(ms)
+      for (const o of await app.store.due(50)) await app.bridge.step(o)
+    }
+    const polled = () => app.oc.polls.filter((d) => d === DEPOSIT_SOL).length
+    return { ...app, w, token, v, later, polled }
+  }
+
+  it('NEAR Intents still says FAILED: checked again minutes later, never due again at once', async () => {
+    const { order, v, later, polled, h } = await failed()
+    expect((await order(v.id)).nextCheckAt).toBeGreaterThanOrEqual(h.deps.now() + 60_000)
+    const asked = polled()
+    await later(5 * 60_000)
+    const o = await order(v.id)
+    expect(o.status).toBe('failed')
+    expect(o.message).toMatch(/NEARKITS keeps checking/)
+    expect(o.nextCheckAt).toBeGreaterThanOrEqual(h.deps.now() + 60_000)
+    expect(polled()).toBe(asked + 1)
+    // The worker's passes in between ask NEAR Intents nothing about it.
+    for (let i = 0; i < 10; i++) await later(BRIDGE_TICK_MS)
+    expect(polled()).toBe(asked + 1)
+  })
+
+  it('then REFUNDED: the refund recorded once, with NEAR Intents’ reason, and the order no longer followed', async () => {
+    const { order, v, later, status, h, bridge } = await failed()
+    const before = await order(v.id)
+    const sent = h.chain.sent.length
+    status('REFUNDED', { refundedAmount: '999000000', refundReason: 'Swap failed', originChainTxHashes: [{ hash: SOL_SIG, explorerUrl: 'https://solscan.io/tx/r' }] })
+    await later(5 * 60_000)
+    const o = await order(v.id)
+    expect(o).toMatchObject({
+      status: 'refunded',
+      refund: { amount: '999000000', reason: 'Swap failed', txs: [{ hash: SOL_SIG }] },
+      nextCheckAt: null,
+      delivered: null,
+      kits: null,
+    })
+    expect(o.message).toMatch(/refunded your address on the source chain/)
+    // Never twice: a step that read the order before the refund was recorded changes nothing.
+    status('REFUNDED', { refundedAmount: '1', refundReason: 'other', originChainTxHashes: [] })
+    await bridge.step(before)
+    await later(10 * 60_000)
+    expect(await order(v.id)).toMatchObject({ status: 'refunded', refund: { amount: '999000000', reason: 'Swap failed' }, nextCheckAt: null })
+    // NEAR Intents refunds the source address: NEARKITS sent nothing on NEAR.
+    expect(h.chain.sent.length).toBe(sent)
+  })
+
+  it('then SUCCESS with the NEAR seen on chain in the wallet: it goes on to the purchase like any delivery', async () => {
+    const { order, v, later, status, h, fast, w } = await failed()
+    const amount = 19n * ONE
+    h.chain.fund(w.accountId, amount)
+    fast.native(NEAR_HASH(2), w.accountId, amount)
+    status('SUCCESS', { destinationChainTxHashes: [{ hash: NEAR_HASH(2), explorerUrl: '' }], amountOut: amount.toString() })
+    await later(5 * 60_000)
+    expect(await order(v.id)).toMatchObject({ status: 'delivered', delivered: { amount: amount.toString(), asset: 'near' } })
+    await later(BRIDGE_TICK_MS)
+    const o = await order(v.id)
+    expect(o.status).toBe('complete')
+    expect(BigInt(o.kits?.amount ?? '0')).toBeGreaterThan(0n)
+  })
+
+  it('a day without its refund reported: no longer followed, and the order says so honestly', async () => {
+    const { order, v, later, polled } = await failed()
+    await later(24 * 60 * 60_000)
+    const o = await order(v.id)
+    expect(o).toMatchObject({ status: 'failed', nextCheckAt: null, refund: null })
+    expect(o.message).toMatch(/stopped checking/)
+    expect(o.message).toMatch(/refund/)
+    const asked = polled()
+    for (let i = 0; i < 5; i++) await later(10 * 60_000)
+    expect(polled()).toBe(asked)
+  })
+
+  it('a step whose move loses (the order changed under it) still leaves the order a next check, never due again at once', async () => {
+    const app = await bridgeApp()
+    const w = await app.h.funded(ONE)
+    app.h.chain.tokens.get(WRAP)?.registered.add(w.accountId)
+    const v = (await app.call('/api/bridge/start', app.input(await app.signIn(), w.id))) as unknown as BridgeOrderView
+    // A step that read the order while it was in transit; meanwhile it failed, its next check long past (as the old loop left such orders).
+    const stale = await app.order(v.id)
+    await app.store.update(v.id, { status: 'failed', nextCheckAt: app.h.deps.now() - 60_000 })
+    app.status('PROCESSING')
+    await app.bridge.step(stale)
+    const o = await app.order(v.id)
+    expect(o.status).toBe('failed')
+    expect(o.nextCheckAt).toBeGreaterThanOrEqual(app.h.deps.now() + 60_000)
+  })
+
+  it('eleven failed orders never hold up a live one; each is asked about at most once per its slow interval', async () => {
+    const app = await bridgeApp()
+    const w = await app.h.funded(ONE)
+    app.h.chain.tokens.get(WRAP)?.registered.add(w.accountId)
+    const token = await app.signIn()
+    const orders: BridgeOrderView[] = []
+    for (let i = 0; i < 12; i++) orders.push((await app.call('/api/bridge/start', app.input(token, w.id))) as unknown as BridgeOrderView)
+    const live = orders.at(-1) as BridgeOrderView
+    const failing = orders.slice(0, 11)
+    for (const o of failing) app.status('FAILED', {}, o.depositAddress)
+    app.status('PROCESSING', {}, live.depositAddress)
+    // The worker as it runs: ten due orders a pass, one pass every two seconds.
+    const worker = createBridgeWorker({ bridge: app.bridge, store: app.store, instanceId: 'test', log: app.h.deps.log })
+    const run = async (ms: number) => {
+      for (let t = 0; t < ms; t += BRIDGE_TICK_MS) {
+        app.h.advance(BRIDGE_TICK_MS)
+        await worker.tick()
+      }
+    }
+    await run(20_000)
+    for (const o of failing) expect((await app.order(o.id)).status).toBe('failed')
+    expect((await app.order(live.id)).status).toBe('bridging')
+    // Past the failed orders' next check, the live one's NEAR arrives: it is still stepped, through to its purchase.
+    await run(5 * 60_000)
+    const amount = 19n * ONE
+    app.h.chain.fund(w.accountId, amount)
+    app.fast.native(NEAR_HASH(2), w.accountId, amount)
+    app.status('SUCCESS', { destinationChainTxHashes: [{ hash: NEAR_HASH(2), explorerUrl: '' }], amountOut: amount.toString() }, live.depositAddress)
+    await run(30_000)
+    expect((await app.order(live.id)).status).toBe('complete')
+    // Each failed order was asked about when it failed and once more five minutes later: never in a loop.
+    for (const o of failing) expect(app.oc.polls.filter((d) => d === o.depositAddress).length).toBeLessThanOrEqual(2)
+  }, 60_000)
 })
 
 describe('stage 2: NEARKITS buys the token with the NEAR delivered, through the engine, within what the user accepted', () => {
