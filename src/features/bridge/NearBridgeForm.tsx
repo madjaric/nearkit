@@ -29,7 +29,7 @@ import { WRAP_NETWORK_FEE_YOCTO } from '@/services/near/wrap'
 import type { Wallet } from '@/types/domain'
 import { OperationModal } from '../tools/OperationModal'
 import { countdown, etaText, nearText, rawText } from './format'
-import { ChainPicker, SendAmountField, SourceConnect, SourceStatus } from './SourceFields'
+import { ChainPicker, SendAmountField, SourceAction, SourceStatus } from './SourceFields'
 import { useBridgeAssets, useBridgeClient, useBridgeQuote } from './useBridge'
 import { useSendToDeposit, useSourceSide } from './useSourceSide'
 import type { SourceWallet } from './useSourceWallet'
@@ -45,14 +45,13 @@ import type { SourceWallet } from './useSourceWallet'
  *
  * In Telegram's Mini App (`miniApp`) the same form bridges to the user's own NEARKITS wallets only: they
  * come from Telegram's launch (the bridge lists them), there is no other destination and no link out of
- * Telegram, and a browser with no wallet (Telegram's own) says what to do instead.
+ * Telegram, and a browser with no wallet (Telegram's own) says what to do instead (SourceAction).
  */
 
-/** The Mini App's form: the user's NEARKITS wallets from the bridge, and what to say without a source wallet. */
+/** The Mini App's form: the user's NEARKITS wallets from the bridge. */
 export interface MiniAppDestinations {
   wallets: BridgeWalletOption[]
   loading: boolean
-  noWalletHint: ReactNode
 }
 
 type DestinationWallet = Pick<Wallet, 'id' | 'accountId' | 'label' | 'nearkitId'>
@@ -155,7 +154,7 @@ export function NearBridgeForm({ onStarted, initialChain, miniApp }: { onStarted
         : insufficient
           ? `Insufficient ${chain.symbol}`
           : !sourceAddress
-            ? `Connect your ${chain.name} wallet`
+            ? `Choose the ${chain.name} wallet you send from`
             : quote.isError
               ? (quote.error as Error).message
               : !q || settling
@@ -195,7 +194,6 @@ export function NearBridgeForm({ onStarted, initialChain, miniApp }: { onStarted
                 setAmountText('')
               }}
             />
-            <SourceConnect chain={chain} side={side} noWalletHint={miniApp?.noWalletHint} />
             <SendAmountField chain={chain} side={side} />
           </section>
 
@@ -320,6 +318,7 @@ export function NearBridgeForm({ onStarted, initialChain, miniApp }: { onStarted
         busy={start.isPending}
         onStart={begin}
         crossLink={!miniApp}
+        wallet={<SourceAction chain={chain} side={side} inTelegram={Boolean(miniApp)} />}
       />
 
       {review && (
@@ -428,6 +427,7 @@ function QuoteSummary({
   busy,
   onStart,
   crossLink,
+  wallet,
 }: {
   chain: BridgeChain
   quote: BridgeQuoteView | undefined
@@ -439,6 +439,8 @@ function QuoteSummary({
   onStart: () => void
   /** The link to Bridge & Buy (not in the Mini App, which stays inside Telegram). */
   crossLink: boolean
+  /** The sending wallet (SourceAction), right above Bridge to NEAR: the step it waits for. */
+  wallet: ReactNode
 }) {
   const now = useNow(5_000)
   const rate = q ? rateText(chain, q) : null
@@ -475,6 +477,7 @@ function QuoteSummary({
           <p className="num mt-1 text-2xl font-semibold leading-8 text-fg">{q ? `≈ ${nearText(q.nearOut)} NEAR` : loading ? '…' : '—'}</p>
           <p className="mt-1 text-xs text-fg-3">{q ? `At least ${nearText(q.nearMinOut)} NEAR. ${arrivesText(q.delivery)}` : 'Priced live by NEAR Intents.'}</p>
         </div>
+        {wallet}
         <div className="flex flex-col gap-2">
           <Button variant="primary" size="xl" block onClick={onStart} disabled={reason !== undefined} loading={busy}>
             Bridge to NEAR

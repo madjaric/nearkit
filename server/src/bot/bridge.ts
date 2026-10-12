@@ -115,7 +115,7 @@ export async function bridgeHome(ctx: BotCtx) {
     `🌉 ${bold('Bridge to NEAR')}`,
     'Move SOL, ETH or BNB from Solana, Ethereum or BNB Chain into your NEARKITS wallet, through NEAR Intents.',
     '',
-    `🔗 ${bold('Connect wallet')}: opens the NEARKITS Mini App, where your own Solana or EVM wallet sends.`,
+    `🔗 ${bold('Connect wallet')}: opens the NEARKITS Mini App for a live quote. Inside Telegram there’s usually no wallet to connect: you enter the address you send from, then send from your wallet app.`,
     `✍️ ${bold('Send manually')}: get a deposit address for one order and send from any wallet you control.`,
     '',
     `Fee: NEARKITS ${esc(BRIDGE_FEE_LABEL)}, plus NEAR Intents’ own fee, both shown in the live quote. NEAR arrives as wNEAR; NEARKITS unwraps it to native NEAR in your wallet.`,

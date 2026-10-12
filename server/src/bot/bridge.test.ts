@@ -62,6 +62,9 @@ describe('the Bridge’s home in Telegram', () => {
     await app.h.say('/bridge')
     expect(app.text()).toMatch(/Bridge to NEAR/)
     expect(app.text()).toMatch(/NEARKITS 0\.25%, plus NEAR Intents’ own fee/)
+    // It doesn't promise a wallet connection Telegram's own browser can't make (the Mini App says the same).
+    expect(app.text()).not.toMatch(/where your own Solana or EVM wallet sends/)
+    expect(app.text()).toContain('Inside Telegram there’s usually no wallet to connect: you enter the address you send from, then send from your wallet app.')
     const buttons = app.h.buttons()
     expect(buttons.find((b) => b.text.includes('Connect wallet'))?.url).toBe('https://t.me/NearKitBot?startapp=bridge')
     expect(buttons.map((b) => b.data)).toEqual(expect.arrayContaining(['brg:man', 'brg:list', 'menu:home']))

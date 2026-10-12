@@ -13,7 +13,8 @@ import { BridgeClientContext, useBridgeAvailability, useBridgeClient } from './u
  * /bridge-near form and order view, on the same server routes, for the user's own NEARKITS wallets.
  * Every request carries the launch data Telegram signed for NEARKITS' bot, and the server checks it
  * (the page itself never decides who the user is). The user's own Solana or EVM wallet sends, where
- * this browser has one; Telegram's own browser usually has none, and the form says what to do then.
+ * one registers itself on this page; Telegram's own browser has none, and the form says so and takes
+ * the address the user sends from instead (SourceAction).
  * Once an order exists the page can be closed: the bot messages the user as it moves.
  */
 
@@ -25,9 +26,6 @@ export default function TelegramBridge({ initData, onBack }: { initData: string;
     </BridgeClientContext.Provider>
   )
 }
-
-const NO_WALLET_HINT =
-  'Telegram’s in-app browser has no wallet extension, so there’s usually nothing to connect here. Tick “Send from another wallet” and paste the address you send from, or use ✍️ Send manually in the bot.'
 
 function Body({ onBack }: { onBack: () => void }) {
   const availability = useBridgeAvailability()
@@ -70,7 +68,7 @@ function Body({ onBack }: { onBack: () => void }) {
           <p className="text-xs leading-5 text-fg-3">You can close this page: NEARKITS’ bot messages you when the deposit is seen and when the NEAR is in your wallet.</p>
         </>
       ) : (
-        <NearBridgeForm onStarted={setOrderId} miniApp={{ wallets: wallets.data ?? [], loading: wallets.isPending, noWalletHint: NO_WALLET_HINT }} />
+        <NearBridgeForm onStarted={setOrderId} miniApp={{ wallets: wallets.data ?? [], loading: wallets.isPending }} />
       )}
       {back}
     </Frame>

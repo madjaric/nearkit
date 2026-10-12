@@ -311,7 +311,7 @@ function fakeServer() {
 }
 
 /** The fake wallets, injected before the app loads: they record what they are asked to sign. */
-function injectWallets({ solAddress, evmAddress, withWallets }) {
+function injectWallets({ solAddress, evmAddress, withWallets, rejectFirstSol }) {
   const log = (window.__bb = { evm: [], sol: [] })
   // A NEARKITS web session in this browser (the Mini App must never send it).
   localStorage.setItem(
@@ -353,6 +353,8 @@ function injectWallets({ solAddress, evmAddress, withWallets }) {
     window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: Object.freeze({ info: { uuid: 'e2e-evm', name: 'E2E EVM', icon, rdns: 'test.e2e' }, provider }) })),
   )
   const account = { address: solAddress, publicKey: new Uint8Array(32), chains: ['solana:mainnet'], features: [] }
+  // The user declines the first connection in the wallet (as Phantom reports it: code 4001).
+  let declined = !rejectFirstSol
   const wallet = {
     version: '1.0.0',
     name: 'E2E Solana',
@@ -363,6 +365,10 @@ function injectWallets({ solAddress, evmAddress, withWallets }) {
       'standard:connect': {
         version: '1.0.0',
         connect: async () => {
+          if (!declined) {
+            declined = true
+            throw Object.assign(new Error('User rejected the request.'), { code: 4001 })
+          }
           wallet.accounts = [account]
           return { accounts: wallet.accounts }
         },
@@ -398,10 +404,10 @@ const step = async (name, fn) => {
   }
 }
 
-async function openPage(width = 1440, { wallets = true } = {}) {
+async function openPage(width = 1440, { wallets = true, rejectFirstSol = false } = {}) {
   const server = fakeServer()
   const context = await browser.newContext({ viewport: { width, height: width < 768 ? 844 : 900 } })
-  await context.addInitScript(injectWallets, { solAddress: SOL_ADDRESS, evmAddress: EVM_ADDRESS, withWallets: wallets })
+  await context.addInitScript(injectWallets, { solAddress: SOL_ADDRESS, evmAddress: EVM_ADDRESS, withWallets: wallets, rejectFirstSol })
   const external = []
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -587,12 +593,17 @@ for (const width of [1920, 1440, 1280, 1024, 820, 768, 390, 375, 360]) {
 
 // ─── the Bridge to NEAR (/bridge-near) ─────────────────────────────────────
 
-async function fillBridge(page, { chain, amount, walletButton, mode = 'My NEARKITS wallet', wallet = 'Degen 1', account = null }) {
+/** The Bridge's own Connect key, right above Bridge to NEAR: "Connect Solana Wallet", "Connect Ethereum Wallet", … */
+const CONNECT_CHAIN = { SOL: 'Solana', ETH: 'Ethereum', BNB: 'BNB Chain' }
+
+async function fillBridge(page, { chain, amount, mode = 'My NEARKITS wallet', wallet = 'Degen 1', account = null }) {
   await page.goto(BASE + '/bridge-near', { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { level: 1, name: 'Bridge' }).waitFor()
   await page.getByRole('radio', { name: new RegExp(`^${chain}`) }).click()
-  const connect = page.getByRole('button', { name: `Connect ${walletButton}` })
-  if (await connect.isVisible().catch(() => false)) await connect.click()
+  await summary(page)
+    .getByRole('button', { name: `Connect ${CONNECT_CHAIN[chain]} Wallet` })
+    .click()
+  await summary(page).getByRole('button', { name: 'Disconnect' }).waitFor()
   await page.getByLabel('You send').fill(amount)
   await page.getByRole('radio', { name: new RegExp(`^${mode}`) }).click()
   if (mode === 'My NEARKITS wallet') {
@@ -847,7 +858,13 @@ await step(
     if (modes.length !== 1 || !/My NEARKITS wallet/.test(modes[0])) throw new Error(`destinations offered: ${modes.join(' | ')}`)
     await pickNearkitsWallet(page, 'Degen 1')
     await page.getByRole('radio', { name: /^SOL/ }).click()
-    await page.getByRole('button', { name: 'Connect E2E Solana' }).click()
+    // The one way to connect is right above Bridge to NEAR, and says which wallet opens.
+    const walletSection = summary(page).getByRole('region', { name: 'Your Solana wallet' })
+    if (!/Opens E2E Solana to approve the connection/.test(await walletSection.innerText())) throw new Error('the Connect key doesn’t say which wallet opens')
+    await walletSection.getByRole('button', { name: 'Connect Solana Wallet' }).click()
+    await walletSection.getByText('Sending from E2E Solana').waitFor()
+    if (!(await walletSection.innerText()).includes(`${SOL_ADDRESS.slice(0, 6)}…${SOL_ADDRESS.slice(-4)}`)) throw new Error('the connected address isn’t shown shortened')
+    if (server.log.starts.length) throw new Error('connecting a wallet asked for an order (a deposit address)')
     await page.getByLabel('You send').fill('1')
     await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
     const text = await summary(page).innerText()
@@ -884,29 +901,81 @@ await step(
   },
 )
 
-await step(
-  'Mini App in Telegram’s own browser (no wallet extension): says so, and the address to send from can still be pasted; the review shows the order’s deposit address',
-  async () => {
-    const { context, page, errors } = await openPage(390, { wallets: false })
-    await openMiniApp(page, telegramLaunch())
-    await pickNearkitsWallet(page, 'Main')
-    await page.getByRole('radio', { name: /^SOL/ }).click()
-    await page.getByText('Telegram’s in-app browser has no wallet extension').waitFor()
-    if (await page.getByRole('button', { name: /^Connect / }).count()) throw new Error('a wallet is offered that isn’t there')
-    await page.getByLabel(/Send from another wallet/).check()
-    await page.getByLabel('Your Solana address').fill(SOL_ADDRESS)
-    await page.getByLabel('You send').fill('1')
-    await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
-    await page.getByRole('button', { name: 'Bridge to NEAR' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
-    await dialog.waitFor()
-    const review = await dialog.innerText()
-    if (!review.includes(DEPOSIT.sol) || !/I’ve sent it/i.test(review)) throw new Error(`review: ${review.replace(/\s+/g, ' ')}`)
-    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tg-bridge-no-wallet-390.png') })
-    if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
-    await context.close()
-  },
-)
+for (const width of [360, 390, 430])
+  await step(
+    `Mini App in Telegram’s own browser (no wallet on the page), at ${width}px, as reported on 2026-10-12 (a quote, a disabled Bridge to NEAR): no dead Connect key; it says why, right above Bridge to NEAR, and takes the address to send from; nothing is asked for before Bridge to NEAR; the review shows the deposit address`,
+    async () => {
+      const { context, page, server, errors } = await openPage(width, { wallets: false })
+      await openMiniApp(page, telegramLaunch())
+      await pickNearkitsWallet(page, 'Main')
+      await page.getByRole('radio', { name: /^SOL/ }).click()
+      await page.getByLabel('You send').fill('0.1')
+      await summary(page).getByText('NEARKITS bridge fee (0.25%)').waitFor({ timeout: 15_000 })
+      await summary(page)
+        .getByText(/≈ [\d.]+ NEAR/)
+        .first()
+        .waitFor({ timeout: 15_000 })
+      const bridge = summary(page).getByRole('button', { name: 'Bridge to NEAR' })
+      if (await bridge.isEnabled()) throw new Error('Bridge to NEAR is enabled with no wallet to send from')
+      const walletSection = summary(page).getByRole('region', { name: 'Your Solana wallet' })
+      const said = await walletSection.innerText()
+      for (const want of ['No Solana wallet in Telegram', 'Telegram’s in-app browser has no Solana wallet this page can connect to', '✍️ Send manually'])
+        if (!said.includes(want)) throw new Error(`the wallet section lacks “${want}”: ${said.replace(/\s+/g, ' ')}`)
+      if (await page.getByRole('button', { name: /^Connect / }).count()) throw new Error('a Connect key is offered with no wallet on the page')
+      if (!(await summary(page).innerText()).includes('Choose the Solana wallet you send from')) throw new Error('the disabled Bridge to NEAR doesn’t say what it waits for')
+      // Right above Bridge to NEAR, in the same viewport column, not off in another section.
+      const [w, b] = await Promise.all([walletSection.boundingBox(), bridge.boundingBox()])
+      if (!w || !b || w.y + w.height > b.y || b.y - (w.y + w.height) > 48) throw new Error(`the wallet section isn’t right above Bridge to NEAR: ${JSON.stringify({ w, b })}`)
+      if ((await overflow(page)) > 0) throw new Error(`horizontal overflow ${await overflow(page)}px`)
+      if (SHOTS) await page.screenshot({ path: join(SHOTS, `tg-bridge-no-wallet-${width}.png`), fullPage: true })
+      await walletSection.getByRole('button', { name: 'Enter my Solana address' }).click()
+      const field = walletSection.getByLabel('Your Solana address')
+      if (!(await field.evaluate((el) => el === document.activeElement))) throw new Error('the address field isn’t focused after the tap')
+      await field.fill(SOL_ADDRESS)
+      await summary(page).getByText('Bridge to NEAR shows the deposit address to send exactly the amount to, from this address.').waitFor()
+      await page.waitForFunction(() => {
+        const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Bridge to NEAR')
+        return b && !b.disabled
+      })
+      if (server.log.starts.length) throw new Error('an order (a deposit address) was asked for before Bridge to NEAR')
+      if (SHOTS) await page.screenshot({ path: join(SHOTS, `tg-bridge-address-${width}.png`), fullPage: true })
+      await bridge.click()
+      const dialog = page.getByRole('dialog', { name: 'Review Bridge' })
+      await dialog.waitFor()
+      const review = await dialog.innerText()
+      if (!review.includes(DEPOSIT.sol) || !/I’ve sent it/i.test(review)) throw new Error(`review: ${review.replace(/\s+/g, ' ')}`)
+      if (server.log.starts.length !== 1 || server.log.starts[0].sourceAddress !== SOL_ADDRESS) throw new Error(`orders asked for: ${JSON.stringify(server.log.starts)}`)
+      if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+      await context.close()
+    },
+  )
+
+await step('Mini App: a connection the wallet declines is said plainly, Bridge to NEAR stays off, Connect Solana Wallet tries again; nothing is asked for meanwhile', async () => {
+  const { context, page, server, errors } = await openPage(390, { rejectFirstSol: true })
+  await openMiniApp(page, telegramLaunch())
+  await pickNearkitsWallet(page, 'Main')
+  await page.getByRole('radio', { name: /^SOL/ }).click()
+  await page.getByLabel('You send').fill('1')
+  await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
+  const walletSection = summary(page).getByRole('region', { name: 'Your Solana wallet' })
+  await walletSection.getByRole('button', { name: 'Connect Solana Wallet' }).click()
+  await walletSection.getByRole('alert').getByText('You declined in your wallet.').waitFor()
+  if (await summary(page).getByRole('button', { name: 'Bridge to NEAR' }).isEnabled()) throw new Error('Bridge to NEAR is enabled after a declined connection')
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, 'tg-bridge-declined-390.png'), fullPage: true })
+  await walletSection.getByRole('button', { name: 'Connect Solana Wallet' }).click()
+  await walletSection.getByText('Sending from E2E Solana').waitFor()
+  await page.waitForFunction(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Bridge to NEAR')
+    return b && !b.disabled
+  })
+  // Disconnect: back to Connect, and Bridge to NEAR off again.
+  await walletSection.getByRole('button', { name: 'Disconnect' }).click()
+  await walletSection.getByRole('button', { name: 'Connect Solana Wallet' }).waitFor()
+  if (await summary(page).getByRole('button', { name: 'Bridge to NEAR' }).isEnabled()) throw new Error('Bridge to NEAR stays enabled after Disconnect')
+  if (server.log.starts.length) throw new Error('an order was asked for without Bridge to NEAR')
+  if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`)
+  await context.close()
+})
 
 await step('Mini App with an expired launch: the server refuses it, and the page says to open Bridge from the bot again (nothing else is offered)', async () => {
   const { context, page, server } = await openPage(390)
@@ -923,7 +992,7 @@ for (const width of [360, 390, 430, 768]) {
     await openMiniApp(page, telegramLaunch())
     await pickNearkitsWallet(page, 'Main')
     await page.getByRole('radio', { name: /^SOL/ }).click()
-    await page.getByRole('button', { name: 'Connect E2E Solana' }).click()
+    await summary(page).getByRole('button', { name: 'Connect Solana Wallet' }).click()
     await page.getByLabel('You send').fill('1')
     await summary(page).getByText('≈ 20.895 NEAR').first().waitFor({ timeout: 15_000 })
     const form = await overflow(page)

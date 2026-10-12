@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState } from 'react'
 import { Wallet as WalletIcon } from 'lucide-react'
 import { ChainMark } from '@/components/brand/ChainMark'
 import { Button } from '@/components/ui/Button'
@@ -8,6 +8,7 @@ import { BRIDGE_CHAINS, type BridgeChain, type BridgeChainId } from '@/config/br
 import { cn } from '@/lib/cn'
 import { truncateMiddle } from '@/lib/format'
 import { rawText } from './format'
+import { sourceActionState } from './sourceAction'
 import type { SourceSide } from './useSourceSide'
 import type { SourceWallet, useSourceWallet } from './useSourceWallet'
 
@@ -117,8 +118,7 @@ export function SourceStatus({ source, chain, manual }: { source: Source; chain:
   return <span className="text-xs text-fg-3">{manual ? `Sending from another ${chain.name} wallet` : `${chain.name} wallet not connected`}</span>
 }
 
-/** `noWalletHint`: what to say when this browser has no wallet for the chain (the Mini App says why, inside Telegram). */
-export function SourceConnect({ chain, side, noWalletHint }: { chain: BridgeChain; side: SourceSide; noWalletHint?: ReactNode }) {
+export function SourceConnect({ chain, side }: { chain: BridgeChain; side: SourceSide }) {
   const { source, manual, setManual, manualAddress, setManualAddress, manualError } = side
   if (source.connection) return source.error ? <p className="text-xs text-warn">{source.error}</p> : null
   return (
@@ -127,13 +127,11 @@ export function SourceConnect({ chain, side, noWalletHint }: { chain: BridgeChai
         <div className="flex flex-wrap gap-2">
           {source.wallets.map((w: SourceWallet) => (
             <Button key={w.wallet.id} size="sm" variant="secondary" loading={source.busy} onClick={() => source.connect(w)}>
-              {w.wallet.icon ? <img src={w.wallet.icon} alt="" width={16} height={16} className="size-4 rounded-sm" /> : <WalletIcon size={14} aria-hidden="true" />}
+              <WalletGlyph wallet={w} />
               Connect {w.wallet.name}
             </Button>
           ))}
         </div>
-      ) : noWalletHint ? (
-        <p className="text-xs leading-5 text-fg-3">{noWalletHint}</p>
       ) : (
         <p className="text-xs text-fg-3">
           No {chain.name} wallet found in this browser. {chain.family === 'solana' ? 'Phantom, Solflare or Backpack' : 'MetaMask, Rabby or any EVM wallet'} connects here, or send
@@ -164,5 +162,146 @@ export function SourceConnect({ chain, side, noWalletHint }: { chain: BridgeChai
         </Field>
       )}
     </div>
+  )
+}
+
+function WalletGlyph({ wallet: w }: { wallet: SourceWallet }) {
+  return w.wallet.icon ? <img src={w.wallet.icon} alt="" width={16} height={16} className="size-4 rounded-sm" /> : <WalletIcon size={14} aria-hidden="true" />
+}
+
+const KNOWN_WALLETS: Record<BridgeChain['family'], string> = {
+  solana: 'Phantom, Solflare and Backpack connect',
+  evm: 'MetaMask, Rabby and other EVM wallets connect',
+}
+
+const either = (names: string[]) => (names.length <= 2 ? names.join(' or ') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`)
+
+const LINK = 'self-start text-xs font-semibold text-fg-2 underline decoration-fg-4 underline-offset-2 hover:text-fg'
+
+/**
+ * The sending wallet, right above the action that needs it (Bridge to NEAR). It connects only a wallet
+ * that registered itself on this page (the Wallet Standard for Solana, EIP-6963 for EVM: useSourceWallet.ts);
+ * where none did, as in Telegram's in-app browser, it says so, with no Connect key that can't work, and
+ * takes the address the user sends from instead: Bridge to NEAR then shows the deposit address their
+ * wallet app sends to. Connecting shares an address only: nothing is sent, no order or deposit address made.
+ */
+export function SourceAction({ chain, side, inTelegram }: { chain: BridgeChain; side: SourceSide; inTelegram: boolean }) {
+  const { source, setManual } = side
+  const [choosing, setChoosing] = useState(false)
+  const state = sourceActionState(side)
+  const error = source.error ? (
+    <p role="alert" className="text-xs leading-5 text-warn">
+      {source.error}
+    </p>
+  ) : null
+
+  let body
+  if (state.kind === 'connected')
+    body = (
+      <>
+        <div className="flex items-center gap-2.5">
+          <Led tone="on" />
+          <p className="min-w-0 flex-1 text-xs leading-5 text-fg-3">
+            Sending from <span className="font-semibold text-fg-2">{state.name}</span>
+            <span className="num block truncate text-sm text-fg" title={state.address}>
+              {truncateMiddle(state.address, 6, 4)}
+            </span>
+          </p>
+          <Button size="sm" variant="ghost" onClick={source.disconnect}>
+            Disconnect
+          </Button>
+        </div>
+        {error}
+      </>
+    )
+  else if (state.kind === 'connect') {
+    const only = source.wallets.length === 1 ? (source.wallets[0] as SourceWallet) : null
+    body = (
+      <>
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          loading={source.busy}
+          icon={<WalletIcon size={16} aria-hidden="true" />}
+          aria-expanded={only ? undefined : choosing}
+          onClick={() => (only ? void source.connect(only) : setChoosing((c) => !c))}
+        >
+          {`Connect ${chain.name} Wallet`}
+        </Button>
+        {!only && choosing && (
+          <div role="group" aria-label={`${chain.name} wallets`} className="flex flex-col gap-2">
+            {source.wallets.map((w: SourceWallet) => (
+              <Button key={w.wallet.id} variant="secondary" block loading={source.busy} icon={<WalletGlyph wallet={w} />} onClick={() => void source.connect(w)}>
+                {w.wallet.name}
+              </Button>
+            ))}
+          </div>
+        )}
+        <p className="text-xs leading-5 text-fg-3">
+          {only ? `Opens ${only.wallet.name} to approve the connection.` : `Choose ${either(source.wallets.map((w: SourceWallet) => w.wallet.name))}.`} It shares your address only:
+          nothing is sent, and no deposit address is made until you start the bridge.
+        </p>
+        {error}
+        <button type="button" className={LINK} onClick={() => setManual(true)}>
+          Send from another wallet instead
+        </button>
+      </>
+    )
+  } else if (state.kind === 'none')
+    body = (
+      <>
+        <p className="text-sm font-semibold text-fg">{inTelegram ? `No ${chain.name} wallet in Telegram` : `No ${chain.name} wallet in this browser`}</p>
+        <p className="text-xs leading-5 text-fg-3">
+          {inTelegram ? `Telegram’s in-app browser has no ${chain.name} wallet this page can connect to.` : `This browser has no ${chain.name} wallet this page can connect to.`}{' '}
+          {KNOWN_WALLETS[chain.family]} only from a browser or app where they’re installed. You can still bridge: enter the address you send from, then send the amount from your
+          wallet app to the deposit address Bridge to NEAR shows.
+        </p>
+        <Button variant="primary" size="lg" block onClick={() => setManual(true)}>
+          {`Enter my ${chain.name} address`}
+        </Button>
+        {inTelegram && <p className="text-xs leading-5 text-fg-3">Or, in the NEARKITS bot: 🌉 Bridge to NEAR, then ✍️ Send manually.</p>}
+        {error}
+      </>
+    )
+  else body = <AddressEntry chain={chain} side={side} />
+
+  return (
+    <section aria-label={`Your ${chain.name} wallet`} className="flex flex-col gap-2.5 rounded-md border border-line bg-well/50 p-3">
+      {body}
+    </section>
+  )
+}
+
+/** The address the user sends from, typed in: their wallet app sends the amount, refunds go back to it. */
+function AddressEntry({ chain, side }: { chain: BridgeChain; side: SourceSide }) {
+  const { source, setManual, manualAddress, setManualAddress, manualError, sourceAddress } = side
+  return (
+    <>
+      <Field label={`Your ${chain.name} address`} hint="Your wallet app sends the amount from it, and any refund goes back to it." error={manualError ?? undefined}>
+        {({ id, describedBy, invalid }) => (
+          <Input
+            id={id}
+            mono
+            inputSize="sm"
+            spellCheck={false}
+            autoComplete="off"
+            // Opened by a tap on "Enter my … address": the field the user asked for.
+            autoFocus
+            placeholder={chain.family === 'solana' ? 'Solana address' : '0x…'}
+            value={manualAddress}
+            onChange={(e) => setManualAddress(e.target.value)}
+            aria-describedby={describedBy}
+            aria-invalid={invalid}
+          />
+        )}
+      </Field>
+      {sourceAddress && <p className="text-xs leading-5 text-fg-3">Bridge to NEAR shows the deposit address to send exactly the amount to, from this address.</p>}
+      {source.wallets.length > 0 && (
+        <button type="button" className={LINK} onClick={() => setManual(false)}>
+          Connect a wallet instead
+        </button>
+      )}
+    </>
   )
 }
