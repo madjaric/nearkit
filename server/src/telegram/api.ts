@@ -8,7 +8,8 @@ import type { InlineKeyboard, SendOptions, TgChat, TgChatMember, TgMessage, TgUp
  *
  * Rate limits (https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this):
  * about 30 messages a second overall, 1 a second in a chat, 20 a minute in a
- * group. Sends are spaced per chat, and a 429's `retry_after` is honoured.
+ * group. Sends are spaced per chat, and a 429's `retry_after` is honoured; a chat's
+ * spacing or pause delays only that chat's sends, never another chat's.
  */
 
 export class TelegramError extends Error {
@@ -42,7 +43,11 @@ const PRIVATE_SPACING_MS = 250
 const GROUP_SPACING_MS = 3_100
 const GLOBAL_SPACING_MS = 35
 
+/** A 429's retry waits its retry_after plus this. */
+const RETRY_MARGIN_MS = 250
+
 const isGroupChat = (chatId: number | string) => typeof chatId === 'string' || chatId < 0
+const spacingOf = (chatId: number | string) => (isGroupChat(chatId) ? GROUP_SPACING_MS : PRIVATE_SPACING_MS)
 
 export function createTelegramApi(options: TelegramApiOptions) {
   const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis)
@@ -52,28 +57,32 @@ export function createTelegramApi(options: TelegramApiOptions) {
   const maxInlineWait = options.maxInlineWaitMs ?? 30_000
   const secrets = [options.token]
 
-  // Per-chat and global spacing for message sends.
+  // Per-chat and global spacing for message sends. Each slot is computed and taken in one
+  // synchronous step (nothing else runs in between, so two sends can never take the same
+  // slot), and only then waited for, by that send alone: a group's spacing or a chat paused
+  // after a 429 delays that chat's sends, never another chat's.
   const nextSlot = new Map<string, number>()
   let nextGlobal = 0
-  let chain: Promise<void> = Promise.resolve()
 
-  function reserve(chatId: number | string): Promise<void> {
-    // Serialized so two concurrent sends to one chat can't take the same slot.
-    const run = chain.then(async () => {
-      const key = String(chatId)
-      const t = now()
-      const start = Math.max(t, nextSlot.get(key) ?? 0, nextGlobal)
-      nextSlot.set(key, start + (isGroupChat(chatId) ? GROUP_SPACING_MS : PRIVATE_SPACING_MS))
-      nextGlobal = start + GLOBAL_SPACING_MS
-      if (start > t) await sleep(start - t)
-    })
-    chain = run.catch(() => undefined)
-    return run
+  async function reserve(chatId: number | string): Promise<void> {
+    const key = String(chatId)
+    // 1. This chat's turn.
+    const t = now()
+    const turn = Math.max(t, nextSlot.get(key) ?? 0)
+    nextSlot.set(key, turn + spacingOf(chatId))
+    if (turn > t) await sleep(turn - t)
+    // 2. Then the global slot (a bucket of one token every GLOBAL_SPACING_MS), taken from the
+    //    moment the chat's turn came, so a send waiting on its chat holds no global slot meanwhile.
+    const ready = now()
+    const slot = Math.max(ready, nextGlobal)
+    nextGlobal = slot + GLOBAL_SPACING_MS
+    if (slot > ready) await sleep(slot - ready)
   }
 
+  /** After a 429: the refused call retries when `ms` ends, and the chat's next sends come after it, spaced as usual. */
   function pauseChat(chatId: number | string, ms: number) {
     const key = String(chatId)
-    nextSlot.set(key, Math.max(nextSlot.get(key) ?? 0, now() + ms))
+    nextSlot.set(key, Math.max(nextSlot.get(key) ?? 0, now() + ms + spacingOf(chatId)))
   }
 
   async function once<T>(method: string, params: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
@@ -123,9 +132,9 @@ export function createTelegramApi(options: TelegramApiOptions) {
         if (!(e instanceof TelegramError) || attempt >= retries) throw e
         if (e.code === 429 && e.retryAfter !== null) {
           const wait = e.retryAfter * 1000
-          if (params.chat_id !== undefined) pauseChat(params.chat_id as number, wait)
+          if (params.chat_id !== undefined) pauseChat(params.chat_id as number, wait + RETRY_MARGIN_MS)
           if (wait > maxInlineWait) throw e
-          await sleep(wait + 250)
+          await sleep(wait + RETRY_MARGIN_MS)
           continue
         }
         if (e.code === 0 || e.code >= 500) {
