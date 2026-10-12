@@ -43,7 +43,9 @@ import type { BridgeOrder, BridgeOrderPatch, BridgeStore } from './store'
  * valid", checked 2026-10-08), so it runs in two stages and says so everywhere:
  * 1. SOL, ETH or BNB → NEAR: a 1Click quote (EXACT_INPUT, origin-chain deposit) delivering NEAR
  *    (1Click's wNEAR asset) to the NEAR wallet the user chose. The user's own wallet on the source
- *    chain sends the amount to the quote's deposit address; a refund goes back to that address.
+ *    chain sends the amount to the quote's deposit address; a refund goes back to that address. A
+ *    wallet that can't receive wNEAR, or a NEARKITS wallet with no NEAR for the unwrap that starts
+ *    stage 2, is refused before any deposit address exists, exactly as for the Bridge below.
  * 2. NEAR → $KITS: an ordinary NEARKITS buy of kits.nearlytrade.near, priced fresh when the NEAR
  *    is there. To a NEARKITS wallet NEARKITS' server runs it through the engine, exactly as a web
  *    trade (signer policy, the wallet's own key, the 0.50% trading fee), and only at or above the
@@ -198,10 +200,12 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
   }
 
   /**
-   * Bridge: whether the destination can receive what NEAR Intents delivers (wNEAR), and who turns it
-   * into native NEAR. It must exist on NEAR and be registered with wrap.near (an ft_transfer to an
-   * account the token doesn't know fails); a NEARKITS wallet also needs NEAR for the unwrap's own
-   * network fee, and the unwrap must be allowed now (the trading switch, the wallet's freeze).
+   * Both products: whether the destination can receive what NEAR Intents delivers (wNEAR), and who
+   * turns it into native NEAR. It must exist on NEAR and be registered with wrap.near (an ft_transfer
+   * to an account the token doesn't know fails); a NEARKITS wallet also needs NEAR for the unwrap's
+   * own network fee, and the unwrap must be allowed now (the trading switch, the wallet's freeze).
+   * For Bridge & Buy that unwrap is the purchase's first step, the only one paid from the wallet's own
+   * NEAR: the buy after it holds its gas and registrations back from the NEAR delivered (stepPurchase).
    */
   async function receivability(dest: { accountId: string; wallet: TradingWallet | null }, kind: BridgeDestinationInput['kind']): Promise<BridgeDelivery & { code: string | null }> {
     const unwrap: BridgeDelivery['unwrap'] = kind === 'nearkits' ? 'nearkits' : kind === 'connected' ? 'wallet' : 'none'
@@ -311,8 +315,8 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
   }
 
   /**
-   * One 1Click quote for this input, checked (fee included), with stage 2's estimate (Bridge & Buy)
-   * or whether the destination can receive the wNEAR and who unwraps it (Bridge).
+   * One 1Click quote for this input, checked (fee included), with whether the destination can receive
+   * the wNEAR and who unwraps it (both products), and stage 2's estimate (Bridge & Buy).
    */
   async function quoteFor(input: BridgeQuoteInput, dry: boolean) {
     const { product } = input
@@ -363,10 +367,12 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       log.error('bridge: 1Click charges a different NEARKITS fee than configured; quote refused', { product, chain: chain.id, echoed: q.appFees, expected: BRIDGE_FEE_BPS })
       throw new HttpError(503, 'fee', `${productName(product)} is unavailable right now: its fee couldn’t be confirmed. Nothing was sent.`)
     }
-    // Bridge & Buy prices its purchase; a Bridge buys nothing, and says instead what arrives and whether it can.
-    const est = product === 'buy-kits' ? await estimateKits(q.amountOut, slippage, dest.accountId) : { kits: null, reason: null }
-    const receivable = product === 'bridge' ? await receivability(dest, input.destination.kind) : null
-    const delivery: BridgeDelivery | null = receivable ? { asset: receivable.asset, unwrap: receivable.unwrap, blocked: receivable.blocked, fix: receivable.fix } : null
+    // Both say what arrives and whether it can (the page offers the fix, or refuses to start); Bridge & Buy also prices its purchase.
+    const [est, receivable] = await Promise.all([
+      product === 'buy-kits' ? estimateKits(q.amountOut, slippage, dest.accountId) : Promise.resolve({ kits: null, reason: null }),
+      receivability(dest, input.destination.kind),
+    ])
+    const delivery: BridgeDelivery = { asset: receivable.asset, unwrap: receivable.unwrap, blocked: receivable.blocked, fix: receivable.fix }
     log.info('bridge quote', { product, chain: chain.id, dry, usd: q.amountInUsd, kits: est.kits !== null, ms: deps.now() - started, destination: input.destination.kind })
     return { chain, q, split, est, dest, refundTo, receivable, view: quoteView(chain, q, split.nearkitsBps, split.intentsBps, est, delivery) }
   }
@@ -928,25 +934,17 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       const paused = await deps.ops.bridgeBlocked()
       if (paused) throw new HttpError(409, 'paused', product === 'bridge' ? paused.replace(/^Bridge & Buy/, 'Bridge') : paused)
       const dest = await destinationOf(input.destination, product)
-      if (product === 'buy-kits') {
-        if (dest.wallet && deps.custody) {
-          const blocked = await deps.custody.ops.blocked('buy', dest.wallet)
-          if (blocked) throw new HttpError(409, 'paused', blocked)
-        }
-        // NEAR Intents delivers to an existing account: a new NEARKITS wallet needs a first deposit.
-        const state = await accountState(near.ctx.rpc, dest.accountId, 'final').catch(() => null)
-        if (!state) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
-        if (!state.exists)
-          throw new HttpError(409, 'not-on-chain', `${dest.accountId} isn’t on NEAR yet. Send it a little NEAR first: it needs NEAR for the network fees of the $KITS purchase.`)
+      if (product === 'buy-kits' && dest.wallet && deps.custody) {
+        const blocked = await deps.custody.ops.blocked('buy', dest.wallet)
+        if (blocked) throw new HttpError(409, 'paused', blocked)
       }
-      // A Bridge goes only where the wNEAR can arrive (and, for a NEARKITS wallet, be unwrapped now): checked
-      // before NEAR Intents is asked for a deposit address, so a refused destination never gets one.
-      if (product === 'bridge') {
-        const pre = await receivability(dest, input.destination.kind)
-        if (pre.blocked) {
-          const code = pre.code ?? 'destination'
-          throw new HttpError(code === 'chain' ? 503 : 409, code, `${pre.blocked} Nothing was sent.`)
-        }
+      // Both products deliver wNEAR: an order goes only where it can arrive (and, for a NEARKITS wallet, be
+      // unwrapped now), checked before NEAR Intents is asked for a deposit address, so a refused destination
+      // never gets one and no NEAR is stranded at NEAR Intents.
+      const pre = await receivability(dest, input.destination.kind)
+      if (pre.blocked) {
+        const code = pre.code ?? 'destination'
+        throw new HttpError(code === 'chain' ? 503 : 409, code, `${pre.blocked} Nothing was sent.`)
       }
       const r = await quoteFor(input, false)
       const okAddress = r.chain.family === 'solana' ? isSolanaAddress(r.q.depositAddress ?? '') : isEvmAddress(r.q.depositAddress ?? '')
