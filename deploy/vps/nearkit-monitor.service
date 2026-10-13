@@ -1,0 +1,9 @@
+[Unit]
+Description=NEARKITS watchdog (bin/monitor): checks the stack, alerts the owner on Telegram
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nearkit/bin/monitor
+TimeoutStartSec=120
