@@ -52,6 +52,8 @@ die() {
 sum() { sha256sum < "$1" | cut -d' ' -f1; }
 
 step "backup"
+# Every check below runs in Docker: a stopped engine is said as such, never as a wrong identity.
+docker info > /dev/null 2>&1 || die "Docker isn't running: start Docker Desktop (or the Docker service) and run this again"
 if [ -z "$branch" ]; then
   branch=$(git ls-remote --heads "$remote" 'b-*' | sed 's#.*refs/heads/##' | sort | tail -1)
   [ -n "$branch" ] || die "no backup branch in $remote"

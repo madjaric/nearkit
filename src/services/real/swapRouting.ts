@@ -114,11 +114,6 @@ interface Pair {
   taxTerms: (token: string) => Promise<TaxTerms>
 }
 
-/** Fees still to come off a quoted output, for comparing routes (an aggregator fee taken from the output). */
-export function outputFeePpm(r: Pick<RoutedSwap, 'fee'>): number {
-  return r.fee && r.fee.stage === 'output' ? r.fee.appPpm + r.fee.protocolPpm : 0
-}
-
 export function createSwapRouter(ctx: NearContext) {
   const agg = ctx.network.rhea.aggregator
   const dcl = ctx.network.dex.dcl
@@ -414,7 +409,7 @@ export function createSwapRouter(ctx: NearContext) {
         p,
         answers.flatMap((a) => (a.ok ? [] : [{ source: a.source, error: a.error }])),
       )
-    return selectRoute(found.map((r) => ({ ...r, outputFeePpm: outputFeePpm(r) })))
+    return selectRoute(found)
   }
 
   const boundsCache = new Map<string, Promise<bigint | null>>()

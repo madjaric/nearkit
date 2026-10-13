@@ -2,9 +2,10 @@
 # NEARKITS watchdog (DEPLOYMENT.md §13), run every two minutes by nearkit-monitor.timer. Checks the
 # stack from the host, so it still reports when the app itself is down:
 #   containers running, unhealthy or restarting · the app's /health through Caddy · OpenBao sealed or
-#   unreachable · signer refusals · local and off-site backups failing or stale · both databases ·
-#   bridge orders stuck past their lifecycle · Telegram polling errors · wallet operations, sends and
-#   buy alerts stuck in their queues · a stalled Volume Bot runner · bursts of failed operations.
+#   unreachable · the signer's price floor · signer refusals · local and off-site backups failing or
+#   stale · both databases · bridge orders stuck past their lifecycle · Telegram polling errors · wallet
+#   operations, sends and buy alerts stuck in their queues · a stalled Volume Bot runner · bursts of
+#   failed operations.
 # Alerts go to the owner's Telegram chat (ALERT_TELEGRAM_CHAT_ID in monitor.env) through NEARKITS'
 # bot: once when a check starts failing, again every 6 hours while it fails, and once when it
 # recovers. They name the check and counts only: no secret, account, amount or transaction.
@@ -136,6 +137,13 @@ esac
 # The signer's refusals in the last 15 minutes (a few are normal: a stale quote, a changed price).
 count denied signer "select count(*) from signer_events where at > $((ms - 900000)) and kind in ('signer-denied','owner-proof-refused','tg-approval-refused')"
 [ "$denied" -ge "${MONITOR_SIGNER_DENIALS:-5}" ] && fail "signer-denials" "$denied signer refusal(s) in the last 15 minutes"
+
+# The signer's price floor, as the running signer has it: set, and no looser than production's 10%.
+# The pinned signer (3861241e7aab) falls back to 50% when the line is missing; this catches that.
+floor=$(docker inspect nearkit-signer-1 --format '{{range .Config.Env}}{{println .}}{{end}}' 2> /dev/null | sed -n 's/^NEARKIT_SIGNER_MAX_SLIPPAGE_PCT=//p')
+if ! [[ "$floor" =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v f="$floor" -v m="${MONITOR_SIGNER_MAX_FLOOR:-10}" 'BEGIN { exit !(f > 0 && f <= m) }'; then
+  fail "signer-floor" "the signer's price floor is ${floor:-not set} (NEARKIT_SIGNER_MAX_SLIPPAGE_PCT in signer.env must be set, at most ${MONITOR_SIGNER_MAX_FLOOR:-10})"
+fi
 
 # Backups: the hourly local one, and its off-site copy.
 newest=$(find backups -maxdepth 1 -name 'nearkit-*.dump' -printf '%T@\n' 2> /dev/null | sort -n | tail -1)
