@@ -1086,15 +1086,10 @@ async function peek(ctx: BotCtx, id: string): Promise<Reviewed | null> {
   return p?.d ? { d: p.d, previewed: p.previewed === true } : null
 }
 
-/**
- * Uses a reviewed setup up, once: of two taps (or a replay) only the one that removes it gets it.
- * The row is this user's own (getCallback checks), and removing it is a single compare-and-delete.
- */
+/** Uses a reviewed setup up, once: of two taps (or a replay) only the one that removes it gets it (takeCallback). */
 async function take(ctx: BotCtx, id: string): Promise<Reviewed | null> {
-  const r = await peek(ctx, id)
-  if (!r) return null
-  const removed = await ctx.deps.store.db.run('DELETE FROM callbacks WHERE id = ? AND user_id = ?', [id, ctx.user.id])
-  return removed === 1 ? r : null
+  const p = await ctx.deps.store.takeCallback<Partial<Reviewed>>(id, ctx.user.id)
+  return p?.d ? { d: p.d, previewed: p.previewed === true } : null
 }
 
 const USED = 'This confirmation was used already or has expired. Nothing new was created.'

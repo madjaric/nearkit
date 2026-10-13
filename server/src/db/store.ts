@@ -332,6 +332,14 @@ export class Store {
     return json<T | null>(r.payload, null)
   }
 
+  /** getCallback, used up: of two taps (or a replay) only the one whose delete removes the row gets it. */
+  async takeCallback<T = unknown>(id: string, userId: number): Promise<T | null> {
+    const payload = await this.getCallback<T>(id, userId)
+    if (payload === null) return null
+    const removed = await this.db.run('DELETE FROM callbacks WHERE id = ? AND user_id = ?', [id, userId])
+    return removed === 1 ? payload : null
+  }
+
   // ─── user tokens ──────────────────────────────────────────────────────────
 
   async addUserToken(userId: number, network: string, contract: string): Promise<void> {
