@@ -359,9 +359,20 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     } catch {
       return void (await store.setNext(s.id, now() + SNIPER_CHECK_MS, { ...s.state, waiting: 'No route trades it yet' }))
     }
-    const marketCheck = await qualityProblem(c.token.id, c.minLiquidityUsd, q.priceImpactPct, c.maxImpactPct)
-    if (marketCheck) return void (await store.setNext(s.id, now() + SNIPER_CHECK_MS, { ...s.state, waiting: marketCheck }))
     const a = quoteAmounts('buy', q)
+    // Price impact as the router reports it; where it can't (no price feed), measured: the full buy's price
+    // against a probe of 1% of it on the same route. Unknown stays unknown: buying then fails closed.
+    const probe = q.priceImpactPct === null && takeQuote() ? await probePrice(c, wallet) : null
+    const impactOf = (fresh: typeof q): number | null => {
+      if (fresh.priceImpactPct !== null) return fresh.priceImpactPct
+      const f = quoteAmounts('buy', fresh)
+      const full = priceYocto(f.nearRaw, f.tokenRaw, c.token.decimals)
+      if (probe === null || full === null || probe <= 0n) return null
+      return full <= probe ? 0 : Number(((full - probe) * 10_000n) / probe) / 100
+    }
+    const impact = impactOf(q)
+    const marketCheck = await qualityProblem(c.token.id, c.minLiquidityUsd, c.mode === 'execute' ? impact : null, c.mode === 'execute' ? c.maxImpactPct : null)
+    if (marketCheck) return void (await store.setNext(s.id, now() + SNIPER_CHECK_MS, { ...s.state, waiting: marketCheck }))
     const first = await store.addDetection({
       strategyId: s.id,
       sourceKey: `route:${c.token.id}`,
@@ -378,7 +389,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         await store.event(s.id, 'detected', `Tradable: ${amountIn} NEAR buys ${human(a.tokenRaw, c.token.decimals)} ${c.token.symbol}`)
         await notify(
           s,
-          `🔔 <b>${esc(c.token.symbol)}</b> is tradable now: ${amountIn} NEAR buys about ${human(a.tokenRaw, c.token.decimals)} (${price ? formatPrice(price) : '?'} NEAR each, impact ${q.priceImpactPct === null ? 'unknown' : `${q.priceImpactPct.toFixed(2)}%`}). Notify-only: nothing was bought.`,
+          `🔔 <b>${esc(c.token.symbol)}</b> is tradable now: ${amountIn} NEAR buys about ${human(a.tokenRaw, c.token.decimals)} (${price ? formatPrice(price) : '?'} NEAR each, impact ${impact === null ? 'unknown' : `${impact.toFixed(2)}%`}). Notify-only: nothing was bought.`,
         )
       }
       return
@@ -393,10 +404,10 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       slippagePct: c.slippagePct,
       idemKey: `sniper:${s.id}:${attempt}`,
       message: `Sniper attempt ${attempt}`,
-      accept: (fresh) =>
-        fresh.priceImpactPct === null || fresh.priceImpactPct > c.maxImpactPct
-          ? `Price impact ${fresh.priceImpactPct === null ? 'unknown' : `${fresh.priceImpactPct.toFixed(2)}%`} is over the limit`
-          : null,
+      accept: (fresh) => {
+        const i = impactOf(fresh)
+        return i === null || i > c.maxImpactPct ? `Price impact ${i === null ? 'unknown' : `${i.toFixed(2)}%`} is over the ${c.maxImpactPct}% limit` : null
+      },
       stillAllowed: allowedWhile(s, ['active']),
     })
     // A skip (no fresh quote, a limit) is not an attempt: nothing was created for it.
@@ -406,6 +417,23 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     }
     await store.setAttempts(s.id, attempt)
     await settledSniper({ ...s, attempts: attempt }, c, out)
+  }
+
+  /** The price (yoctoNEAR per whole token) of a buy of 1% of the sniper's amount: the near-zero-impact reference. */
+  async function probePrice(c: SniperSettings, wallet: TradingWallet): Promise<bigint | null> {
+    const small = Math.max(c.amountNear / 100, 0.001)
+      .toFixed(6)
+      .replace(/\.?0+$/, '')
+    try {
+      const p = await custody.swaps.quote(
+        { side: 'buy', token: c.token.id, symbol: c.token.symbol, decimals: c.token.decimals, amountIn: small, slippagePct: c.slippagePct },
+        wallet,
+      )
+      const pa = quoteAmounts('buy', p)
+      return priceYocto(pa.nearRaw, pa.tokenRaw, c.token.decimals)
+    } catch {
+      return null
+    }
   }
 
   async function settledSniper(s: Strategy, c: SniperSettings, out: TradeOutcome): Promise<void> {

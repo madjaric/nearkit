@@ -125,6 +125,12 @@ export function createExecutor(deps: ExecuteDeps) {
       })
       return { kind: 'confirmed', execution: (await store.execution(execution.id)) as Execution }
     }
+    if (intent.status === 'failed' && (intent.result?.hashes.length ?? 0) === 0) {
+      // Refused before anything was signed (a switch set meanwhile, funds short at Confirm): not a trade that failed.
+      const reason = intent.result?.message ?? 'Not sent'
+      await store.updateExecution(execution.id, ['executing', 'submitted'], 'cancelled', { message: reason })
+      return { kind: 'not-sent', reason, execution: (await store.execution(execution.id)) as Execution }
+    }
     if (intent.status === 'done' || intent.status === 'failed') {
       const reason = intent.result?.message ?? 'The trade failed on chain'
       await store.updateExecution(execution.id, ['executing', 'submitted'], 'failed', { txHashes: intent.result?.hashes ?? [], message: reason })
