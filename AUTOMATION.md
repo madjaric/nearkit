@@ -9,6 +9,12 @@ Limit orders (with take profit and stop loss), Copy Trade, Sniper and DCA: confi
 - **Browser-connected wallets are never automated.** NEARKITS can't sign for them and never asks for a seed phrase or a key. Automation picks NEARKITS (custodial) wallets only.
 - **Pairs:** NEAR and a token, as every NEARKITS-wallet trade is (the custody swap supports NEAR in or out). Token-for-token automation isn't offered.
 
+## Surfaces
+
+- **NEARKITS web** (`src/features/automation/live/`): `/limit-orders`, `/copy-trade`, `/sniper`, `/dca`. A page is server-backed only with real services, a NEARKITS web session and its kind in the server's `features.enabled` (`routeComingSoon` in `src/config/release.ts`, `useAutomationLive`); otherwise it is exactly what it was (Coming Soon in production, browser drafts in dev, the demo untouched). Each page: a form validated with the shared rules, a review on the server's fresh quote (Copy Trade: a summary; it has nothing to quote), the server's refusals on their fields, Active / Paused / History lists with only the controls a status allows, a detail with trades (tx links), detections and the audit trail, NEARKITS' kill-switch notice and limits, and Pause all. Wallet pickers list NEARKITS wallets only (not frozen ones). A trade reads "Submitted · not confirmed" until the server says confirmed.
+- **Telegram** (`server/src/bot/automation.ts`, private chats): `/orders`, `/copy`, `/snipe`, `/dca`, `/auto` (in `/help`; Telegram's pinned command menu is unchanged), and a "🤖 Automation" button on the main menu while a kind is on. Every setup is reviewed on a live preview before Confirm is offered; Confirm is used up once (`Store.takeCallback`: a double tap or a replay creates one strategy); a sniper that buys takes a second, separate yes. Every control re-reads the strategy as the presser's own (another user's id gets "not one of your automations"). Settings the bot doesn't ask (Copy Trade exclusions, minimum trade and liquidity, a DCA end date, a sniper's minimum liquidity) are on the web page.
+- **Both** call the same service (`service.ts`): one validation, one set of limits, one record.
+
 ## Records (migrations: SQLite 18, Postgres 9; new tables only)
 
 | Table | What | Safety |
@@ -64,3 +70,7 @@ Trigger, fill (only once confirmed on chain), failure, expiry, completion, pause
 - Sniper watches a named token; it doesn't discover new pools by itself (no reliable launch feed is integrated; nothing is invented).
 - Copy Trade depends on FastNEAR's index (free, public): when it lags or fails, copies wait (and a copy that comes too late isn't made). Launchpad bonding-curve buys (nearlytrade launches before their pool) aren't copied: they go through no exchange NEARKITS routes through.
 - Triggers are evaluated every 30 s: a price that touches the target between two readings and leaves is not caught.
+- A strategy can't be edited after it is made (a notify-only sniper can't be switched to buying): make a new one. Cancelling one order of a take profit / stop loss pair leaves the other active (only a trigger cancels its sibling): the web lists both, tagged Pair, each with its own Cancel; Telegram also offers Cancel both.
+- A sniper needs the token contract to exist on chain (its metadata is read when it is made); it watches for the first route, not for the contract's deployment.
+- `features.enabled` is read from `NEARKIT_AUTOMATION` at start. Strategies of a kind switched off later can still be listed, paused and cancelled; resuming them is refused until the kind is on again.
+- The web page shows its fallback (Coming Soon in production) for the moment the server's answer takes to load after sign-in.
