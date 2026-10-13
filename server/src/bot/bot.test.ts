@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NearKitError } from '@/services/near/errors'
 import { accountsModule } from './accounts'
 import { coreModule } from './core'
 import { settingsModule, parseBuyPresets, parseSellPresets, parseSlippage } from './settings'
@@ -236,6 +237,37 @@ describe('robustness', () => {
     expect(h.last()?.text).not.toContain('database exploded')
     await h.say('/help')
     expect(h.last()?.text).toContain('NEARKITS · help')
+  })
+
+  it('answers a known NEAR error in its friendly words, never the raw message', async () => {
+    const h = await bot([
+      {
+        commands: {
+          rpc: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('RPC_ERROR', 'fetch failed: ECONNREFUSED 10.0.0.5:3030 (rpc.internal)')
+            },
+          },
+          slip: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('SLIPPAGE_EXCEEDED', 'Smart contract panicked: E68: slippage error at pool 1352')
+            },
+          },
+        },
+      },
+    ])
+    await h.say('/rpc')
+    expect(h.last()?.text).toBe('⚠️ The NEAR network isn’t answering right now. Try again in a moment.')
+    await h.say('/slip')
+    expect(h.last()?.text).toBe('⚠️ The price moved past your slippage. Get a fresh quote.')
+    expect(
+      h.fake
+        .messages()
+        .map((m) => m.text)
+        .join('\n'),
+    ).not.toMatch(/ECONNREFUSED|rpc\.internal|panicked|E68/)
   })
 
   it('stops messaging a user who blocked the bot', async () => {
