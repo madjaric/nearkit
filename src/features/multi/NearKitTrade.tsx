@@ -8,14 +8,15 @@ import { Skeleton, Tag, type TagTone } from '@/components/ui/Indicators'
 import { Line, Lines } from '@/components/ui/Panel'
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, formatUnitsUp, tryParseUnits } from '@/lib/amounts'
-import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { ACTUAL_NETWORK_FEE_LABEL, gasReserveYocto } from '@/lib/gasReserve'
-import { formatPct } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
+import { impactEstimated } from '@/lib/quoteCosts'
 import { describeError } from '@/services/errors'
 import type { WebLegStatus, WebTradeGroup, WebTradeLeg } from '@/services/nearkitWeb'
 import { runningLeg, useCapabilities, useNearKitMutations, useTradeGroup } from '@/services/queries'
 import type { Wallet } from '@/types/domain'
+import { CostLines, ImpactLine } from '../trade/CostLines'
+import { feeText, legRouteText, routeText } from './nearkitTradeText'
 
 /**
  * A buy or sell from NearKit wallets, run from the web: NearKit's server quotes each wallet
@@ -201,6 +202,12 @@ function NearKitTrade({
             ? `${l.amountIn} ${inUnit} → ${fmt(l.received)} ${outUnit}`
             : `${l.amountIn} ${inUnit} → ≈ ${fmt(l.amountOut)} ${outUnit} · min ${fmt(l.minOut)}`}
         </p>
+        {/* Wallets on different routes: each wallet's own route and costs. */}
+        {!running && multi && (g.source === null || g.costs === null) && (
+          <p className="text-xs text-fg-3">
+            <Figures>{legRouteText(l, { in: inUnit, out: outUnit })}</Figures>
+          </p>
+        )}
         {!running && short && (
           <p className="text-xs text-warn">
             <Figures>{`Has ${formatUnits(BigInt(l.available as string), NEAR_DECIMALS, { maxFraction: 4 })} NEAR available, needs ${formatUnitsUp(BigInt(l.need as string), NEAR_DECIMALS, 4)}${reserve !== null ? `, including a ${formatUnitsUp(reserve, NEAR_DECIMALS, 4)} NEAR gas reserve that is refunded after the trade` : ''}: this wallet’s trade fails unless it gets more NEAR first.`}</Figures>
@@ -225,12 +232,14 @@ function NearKitTrade({
               <Figures>{`${shown.reduce((s, l) => s + Number(l.amountIn), 0)} ${inUnit} → ≈ ${fmt(shown.reduce((s, l) => s + BigInt(l.amountOut), 0n).toString())} ${outUnit}`}</Figures>
             </Line>
           )}
-          <Line label="NEARKITS fee">{g.fee.charged ? `${NEARKIT_FEE_LABEL} (included in the rate)` : `Not charged on ${caps.networkLabel.toLowerCase()}`}</Line>
-          <Line label="Price impact">{g.priceImpactPct === null ? 'Unknown' : formatPct(g.priceImpactPct, { decimals: 2 })}</Line>
+          <Line label="NEARKITS fee">{feeText(g.fee, g.source, caps.networkLabel)}</Line>
+          {/* Wallets on different routes: the worst impact, estimated unless every route measured it; each wallet's own is on its row. */}
+          <ImpactLine pct={g.priceImpactPct} estimated={impactEstimated(g.costs, true)} quoted />
+          <CostLines costs={g.costs} inSymbol={inUnit} outSymbol={outUnit} />
           <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>
             <Figures>{`≈ ${formatUnits(BigInt(g.networkFeeNear), NEAR_DECIMALS, { maxFraction: 4 })} NEAR${multi ? ' per wallet' : ''}`}</Figures>
           </Line>
-          <Line label="Route">{g.path.length ? `${g.path.join(' → ')} · Rhea` : '—'}</Line>
+          <Line label="Route">{routeText(g.path, g.source, shown)}</Line>
           {reserveText !== null && <GasReserveLine value={reserveText} />}
         </Lines>
       )}

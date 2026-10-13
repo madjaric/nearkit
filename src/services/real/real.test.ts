@@ -15,6 +15,8 @@ import type { NearKitWeb, NearKitWebWallet } from '../nearkitWeb'
 import { createNearServices } from './index'
 import { memoryStorage } from './stores'
 import { createFakeChain, fakeWallet, successOutcome, type FakeChain, type FakeChainOptions } from './testing/fakeChain'
+import { fakeSmartxQuote } from './testing/fakeSmartx'
+import { combinedFeeDisclosure } from './tradingService'
 
 /**
  * The real services end to end against a fake chain: planning reads the chain,
@@ -571,6 +573,56 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     expect(plan.expiresAt).toBeLessThanOrEqual(DEADLINE - 60_000)
   })
 
+  it('Multi Sell with wallets on different routes (Rhea and DCL): each wallet’s fee and route on its line, every route’s warnings, no shares added across routes', async () => {
+    const DCL = NETWORKS.mainnet.dex.dcl.contract
+    const opts = mainnetChain()
+    opts.accounts = { ...opts.accounts, 'bob.near': { amount: NEAR(10) }, [DCL]: { amount: NEAR(1), code: true } }
+    const tokens = opts.tokens as NonNullable<FakeChainOptions['tokens']>
+    tokens[USDT_MAIN] = {
+      ...(tokens[USDT_MAIN] as NonNullable<FakeChainOptions['tokens']>[string]),
+      balances: { 'example.near': 10_000_000n, 'bob.near': 10_000_000n },
+      registered: ['example.near', 'bob.near', AGG, DCL, 'fees.example.near'],
+    }
+    tokens['wrap.near'] = { ...(tokens['wrap.near'] as NonNullable<FakeChainOptions['tokens']>[string]), registered: [AGG, DCL, 'example.near', 'bob.near', 'fees.example.near'] }
+    // A thin USDt pool on DCL: 0.1 NEAR per USDt, so Rhea's signed route wins where Rhea has one.
+    const rate = (tokenIn: string, amountIn: bigint) => (tokenIn === USDT_MAIN ? amountIn * 10n ** 17n : amountIn / 10n ** 17n)
+    opts.dcl = { contract: DCL, pools: { [`${USDT_MAIN}|wrap.near|400`]: { tokenX: USDT_MAIN, tokenY: 'wrap.near', fee: 400, liquidity: 10n ** 23n, rate } } }
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: opts, session: session(['example.near', 'bob.near']), now: () => DEADLINE - 120_000 })
+    // Rhea's saved route is example.near's; for bob.near Rhea refuses, so bob's wallet goes to DCL directly.
+    withQuote(chain)
+    const plan = await services.trading.prepareMulti({
+      side: 'sell',
+      tokenId: USDT_MAIN,
+      slippagePct: 0.5,
+      legs: [
+        { walletId: 'example.near', amountIn: '5.000013' },
+        { walletId: 'bob.near', amountIn: '3' },
+      ],
+    })
+    expect(plan.lines.map((l) => l.notes.filter((n) => /^(NEARKITS fee|Route)/.test(n)))).toEqual([
+      ['NEARKITS fee 0.025 USDt', 'Route USDt → NEAR · Rhea'],
+      ['NEARKITS fee 0.015 USDt', 'Route USDt → NEAR · DCL'],
+    ])
+    // One total in the one token both pay in; Rhea's 0.40%/0.10% split and DCL's full 0.50% never add up into one share.
+    expect(plan.fee).toMatchObject({ charged: true, token: { id: USDT_MAIN }, amount: { raw: '40000' }, received: null, routerShare: null, routerFee: null })
+    expect(plan.fee?.parts).toBeUndefined()
+    expect(plan.fee?.note).toMatch(/Each wallet’s line shows its own fee and route/)
+    // bob's DCL route: the fee leaves with the swap and isn't refunded if the swap is, said although the first wallet went through Rhea.
+    expect(plan.warnings.some((w) => /the fee is not refunded/.test(w))).toBe(true)
+    // No single source or set of costs speaks for both wallets.
+    expect(plan.swap?.source).toBeUndefined()
+    expect(plan.swap?.costs).toBeUndefined()
+  })
+
+  it('a Rhea route’s lines: Rhea’s protocol fee on its own, its pools in the rate, no tax, and an impact that can only be estimated', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: mainnetChain(), session: session(['example.near']), now: () => DEADLINE - 120_000 })
+    withQuote(chain)
+    const costs = { poolFeesPpm: null, protocolFeePpm: 1000, tax: { inBps: 0, outBps: 0 }, impactBasis: 'listed-prices' }
+    await services.wallets.getSession()
+    expect((await services.trading.quote(swapRequest)).costs).toEqual(costs)
+    expect((await services.trading.prepareSwap(swapRequest)).swap?.costs).toEqual(costs)
+  })
+
   it('signs, confirms and reads the outcome from the aggregator’s events', async () => {
     const { services, chain, outcomes, run } = setup({
       network: 'mainnet',
@@ -646,9 +698,11 @@ describe('real swaps (mainnet aggregator, fake chain)', () => {
     withQuote(chain)
     await services.wallets.getSession()
     const q = await services.trading.quoteMulti({ side: 'sell', tokenId: USDT_MAIN, slippagePct: 0.5, legs: [{ walletId: 'example.near', amountIn: '5.000013' }] })
-    expect(q.feeTokenId).toBe(USDT_MAIN)
-    expect(q.nearkitFeeTotal).toBeCloseTo(0.025, 9)
+    expect(q.nearkitFees).toHaveLength(1)
+    expect(q.nearkitFees[0]).toMatchObject({ id: USDT_MAIN, symbol: 'USDt' })
+    expect(q.nearkitFees[0]?.amount).toBeCloseTo(0.025, 9)
     expect(q.legs[0]?.nearkitFee).toBeCloseTo(0.025, 9)
+    expect(q.legs[0]?.nearkitFeeToken).toEqual({ id: USDT_MAIN, symbol: 'USDt' })
   })
 
   it('never executes a stale quote', async () => {
@@ -892,13 +946,57 @@ describe('real swaps on mainnet through DCL directly (fake chain)', () => {
     expect(buy.swap).toMatchObject({ expectedOut: { raw: (OUT - OUT / 100n).toString() }, minOut: { raw: (poolMin - poolMin / 100n).toString() } })
     const buyMsg = JSON.parse(String(argsOf(buy.transactions[0]?.actions.at(-1)).msg)) as { Swap: { min_output_amount: string } }
     expect(buyMsg.Swap.min_output_amount).toBe(poolMin.toString())
-    expect(buy.warnings.join(' ')).toMatch(/SINGULARTY takes a 1% tax on tokens leaving its DCL pool/)
+    expect(buy.warnings.join(' ')).toMatch(/SINGULARTY takes a 1% tax on tokens leaving its pool/)
     const sell = await services.trading.prepareSwap({ tokenIn: SING, tokenOut: 'near', amountIn: '10000', slippagePct: 1, walletId: 'example.near' })
     const poolGets = 9950n * 10n ** 18n - (9950n * 10n ** 18n) / 100n
     const quote = rate(SING, poolGets)
     expect(sell.swap).toMatchObject({ expectedOut: { raw: quote.toString() }, minOut: { raw: ((quote * 99n) / 100n).toString() } })
     expect(sell.transactions[0]?.actions.at(-1)).toMatchObject({ args: { amount: (9950n * 10n ** 18n).toString() } })
-    expect(sell.warnings.join(' ')).toMatch(/SINGULARTY takes a 1% tax on tokens entering its DCL pool/)
+    expect(sell.warnings.join(' ')).toMatch(/SINGULARTY takes a 1% tax on tokens entering its pool/)
+  })
+
+  it('Multi Sell quoted on two routes that take the fee in different tokens: one total per token, never added across', async () => {
+    const opts = dclChain()
+    const sing = (opts.tokens as NonNullable<FakeChainOptions['tokens']>)[SING] as { balances?: Record<string, bigint> }
+    sing.balances = { 'example.near': 50_000n * 10n ** 18n, 'bob.near': 50_000n * 10n ** 18n }
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: opts, session: session(['example.near', 'bob.near']) })
+    // Rhea routes 9,000 SINGULARTY (its fee then comes off the wNEAR out); any other amount it refuses, and DCL routes it (fee in SINGULARTY).
+    chain.route('https://smartx.rhea.finance/swapMultiDexPath', (url) => {
+      const amountIn = BigInt(url.searchParams.get('amountIn') ?? '0')
+      if (amountIn !== 9000n * 10n ** 18n) return { result_code: 1008, result_message: '', result_data: null }
+      const out = NEAR(5)
+      return fakeSmartxQuote({
+        user: url.searchParams.get('user') ?? '',
+        tokenIn: SING,
+        tokenOut: 'wrap.near',
+        amountIn,
+        amountOut: out,
+        minOut: (out * 99n) / 100n,
+        dex: DCL,
+        appFeePpm: 5000,
+        feeRecipient: FEES,
+        skipUnwrapNear: false,
+        deadline: Date.now() + 600_000,
+      })
+    })
+    await services.wallets.getSession()
+    const q = await services.trading.quoteMulti({
+      side: 'sell',
+      tokenId: SING,
+      slippagePct: 1,
+      legs: [
+        { walletId: 'example.near', amountIn: '9000' },
+        { walletId: 'bob.near', amountIn: '5000' },
+      ],
+    })
+    expect(q.legs.map((l) => l.nearkitFeeToken)).toEqual([
+      { id: 'near', symbol: 'NEAR' },
+      { id: SING, symbol: 'SINGULARTY' },
+    ])
+    expect(q.nearkitFees.map((f) => f.symbol)).toEqual(['NEAR', 'SINGULARTY'])
+    expect(q.nearkitFees[1]?.amount).toBeCloseTo(25, 9)
+    // The two routes cost differently, so no one set of lines speaks for both.
+    expect(q.costs).toBeUndefined()
   })
 
   it('Multi Buy routes each wallet on DCL separately: each signs its own transaction with its own fee transfer', async () => {
@@ -1543,5 +1641,99 @@ describe('price impact on a DCL route (fake chain): measured on the pool, never 
     const q = await services.trading.quote(buy)
     expect(q.router).toBe('dcl')
     expect(q.priceImpactPct).toBeNull()
+  })
+
+  it('with stale pool state (a point the quote’s price doesn’t fit) the impact is unknown too', async () => {
+    // The pool's price moved by 100 ticks between reading its point and its quote.
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(POINT + 100), session: session(['example.near']) })
+    feeds(chain)
+    const q = await services.trading.quote(buy)
+    expect(q.router).toBe('dcl')
+    expect(q.priceImpactPct).toBeNull()
+  })
+
+  /**
+   * Phase 6: every cost on its own line, computed once from the route. Small, medium and high-impact buys of KITS:
+   * the pool's 1% fee, NEARKITS' 0.50%, KITS' 2% buy tax and the impact multiply back to the amount out, so
+   * nothing is counted twice and the impact holds neither a fee nor the tax.
+   */
+  for (const [label, amount] of [
+    ['small', '0.332845'],
+    ['medium', '10'],
+    ['high', '300'],
+  ] as const) {
+    it(`${label} trade (${amount} NEAR): pool fee, NEARKITS fee, tax and impact are separate lines that add up to the output`, async () => {
+      const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(POINT), session: session(['example.near']) })
+      feeds(chain)
+      const q = await services.trading.quote({ ...buy, amountIn: amount })
+      expect(q.costs).toEqual({ poolFeesPpm: [10000], protocolFeePpm: null, tax: { inBps: 0, outBps: 200 }, impactBasis: 'pools' })
+      expect(q.nearkitFee).toMatchObject({ charged: true, bps: 50, routerShareBps: 0 })
+      expect(q.networkFeeNear).toBeGreaterThan(0)
+      const impact = q.priceImpactPct as number
+      const inNear = Number(amount) * 1e24
+      // Impact is the trade's size against this pool, whatever the fees and the tax.
+      expect(impact).toBeCloseTo(((inNear * 0.995) / DEPTH) * 100, 3)
+      // amountIn × (1 − 0.50%) × pool price × (1 − 1% pool fee) × (1 − impact) × (1 − 2% tax) = amountOut.
+      const rebuilt = inNear * (1 - 0.005) * (1 / MID) * (1 - 10000 / 1e6) * (1 - impact / 100) * (1 - 200 / 10_000)
+      expect(Number(q.amountOutRaw) / rebuilt).toBeCloseTo(1, 6)
+      expect(Number(q.minAmountOutRaw)).toBeLessThan(Number(q.amountOutRaw))
+    })
+  }
+
+  it('the review before signing carries the same lines, and says the tax is in the amounts', async () => {
+    const { services, chain } = setup({ network: 'mainnet', env: MAINNET_ENV, chain: chainWith(POINT), session: session(['example.near']) })
+    feeds(chain)
+    const plan = await services.trading.prepareSwap(buy)
+    expect(plan.swap?.costs).toEqual({ poolFeesPpm: [10000], protocolFeePpm: null, tax: { inBps: 0, outBps: 200 }, impactBasis: 'pools' })
+    expect(plan.warnings.some((w) => /KITS takes a 2% tax on tokens leaving its pool/.test(w))).toBe(true)
+  })
+})
+
+// ─── Multi Trade: one fee disclosure across wallets on different routes ─────
+
+describe('Multi Trade’s fee disclosure across wallets', () => {
+  const near = { id: 'near', symbol: 'NEAR', decimals: 24, contract: null }
+  const kits = { id: 'kits.nearlytrade.near', symbol: 'KITS', decimals: 18, contract: 'kits.nearlytrade.near' }
+  const amount = (raw: bigint, decimals: number) => ({ raw: raw.toString(), display: (Number(raw) / 10 ** decimals).toString() })
+  const rhea = (raw: bigint) => ({
+    label: 'NEARKITS fee',
+    bps: 50,
+    amount: amount(raw, 24),
+    token: near,
+    charged: true,
+    recipient: 'nearkitfee.near',
+    received: { bps: 40, amount: amount((raw * 4n) / 5n, 24), party: 'NEARKITS' },
+    routerShare: { bps: 10, amount: amount(raw / 5n, 24), party: 'Rhea' },
+    routerFee: { bps: 10, amount: amount(raw / 5n, 24), party: 'Rhea protocol' },
+    estimated: true,
+    note: 'Rhea',
+  })
+  const dcl = (raw: bigint) => ({
+    label: 'NEARKITS fee',
+    bps: 50,
+    amount: amount(raw, 18),
+    token: kits,
+    charged: true,
+    recipient: 'nearkitfee.near',
+    received: { bps: 50, amount: amount(raw, 18), party: 'NEARKITS' },
+    routerShare: null,
+    routerFee: null,
+    estimated: false,
+    note: 'DCL',
+  })
+
+  it('wallets on the same route add up share by share', () => {
+    const fee = combinedFeeDisclosure([rhea(10n ** 22n), rhea(2n * 10n ** 22n)])
+    expect(fee).toMatchObject({ amount: { raw: (3n * 10n ** 22n).toString() }, received: { bps: 40, amount: { raw: (24n * 10n ** 21n).toString() } }, routerShare: { bps: 10 } })
+    expect(fee.parts).toBeUndefined()
+  })
+
+  it('wallets on routes that take it in different tokens: one total per token, no shares, each wallet’s own on its line', () => {
+    const fee = combinedFeeDisclosure([rhea(10n ** 22n), dcl(25n * 10n ** 18n), dcl(5n * 10n ** 18n)])
+    expect(fee.parts?.map((p) => [p.token.symbol, p.amount.raw])).toEqual([
+      ['NEAR', (10n ** 22n).toString()],
+      ['KITS', (30n * 10n ** 18n).toString()],
+    ])
+    expect(fee).toMatchObject({ received: null, routerShare: null, routerFee: null, estimated: true, recipient: 'nearkitfee.near' })
   })
 })

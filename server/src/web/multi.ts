@@ -1,3 +1,6 @@
+import { commonCosts } from '@/services/real/swapCosts'
+import type { RouteSource } from '@/services/routing/select'
+import type { QuoteCosts } from '@/types/domain'
 import { walletName } from '../custody/limits'
 import type { CustodyStore, Intent, TradingWallet } from '../custody/store'
 import type { SwapParams, SwapQuote } from '../custody/swap'
@@ -26,6 +29,10 @@ export interface WebTradeLeg {
   available: string | null
   /** Yocto for registrations this wallet's trade makes first. */
   registration: string
+  /** Where this wallet's route comes from, its other costs (pool or protocol fee, tax) and its price impact; null when unknown. */
+  source: RouteSource | null
+  costs: QuoteCosts | null
+  priceImpactPct: number | null
   status: WebLegStatus
   /** What the wallet received (raw), once done; null before, or when the chain didn't say. */
   received: string | null
@@ -39,8 +46,11 @@ export interface WebTradeLeg {
 export interface WebTradeFacts {
   fee: { charged: boolean; bps: number }
   path: string[]
+  /** The routes' source and costs when every wallet's route shares them; null when they differ (each leg has its own). */
+  source: RouteSource | null
+  costs: QuoteCosts | null
   networkFeeNear: string
-  /** The largest price impact among the wallets; null where no prices exist (testnet). */
+  /** The largest price impact among the wallets; null when any wallet's is unknown. */
   priceImpactPct: number | null
   /** wrap.near's shard was backed up when quoted: it may take longer than usual. */
   busy: boolean
@@ -88,6 +98,9 @@ export function legView(intent: Intent, wallet: WalletLike, now: number, requote
     need: q.need ?? null,
     available: q.available ?? null,
     registration: q.registration,
+    source: q.source ?? null,
+    costs: q.costs ?? null,
+    priceImpactPct: q.priceImpactPct,
     status: legStatus(intent, now, requoted),
     received,
     message: intent.status === 'failed' ? (r?.message ?? null) : null,
@@ -99,12 +112,18 @@ export function legView(intent: Intent, wallet: WalletLike, now: number, requote
 export function tradeFacts(intents: readonly Intent[]): WebTradeFacts {
   const quotes = intents.map((i) => i.quote as unknown as SwapQuote)
   const q0 = quotes[0]
-  const impacts = quotes.map((q) => q.priceImpactPct).filter((x): x is number => x !== null)
+  const impacts = quotes.map((q) => q.priceImpactPct)
+  // Each wallet is routed on its own: what one route says (Rhea, DCL, its tax) speaks for the trade only when every wallet's says it.
+  const sources = new Set(quotes.map((q) => q.source ?? null))
+  const costs = quotes.every((q) => q.costs) ? commonCosts(quotes.map((q) => q.costs as QuoteCosts)) : null
   return {
     fee: { charged: Boolean(q0?.fee.charged && q0.fee.amountRaw !== null), bps: q0?.fee.bps ?? 0 },
     path: q0?.path ?? [],
+    source: sources.size === 1 ? (q0?.source ?? null) : null,
+    costs,
     networkFeeNear: q0?.networkFeeNear ?? '0',
-    priceImpactPct: impacts.length ? Math.max(...impacts) : null,
+    // The worst wallet's impact; unknown when any wallet's is, never the others' figure.
+    priceImpactPct: impacts.length && impacts.every((x) => x !== null) ? Math.max(...(impacts as number[])) : null,
     busy: quotes.some((q) => q.busy),
     expiresAt: Math.min(...intents.map((i) => i.expiresAt)),
   }

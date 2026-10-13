@@ -4,7 +4,9 @@ import type { Route } from '../api/http'
 import { ALICE } from '../bot/testing'
 import { telegramApprovalsOn } from '../bot/tradingWallet'
 import { linkedAccountOf } from '../bot/wallet'
-import { LINKED, ONE, USDT, WRAP, walletBot } from '../bot/walletTesting'
+import { NETWORKS } from '@/config/networks'
+import { dclPoolId } from '@/services/dcl/pools'
+import { LINKED, ONE, REG, USDT, WRAP, walletBot } from '../bot/walletTesting'
 import { readWallet } from '../custody/wallets'
 import { maxNearWithdraw } from '../custody/withdraw'
 import type { TgUser } from '../telegram/types'
@@ -337,6 +339,27 @@ describe('trading from NEARKITS web: the web session authorizes, no Telegram ste
     })
     h.advance(8 * 24 * 60 * 60_000)
     await expect(quote(token, 'buy', [{ walletId: a, amountIn: '0.1' }])).rejects.toMatchObject({ status: 401, code: 'session' })
+  })
+})
+
+describe('the NEARKITS-wallet review of a route on DCL directly', () => {
+  const FRESH = 'fresh.nearlytrade.testnet'
+  const DCL = NETWORKS.testnet.dex.dcl.contract
+  const rate = (tokenIn: string, amountIn: bigint) => ((tokenIn === WRAP ? amountIn / 1000n : amountIn * 1000n) * 99n) / 100n
+  const chain = (tax?: { buyBps: number; sellBps: number; pairs: string[] }) => ({
+    accounts: { [DCL]: { amount: ONE, code: true }, [FRESH]: { amount: ONE, global: 'GlobalTokenContract1111111111111' } },
+    tokens: { [FRESH]: { symbol: 'FRESH', decimals: 18, boundsMin: REG, balances: {}, registered: [DCL], ...(tax ? { tax } : {}) } },
+    dcl: { contract: DCL, pools: { [dclPoolId(FRESH, WRAP, 10000)]: { tokenX: FRESH, tokenY: WRAP, fee: 10000, liquidity: 10n ** 23n, rate } } },
+  })
+
+  it('names DCL as the route’s source, never Rhea, and carries its costs: the pool’s fee and the token’s tax', async () => {
+    const { call, signIn, wallets } = await webApp({ chain: chain({ buyBps: 100, sellBps: 100, pairs: [DCL] }) })
+    const token = await signIn()
+    const [a] = await wallets(token, 0)
+    const r = await call('/api/web/trade/quote', { session: token, side: 'buy', token: FRESH, slippagePct: 1, legs: [{ walletId: a, amountIn: '0.1' }] })
+    const costs = { poolFeesPpm: [10000], protocolFeePpm: null, tax: { inBps: 0, outBps: 100 }, impactBasis: 'pools' }
+    expect(r).toMatchObject({ source: 'dcl', costs, path: ['NEAR', 'FRESH'] })
+    expect((r.legs as { source: string; costs: unknown }[])[0]).toMatchObject({ source: 'dcl', costs })
   })
 })
 

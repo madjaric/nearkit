@@ -34,6 +34,9 @@ describe('a token outside every list, routed on DCL directly, from the NEARKITS 
     const quote = h.last()?.text ?? ''
     for (const part of ['🟢 <b>Buy FRESH</b>', 'You pay <b>0.1 NEAR</b>', 'You receive <b>≈ 99 FRESH</b>', 'NEARKITS fee none on testnet', 'Route NEAR → FRESH · DCL'])
       expect(quote).toContain(part)
+    // Every cost on its own line: the pool's tier; an untaxed token has no tax line, and no Rhea fee is on a DCL route.
+    expect(quote).toContain('Pool fee 1.00% · in the rate')
+    expect(quote).not.toMatch(/tax|Rhea protocol fee/)
     await h.press(h.button('Confirm buy'))
     const result = h.last()?.text ?? ''
     expect(result).toContain('Buy confirmed')
@@ -84,7 +87,8 @@ describe('a token outside every list, routed on DCL directly, from the NEARKITS 
     const quote = h.last()?.text ?? ''
     expect(quote).toContain('You receive <b>≈ 98.01 FRESH</b>')
     expect(quote).toContain('Minimum 97.0299 FRESH')
-    expect(quote).toContain('Token tax 1% on tokens leaving the pool')
+    expect(quote).toContain('FRESH buy tax 1% · already in the amounts')
+    expect(quote).toContain('Pool fee 1.00% · in the rate')
     await h.press(h.button('Confirm buy'))
     expect(h.last()?.text).toContain('Received <b>98.01 FRESH</b>')
     expect(freshOf(h, w.accountId)).toBe(9801n * 10n ** 16n)
@@ -94,7 +98,7 @@ describe('a token outside every list, routed on DCL directly, from the NEARKITS 
     // 98.01 FRESH sold: the pool receives 97.0299 after the sell tax, and pays 1,000 wNEAR per million less 1%.
     expect(sellQuote).toContain('You pay <b>98.01 FRESH</b>')
     expect(sellQuote).toContain('You receive <b>≈ 0.096059 NEAR</b>')
-    expect(sellQuote).toContain('Token tax 1% on tokens entering the pool')
+    expect(sellQuote).toContain('FRESH sell tax 1% · already in the amounts')
     await h.press(h.button('Confirm sell'))
     expect(h.last()?.text).toContain('Sell confirmed')
     expect(h.last()?.text).toContain('Received <b>0.096059 NEAR</b>')
@@ -114,7 +118,12 @@ describe('a token outside every list, routed on DCL directly, from the NEARKITS 
     const h = await bot()
     await h.funded(3n * ONE)
     await h.say(`/buy ${USDT} 0.1`)
-    expect(h.last()?.text).toContain('Route NEAR → USDT · Rhea')
+    const quote = h.last()?.text ?? ''
+    expect(quote).toContain('Route NEAR → USDT · Rhea')
+    // Rhea's route doesn't itemise its pools, and with no listed prices on testnet its impact can't even be estimated.
+    expect(quote).toContain('Pool fees in the rate')
+    expect(quote).toContain('Price impact (est.) — (no listed prices to estimate it)')
+    expect(quote).not.toMatch(/buy tax|sell tax/)
   })
 })
 
@@ -131,8 +140,9 @@ describe('price impact of a DCL route in Telegram: measured on the pool itself',
     await h.say(`/buy ${FRESH} 0.1`)
     const quote = h.last()?.text ?? ''
     expect(quote).toContain('Route NEAR → FRESH · DCL')
-    // The bot's own format signs it (formatPct), as for every quote.
-    expect(quote).toContain('Price impact +1.00%')
+    // Measured on the pool: two decimals, no "est.", the same words as the web (lib/quoteCosts.ts).
+    expect(quote).toContain('Price impact 1.00%')
+    expect(quote).not.toContain('Price impact (est.)')
   })
 
   it('a pool that doesn’t report its pre-trade state: the impact is unknown, never a guess', async () => {

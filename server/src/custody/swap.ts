@@ -12,9 +12,10 @@ import { peakNeedYocto, txStorageYocto } from '@/services/near/plans'
 import { HIGH_REGISTRATION_YOCTO } from '@/services/near/storage'
 import { aggregatorFee, grossOf } from '@/services/rhea/fees'
 import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
+import { swapCosts, swapImpactPct } from '@/services/real/swapCosts'
 import { createSwapRouter, type RoutedSwap } from '@/services/real/swapRouting'
-import type { QuoteRequest } from '@/types/domain'
-import type { PlannedTransaction } from '@/types/operations'
+import type { QuoteCosts, QuoteRequest } from '@/types/domain'
+import type { PlannedTransaction, TokenRef } from '@/types/operations'
 import type { ServerNear } from '../near'
 import type { RpcTxResult } from '@/services/near/rpc'
 import type { ConfirmedTx, IntentHandler, PlanOutcome } from './engine'
@@ -49,8 +50,10 @@ export interface SwapQuote {
   /** The lowest output the user can receive: what the user authorizes. */
   minOut: string
   path: string[]
-  /** Direct DCL routes on a launch token that taxes its pool: the tax on this trade, already in the figures. */
+  /** A launch token that taxes its pool (DCL or Rhea's route through it): the tax on this trade, already in the figures. */
   tax?: { inBps: number; outBps: number }
+  /** The route's other costs, each its own line (pool or protocol fee, tax, how impact is known); absent on quotes saved before they were. */
+  costs?: QuoteCosts
   priceImpactPct: number | null
   /** NearKit's fee as charged on this route (none on testnet). */
   fee: { charged: boolean; bps: number; amountRaw: string | null; token: string | null; routerShareBps: number | null }
@@ -225,18 +228,9 @@ export function createSwapService(near: ServerNear) {
       .catch(() => (contract.length > 16 ? `${contract.slice(0, 8)}…` : contract))
   }
 
-  /** As the web's (services/real/tradingService.ts): a DCL route's impact is its pools', never a USD price list's. */
-  async function impactOf(r: RoutedSwap): Promise<number | null> {
-    if (r.router === 'dcl') return r.impactPct ?? null
-    if (!ctx.capabilities.prices) return null
-    const price = async (id: string) => (await near.market.quoteFor(id).catch(() => null))?.priceUsd ?? null
-    const [pIn, pOut] = await Promise.all([price(r.tokenIn.contract ?? NATIVE_TOKEN_ID), price(r.tokenOut.contract ?? NATIVE_TOKEN_ID)])
-    if (!pIn || !pOut) return null
-    const gross = r.fee ? grossOf(r.amountOut, r.fee.appPpm, r.fee.protocolPpm) : r.amountOut
-    const valueIn = Number(formatUnits(r.amountIn, r.tokenIn.decimals)) * pIn
-    const valueOut = Number(formatUnits(gross, r.tokenOut.decimals)) * pOut
-    return valueIn > 0 ? Math.max(0, (1 - valueOut / valueIn) * 100) : null
-  }
+  /** The same impact the web computes (swapCosts.ts): a DCL route's is its pools', other routes' an estimate from listed prices, never counting a fee or a tax. */
+  const price = async (t: TokenRef) => (await near.market.quoteFor(t.contract ?? NATIVE_TOKEN_ID).catch(() => null))?.priceUsd ?? null
+  const impactOf = (r: RoutedSwap): Promise<number | null> => swapImpactPct(r, ctx.capabilities.prices ? price : null)
 
   async function plan(r: RoutedSwap, wallet: TradingWallet) {
     const pre = await router.prerequisites(r, wallet.accountId)
@@ -282,6 +276,7 @@ export function createSwapService(near: ServerNear) {
       router: r.router,
       source: r.source,
       ...(r.tax && (r.tax.inBps || r.tax.outBps) ? { tax: r.tax } : {}),
+      costs: swapCosts(r),
       amountInRaw: r.amountIn.toString(),
       amountOut: r.amountOut.toString(),
       minOut: r.minOut.toString(),

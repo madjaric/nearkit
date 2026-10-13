@@ -109,7 +109,7 @@ export function demoMultiPlan(state: MockState, input: { quote: MultiTradeQuote;
     // One approval per wallet: five wallets are five separate, non-atomic trades.
     groups: transactions.map((t) => [t.index]),
     totals: { amount: amountValue(total, inRef.decimals), storage: amountValue(0n, 24), upfrontNear: amountValue(0n, 24) },
-    fee: demoFee(quote.nearkitFeeTotal),
+    fee: demoFee(quote.nearkitFees.reduce((s, f) => s + f.amount, 0)),
     swap: null,
     warnings: [],
     expiresAt: quote.expiresAt,

@@ -10,12 +10,14 @@ import { HIGH_REGISTRATION_YOCTO } from '@/services/near/storage'
 import { wrapDirection } from '@/services/near/wrap'
 import { aggregatorFee, grossOf } from '@/services/rhea/fees'
 import { buildSwapTransactions } from '@/services/rhea/swapTransactions'
-import type { LimitOrder, MultiTradeLegQuote, MultiTradeQuote, OrderExpiry, Quote, QuoteRequest, Wallet } from '@/types/domain'
+import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
+import type { LimitOrder, MultiTradeLegQuote, MultiTradeQuote, OrderExpiry, Quote, QuoteRequest, TokenId, Wallet } from '@/types/domain'
 import type { FeeDisclosure, OperationPlan, PlanLine, PlannedTransaction, SwapDetails, TokenRef } from '@/types/operations'
 import type { TradingService, WalletService } from '../types'
 import { amountValue, executableWallet, nearText, nearValue, newPlanId, requireSession, sumRaw, walletOf } from './common'
 import type { NearContext } from './context'
 import type { Market } from './market'
+import { commonCosts, swapCosts, swapImpactPct } from './swapCosts'
 import { createSwapRouter, type RoutedSwap } from './swapRouting'
 import { createWrapPlanner } from './wrapNear'
 
@@ -35,6 +37,50 @@ const SIMPLE_TX_BURN_YOCTO = 5n * 10n ** 20n
 const EXPIRY_MS: Record<OrderExpiry, number | null> = { '1h': 3_600_000, '24h': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000, gtc: null }
 
 const display = (raw: bigint, decimals: number) => Number(formatUnits(raw, decimals))
+
+/**
+ * One fee disclosure for a Multi Trade's wallets. Wallets whose routes take the fee the same way (same token,
+ * same split) add up share by share. Wallets on different routes (Rhea's aggregator keeps a share and adds its
+ * own fee; DCL sends all of it to NEARKITS with the swap), possibly in different tokens, are totalled per token
+ * only, and each wallet's own fee is on its line: shares never mix across routes, tokens never add up.
+ */
+export function combinedFeeDisclosure(list: readonly FeeDisclosure[]): FeeDisclosure {
+  const base = list[0]
+  if (!base) throw new NearKitError('INVALID_AMOUNT', 'Allocate an amount to at least one wallet')
+  if (!base.charged || list.length === 1) return base
+  const sum = (pick: (d: FeeDisclosure) => { amount: { raw: string } } | null) => sumRaw(list.map((d) => BigInt(pick(d)?.amount.raw ?? '0')))
+  const shape = (d: FeeDisclosure) => [d.token.id, d.recipient, d.received?.bps, d.routerShare?.bps, d.routerFee?.bps].join('|')
+  if (list.every((d) => shape(d) === shape(base))) {
+    const at = (raw: bigint) => amountValue(raw, base.token.decimals)
+    return {
+      ...base,
+      amount: at(sum((d) => d)),
+      received: base.received && { ...base.received, amount: at(sum((d) => d.received)) },
+      routerShare: base.routerShare && { ...base.routerShare, amount: at(sum((d) => d.routerShare)) },
+      routerFee: base.routerFee && { ...base.routerFee, amount: at(sum((d) => d.routerFee)) },
+      estimated: list.some((d) => d.estimated),
+      note: `Across ${list.length} wallets. ${base.note ?? ''}`.trim(),
+    }
+  }
+  const byToken = new Map<string, { token: TokenRef; raw: bigint }>()
+  for (const d of list) byToken.set(d.token.id, { token: d.token, raw: (byToken.get(d.token.id)?.raw ?? 0n) + BigInt(d.amount.raw) })
+  const parts = [...byToken.values()].map((p) => ({ token: p.token, amount: amountValue(p.raw, p.token.decimals) }))
+  const head = parts[0] as (typeof parts)[number]
+  return {
+    label: base.label,
+    bps: base.bps,
+    amount: head.amount,
+    token: head.token,
+    charged: true,
+    recipient: base.recipient,
+    received: null,
+    routerShare: null,
+    routerFee: null,
+    estimated: list.some((d) => d.estimated),
+    ...(parts.length > 1 ? { parts } : {}),
+    note: `Across ${list.length} wallets whose routes take the fee differently: Rhea’s aggregator inside the swap (Rhea keeps a share and adds its own fee), DCL as a transfer to NEARKITS with the swap. Each wallet’s line shows its own fee and route.`,
+  }
+}
 
 /** A Multi Trade leg with something to trade; wallets allocated nothing are left out. */
 const allocated = (leg: { amountIn: string }) => leg.amountIn.trim() !== '' && Number(leg.amountIn) > 0
@@ -95,24 +141,16 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
     return { split, token, estimated: !input }
   }
 
+  /** The token a fee is paid in, as Multi Trade names it: wNEAR is NEAR. */
+  const feeTokenOf = (t: TokenRef): { id: TokenId; symbol: string } =>
+    t.contract === null || t.contract === ctx.network.wrapContract ? { id: NATIVE_TOKEN_ID, symbol: 'NEAR' } : { id: t.id, symbol: t.symbol }
+
   async function priceUsd(token: TokenRef): Promise<number | null> {
     return (await market.quoteFor(token.contract === null ? NATIVE_TOKEN_ID : token.id).catch(() => null))?.priceUsd ?? null
   }
 
-  /**
-   * A DCL route's impact is measured on its pools (dcl/impact.ts), never from USD prices: a token's
-   * listed price can sit far from its pool. Other routes compare USD in and out at listed prices.
-   */
-  async function impactOf(r: RoutedSwap): Promise<number | null> {
-    if (r.router === 'dcl') return r.impactPct ?? null
-    if (!ctx.capabilities.prices) return null
-    const [pIn, pOut] = await Promise.all([priceUsd(r.tokenIn), priceUsd(r.tokenOut)])
-    if (!pIn || !pOut) return null
-    const gross = r.fee ? grossOf(r.amountOut, r.fee.appPpm, r.fee.protocolPpm) : r.amountOut
-    const valueIn = display(r.amountIn, r.tokenIn.decimals) * pIn
-    const valueOut = display(gross, r.tokenOut.decimals) * pOut
-    return valueIn > 0 ? Math.max(0, (1 - valueOut / valueIn) * 100) : null
-  }
+  /** A route's price impact, as every surface computes it (swapCosts.ts): its pools' own on DCL, an estimate from listed prices otherwise. */
+  const impactOf = (r: RoutedSwap): Promise<number | null> => swapImpactPct(r, ctx.capabilities.prices ? priceUsd : null)
 
   async function toQuote(request: QuoteRequest, r: RoutedSwap): Promise<Quote> {
     const [refs, impact, nearUsd] = await Promise.all([routeRefs(r), impactOf(r), market.nearQuote()])
@@ -136,6 +174,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       minAmountOutRaw: r.minOut.toString(),
       rate: amountOut / display(r.amountIn, r.tokenIn.decimals),
       priceImpactPct: impact,
+      costs: swapCosts(r),
       nearkitFee: r.fee
         ? {
             amountNear,
@@ -285,8 +324,9 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       w.push(
         `This route goes to the exchange directly. The NEARKITS fee leaves with the swap's own transaction; if the exchange then refunds the swap (the price moved past your slippage), the fee is not refunded.`,
       )
-    if (r.tax?.inBps) w.push(`${r.tokenIn.symbol} takes a ${r.tax.inBps / 100}% tax on tokens entering its DCL pool; the quote is for what the pool receives after it.`)
-    if (r.tax?.outBps) w.push(`${r.tokenOut.symbol} takes a ${r.tax.outBps / 100}% tax on tokens leaving its DCL pool; the amounts shown are after it.`)
+    if (r.tax?.inBps)
+      w.push(`${r.tokenIn.symbol} takes a ${r.tax.inBps / 100}% tax on tokens entering its pool, so the pool receives that much less; the amounts shown are after it.`)
+    if (r.tax?.outBps) w.push(`${r.tokenOut.symbol} takes a ${r.tax.outBps / 100}% tax on tokens leaving its pool; the amounts shown are after it.`)
     return w
   }
 
@@ -370,6 +410,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         minOut: amountValue(r.minOut, r.tokenOut.decimals),
         slippagePct: r.slippagePct,
         priceImpactPct: impact,
+        costs: swapCosts(r),
         route: pathOf(r, leg.refs),
         routeTokens: leg.refs,
         quotedAt: r.quotedAt,
@@ -434,15 +475,21 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
           amountOut: display(r.amountOut, r.tokenOut.decimals),
           minAmountOut: display(r.minOut, r.tokenOut.decimals),
           nearkitFee: fee ? display(fee.split.app, fee.token.decimals) : 0,
+          nearkitFeeToken: feeTokenOf(fee?.token ?? r.tokenIn),
           shortfall: have >= r.amountIn ? 0 : display(r.amountIn - have, r.tokenIn.decimals),
         }
       })
       const live = quoted.filter((l) => l.shortfall === 0)
-      // The fee is taken in one token for the pair (the input when Rhea whitelists it, else
-      // the output), so every leg's fee is in the same token.
-      const feeToken = feeSplit(routed.values().next().value as RoutedSwap)?.token ?? null
-      const feeTokenId = feeToken === null || feeToken.contract === null || feeToken.contract === ctx.network.wrapContract ? NATIVE_TOKEN_ID : feeToken.id
-      const impacts = await Promise.all([...routed.values()].map(impactOf))
+      // Each wallet's route takes the fee in its own token (Rhea: the first token on its fee list it holds;
+      // DCL: the input), so wallets on different routes can pay in different tokens: summed per token, never across.
+      const fees = new Map<TokenId, MultiTradeQuote['nearkitFees'][number]>()
+      for (const l of live) {
+        const seen = fees.get(l.nearkitFeeToken.id)
+        fees.set(l.nearkitFeeToken.id, { ...l.nearkitFeeToken, amount: (seen?.amount ?? 0) + l.nearkitFee })
+      }
+      const routes = [...routed.values()]
+      const impacts = await Promise.all(routes.map(impactOf))
+      const costs = commonCosts(routes.map(swapCosts))
       const now = ctx.now()
       return {
         request,
@@ -450,11 +497,11 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         totalIn: live.reduce((s, l) => s + l.amountInValue, 0),
         totalOut: live.reduce((s, l) => s + l.amountOut, 0),
         totalMinOut: live.reduce((s, l) => s + l.minAmountOut, 0),
-        nearkitFeeTotal: live.reduce((s, l) => s + l.nearkitFee, 0),
-        feeTokenId,
+        nearkitFees: [...fees.values()],
         networkFeeNear: display(SWAP_BURN_YOCTO, NEAR_DECIMALS) * live.length,
         // The worst leg's impact; unknown if any leg can't be estimated.
         priceImpactPct: impacts.some((x) => x === null) ? null : Math.max(0, ...impacts.map((x) => x ?? 0)),
+        ...(costs ? { costs } : {}),
         quotedAt: now,
         expiresAt: now + DISPLAY_TTL_MS,
       } satisfies MultiTradeQuote
@@ -483,12 +530,16 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
       const transactions: PlannedTransaction[] = []
       const lines: PlanLine[] = []
       const groups: number[][] = []
+      // Each wallet is routed on its own, so wallets can land on different sources: then each line names its route.
+      const mixed = new Set(planned.map((p) => p.route.source)).size > 1
+      const disclosures = planned.map((p) => feeDisclosure(p.route))
       for (const [i, p] of planned.entries()) {
         const start = transactions.length
         for (const tx of p.txs) transactions.push({ ...tx, index: transactions.length, label: `${p.wallet.label} · ${tx.label}` })
         const own = transactions.slice(start)
         for (const g of groupTransactions(own, batch)) groups.push(g)
         const r = p.route
+        const d = disclosures[i] as FeeDisclosure
         lines.push({
           id: `l${i}`,
           label: p.wallet.label,
@@ -498,65 +549,36 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
           notes: [
             `Expected ${formatUnits(r.amountOut, r.tokenOut.decimals, { maxFraction: 6, group: true })} ${r.tokenOut.symbol}`,
             `Minimum ${formatUnits(r.minOut, r.tokenOut.decimals, { maxFraction: 6, group: true })} ${r.tokenOut.symbol}`,
+            ...(d.charged
+              ? [`NEARKITS fee ${d.estimated ? '≈ ' : ''}${formatUnits(BigInt(d.amount.raw), d.token.decimals, { maxFraction: 6, group: true })} ${d.token.symbol}`]
+              : []),
+            ...(mixed ? [`Route ${pathOf(r, p.refs).join(' → ')} · ${ROUTE_SOURCE_LABEL[r.source]}`] : []),
           ],
           txIndex: transactions.length - 1,
         })
       }
       const first = planned[0]?.route
       if (!first) throw new NearKitError('INVALID_AMOUNT', 'Allocate an amount to at least one wallet')
-      const disclosures = planned.map((p) => feeDisclosure(p.route))
-      const sameToken = disclosures.every((d) => d.token.id === disclosures[0]?.token.id)
-      const sumShare = (pick: (d: FeeDisclosure) => { amount: { raw: string } } | null) => sumRaw(disclosures.map((d) => BigInt(pick(d)?.amount.raw ?? '0')))
-      const base = disclosures[0] as FeeDisclosure
-      const fee: FeeDisclosure =
-        base.charged && sameToken
-          ? {
-              ...base,
-              amount: amountValue(
-                sumShare((d) => d),
-                base.token.decimals,
-              ),
-              received: base.received && {
-                ...base.received,
-                amount: amountValue(
-                  sumShare((d) => d.received),
-                  base.token.decimals,
-                ),
-              },
-              routerShare: base.routerShare && {
-                ...base.routerShare,
-                amount: amountValue(
-                  sumShare((d) => d.routerShare),
-                  base.token.decimals,
-                ),
-              },
-              routerFee: base.routerFee && {
-                ...base.routerFee,
-                amount: amountValue(
-                  sumShare((d) => d.routerFee),
-                  base.token.decimals,
-                ),
-              },
-              estimated: disclosures.some((d) => d.estimated),
-              note: `Across ${planned.length} wallets. ${base.note ?? ''}`.trim(),
-            }
-          : base
+      const fee = combinedFeeDisclosure(disclosures)
       const elsewhere = planned.map((p) => p.wallet.accountId).filter((id) => !signing.has(id))
       const warnings = [
         ...(await busyWarning(first)),
         'Each wallet’s swap is separate, signed one wallet after another. There is no all-or-nothing execution: if one fails or the quote expires, NEARKITS stops there. Wallets already done keep their swaps; the rest are not sent.',
-        ...warningsFor(first),
+        // Every wallet's route: a DCL wallet's fee transfer or a token's tax is said even when the first wallet went through Rhea.
+        ...new Set(planned.flatMap((p) => warningsFor(p.route))),
         ...(await lookalikeWarnings([first.tokenIn, first.tokenOut])),
         ...new Set(planned.flatMap((p) => feeAccountWarning(p.route, p.txs))),
         ...registrationWarnings(transactions, HIGH_REGISTRATION_YOCTO),
         ...(elsewhere.length ? [`NEARKITS asks you to connect ${elsewhere.join(', ')} in your wallet when their turn comes.`] : []),
       ]
-      // One summary for the review: totals across wallets, the first wallet's route, the worst impact.
+      // One summary for the review: totals across wallets, the worst impact; the route's source and costs when every wallet shares them.
       const impacts = await Promise.all(planned.map((p) => impactOf(p.route)))
+      const costs = commonCosts(planned.map((p) => swapCosts(p.route)))
       const firstLeg = planned[0] as LegPlan
       const swap: SwapDetails = {
         router: first.router,
-        source: first.source,
+        ...(mixed ? {} : { source: first.source }),
+        ...(costs ? { costs } : {}),
         tokenIn: first.tokenIn,
         tokenOut: first.tokenOut,
         amountIn: amountValue(sumRaw(planned.map((p) => p.route.amountIn)), first.tokenIn.decimals),
