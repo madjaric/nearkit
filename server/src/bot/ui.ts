@@ -64,10 +64,15 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
     case 'INVALID_AMOUNT':
     case 'INVALID_ACCOUNT':
     case 'EXECUTION_DISABLED':
-      // Already written for people, about their own input or a setting.
+    case 'STORAGE_REQUIRED':
+    case 'NOT_EXECUTABLE':
+      // Already written for people, about their own input, a setting or the wallet.
       return err.message
     case 'RPC_ERROR':
       return 'The NEAR network isn’t answering right now. Try again in a moment.'
+    case 'TRANSACTION_FAILED':
+      // Something was sent: never "nothing was sent". The contract's own wording stays in the log.
+      return 'The transaction failed on NEAR. Check the wallet’s activity before trying again.'
     default:
       return 'Something went wrong. Nothing was sent or signed. Try again in a moment.'
   }

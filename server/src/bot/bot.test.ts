@@ -270,6 +270,33 @@ describe('robustness', () => {
     ).not.toMatch(/ECONNREFUSED|rpc\.internal|panicked|E68/)
   })
 
+  it('never says "nothing was sent" about a transaction that failed on chain, and keeps messages written for people', async () => {
+    const h = await bot([
+      {
+        commands: {
+          txfail: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('TRANSACTION_FAILED', 'Smart contract panicked: E22: not enough tokens in deposit')
+            },
+          },
+          storage: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('STORAGE_REQUIRED', 'This wallet must register on the token first.')
+            },
+          },
+        },
+      },
+    ])
+    await h.say('/txfail')
+    expect(h.last()?.text).not.toMatch(/Nothing was sent/)
+    expect(h.last()?.text).toMatch(/failed on NEAR/)
+    expect(h.last()?.text).not.toMatch(/panicked|E22/)
+    await h.say('/storage')
+    expect(h.last()?.text).toBe('⚠️ This wallet must register on the token first.')
+  })
+
   it('stops messaging a user who blocked the bot', async () => {
     const h = await bot()
     await h.say('/start')
