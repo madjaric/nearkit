@@ -183,6 +183,10 @@ describe('settings', () => {
     expect(parseSlippage('0')).toBeNull()
     expect(parseSlippage('51')).toBeNull()
     expect(parseSlippage('1e1')).toBeNull()
+    // NEARKITS wallets trade within CUSTODY_MAX_SLIPPAGE (5%): inside the signer's 10% price floor.
+    expect(parseSlippage('5')).toBe(5)
+    expect(parseSlippage('5.01')).toBeNull()
+    expect(parseSlippage('10')).toBeNull()
     expect(parseBuyPresets('0.1, 1; 01')).toEqual({ ok: true, value: ['0.1', '1'] })
     expect(parseBuyPresets('0').ok).toBe(false)
     expect(parseBuyPresets('1 2 3 4 5 6 7').ok).toBe(false)

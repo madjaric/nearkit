@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { NETWORKS, type NetworkConfig, type NetworkId } from '@/config/networks'
-import { feeRecipientProblem, MAX_SLIPPAGE } from '@/lib/fees'
+import { feeRecipientProblem, MAX_SLIPPAGE, SIGNER_MAX_SLIPPAGE } from '@/lib/fees'
 import { hexDecode } from '@/lib/encoding'
 import { parseKek } from '../custody/vault'
 import type { DatabaseConfig } from '../db/open'
@@ -172,9 +172,12 @@ export function loadSignerConfig(raw: Record<string, string | undefined>): { con
     issue('NEARKIT_SIGNER_RPC_QUORUM', `Must be a whole number from 1 to the number of RPC URLs (${urls.length})`)
   if (mainnet && (urls.length < 2 || quorum < 2)) issue('NEARKIT_SIGNER_RPC_QUORUM', 'Mainnet needs at least two RPC providers that agree (quorum 2 or more)')
 
+  // The price floor for swaps: a route's minimum may sit at most this far below the signer's own quote.
+  // Mainnet names it explicitly (10% in production), so a signer never starts on a default nobody chose.
   const slippageRaw = raw.NEARKIT_SIGNER_MAX_SLIPPAGE_PCT?.trim()
-  const slippage = blank(slippageRaw) ? MAX_SLIPPAGE : Number(slippageRaw)
-  if (!Number.isFinite(slippage) || slippage <= 0 || slippage > MAX_SLIPPAGE) issue('NEARKIT_SIGNER_MAX_SLIPPAGE_PCT', `Must be above 0 and at most ${MAX_SLIPPAGE}`)
+  const slippage = blank(slippageRaw) ? (mainnet ? Number.NaN : SIGNER_MAX_SLIPPAGE) : Number(slippageRaw)
+  if (mainnet && blank(slippageRaw)) issue('NEARKIT_SIGNER_MAX_SLIPPAGE_PCT', `Set the swap price floor explicitly on mainnet (production uses ${SIGNER_MAX_SLIPPAGE})`)
+  else if (!Number.isFinite(slippage) || slippage <= 0 || slippage > MAX_SLIPPAGE) issue('NEARKIT_SIGNER_MAX_SLIPPAGE_PCT', `Must be above 0 and at most ${MAX_SLIPPAGE}`)
 
   const host = blank(raw.NEARKIT_SIGNER_HOST) ? '127.0.0.1' : raw.NEARKIT_SIGNER_HOST.trim()
   const port = blank(raw.NEARKIT_SIGNER_PORT) ? 8790 : Number(raw.NEARKIT_SIGNER_PORT)

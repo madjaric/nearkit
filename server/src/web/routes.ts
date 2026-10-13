@@ -2,7 +2,7 @@ import type { VolumeBotStore } from '../volumebot/store'
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/networks'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
-import { MAX_SLIPPAGE } from '@/lib/fees'
+import { CUSTODY_MAX_SLIPPAGE } from '@/lib/fees'
 import { accountIdError } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { toNearKitError } from '@/services/near/errors'
@@ -310,7 +310,8 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       if (frozen) throw frozenError(frozen)
       await notPaused(side)
       const slippagePct = typeof b.slippagePct === 'number' && Number.isFinite(b.slippagePct) ? parseSlippage(String(b.slippagePct)) : null
-      if (slippagePct === null) throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${MAX_SLIPPAGE}%, with at most two decimals.`)
+      if (slippagePct === null)
+        throw new HttpError(400, 'slippage', `NEARKITS wallets trade with slippage above 0 and at most ${CUSTODY_MAX_SLIPPAGE}%, with at most two decimals.`)
       const token = await tokenOf(deps.near, field(body, 'token', 64))
       const inDecimals = side === 'buy' ? NEAR_DECIMALS : token.decimals
       const params = picked.map(({ leg, wallet }): SwapParams => {

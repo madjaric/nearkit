@@ -105,6 +105,12 @@ describe('a Volume Bot configuration', () => {
     expect(fields(mm((c) => (c.risk.maxSlippageBps = 6000)))).toContain('risk.maxSlippageBps')
     expect(fields(mm((c) => (c.risk.maxPriceImpactBps = 0)))).toContain('risk.maxPriceImpactBps')
   })
+
+  it('trades from NEARKITS wallets, so its slippage stays within CUSTODY_MAX_SLIPPAGE (5%), inside the signer’s price floor', () => {
+    expect(fields(mm((c) => (c.risk.maxSlippageBps = 500)))).not.toContain('risk.maxSlippageBps')
+    expect(fields(mm((c) => (c.risk.maxSlippageBps = 501)))).toContain('risk.maxSlippageBps')
+    expect(fields(mm((c) => (c.risk.maxSlippageBps = 1000)))).toContain('risk.maxSlippageBps')
+  })
 })
 
 describe('reading a configuration sent to the API', () => {

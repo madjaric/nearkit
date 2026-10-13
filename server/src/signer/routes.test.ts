@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
 import { base58Encode } from '@/lib/encoding'
-import { NEARKIT_FEE_BPS, PRODUCTION_FEE_RECIPIENT } from '@/lib/fees'
+import { CUSTODY_MAX_SLIPPAGE, MAX_SLIPPAGE, NEARKIT_FEE_BPS, PRODUCTION_FEE_RECIPIENT, SIGNER_MAX_SLIPPAGE } from '@/lib/fees'
 import { dclPoolId } from '@/services/dcl/pools'
 import { dclSwapMsg } from '@/services/dcl/swap'
 import { createFakeChain } from '@/services/real/testing/fakeChain'
@@ -130,6 +130,18 @@ describe('mainnet swap routes, checked by the signer itself', () => {
   it('fails closed when it can’t ask Rhea itself', async () => {
     const r = await rhea()
     await expect(verifySwapRoute(await r.route(), WALLET, policy(r.network, new Error('timeout')))).rejects.toThrow(/could not check the price/)
+  })
+
+  it('refuses a route whose own quote is empty: with nothing to compare against, the price isn’t checked, so nothing is signed', async () => {
+    const r = await rhea()
+    await expect(verifySwapRoute(await r.route(), WALLET, policy(r.network, 0n))).rejects.toThrow(/quote is empty/)
+  })
+
+  it('refuses a stale route: one that has expired, or expires too soon to sign safely', async () => {
+    const r = await rhea()
+    const p = policy(r.network, MIN)
+    await expect(verifySwapRoute(await r.route({ deadline: Date.now() - 1_000 }), WALLET, p)).rejects.toThrow(/expires too soon/)
+    await expect(verifySwapRoute(await r.route({ deadline: Date.now() + 10_000 }), WALLET, p)).rejects.toThrow(/expires too soon/)
   })
 
   it('refuses Rhea’s classic exchange on mainnet (no fee there), and the aggregator on testnet', async () => {
@@ -315,6 +327,45 @@ describe('mainnet direct DCL routes, checked by the signer itself', () => {
   it('fails closed when the pool quotes nothing, or the chain can’t be asked', async () => {
     await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(onChain(0n)))).rejects.toThrow(/quotes nothing/)
     await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(oracle(new Error('timeout'))))).rejects.toThrow(/could not check the price/)
+    // An oracle that answers zero (rather than throwing) is refused all the same.
+    await expect(verifySwapRoute(dcl(), WALLET, dclPolicy(oracle(0n)))).rejects.toThrow(/quote is empty/)
+  })
+
+  describe(`the production price floor: ${SIGNER_MAX_SLIPPAGE}% below the signer’s own quote`, () => {
+    const prod = (expected: bigint) => ({ ...dclPolicy(oracle(expected)), maxSlippagePpm: SIGNER_MAX_SLIPPAGE * 10_000 })
+    const at = (expected: bigint, minOut: bigint) =>
+      verifySwapRoute(dcl({ minOut, msg: dclSwapMsg({ pools, outputToken: SING, minOut, skipUnwrapNear: false }) }), WALLET, prod(expected))
+
+    it('a minimum exactly at the floor is signed; one unit below is not', async () => {
+      // The floor of a quote Q is Q × 0.90, rounded down. For Q = minimum ÷ 0.9 (rounded down), the floor is the minimum or just below.
+      const q = (MIN_SING * 1_000_000n) / BigInt(1_000_000 - SIGNER_MAX_SLIPPAGE * 10_000)
+      await expect(at(q, MIN_SING)).resolves.toEqual({ routeTokens: [WRAP, SING], verified: null })
+      // Two units more of quote lift the floor above the minimum.
+      await expect(at(q + 2n, MIN_SING)).rejects.toThrow(/further below the DCL contract’s current quote than the signer allows/)
+    })
+
+    it('9.9% below its quote is signed; 10.1% below is refused', async () => {
+      await expect(at(QUOTE, (QUOTE * 901n) / 1000n)).resolves.toEqual({ routeTokens: [WRAP, SING], verified: null })
+      await expect(at(QUOTE, (QUOTE * 899n) / 1000n)).rejects.toThrow(/further below/)
+    })
+
+    it('the audit’s case: a minimum 40% below the quote, which the old 50% default let through, is refused', async () => {
+      const low = (QUOTE * 60n) / 100n
+      await expect(at(QUOTE, low)).rejects.toThrow(/further below/)
+      await expect(
+        verifySwapRoute(dcl({ minOut: low, msg: dclSwapMsg({ pools, outputToken: SING, minOut: low, skipUnwrapNear: false }) }), WALLET, {
+          ...dclPolicy(oracle(QUOTE)),
+          maxSlippagePpm: MAX_SLIPPAGE * 10_000,
+        }),
+      ).resolves.toBeTruthy()
+    })
+
+    it('every trade NEARKITS lets a user ask for passes it, a launch token’s sell tax included', async () => {
+      // The most a NEARKITS-wallet trade may ask for, plus a 2% tax the signer doesn't read: still inside the floor.
+      const worst = (QUOTE * BigInt(100 - CUSTODY_MAX_SLIPPAGE) * 98n) / 10_000n
+      expect(CUSTODY_MAX_SLIPPAGE).toBeLessThan(SIGNER_MAX_SLIPPAGE)
+      await expect(at(QUOTE, worst)).resolves.toEqual({ routeTokens: [WRAP, SING], verified: null })
+    })
   })
 
   it('on testnet a direct route carries no fee, and one that does is refused', async () => {

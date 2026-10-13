@@ -444,7 +444,7 @@ The full review, with code and tests for each case, is [SECURITY_REVIEW.md](SECU
    - an owner-signed trading allowance per wallet.
 2. **Hosting:** the provider and the explicit authorization to deploy (FadeHost or another), and the AWS account for the KMS key.
 3. **Mainnet web:** a separate mainnet project or domain (recommended), or switching the current one (MAINNET_CEREMONY.md, A7).
-4. **The signer's slippage cap** (`NEARKIT_SIGNER_MAX_SLIPPAGE_PCT`, default 50).
+4. **The signer's price floor** (`NEARKIT_SIGNER_MAX_SLIPPAGE_PCT`, required on mainnet, 10 in production; NEARKITS wallets trade with at most 5% slippage).
 5. **An external security review and a legal and compliance review.**
 6. **Mainnet go/no-go:** the owner runs [MAINNET_CEREMONY.md](MAINNET_CEREMONY.md).
 

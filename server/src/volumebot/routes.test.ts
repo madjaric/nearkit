@@ -109,12 +109,22 @@ describe('the Volume Bot console API', () => {
     const id = ((await call('/api/web/bots/save', { session: token, config: configFor(w.id) })).bot as { id: string }).id
     const before = notices.length
     const changed = configFor(w.id)
-    changed.risk.maxSlippageBps = 900
+    changed.risk.maxSlippageBps = 400
     await call('/api/web/bots/save', { session: token, botId: id, config: changed })
     const n = notices.slice(before).find((x) => x.userId === ALICE.id)
     expect(n?.html).toMatch(/Volume Bot changed on NEARKITS web/)
     expect(n?.html).toContain(USDT)
-    expect(n?.html).toMatch(/slippage 9(.00)?%/)
+    expect(n?.html).toMatch(/slippage 4(.00)?%/)
+  })
+
+  it('refuses a slippage above what NEARKITS wallets may trade with (CUSTODY_MAX_SLIPPAGE), so the bot stays inside the signer’s price floor', async () => {
+    const { h, call, refused, signIn } = await app()
+    const token = await signIn()
+    const w = await h.funded(5n * ONE)
+    const id = ((await call('/api/web/bots/save', { session: token, config: configFor(w.id) })).bot as { id: string }).id
+    const tooLoose = configFor(w.id)
+    tooLoose.risk.maxSlippageBps = 900
+    expect(await refused('/api/web/bots/save', { session: token, botId: id, config: tooLoose })).toMatchObject({ status: 400 })
   })
 
   it('nothing starts while NEARKITS has paused the Volume Bot', async () => {

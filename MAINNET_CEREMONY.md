@@ -67,7 +67,7 @@ Rollback at any step:
 
 1. **Owner decisions, written down:**
    - the go-live date;
-   - `NEARKIT_SIGNER_MAX_SLIPPAGE_PCT` (default 50; lower refuses high-slippage trades but limits what a compromised app could extract);
+   - `NEARKIT_SIGNER_MAX_SLIPPAGE_PCT=10` (required on mainnet: the signer's price floor; NEARKITS wallets trade with at most 5% slippage, and a lower floor limits what a compromised app could extract);
    - the hosting plan and **explicit authorization to deploy** (FadeHost or another);
    - whether to require extra trade authorization (see SECURITY_REVIEW.md, residual risk R1).
 2. **Two PostgreSQL databases.** One for the app and one for the signer, with separate users, TLS, point-in-time recovery, a private network and backups tested ([DEPLOYMENT.md §5](DEPLOYMENT.md#5-persistence-backups-restarts)).
