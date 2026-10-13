@@ -418,7 +418,7 @@ export interface PnlReport {
   recentTrades: ClosedTrade[]
 }
 
-export type ActivityKind = 'swap' | 'multi-trade' | 'split' | 'consolidate' | 'batch-send' | 'order' | 'automation' | 'bridge'
+export type ActivityKind = 'swap' | 'multi-trade' | 'split' | 'consolidate' | 'batch-send' | 'send' | 'wallet' | 'order' | 'automation' | 'bridge'
 
 export type ActivityStatus = 'pending' | 'success' | 'partial' | 'failed' | 'unknown'
 

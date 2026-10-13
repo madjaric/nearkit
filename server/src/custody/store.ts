@@ -478,6 +478,21 @@ export class CustodyStore {
     ).map(toIntent)
   }
 
+  /**
+   * What the user's wallets on this network ran (in flight, done or failed), newest first, with each
+   * wallet's account: one history for Telegram, NEARKITS web and the Volume Bot. Quotes nobody
+   * confirmed never ran and aren't listed. Read through the wallets (indexed), deleted ones included.
+   */
+  async recentIntents(userId: number, network: string, limit: number): Promise<{ intent: Intent; accountId: string }[]> {
+    const rows = await this.db.all<IntentRow & { wallet_account: string }>(
+      `SELECT i.*, w.account_id AS wallet_account FROM trading_wallets w JOIN wallet_intents i ON i.wallet_id = w.id
+       WHERE w.user_id = ? AND w.network = ? AND i.user_id = ? AND i.status IN ('confirmed', 'signing', 'submitted', 'done', 'failed')
+       ORDER BY i.updated_at DESC, i.id LIMIT ?`,
+      [userId, network, userId, Math.max(1, Math.min(limit, 100))],
+    )
+    return rows.map((r) => ({ intent: toIntent(r), accountId: r.wallet_account }))
+  }
+
   /** Quotes of this wallet still waiting for a Confirm. */
   async quotedOf(walletId: string): Promise<Intent[]> {
     return (await this.db.all<IntentRow>("SELECT * FROM wallet_intents WHERE wallet_id = ? AND status = 'quoted' ORDER BY created_at, id", [walletId])).map(toIntent)

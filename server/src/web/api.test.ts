@@ -249,3 +249,51 @@ describe('NEARKITS wallets on the web', () => {
     expect(await ids({ session: bob })).toEqual([b1.id])
   })
 })
+
+describe('one activity history on the web', () => {
+  it('lists what the user’s NEARKITS wallets ran from anywhere, newest first, in plain words: never a quote nobody confirmed, never another user’s', async () => {
+    const { h, call, signIn } = await webApp()
+    const w = await h.funded(2n * 10n ** 24n)
+    const store = h.custody?.store
+    if (!store) throw new Error('custody must be on')
+    const ran = async (kind: 'buy' | 'withdraw', params: Record<string, unknown>, status: 'done' | 'failed', result: { ok: boolean; message: string; hashes: string[] }) => {
+      const i = await store.createIntent({ walletId: w.id, userId: ALICE.id, chatId: ALICE.id, kind, params, ttlMs: 60_000 })
+      await store.confirmIntent(i.id, ALICE.id)
+      await store.setStatus(i.id, ['confirmed'], status, { result })
+      h.advance(1_000)
+      return i
+    }
+    // A buy from Telegram, then a send from the web that failed on chain, then a quote nobody confirmed.
+    const buy = await ran('buy', { side: 'buy', token: 'kits.testnet', symbol: 'KITS', decimals: 18, amountIn: '0.5', slippagePct: 1 }, 'done', {
+      ok: true,
+      message: 'Buy confirmed.',
+      hashes: ['HASH1'],
+    })
+    const send = await ran('withdraw', { asset: 'near', symbol: 'NEAR', decimals: 24, amount: '1250000000000000000000000', to: 'bob.testnet', linked: false }, 'failed', {
+      ok: false,
+      message: 'The transfer failed on chain.',
+      hashes: ['HASH2'],
+    })
+    await store.createIntent({ walletId: w.id, userId: ALICE.id, chatId: ALICE.id, kind: 'sell', params: { side: 'sell', symbol: 'KITS', amountIn: '9' }, ttlMs: 60_000 })
+
+    const token = await signIn()
+    const { items } = (await call('/api/web/activity', { session: token })) as { items: unknown[] }
+    expect(items).toEqual([
+      {
+        id: send.id,
+        kind: 'withdraw',
+        status: 'failed',
+        accountId: w.accountId,
+        title: 'Send NEAR',
+        detail: '1.25 NEAR to bob.testnet · The transfer failed on chain.',
+        hashes: ['HASH2'],
+        at: expect.any(Number),
+      },
+      { id: buy.id, kind: 'buy', status: 'success', accountId: w.accountId, title: 'Buy KITS', detail: '0.5 NEAR', hashes: ['HASH1'], at: expect.any(Number) },
+    ])
+
+    const bob = await signIn(BOB)
+    expect(((await call('/api/web/activity', { session: bob })) as { items: unknown[] }).items).toEqual([])
+    await expect(call('/api/web/activity', { session: 'x'.repeat(43) })).rejects.toMatchObject({ status: 401 })
+  })
+})

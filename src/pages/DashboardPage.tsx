@@ -329,7 +329,14 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel>
-            <PanelHeader title="Recent activity" actions={<span className="text-[11px] text-fg-3">{caps.mode === 'demo' ? 'Demo history' : 'Sent from this browser'}</span>} />
+            <PanelHeader
+              title="Recent activity"
+              actions={
+                <span className="text-[11px] text-fg-3">
+                  {caps.mode === 'demo' ? 'Demo history' : who.kind === 'signed-in' && who.nearkit ? 'This browser and your NEARKITS wallets' : 'Sent from this browser'}
+                </span>
+              }
+            />
             <ActivityList items={withBridgeActivity(activity.data ?? [], bridge.orders, 6)} loading={activity.isPending} />
           </Panel>
           <OpenOrdersPanel />

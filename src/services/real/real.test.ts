@@ -79,6 +79,7 @@ function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
     discard: unused,
     logout: async () => undefined,
     wallets: async () => ({ wallets: [...list], limit: 10, canCreate: list.length < 10 }),
+    activity: async () => [],
     createWallet: unused,
     renameWallet: unused,
     deleteWallet: unused,

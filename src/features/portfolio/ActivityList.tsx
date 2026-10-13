@@ -42,6 +42,10 @@ export function ActivityList({ items, loading = false }: { items: ActivityItem[]
                 <p className="truncate text-sm text-fg">{item.title}</p>
               )}
               {item.origin === 'simulated' && <Tag tone="accent">This session</Tag>}
+              {item.status === 'failed' && <Tag tone="neg">Failed</Tag>}
+              {item.status === 'pending' && <Tag tone="warn">Pending</Tag>}
+              {item.status === 'partial' && <Tag tone="warn">Partial</Tag>}
+              {item.status === 'unknown' && <Tag tone="warn">Unconfirmed</Tag>}
             </div>
             <p className="truncate text-xs text-fg-3">
               <Figures>{item.detail}</Figures>

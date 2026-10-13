@@ -145,6 +145,18 @@ export interface WebSendInput {
 /** Why a send can't go to an address yet, and how it gets approved (the signer enforces it). */
 export type SendApproval = { kind: 'owner'; owner: string; accountId: string } | { kind: 'telegram'; url: string }
 
+/** One operation a NEARKITS wallet ran, wherever it was confirmed (Telegram, NEARKITS web, the Volume Bot): the server's words, plain text. */
+export interface NearKitActivity {
+  id: string
+  kind: 'buy' | 'sell' | 'withdraw' | 'unwrap' | 'backup-key' | 'revoke'
+  status: 'pending' | 'success' | 'failed'
+  accountId: string
+  title: string
+  detail: string
+  hashes: string[]
+  at: number
+}
+
 export interface NearKitWeb {
   /** A NearKit server is configured for this build. */
   readonly available: boolean
@@ -170,6 +182,8 @@ export interface NearKitWeb {
   logout(): Promise<void>
   /** Null when signed out. */
   wallets(): Promise<NearKitWalletList | null>
+  /** What the user's NEARKITS wallets ran, newest first (Telegram, the web and the Volume Bot alike); null when signed out. */
+  activity(): Promise<NearKitActivity[] | null>
   createWallet(name: string, createKey: string): Promise<NearKitWebWallet>
   renameWallet(walletId: string, name: string): Promise<NearKitWebWallet>
   /** Deletes a wallet holding nothing of value (never funded, or only NEAR dust); answers the dust left on chain, in yoctoNEAR. */
@@ -428,6 +442,11 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
         if (listed?.value === value) listed = null
       })
       return value
+    },
+
+    async activity() {
+      if (!(apiUrl ? session() : null)) return null
+      return (await call<{ items: NearKitActivity[] }>('/api/web/activity', {})).items
     },
 
     async createWallet(name, createKey) {

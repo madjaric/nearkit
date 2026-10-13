@@ -1,7 +1,7 @@
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { recordValue, valueWindow } from '@/lib/valueHistory'
-import type { Position, Session, TokenListing, WalletSnapshot } from '@/types/domain'
-import type { NearKitWeb, NearKitWebSession } from '../nearkitWeb'
+import type { ActivityItem, ActivityKind, Position, Session, TokenListing, WalletSnapshot } from '@/types/domain'
+import type { NearKitActivity, NearKitWeb, NearKitWebSession } from '../nearkitWeb'
 import type { PortfolioService, WalletService } from '../types'
 import { reconcile } from './activity'
 import type { NearContext } from './context'
@@ -22,13 +22,33 @@ import { historyOf, reportTokenIds, reportTokens, withPnl } from './positionsPnl
 /** How long a positions read waits for history before answering without PnL. */
 const PNL_WAIT_MS = 6_000
 
+const ACTIVITY_KIND: Record<NearKitActivity['kind'], ActivityKind> = { buy: 'swap', sell: 'swap', withdraw: 'send', unwrap: 'wallet', 'backup-key': 'wallet', revoke: 'wallet' }
+
+/** A NEARKITS wallet's operation as an activity entry (its id kept apart from this browser's records). */
+function nearkitActivity(ctx: NearContext, a: NearKitActivity): ActivityItem {
+  const last = a.hashes.at(-1)
+  return {
+    id: `nearkit:${a.id}`,
+    kind: ACTIVITY_KIND[a.kind] ?? 'wallet',
+    title: a.title,
+    detail: a.detail,
+    at: a.at,
+    origin: 'nearkit',
+    status: a.status,
+    network: ctx.network.id,
+    accountId: a.accountId,
+    txHashes: a.hashes,
+    explorerUrl: last ? ctx.explorerTx(last) : null,
+  }
+}
+
 export function createPortfolioService(
   ctx: NearContext,
   market: Market,
   wallets: Pick<WalletService, 'getSession' | 'listWallets' | 'listPortfolioSnapshots'>,
   active: ReadonlySet<string>,
   tracker: PnlTracker,
-  nearkit: Pick<NearKitWeb, 'session'> | null = null,
+  nearkit: (Pick<NearKitWeb, 'session'> & Partial<Pick<NearKitWeb, 'activity'>>) | null = null,
 ): PortfolioService {
   /** Who the portfolio is: the NearKit web sign-in and the browser wallet (its history is theirs alone). */
   const identity = (session: Session | null, web: NearKitWebSession | null) => `${web?.userName ?? ''}|${session?.accountId ?? ''}`
@@ -162,11 +182,20 @@ export function createPortfolioService(
       })
     },
 
+    /**
+     * One history: what this browser's wallet sent (its own records, reconciled with the chain), and what
+     * the user's NEARKITS wallets ran wherever it was confirmed, as NEARKITS' server lists it. With the
+     * server unreachable, this browser's records still show; nothing stands in for the rest.
+     */
     async listActivity(limit = 50) {
       const records = ctx.stores.activity.list()
-      const checked = await Promise.all(records.slice(0, limit).map((r) => reconcile(ctx, r, active).catch(() => r)))
+      const [checked, remote] = await Promise.all([
+        Promise.all(records.slice(0, limit).map((r) => reconcile(ctx, r, active).catch(() => r))),
+        nearkit?.session() && nearkit.activity ? nearkit.activity().catch(() => null) : Promise.resolve(null),
+      ])
       for (const [i, r] of checked.entries()) if (r !== records[i]) ctx.stores.activity.upsert(r)
-      return checked
+      if (!remote?.length) return checked
+      return [...checked, ...remote.map((a) => nearkitActivity(ctx, a))].sort((a, b) => b.at - a.at).slice(0, limit)
     },
   }
 }
