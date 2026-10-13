@@ -68,6 +68,8 @@ export function createPortfolioService(state: MockState): PortfolioService {
         openOrders: state.session ? state.orders.filter((o) => o.status === 'open').length : 0,
         walletCount: state.session ? state.wallets.length : 0,
         executableWalletCount: state.session ? executable.length : 0,
+        // The demo reads every wallet whole.
+        unavailableWalletCount: 0,
         updatedAt: Date.now(),
       }
     },

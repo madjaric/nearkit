@@ -27,7 +27,7 @@ import { explorerTxUrl } from '@/services/near/explorer'
 import { newCreateKey, type NearKitWebWallet, type SendApproval, type WebLegStatus } from '@/services/nearkitWeb'
 import { LinkRequestError } from '@/services/telegramLink'
 import { sendTargets } from '@/services/postTradeRefresh'
-import { useCapabilities, useNearKitMutations, useNearKitSession, useNearKitWallets, useSendStatus, useTokens } from '@/services/queries'
+import { useCapabilities, useNearKitEnded, useNearKitMutations, useNearKitSession, useNearKitWallets, useSendStatus, useTokens } from '@/services/queries'
 import type { Wallet, WalletSnapshot } from '@/types/domain'
 
 /**
@@ -66,12 +66,27 @@ export function NearKitSignIn({ title = 'Sign in with Telegram to use your NEARK
   )
 }
 
+/** A wallet whose data couldn't be read just now: said so, with why (its figures read as unknown, never 0). */
+export function UnavailableTag({ wallet }: { wallet: Pick<WalletSnapshot, 'unavailable'> | undefined }) {
+  return wallet?.unavailable ? (
+    <Tag tone="warn" title={wallet.unavailable}>
+      Unavailable
+    </Tag>
+  ) : null
+}
+
+/** A wallet's NEAR, or a dash when its balance couldn't be read (never 0.00). */
+export function NearFigure({ snapshot }: { snapshot: Pick<WalletSnapshot, 'nearBalance' | 'unavailable'> | undefined }) {
+  return <>{snapshot && !snapshot.unavailable ? formatAmount(snapshot.nearBalance, 2) : '—'}</>
+}
+
 const ownerText = (owner: string | null) => (owner ? `Owner ${formatAccount(owner, 24)}` : 'Controlled in Telegram')
 
 /** The NearKit wallets panel: executable right here, by NearKit's server. */
 export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletSnapshot[] }) {
   const toast = useToast()
   const session = useNearKitSession()
+  const ended = useNearKitEnded()
   const list = useNearKitWallets()
   const { logout, reorder } = useNearKitMutations()
   const [creating, setCreating] = useState(false)
@@ -139,7 +154,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
         }
       />
       {!session ? (
-        <NearKitSignIn />
+        <NearKitSignIn title={ended ? 'Your NEARKITS web session ended: sign in again to use your NEARKITS wallets' : undefined} />
       ) : list.isPending ? (
         <div className="p-4">
           <Skeleton className="h-32 w-full" />
@@ -200,6 +215,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                               Frozen
                             </Tag>
                           )}
+                          <UnavailableTag wallet={s} />
                         </span>
                       </Td>
                       <Td>
@@ -209,7 +225,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                         </span>
                       </Td>
                       <Td align="right" mono className="text-fg-2">
-                        {s ? formatAmount(s.nearBalance, 2) : '—'}
+                        <NearFigure snapshot={s} />
                       </Td>
                       <Td align="right" mono className={tokens ? 'text-fg-2' : 'text-fg-4'}>
                         {tokens ?? '—'}
@@ -243,6 +259,7 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 text-sm text-fg">
                       {w.name} {w.frozen && <Tag tone="warn">Frozen</Tag>}
+                      <UnavailableTag wallet={s} />
                     </p>
                     <p className="flex items-center gap-1">
                       <AccountText id={w.accountId} className="text-xs text-fg-3" />
@@ -254,7 +271,15 @@ export function NearKitWalletsPanel({ snapshots }: { snapshots: readonly WalletS
                   <div className="flex items-start gap-1">
                     <div className="text-right">
                       {s ? <Usd value={s.valueUsd} className="text-sm text-fg" /> : <span className="text-fg-4">—</span>}
-                      <p className="num text-xs text-fg-3">{s ? `${formatAmount(s.nearBalance, 2)} NEAR` : '—'}</p>
+                      <p className="num text-xs text-fg-3">
+                        {s ? (
+                          <>
+                            <NearFigure snapshot={s} /> NEAR
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </p>
                     </div>
                     <IconButton label={`Send from ${w.name}`} size="sm" disabled={!s || w.frozen} onClick={() => s && setSending(s)}>
                       <Send size={14} />

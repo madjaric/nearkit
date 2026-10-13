@@ -159,12 +159,20 @@ export interface WalletService {
    * (`ownerControl`), and kept only if the key that signed is a full-access key of the owner on chain.
    */
   signMessage(request: SignMessageRequest & { accountId?: string }): Promise<SignedMessageResult>
+  /**
+   * Every wallet that can be listed now. A NEARKITS wallet whose server didn't answer stays listed
+   * (as last listed) with `unavailable`; one that was never listed in this page is missing here.
+   */
   listWallets(): Promise<Wallet[]>
-  /** Every wallet with its balances: the wallet views, watch-only ones included. */
+  /**
+   * Every wallet with its balances: the wallet views, watch-only ones included. A wallet whose data
+   * couldn't be read carries `unavailable`. Fails when the NEARKITS wallets can't be listed at all.
+   */
   listSnapshots(): Promise<WalletSnapshot[]>
   /**
    * The snapshots the portfolio is made of: executable wallets only (`executableWallets` in
    * src/lib/wallets.ts), their balances read for those alone. Watch-only wallets never enter it.
+   * Fails, like `listSnapshots`, rather than leave the NEARKITS wallets out of a total.
    */
   listPortfolioSnapshots(): Promise<WalletSnapshot[]>
   listHoldings(): Promise<Holding[]>

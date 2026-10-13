@@ -71,6 +71,8 @@ function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
   return {
     available: true,
     session: () => ({ token: 'T'.repeat(43), expiresAt: Date.now() + 60_000, userName: 'Alice', userHandle: null }),
+    ended: () => null,
+    dismissEnded: () => undefined,
     login: unused,
     redeem: unused,
     adopt: unused,

@@ -223,4 +223,29 @@ describe('NEARKITS wallets on the web', () => {
     expect((await h.custody?.store.ownedWallet(ALICE.id, alices.id))?.label).toBeNull()
     expect(((await call('/api/web/wallets', { session: bobToken })).wallets as unknown[]).length).toBe(0)
   })
+
+  it('each session lists exactly its own user’s wallets, whatever else the request names: the page shows the list as is, nothing to filter', async () => {
+    const { call, signIn } = await webApp({ link: false })
+    const alice = await signIn()
+    const bob = await signIn(BOB)
+    const mine = async (session: string, name: string, key: string) =>
+      (await call('/api/web/wallets/create', { session, name, createKey: key })).wallet as { id: string; accountId: string }
+    const a1 = await mine(alice, 'Alice 1', 'web-iso-alice-1')
+    const a2 = await mine(alice, 'Alice 2', 'web-iso-alice-2')
+    const b1 = await mine(bob, 'Bob 1', 'web-iso-bob-1')
+    const ids = async (body: Record<string, unknown>) => ((await call('/api/web/wallets', body)).wallets as { id: string }[]).map((w) => w.id)
+    expect(await ids({ session: alice })).toEqual([a1.id, a2.id])
+    expect(await ids({ session: bob })).toEqual([b1.id])
+    // A request that claims another user, account or wallet is still answered for the session's own user.
+    const claims = { userId: ALICE.id, user: { id: ALICE.id }, telegramId: ALICE.id, accountId: a1.accountId, walletId: a1.id, owner: 'alice.testnet' }
+    expect(await ids({ session: bob, ...claims })).toEqual([b1.id])
+    // Bob can't rename, order or delete Alice's wallets, by id or by account.
+    for (const walletId of [a1.id, a1.accountId]) {
+      await expect(call('/api/web/wallets/rename', { session: bob, walletId, name: 'Mine now' })).rejects.toMatchObject({ status: 403 })
+      await expect(call('/api/web/wallets/delete', { session: bob, walletId })).rejects.toMatchObject({ status: 403 })
+    }
+    await expect(call('/api/web/wallets/order', { session: bob, walletIds: [b1.id, a1.id] })).rejects.toMatchObject({ status: 400 })
+    expect(await ids({ session: alice })).toEqual([a1.id, a2.id])
+    expect(await ids({ session: bob })).toEqual([b1.id])
+  })
 })

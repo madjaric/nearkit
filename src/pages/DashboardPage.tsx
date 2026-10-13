@@ -8,7 +8,7 @@ import { BalanceRefreshStatus } from '@/components/domain/BalanceRefresh'
 import { SimMark } from '@/components/domain/SimMark'
 import { DataTag, StatusLamp } from '@/components/domain/Status'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
-import { Page, PageGrid, PageHeader } from '@/components/page/Page'
+import { LoadFailed, Page, PageGrid, PageHeader, SessionEnded } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -27,8 +27,10 @@ import { ValuePanel } from '@/features/portfolio/ValuePanel'
 import { QuickTrade } from '@/features/trade/QuickTrade'
 import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { formatAmount, formatUsd } from '@/lib/format'
+import { WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
 import { toneOf } from '@/lib/tone'
-import { useActivity, useCapabilities, useNearKitSession, useOrders, usePositions, useSession, useSummary, useTokens, useValueHistory } from '@/services/queries'
+import { useServices } from '@/services/context'
+import { useActivity, useCapabilities, useIdentity, useOrders, usePositions, useSummary, useTokens, useValueHistory } from '@/services/queries'
 import { useConnectPrompt, useTradeDrawer } from '@/state/contexts'
 
 const linkKey = 'keycap inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-2xs text-fg-2 transition-colors hover:bg-raised hover:text-fg'
@@ -80,20 +82,26 @@ function QuickActions() {
 }
 
 function Readouts() {
-  const { data: session } = useSession()
-  // NearKit wallets count too: signed in on NearKit web, with or without a browser wallet.
-  const nearkitSession = useNearKitSession()
+  // NearKit wallets count too: signed in on NearKit web, with or without a browser wallet (useIdentity).
+  const who = useIdentity()
   const caps = useCapabilities()
   const summary = useSummary()
   const history = useValueHistory(7)
-  const zeroUsd = caps.prices ? '$0.00' : '—'
   const s = summary.data
-  const loading = summary.isPending
-  const off = !session && !nearkitSession
-  const trace = !off && history.data && history.data.length > 1 ? <Sparkline values={history.data.map((p) => p.valueUsd)} width={84} /> : undefined
+  const off = who.kind === 'signed-out'
+  const ended = who.kind === 'session-ended'
+  // The last read failed and none came before it: nothing is known, so nothing reads as 0.
+  const failed = !off && !ended && summary.isError && s === undefined
+  const loading = who.kind === 'pending' || (!ended && summary.isPending)
+  // No figures: signed out (zeros that ask to connect), the NEARKITS session ended, or the read failed (unknown, never 0).
+  const blank = off || ended || failed || !s
+  const ghost = (text: string) => <span className="text-fg-4">{off ? text : '—'}</span>
+  const blankSub = ended ? 'NEARKITS session ended' : failed ? 'unavailable' : '—'
+  const trace = !blank && history.data && history.data.length > 1 ? <Sparkline values={history.data.map((p) => p.valueUsd)} width={84} /> : undefined
   // It refreshes on its own and prints no age; a reading past 20 s dims until the next one lands.
   const now = useNow(5_000)
-  const stale = !off && s ? isStale(s.updatedAt, now) : false
+  const stale = !blank && s ? isStale(s.updatedAt, now) : false
+  const partial = s && s.unavailableWalletCount > 0 ? `partial: ${s.unavailableWalletCount} ${s.unavailableWalletCount === 1 ? 'wallet' : 'wallets'} unavailable` : null
   return (
     <ReadoutStrip cols="grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr]">
       <ReadoutSlot
@@ -102,8 +110,8 @@ function Readouts() {
         legend="Portfolio value"
         loading={loading}
         value={
-          off || !s ? (
-            <span className="text-fg-4">{zeroUsd}</span>
+          blank ? (
+            ghost(caps.prices ? '$0.00' : '—')
           ) : s.valueUsd === null ? (
             <span className="text-fg-4">—</span>
           ) : (
@@ -113,8 +121,21 @@ function Readouts() {
           )
         }
         sub={
-          off || !s ? (
+          off ? (
             'Connect a wallet'
+          ) : ended ? (
+            blankSub
+          ) : failed ? (
+            <span className="text-warn">
+              Portfolio can’t be loaded ·{' '}
+              <button type="button" className="underline underline-offset-2 hover:text-fg" onClick={() => void summary.refetch()}>
+                Try again
+              </button>
+            </span>
+          ) : !s ? (
+            '—'
+          ) : partial ? (
+            <span className="text-warn">{partial}</span>
           ) : s.valueUsd === null ? (
             'no USD prices on testnet'
           ) : s.pnl24hPct === null ? (
@@ -131,26 +152,26 @@ function Readouts() {
         legend="Available NEAR"
         aside={<Wallet size={16} aria-hidden="true" />}
         loading={loading}
-        value={off || !s ? <span className="text-fg-4">0.00</span> : formatAmount(s.availableNear, 2)}
-        unit={off || !s ? undefined : 'NEAR'}
-        sub={off || !s ? '—' : s.availableNearUsd === null ? `Main ${formatAmount(s.mainNear, 2)}` : `≈ ${formatUsd(s.availableNearUsd)}`}
+        value={blank ? ghost('0.00') : formatAmount(s.availableNear, 2)}
+        unit={blank ? undefined : 'NEAR'}
+        sub={blank ? blankSub : s.availableNearUsd === null ? `Main ${formatAmount(s.mainNear, 2)}` : `≈ ${formatUsd(s.availableNearUsd)}`}
       />
       <ReadoutSlot
         legend="Active positions"
         aside={<PieChart size={16} aria-hidden="true" />}
         loading={loading}
-        value={off || !s ? <span className="text-fg-4">0</span> : s.activePositions}
-        sub={off || !s ? '—' : `${s.activePositions === 1 ? 'token' : 'tokens'}`}
+        value={blank ? ghost('0') : s.activePositions}
+        sub={blank ? blankSub : `${s.activePositions === 1 ? 'token' : 'tokens'}`}
       />
       <ReadoutSlot
         className="col-span-2 xl:col-span-1"
         legend="Total wallets"
         aside={<Coins size={16} aria-hidden="true" />}
         loading={loading}
-        value={off || !s ? <span className="text-fg-4">0</span> : s.walletCount}
+        value={blank ? ghost('0') : s.walletCount}
         sub={
-          off || !s
-            ? '—'
+          blank
+            ? blankSub
             : caps.mode === 'demo'
               ? 'demo wallets'
               : s.walletCount > s.executableWalletCount
@@ -227,13 +248,16 @@ function OpenOrdersPanel() {
 
 export default function DashboardPage() {
   const caps = useCapabilities()
-  const { data: session } = useSession()
+  const { nearkit } = useServices()
+  // A browser wallet, a NEARKITS web session, or both: the portfolio is theirs (useIdentity).
+  const who = useIdentity()
   const { data: summary } = useSummary()
   const positions = usePositions()
   const activity = useActivity(6)
   // Bridge & Buy orders (NEARKITS' server keeps them) sit in the same list, each linked to its order.
   const bridge = useBridgeOrders(useBridgeAvailability().ok)
   const { promptConnect } = useConnectPrompt()
+  const refreshed = caps.mode === 'demo' ? 'Demo · prices move every few seconds' : `${caps.networkLabel} · balances refreshed every 30 s`
 
   return (
     <Page>
@@ -241,9 +265,15 @@ export default function DashboardPage() {
         title="Dashboard"
         status={<DataTag />}
         description={
-          session
-            ? `${summary ? `${summary.executableWalletCount} executable ${summary.executableWalletCount === 1 ? 'wallet' : 'wallets'} · ` : ''}${caps.mode === 'demo' ? 'Demo · prices move every few seconds' : `${caps.networkLabel} · balances refreshed every 30 s`}`
-            : 'Connect a wallet to load your portfolio.'
+          who.kind === 'signed-in'
+            ? `${summary ? `${summary.executableWalletCount} executable ${summary.executableWalletCount === 1 ? 'wallet' : 'wallets'} · ` : ''}${refreshed}`
+            : who.kind === 'session-ended'
+              ? 'Your NEARKITS web session ended: send /web to the NEARKITS bot to sign in again.'
+              : who.kind === 'pending'
+                ? refreshed
+                : nearkit.available
+                  ? 'Connect a wallet or sign in with Telegram to load your portfolio.'
+                  : 'Connect a wallet to load your portfolio.'
         }
         actions={<QuickActions />}
       />
@@ -268,19 +298,32 @@ export default function DashboardPage() {
               </>
             }
           />
-          {!session ? (
+          {who.kind === 'session-ended' ? (
+            <SessionEnded ended={who.ended} />
+          ) : who.kind === 'signed-out' ? (
             <EmptyState
               title="No wallet connected"
               action={
-                <Button variant="primary" onClick={promptConnect}>
-                  Connect wallet
-                </Button>
+                <span className="flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="primary" onClick={promptConnect}>
+                    Connect wallet
+                  </Button>
+                  {nearkit.available && WEB_SIGN_IN_URL && (
+                    <a href={WEB_SIGN_IN_URL} target="_blank" rel="noreferrer noopener" className="inline-flex">
+                      <Button variant="secondary" tabIndex={-1}>
+                        Sign in with Telegram
+                      </Button>
+                    </a>
+                  )}
+                </span>
               }
             >
               Positions across all of your NEARKITS wallets appear here.
             </EmptyState>
+          ) : positions.isError && positions.data === undefined ? (
+            <LoadFailed title="Positions can’t be loaded right now" error={positions.error} onRetry={() => void positions.refetch()} />
           ) : (
-            <PositionsTable positions={positions.data ?? []} loading={positions.isPending} compact />
+            <PositionsTable positions={positions.data ?? []} loading={who.kind === 'pending' || positions.isPending} compact />
           )}
         </Panel>
 

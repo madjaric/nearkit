@@ -91,6 +91,7 @@ export function createPortfolioService(
           openOrders: 0,
           walletCount: 0,
           executableWalletCount: 0,
+          unavailableWalletCount: 0,
           updatedAt: ctx.now(),
         }
       }
@@ -99,8 +100,10 @@ export function createPortfolioService(
       const priced = list.filter((p) => p.valueUsd !== null)
       const availableNear = snapshots.reduce((s, w) => s + w.nearBalance, 0)
       const valueUsd = ctx.capabilities.prices ? priced.reduce((s, p) => s + (p.valueUsd ?? 0), 0) : null
-      // The dashboard's history: the value as this browser reads it (src/lib/valueHistory.ts).
-      if (valueUsd !== null && snapshots.length > 0) {
+      const unavailable = snapshots.filter((w) => w.unavailable).length
+      // The dashboard's history: the value as this browser reads it (src/lib/valueHistory.ts). Only a whole
+      // reading is recorded: one missing a wallet's data would draw a drop that never happened.
+      if (valueUsd !== null && snapshots.length > 0 && unavailable === 0) {
         const id = identity(session, web)
         ctx.stores.valueHistory.write(id, recordValue(ctx.stores.valueHistory.read(id), ctx.now(), valueUsd))
       }
@@ -116,6 +119,7 @@ export function createPortfolioService(
         openOrders: 0,
         walletCount: all.length,
         executableWalletCount: snapshots.length,
+        unavailableWalletCount: unavailable,
         updatedAt: ctx.now(),
       }
     },

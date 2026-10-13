@@ -2,6 +2,7 @@ import { CopyPlus, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { AccountText } from '@/components/domain/Account'
+import { LoadFailed } from '@/components/page/Page'
 import { Button, IconButton } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
 import { Modal } from '@/components/ui/Dialog'
@@ -25,7 +26,7 @@ import { describeError } from '@/services/errors'
 import { useConnectPrompt } from '@/state/contexts'
 import type { WalletPreset, WalletSnapshot } from '@/types/domain'
 import { AddAccountModal } from './AddAccountModal'
-import { NearKitWalletsPanel } from './nearkit'
+import { NearFigure, NearKitWalletsPanel, UnavailableTag } from './nearkit'
 import { PresetModal } from './PresetModal'
 
 /** Main, then whether this wallet can sign now (real mode). */
@@ -33,6 +34,7 @@ function AccessTags({ wallet, real }: { wallet: WalletSnapshot; real: boolean })
   return (
     <>
       {wallet.isMain && <Tag tone="neutral">Main</Tag>}
+      {real && <UnavailableTag wallet={wallet} />}
       {real && !canExecute(wallet) && (
         <Tag tone="soon" title="Shows balances, positions and activity, and can receive. It never trades or sends: connect it in your wallet to use it.">
           Watch only
@@ -65,6 +67,8 @@ export function Wallets() {
     })
 
   const wallets = snapshots.data ?? []
+  // The balances' last read failed and none came before it: nothing is known, so no table says "none".
+  const failed = snapshots.isError && snapshots.data === undefined
   const list = presets.data ?? []
   const byId = new Map(wallets.map((w) => [w.id, w]))
   // The totals are the portfolio's: executable wallets only. A watched wallet's balance stays in its own row.
@@ -72,6 +76,8 @@ export function Wallets() {
   const totalNear = portfolio.reduce((s, w) => s + w.nearBalance, 0)
   const valued = portfolio.filter((w) => w.valueUsd !== null)
   const totalValue = valued.length ? valued.reduce((s, w) => s + (w.valueUsd ?? 0), 0) : null
+  const partial = portfolio.filter((w) => w.unavailable).length
+  const unknown = <span className="text-fg-4">—</span>
 
   const presetNear = (p: WalletPreset) => p.walletIds.reduce((s, id) => s + (byId.get(id)?.nearBalance ?? 0), 0)
   const presetNames = (walletId: string) => list.filter((p) => p.walletIds.includes(walletId)).map((p) => p.name)
@@ -87,11 +93,13 @@ export function Wallets() {
   /** One table of wallets (the demo's, the connected ones, or the watched ones). */
   const walletTable = (rows: WalletSnapshot[], title: string, action: ReactNode, empty: ReactNode) => (
     <Panel>
-      <PanelHeader title={title} meta={rows.length} actions={action} />
+      <PanelHeader title={title} meta={failed ? undefined : rows.length} actions={action} />
       {snapshots.isPending ? (
         <div className="p-4">
           <Skeleton className="h-40 w-full" />
         </div>
+      ) : failed ? (
+        <LoadFailed title="Wallet balances can’t be loaded right now" error={snapshots.error} onRetry={() => void snapshots.refetch()} />
       ) : rows.length === 0 ? (
         empty
       ) : (
@@ -131,8 +139,8 @@ export function Wallets() {
                           <CopyButton value={w.accountId} label={`Copy ${w.label} account`} />
                         </span>
                       </Td>
-                      <Td align="right" mono className="text-fg-2">
-                        {formatAmount(w.nearBalance, 2)}
+                      <Td align="right" mono className={w.unavailable ? 'text-fg-4' : 'text-fg-2'}>
+                        <NearFigure snapshot={w} />
                       </Td>
                       <Td align="right" mono className={tokens ? 'text-fg-2' : 'text-fg-4'}>
                         {tokens}
@@ -192,7 +200,9 @@ export function Wallets() {
                 <div className="flex items-start gap-1">
                   <div className="text-right">
                     <Usd value={w.valueUsd} className="text-sm text-fg" />
-                    <p className="num text-xs text-fg-3">{formatAmount(w.nearBalance, 2)} NEAR</p>
+                    <p className="num text-xs text-fg-3">
+                      <NearFigure snapshot={w} /> NEAR
+                    </p>
                   </div>
                   {real && signsInBrowser(w) && (
                     <IconButton label={`Send from ${w.label}: you sign in your wallet`} size="sm" onClick={() => sendFrom(w)}>
@@ -297,25 +307,35 @@ export function Wallets() {
         <ReadoutSlot
           legend="Wallets"
           loading={snapshots.isPending}
-          value={wallets.length}
+          value={failed ? unknown : wallets.length}
           sub={
-            real
-              ? `${nearkit.available ? `${custody.length} NEARKITS · ` : ''}${connected.length} connected · ${watched.length} watch-only`
-              : `1 main · ${Math.max(0, wallets.length - 1)} NEARKITS-managed`
+            failed
+              ? 'can’t be loaded right now'
+              : real
+                ? `${nearkit.available ? `${custody.length} NEARKITS · ` : ''}${connected.length} connected · ${watched.length} watch-only`
+                : `1 main · ${Math.max(0, wallets.length - 1)} NEARKITS-managed`
           }
         />
         <ReadoutSlot
           legend="NEAR across wallets"
           loading={snapshots.isPending}
-          value={formatAmount(totalNear, 2)}
-          unit="NEAR"
-          sub={watched.length ? `across ${portfolio.length} executable · ${watched.length} watch-only not counted` : `across ${wallets.length} wallets`}
+          value={failed ? unknown : formatAmount(totalNear, 2)}
+          unit={failed ? undefined : 'NEAR'}
+          sub={
+            failed
+              ? 'unavailable'
+              : partial
+                ? `partial: ${partial} ${partial === 1 ? 'wallet' : 'wallets'} unavailable`
+                : watched.length
+                  ? `across ${portfolio.length} executable · ${watched.length} watch-only not counted`
+                  : `across ${wallets.length} wallets`
+          }
         />
         <ReadoutSlot
           legend="Value"
           loading={snapshots.isPending}
-          value={totalValue === null ? <span className="text-fg-4">—</span> : formatUsd(totalValue)}
-          sub={totalValue === null ? 'no USD prices on testnet' : caps.mode === 'demo' ? 'all tokens, demo prices' : 'all tokens, Rhea prices'}
+          value={failed || totalValue === null ? unknown : formatUsd(totalValue)}
+          sub={failed ? 'unavailable' : totalValue === null ? 'no USD prices on testnet' : caps.mode === 'demo' ? 'all tokens, demo prices' : 'all tokens, Rhea prices'}
         />
         <ReadoutSlot legend="Presets" loading={presets.isPending} value={list.length} sub="saved wallet groups" />
       </ReadoutStrip>
