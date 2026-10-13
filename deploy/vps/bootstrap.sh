@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepares a fresh Ubuntu 24.04 VPS for NearKit (DEPLOYMENT.md §11). Run once as root; safe
+# Prepares a fresh Ubuntu 24.04 VPS for NearKit (DEPLOYMENT.md §10). Run once as root; safe
 # to run again. It prints no secret: the ones it makes are written straight to files.
 #
 #   ssh root@<host> 'bash -s' < deploy/vps/bootstrap.sh

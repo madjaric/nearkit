@@ -66,7 +66,8 @@ The routes are `server/src/bridge/routes.ts`: POST and JSON, rate-limited per ro
 2. `/api/bridge/quote`: a **dry** 1Click quote, so no deposit address is made. It returns:
    - the fee split and NEAR delivered, expected and minimum;
    - NEAR Intents' time estimate;
-   - stage 2's estimate: $KITS for that NEAR from NEARKITS' route, expected and the minimum at the chosen slippage.
+   - stage 2's estimate: $KITS for that NEAR from NEARKITS' route, expected and the minimum at the chosen slippage;
+   - `delivery`: what arrives (wNEAR) and whether the destination can receive it, the same check as the Bridge's (see "The Bridge to NEAR"). When it can't, the page says why (with the register fix for a connected wallet) and can't start.
 
    The page refreshes it every 20 s and shows "Updated X ago". It fabricates nothing while a quote is loading or has failed.
 3. `/api/bridge/start`: a **real** quote, `dry: false`.
@@ -86,6 +87,7 @@ The server validates everything itself:
 - the destination:
   - a NEARKITS wallet must be one of the session user's own, active and not frozen;
   - a connected account must be a valid mainnet NEAR account that exists on chain;
+  - either must be registered with wrap.near (NEAR Intents delivers wNEAR), and a NEARKITS wallet needs NEAR for the network fee of the unwrap that starts stage 2 (the buy after it holds its own gas and registrations back from the NEAR delivered). `start` refuses anything else before a deposit address exists (`409 not-on-chain`, `not-registered`, `no-gas`);
 - the destination token: only `kits.nearlytrade.near`. `createBridgeService` refuses to exist on any network but mainnet or for any other token.
 
 No client-sent amount, fee, route or destination is trusted.
@@ -106,7 +108,10 @@ The worker is `server/src/bridge/worker.ts`. Each due order is stepped under its
 
 - waiting for a deposit: 12 s (30 s after 10 minutes, 6 s once a transfer is known);
 - in transit: 6 s;
+- failed: 5 minutes, until 24 h after the order was made;
 - errors back off up to 2 minutes.
+
+Every move is a compare-and-set on the order's status. One that loses (the status changed under it) still leaves the order its next check, so no order is ever due again at once.
 
 | 1Click status | Order status | Notes |
 |---|---|---|
@@ -115,7 +120,7 @@ The worker is `server/src/bridge/worker.ts`. Each due order is stepped under its
 | `PROCESSING` | `bridging` | |
 | `INCOMPLETE_DEPOSIT` | `incomplete-deposit` | NEAR Intents refunds after the deadline unless the rest arrives |
 | `REFUNDED` | `refunded` | Amount, reason and transactions recorded. Nothing bought |
-| `FAILED` | `failed` | Still followed for 24 h, in case a refund follows |
+| `FAILED` | `failed` | Followed slowly for 24 h, in case a refund (or a delivery after all) follows: only `REFUNDED` or `SUCCESS` moves it, each recorded once. Then no longer followed, and the order says so. NEARKITS never refunds: NEAR Intents refunds the source address |
 | `SUCCESS` | `delivered`, only once checked on NEAR | See below |
 
 On `SUCCESS` the server reads the delivery transactions from FastNEAR. Only then is the order `delivered`. It looks for:

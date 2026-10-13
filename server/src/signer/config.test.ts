@@ -28,6 +28,7 @@ const mainnet = {
   NEARKIT_SIGNER_TLS_CERT: 'cert.pem',
   NEARKIT_SIGNER_TLS_KEY: 'key.pem',
   NEARKIT_SIGNER_HOST: '10.0.0.5',
+  NEARKIT_SIGNER_MAX_SLIPPAGE_PCT: '10',
 }
 const keys = (env: Record<string, string | undefined>) =>
   loadSignerConfig(env)
@@ -118,6 +119,16 @@ describe('the signer’s configuration fails closed', () => {
     expect(JSON.stringify(issues)).not.toContain('u:p')
   })
 
+  it('the price floor for NEARKITS-wallet swaps: mainnet sets it explicitly (10% in production), or the signer does not start', () => {
+    expect(loadSignerConfig(mainnet).config?.maxSlippagePpm).toBe(100_000)
+    expect(keys({ ...mainnet, NEARKIT_SIGNER_MAX_SLIPPAGE_PCT: undefined })).toEqual(['NEARKIT_SIGNER_MAX_SLIPPAGE_PCT'])
+    expect(keys({ ...mainnet, NEARKIT_SIGNER_MAX_SLIPPAGE_PCT: ' ' })).toEqual(['NEARKIT_SIGNER_MAX_SLIPPAGE_PCT'])
+    for (const bad of ['0', '-1', '50.5', 'ten', 'Infinity', 'NaN'])
+      expect(keys({ ...mainnet, NEARKIT_SIGNER_MAX_SLIPPAGE_PCT: bad }), bad).toEqual(['NEARKIT_SIGNER_MAX_SLIPPAGE_PCT'])
+    // The owner may choose another value within the range; the floor is exactly what is set.
+    expect(loadSignerConfig({ ...mainnet, NEARKIT_SIGNER_MAX_SLIPPAGE_PCT: '7.5' }).config?.maxSlippagePpm).toBe(75_000)
+  })
+
   it('testnet: a local KEK and SQLite, no fee account', () => {
     const { config, issues } = loadSignerConfig({
       NEAR_NETWORK: 'testnet',
@@ -127,6 +138,8 @@ describe('the signer’s configuration fails closed', () => {
     })
     expect(issues).toEqual([])
     expect(config).toMatchObject({ kek: { kind: 'local' }, database: { kind: 'sqlite' }, feeRecipient: null, rpc: { quorum: 1 } })
+    // Unset off mainnet: the production floor (10%), never the 50% a browser wallet may ask for.
+    expect(config?.maxSlippagePpm).toBe(100_000)
     expect(
       keys({
         NEAR_NETWORK: 'testnet',

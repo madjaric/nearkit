@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { ArrowDown, ArrowRight, ShieldCheck } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { ChainMark } from '@/components/brand/ChainMark'
 import { AccountText } from '@/components/domain/Account'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
@@ -22,10 +22,11 @@ import { BRIDGE_FEE_LABEL, DEFAULT_SLIPPAGE, NEARKIT_FEE_LABEL, SLIPPAGE_PRESETS
 import { formatAgo, formatUsd, truncateMiddle } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { tradeWalletPool } from '@/lib/wallets'
-import { rememberOrder, type BridgeDestinationRequest, type BridgeQuoteRequest } from '@/services/bridge'
+import { rememberOrder, reviewKey, type BridgeDestinationRequest, type BridgeQuoteRequest } from '@/services/bridge'
 import { useWallets } from '@/services/queries'
 import type { Wallet } from '@/types/domain'
 import { countdown, etaText, kitsText, nearText, rawText } from './format'
+import { DeliveryNote } from './NearBridgeForm'
 import { useBridgeAssets, useBridgeClient, useBridgeQuote } from './useBridge'
 import { ChainPicker, SendAmountField, SourceConnect, SourceStatus } from './SourceFields'
 import { useSendToDeposit, useSourceSide } from './useSourceSide'
@@ -74,9 +75,12 @@ export function BridgeForm({ onStarted, initialChain }: { onStarted: (orderId: s
   const q = request ? quote.data : undefined
   const settling = amountText.trim() !== settled || quote.isFetching
 
+  // One review, one order: the same request sent again (a retry after a lost answer) carries the same key.
+  const keyFor = useRef<{ request: string; key: string } | null>(null)
   const start = useMutation({
-    mutationFn: (req: BridgeQuoteRequest) => client.start(req),
+    mutationFn: ({ req, key }: { req: BridgeQuoteRequest; key: string }) => client.start(req, key),
     onSuccess: (order) => {
+      keyFor.current = null
       rememberOrder(order.id)
       setReview(order)
     },
@@ -96,15 +100,19 @@ export function BridgeForm({ onStarted, initialChain }: { onStarted: (orderId: s
               ? (quote.error as Error).message
               : !q || settling
                 ? 'Getting a quote…'
-                : !q.kits
-                  ? (q.kitsUnavailable ?? 'NEARKITS can’t price $KITS right now')
-                  : !ENV.mainnetExecution
-                    ? 'This build doesn’t send transactions on mainnet'
-                    : undefined
+                : q.delivery?.blocked
+                  ? 'This wallet can’t receive it yet'
+                  : !q.kits
+                    ? (q.kitsUnavailable ?? 'NEARKITS can’t price $KITS right now')
+                    : !ENV.mainnetExecution
+                      ? 'This build doesn’t send transactions on mainnet'
+                      : undefined
 
   const begin = () => {
     if (!request || !sourceAddress || reason) return
-    start.mutate({ ...request, sourceAddress })
+    const req = { ...request, sourceAddress }
+    keyFor.current = reviewKey(keyFor.current, req)
+    start.mutate({ req, key: keyFor.current.key })
   }
 
   return (
@@ -197,6 +205,8 @@ export function BridgeForm({ onStarted, initialChain }: { onStarted: (orderId: s
                 )
               }
             </Field>
+            {/* NEAR Intents delivers wNEAR: a wallet that can't receive it says why, with the fix a connected wallet signs. */}
+            {q?.delivery?.blocked && dest && <DeliveryNote delivery={q.delivery} wallet={dest.source === 'external' ? dest : null} onFixed={() => void quote.refetch()} />}
             <Field label="$KITS purchase slippage" hint="The least $KITS NEARKITS buys at when the NEAR arrives; past it, nothing is bought and you decide.">
               {() => (
                 <Segmented

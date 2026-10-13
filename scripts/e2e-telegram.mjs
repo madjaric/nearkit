@@ -459,7 +459,8 @@ await step('NEARKITS web: /web sends a one-time sign-in link, and the site lists
   const table = page.getByRole('table', { name: 'NEARKITS wallets' })
   await table.getByText('Main', { exact: true }).waitFor()
   await table.getByText('3.00').waitFor()
-  if ((await page.getByRole('button', { name: 'Connect wallet' }).count()) === 0) throw new Error('the page claims a browser wallet is connected')
+  // No browser wallet: the top bar names the NEARKITS web session in the wallet chip's place.
+  if ((await page.getByRole('button', { name: /^NEARKITS web: signed in as / }).count()) === 0) throw new Error('the page claims a browser wallet is connected')
   await shot('tg-06-web-wallets')
 })
 
@@ -484,7 +485,8 @@ await step('with only a NEARKITS web session (no browser wallet), Consolidate, S
   )
     throw new Error('Split doesn’t offer the NEARKITS wallet as its source')
   await opens('/batch-send', () => page.getByLabel('Send from', { exact: true }))
-  if ((await page.getByRole('button', { name: 'Connect wallet' }).count()) === 0) throw new Error('a browser wallet got connected on the way')
+  // With no browser wallet, the top bar names the NEARKITS web session in the wallet chip's place (TopBar's NearKitButton).
+  if ((await page.getByRole('button', { name: /^NEARKITS web: signed in as / }).count()) === 0) throw new Error('a browser wallet got connected on the way')
   await page.goto(WEB + '/wallets', { waitUntil: 'networkidle' })
 })
 

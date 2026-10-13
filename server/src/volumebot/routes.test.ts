@@ -109,12 +109,22 @@ describe('the Volume Bot console API', () => {
     const id = ((await call('/api/web/bots/save', { session: token, config: configFor(w.id) })).bot as { id: string }).id
     const before = notices.length
     const changed = configFor(w.id)
-    changed.risk.maxSlippageBps = 900
+    changed.risk.maxSlippageBps = 400
     await call('/api/web/bots/save', { session: token, botId: id, config: changed })
     const n = notices.slice(before).find((x) => x.userId === ALICE.id)
     expect(n?.html).toMatch(/Volume Bot changed on NEARKITS web/)
     expect(n?.html).toContain(USDT)
-    expect(n?.html).toMatch(/slippage 9(.00)?%/)
+    expect(n?.html).toMatch(/slippage 4(.00)?%/)
+  })
+
+  it('refuses a slippage above what NEARKITS wallets may trade with (CUSTODY_MAX_SLIPPAGE), so the bot stays inside the signer’s price floor', async () => {
+    const { h, call, refused, signIn } = await app()
+    const token = await signIn()
+    const w = await h.funded(5n * ONE)
+    const id = ((await call('/api/web/bots/save', { session: token, config: configFor(w.id) })).bot as { id: string }).id
+    const tooLoose = configFor(w.id)
+    tooLoose.risk.maxSlippageBps = 900
+    expect(await refused('/api/web/bots/save', { session: token, botId: id, config: tooLoose })).toMatchObject({ status: 400 })
   })
 
   it('nothing starts while NEARKITS has paused the Volume Bot', async () => {
@@ -135,6 +145,23 @@ describe('the Volume Bot console API', () => {
     expect(d).toMatchObject({ config: { walletIds: [w.id] }, metrics: { trades: 0, volumeNear: 0 }, trades: [], wallets: [{ walletId: w.id, trades: 0 }] })
     const bob = await signIn(BOB)
     expect(await refused('/api/web/bots/detail', { session: bob, botId: id })).toMatchObject({ status: 404 })
+  })
+
+  it('another user’s session can’t list, start, pause, resume, stop, re-point or delete a bot: each is refused, and the bot is as it was', async () => {
+    const { h, call, refused, signIn, bots } = await app()
+    const alice = await signIn()
+    const w = await h.funded(5n * ONE)
+    const id = ((await call('/api/web/bots/save', { session: alice, config: configFor(w.id) })).bot as { id: string }).id
+    const bob = await signIn(BOB)
+    const bobs = (await call('/api/web/wallets/create', { session: bob, name: 'Bob 1', createKey: 'bot-iso-bob-0001' })).wallet as { id: string }
+    expect((await call('/api/web/bots', { session: bob })).bots).toEqual([])
+    for (const path of ['/api/web/bots/start', '/api/web/bots/pause', '/api/web/bots/resume', '/api/web/bots/delete'])
+      expect(await refused(path, { session: bob, botId: id })).toMatchObject({ status: 404 })
+    expect(await refused('/api/web/bots/stop', { session: bob, botId: id, emergency: true })).toMatchObject({ status: 404 })
+    // Re-pointed at Bob's own wallet: still not his bot.
+    expect(await refused('/api/web/bots/save', { session: bob, botId: id, config: configFor(bobs.id) })).toMatchObject({ status: 404 })
+    expect(await bots.owned(ALICE.id, id)).toMatchObject({ status: 'draft', config: { walletIds: [w.id] } })
+    expect(((await call('/api/web/bots', { session: alice })).bots as { id: string }[]).map((b) => b.id)).toEqual([id])
   })
 })
 

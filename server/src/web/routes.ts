@@ -2,7 +2,7 @@ import type { VolumeBotStore } from '../volumebot/store'
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS, type NetworkConfig } from '@/config/networks'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import { mapLimit } from '@/lib/async'
-import { MAX_SLIPPAGE } from '@/lib/fees'
+import { CUSTODY_MAX_SLIPPAGE } from '@/lib/fees'
 import { accountIdError } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { toNearKitError } from '@/services/near/errors'
@@ -137,6 +137,70 @@ function sendStatus(intent: Intent, now: number, requoted: boolean) {
   return { status: s, message: intent.status === 'failed' ? (intent.result?.message ?? null) : null, hashes: intent.result?.hashes ?? [] }
 }
 
+/** One operation a NEARKITS wallet ran, wherever it was confirmed (Telegram, NEARKITS web, the Volume Bot). Plain text. */
+export interface WebActivity {
+  id: string
+  kind: IntentKind
+  status: 'pending' | 'success' | 'failed'
+  accountId: string
+  title: string
+  detail: string
+  hashes: string[]
+  at: number
+}
+
+/** How many operations /api/web/activity lists. */
+export const WEB_ACTIVITY_LIMIT = 30
+
+/** A token's symbol as chain metadata states it, cut to a readable length. */
+const symbolOf = (raw: unknown, fallback: string) => (typeof raw === 'string' && raw.trim() ? [...plainText(raw, 40)].slice(0, 16).join('') : fallback)
+
+/** A raw amount as decimal text; null when the record doesn't hold a readable one. */
+const amountText = (raw: unknown, decimals: unknown) => {
+  if (typeof raw !== 'string' || !/^\d{1,60}$/.test(raw) || typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0 || decimals > 32) return null
+  return formatUnits(BigInt(raw), decimals, { maxFraction: 6 })
+}
+
+export function activityView(intent: Intent, accountId: string): WebActivity {
+  const p = intent.params as Record<string, unknown>
+  const r = intent.result
+  const status = intent.status === 'done' ? (r?.ok ? 'success' : 'failed') : intent.status === 'failed' ? 'failed' : 'pending'
+  let title: string
+  let detail: string
+  switch (intent.kind) {
+    case 'buy':
+    case 'sell': {
+      const symbol = symbolOf(p.symbol, 'token')
+      const amount = typeof p.amountIn === 'string' && /^\d{1,40}(\.\d{1,40})?$/.test(p.amountIn) ? p.amountIn : null
+      title = `${intent.kind === 'buy' ? 'Buy' : 'Sell'} ${symbol}`
+      detail = amount ? `${amount} ${intent.kind === 'buy' ? 'NEAR' : symbol}` : ''
+      break
+    }
+    case 'withdraw': {
+      const symbol = symbolOf(p.symbol, 'token')
+      const amount = amountText(p.amount, p.decimals)
+      title = `Send ${symbol}`
+      detail = [amount ? `${amount} ${symbol}` : null, typeof p.to === 'string' && p.to.length <= 64 ? `to ${p.to}` : null].filter(Boolean).join(' ')
+      break
+    }
+    case 'unwrap': {
+      const amount = amountText(p.amount, NEAR_DECIMALS)
+      title = 'Unwrap wNEAR'
+      detail = amount ? `${amount} wNEAR` : ''
+      break
+    }
+    case 'backup-key':
+      title = 'Add a backup key'
+      detail = ''
+      break
+    case 'revoke':
+      title = 'Remove NEARKITS’ key'
+      detail = ''
+      break
+  }
+  if (status === 'failed' && r?.message) detail = detail ? `${detail} · ${r.message}` : r.message
+  return { id: intent.id, kind: intent.kind, status, accountId, title, detail, hashes: r?.hashes ?? [], at: intent.updatedAt }
+}
 /**
  * Wallets one user may have quoted per minute, whatever addresses the requests come from: each is a
  * route asked of the shared quote server behind NEARKITS (the bot's own budget is per user too).
@@ -201,6 +265,12 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       return { wallets: wallets.map(webWalletView), limit: MAX_ACTIVE_WALLETS_PER_USER, canCreate: wallets.length < MAX_ACTIVE_WALLETS_PER_USER }
     },
 
+    /** What the user's NEARKITS wallets on this network ran, from Telegram, the web and the Volume Bot, newest first. */
+    '/api/web/activity': async (body) => {
+      const userId = await userOf(body)
+      const rows = await custody.store.recentIntents(userId, deps.network.id, WEB_ACTIVITY_LIMIT)
+      return { items: rows.map(({ intent, accountId }) => activityView(intent, accountId)) }
+    },
     '/api/web/wallets/create': async (body) => {
       const userId = await userOf(body)
       const name = nameOf(body)
@@ -310,7 +380,8 @@ export function webRoutes(deps: WebApiDeps): Record<string, Route> {
       if (frozen) throw frozenError(frozen)
       await notPaused(side)
       const slippagePct = typeof b.slippagePct === 'number' && Number.isFinite(b.slippagePct) ? parseSlippage(String(b.slippagePct)) : null
-      if (slippagePct === null) throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${MAX_SLIPPAGE}%, with at most two decimals.`)
+      if (slippagePct === null)
+        throw new HttpError(400, 'slippage', `NEARKITS wallets trade with slippage above 0 and at most ${CUSTODY_MAX_SLIPPAGE}%, with at most two decimals.`)
       const token = await tokenOf(deps.near, field(body, 'token', 64))
       const inDecimals = side === 'buy' ? NEAR_DECIMALS : token.decimals
       const params = picked.map(({ leg, wallet }): SwapParams => {

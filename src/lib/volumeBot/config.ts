@@ -1,4 +1,4 @@
-import { GAS_RESERVE_NEAR, MAX_SLIPPAGE } from '@/lib/fees'
+import { CUSTODY_MAX_SLIPPAGE, GAS_RESERVE_NEAR } from '@/lib/fees'
 import { isValidAccountId } from '@/lib/validation'
 import { BOT_STRATEGIES, type BotConfig, type BotStrategy, type HourWindow, type SizingMode } from './types'
 
@@ -19,7 +19,8 @@ export const MAX_LIVE_BOTS_PER_USER = 5
 /** TWAP periods: at least ten minutes, at most 30 days. */
 export const MIN_TWAP_SEC = 600
 export const MAX_TWAP_SEC = 30 * 86_400
-const MAX_SLIPPAGE_BPS = MAX_SLIPPAGE * 100
+/** The bot trades from NEARKITS wallets: within their slippage limit, inside the signer's price floor. */
+const MAX_SLIPPAGE_BPS = CUSTODY_MAX_SLIPPAGE * 100
 const SIZING_MODES: readonly SizingMode[] = ['auto', 'fixed', 'range', 'capital-pct', 'inventory-pct']
 
 /** The quote side's own contracts: the bot trades a token against NEAR, never NEAR against itself. */
@@ -127,7 +128,7 @@ export function validateBotConfig(c: BotConfig): ConfigIssue[] {
   if (!(Number.isFinite(r.maxAggregateExposurePct) && r.maxAggregateExposurePct > 0 && r.maxAggregateExposurePct <= 100))
     issue('risk.maxAggregateExposurePct', 'Enter a percentage above 0 and up to 100')
   if (!(Number.isFinite(r.maxDrawdownPct) && r.maxDrawdownPct > 0 && r.maxDrawdownPct <= 100)) issue('risk.maxDrawdownPct', 'Enter a percentage above 0 and up to 100')
-  if (!wholeWithin(r.maxSlippageBps, 1, MAX_SLIPPAGE_BPS)) issue('risk.maxSlippageBps', `Slippage from 0.01% to ${MAX_SLIPPAGE}%`)
+  if (!wholeWithin(r.maxSlippageBps, 1, MAX_SLIPPAGE_BPS)) issue('risk.maxSlippageBps', `Slippage from 0.01% to ${CUSTODY_MAX_SLIPPAGE}%`)
   if (!wholeWithin(r.maxPriceImpactBps, 1, 5_000)) issue('risk.maxPriceImpactBps', 'Price impact from 0.01% to 50%')
   if (!(Number.isFinite(r.minLiquidityUsd) && r.minLiquidityUsd >= 0)) issue('risk.minLiquidityUsd', 'Enter a liquidity floor of 0 or more')
   if (!wholeWithin(r.maxSpreadBps, 1, 10_000)) issue('risk.maxSpreadBps', 'Spread from 0.01% to 100%')

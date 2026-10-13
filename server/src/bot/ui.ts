@@ -1,6 +1,7 @@
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
-import type { PnlLimitation } from '@/types/domain'
+import { costLines, impactLabel, impactUnknownReason, impactValue } from '@/lib/quoteCosts'
+import type { PnlLimitation, QuoteCosts } from '@/types/domain'
 import { toNearKitError } from '@/services/near/errors'
 import type { Logger } from '../log'
 import { PolicyViolation } from '../custody/policy'
@@ -19,6 +20,28 @@ export const UNKNOWN = '—'
 /** A token amount: grouped, at most `maxFraction` decimals, never rounded up. */
 export function amountText(raw: bigint, decimals: number, maxFraction = 4): string {
   return formatUnits(raw, decimals, { maxFraction, group: true })
+}
+
+/**
+ * A quote's costs besides the NEARKITS fee, one plain line each, in the web's words (lib/quoteCosts.ts): the
+ * pool's or Rhea's fee, a token's own tax. Not escaped: the caller escapes.
+ */
+export function costTexts(costs: QuoteCosts | null | undefined, symbols: { in: string; out: string }): string[] {
+  if (!costs) return []
+  return costLines(costs, symbols).map((l) =>
+    l.key === 'pool'
+      ? costs.poolFeesPpm
+        ? `${l.label} ${l.value} · in the rate`
+        : 'Pool fees in the rate'
+      : l.key.startsWith('tax')
+        ? `${l.label} ${l.value} · already in the amounts`
+        : `${l.label} ${l.value}`,
+  )
+}
+
+/** Price impact's line: measured, or labelled an estimate; unknown said with why, never a 0. Not escaped. */
+export function impactText(pct: number | null, estimated: boolean): string {
+  return `${impactLabel(estimated)} ${pct === null ? `${UNKNOWN} (${impactUnknownReason(estimated)})` : impactValue(pct, estimated)}`
 }
 
 /** NEAR with at least two decimals, e.g. 2.00, 0.4393. */
@@ -64,10 +87,15 @@ export function friendlyError(e: unknown, opts: { network: 'mainnet' | 'testnet'
     case 'INVALID_AMOUNT':
     case 'INVALID_ACCOUNT':
     case 'EXECUTION_DISABLED':
-      // Already written for people, about their own input or a setting.
+    case 'STORAGE_REQUIRED':
+    case 'NOT_EXECUTABLE':
+      // Already written for people, about their own input, a setting or the wallet.
       return err.message
     case 'RPC_ERROR':
       return 'The NEAR network isn’t answering right now. Try again in a moment.'
+    case 'TRANSACTION_FAILED':
+      // Something was sent: never "nothing was sent". The contract's own wording stays in the log.
+      return 'The transaction failed on NEAR. Check the wallet’s activity before trying again.'
     default:
       return 'Something went wrong. Nothing was sent or signed. Try again in a moment.'
   }

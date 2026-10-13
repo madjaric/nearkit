@@ -104,6 +104,16 @@ export function newRequestKey(): string {
     .replace(/=+$/, '')
 }
 
+/**
+ * The key a form's start goes with: the one it had while the request is the same (a retry after a lost
+ * answer finds the order the first one made), a new one for any other request. Null: none yet, or its
+ * order was made (the form forgets it then).
+ */
+export function reviewKey(last: { request: string; key: string } | null, req: BridgeQuoteRequest): { request: string; key: string } {
+  const request = JSON.stringify(req)
+  return last?.request === request ? last : { request, key: newRequestKey() }
+}
+
 // ─── orders this browser started ─────────────────────────────────────────────
 
 const KEY = 'nearkits:bridge-orders'

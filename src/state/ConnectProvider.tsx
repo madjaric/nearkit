@@ -166,8 +166,21 @@ function NearBody({
         </div>
       )}
 
-      <p className="text-xs text-fg-3">You sign in your wallet. NEARKITS never asks for a seed phrase or private key and never holds your funds.</p>
+      <WalletCustodyNote />
     </div>
+  )
+}
+
+/**
+ * Who holds what, under the wallet list: a connected wallet signs itself and is never held by
+ * NEARKITS; NEARKITS wallets are custodial (DocsPage, llms.txt). Never a blanket "never holds your funds".
+ */
+export function WalletCustodyNote() {
+  return (
+    <p className="text-xs text-fg-3">
+      A wallet you connect signs every transaction itself: NEARKITS never asks for a seed phrase, never sees its keys and never holds its funds. NEARKITS wallets are custodial:
+      NEARKITS’ signer holds their keys, and their owner can recover them.
+    </p>
   )
 }
 

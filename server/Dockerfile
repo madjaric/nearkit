@@ -1,13 +1,12 @@
-# The NearKit server (Telegram bot + API) as one container, for Railway or any
-# Docker host. The build context is the repository root, because the server
+# The NEARKITS server image (the app: Telegram bot + API; the signer; the buy bot), built on the
+# VPS by deploy/vps/deploy.sh. The build context is the repository root, because the server
 # shares the web app's src/:
 #
-#   docker build -f server/Dockerfile .
+#   docker build --build-arg NEARKIT_BUILD_SHA=<commit> -f server/Dockerfile .
 #
-# Every setting comes from the environment at run time (server/.env.example).
-# Nothing secret is built into the image: no ARG reads a variable, and
-# .dockerignore keeps every local .env file out of the build context.
-# Keep the database on a volume and point NEARKIT_DB_PATH at it.
+# Every setting comes from the environment at run time (deploy/vps/*.env.example). Nothing secret
+# is built into the image: the one ARG is the commit being built (shown on /health as "version"),
+# and .dockerignore keeps every local .env file out of the build context.
 
 FROM node:24-slim AS build
 WORKDIR /app
@@ -19,8 +18,10 @@ COPY server/src ./server/src
 RUN npm run server:build
 
 FROM node:24-slim
+ARG NEARKIT_BUILD_SHA=
 ENV NODE_ENV=production \
-    NEARKIT_API_HOST=0.0.0.0
+    NEARKIT_API_HOST=0.0.0.0 \
+    NEARKIT_BUILD_SHA=$NEARKIT_BUILD_SHA
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force

@@ -20,7 +20,7 @@ import { createEngine } from '../custody/engine'
 import { createSignerClient, inProcessTransport } from '../custody/signer'
 import { CustodyStore } from '../custody/store'
 import { keyring, localKeyWrapper } from '../custody/vault'
-import { MAX_SLIPPAGE } from '@/lib/fees'
+import { SIGNER_MAX_SLIPPAGE } from '@/lib/fees'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -154,7 +154,7 @@ export async function botHarness(
           network: config.network,
           feeRecipient: null,
           recipient: config.linkRecipient,
-          maxSlippagePpm: MAX_SLIPPAGE * 10_000,
+          maxSlippagePpm: SIGNER_MAX_SLIPPAGE * 10_000,
           telegram: options.telegramApprovals === false ? null : telegram.check,
         },
         now,

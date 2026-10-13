@@ -1,6 +1,6 @@
 import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Page, PageHeader, RequireWallet } from '@/components/page/Page'
+import { LoadFailed, Page, PageHeader, RequireWallet } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Checkbox, Input, Select } from '@/components/ui/Form'
@@ -47,7 +47,10 @@ function Positions() {
   const best = ranked.reduce<Position | null>((m, p) => (m === null || (p.pnlPct ?? 0) > (m.pnlPct ?? 0) ? p : m), null)
   const worst = ranked.reduce<Position | null>((m, p) => (m === null || (p.pnlPct ?? 0) < (m.pnlPct ?? 0) ? p : m), null)
   const loading = positions.isPending
+  // The last read failed and none came before it: nothing is known, so nothing is shown as 0.
+  const failed = positions.isError && positions.data === undefined
   const filtered = query !== '' || walletId !== 'all' || hideDust
+  const unknown = <span className="text-fg-4">—</span>
 
   return (
     <>
@@ -57,15 +60,25 @@ function Positions() {
           size="lg"
           legend="Value"
           loading={loading}
-          value={value === null ? <span className="text-fg-4">—</span> : formatUsd(value)}
-          sub={value === null && !caps.prices ? 'no USD prices on testnet' : walletId === 'all' ? 'all wallets' : wallets.find((w) => w.id === walletId)?.label}
+          value={value === null ? unknown : formatUsd(value)}
+          sub={
+            failed
+              ? 'can’t be loaded right now'
+              : value === null && !caps.prices
+                ? 'no USD prices on testnet'
+                : walletId === 'all'
+                  ? 'all wallets'
+                  : wallets.find((w) => w.id === walletId)?.label
+          }
         />
         <ReadoutSlot
           legend={<Term term="unrealizedPnl" />}
           loading={loading}
-          value={unrealized === null ? <span className="text-fg-4">—</span> : <span className={toneOf(unrealized)}>{formatUsd(unrealized, { signed: true })}</span>}
+          value={unrealized === null ? unknown : <span className={toneOf(unrealized)}>{formatUsd(unrealized, { signed: true })}</span>}
           sub={
-            unrealized === null ? (
+            failed ? (
+              'unavailable'
+            ) : unrealized === null ? (
               caps.pnl ? (
                 rows.some((p) => p.pnlStatus === 'loading') ? (
                   'reading history…'
@@ -86,7 +99,7 @@ function Positions() {
             )
           }
         />
-        <ReadoutSlot legend="Positions" loading={loading} value={rows.length} sub={filtered ? 'matching filters' : 'tokens held'} />
+        <ReadoutSlot legend="Positions" loading={loading} value={failed ? unknown : rows.length} sub={failed ? 'unavailable' : filtered ? 'matching filters' : 'tokens held'} />
         <ReadoutSlot legend="Best" loading={loading} value={best ? best.token.symbol : '—'} sub={best ? <Pct value={best.pnlPct} /> : ''} />
         <ReadoutSlot
           className="md:col-span-2 xl:col-span-1"
@@ -114,8 +127,14 @@ function Positions() {
       </div>
 
       <Panel>
-        <PanelHeader title="Positions" meta={rows.length} actions={<span className="text-[11px] text-fg-3">Expand a row for its PnL, history and wallets</span>} />
-        {!loading && rows.length === 0 ? (
+        <PanelHeader
+          title="Positions"
+          meta={failed ? undefined : rows.length}
+          actions={<span className="text-[11px] text-fg-3">Expand a row for its PnL, history and wallets</span>}
+        />
+        {failed ? (
+          <LoadFailed title="Positions can’t be loaded right now" error={positions.error} onRetry={() => void positions.refetch()} />
+        ) : !loading && rows.length === 0 ? (
           <EmptyState
             title={filtered ? 'No positions match these filters' : 'No positions yet'}
             action={
@@ -154,7 +173,7 @@ export default function PositionsPage() {
   return (
     <Page>
       <PageHeader title="Positions" description={description} />
-      <RequireWallet feature="Positions">
+      <RequireWallet feature="Positions" nearkit>
         <Positions />
       </RequireWallet>
     </Page>

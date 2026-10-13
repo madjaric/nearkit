@@ -487,6 +487,6 @@ A 10px `well` trough with 1px-gapped segments per wallet, alternating between tw
 - **Don't** replace a fire key's label with its blocking reason.
 - **Don't** use KPI card grids, gradient area fills, glassmorphism or pill-shaped controls.
 - **Don't** show a price, supply or market cap for a token before it launches, or a $KITS Buyback & Burn figure no on-chain source has read.
-- **Don't** print SAFE, SCAM or any verdict in the scanner, or claim NearKit receives the full 0.50% fee (Rhea's aggregator keeps 0.10% of it).
+- **Don't** print SAFE, SCAM or any verdict in the scanner, or claim NearKit receives the full 0.50% fee on a route through Rhea's aggregator (Rhea keeps 0.10% of it), or that the fee is always taken inside Rhea's swap (on a route straight to a DCL pool the full 0.50% is a transfer to NearKit's fee account with the swap).
 - **Don't** nest a bordered panel inside another panel.
 - **Don't** introduce colors outside the token set; the default palette is cleared.

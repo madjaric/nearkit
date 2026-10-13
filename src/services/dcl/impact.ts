@@ -12,7 +12,8 @@ import type { DclPool } from './pools'
  * into or out of the pool) are outside them, so a cost is never counted as impact; the pool's fee is
  * in both sides, so it cancels. No USD price list is involved: a token's indexed USD price can sit far
  * from its pool (KITS on 2026-10-12: Rhea's list implied 737,000 KITS per NEAR, the pool 588,679).
- * Null when any hop lacks its point or doesn't match the path: an unknown is never guessed.
+ * Null when any hop lacks its point or doesn't match the path, or when the fill beats the pools' price by more than a tick
+ * per pool (the point read is stale against the quote): an unknown is never guessed.
  */
 
 export interface DclHop {
@@ -42,5 +43,9 @@ export function dclImpactPct(hops: readonly DclHop[], amountIn: bigint, amountOu
   }
   const executed = Number(amountOut) / Number(amountIn)
   if (!(marginal > 0) || !Number.isFinite(marginal) || !Number.isFinite(executed)) return null
-  return Math.max(0, (1 - executed / marginal) * 100)
+  const shortfall = 1 - executed / marginal
+  // A pool's price sits anywhere inside its current point's tick (×1.0001), so a fill may beat the point's price by up to a
+  // tick per pool: that is rounding, 0. Better than that, the point read isn't the pool the quote ran on (stale): unknown.
+  if (shortfall < -(Math.pow(1.0001, hops.length) - 1) - 1e-9) return null
+  return Math.max(0, shortfall * 100)
 }

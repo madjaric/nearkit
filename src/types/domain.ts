@@ -158,6 +158,11 @@ export interface Wallet {
   owner?: string | null
   /** A NearKit wallet NearKit froze for the user's protection: it doesn't trade or send. */
   frozen?: boolean
+  /**
+   * Why this wallet's data can't be read right now (NEARKITS' server or the RPC didn't answer), in
+   * plain words; absent when it was read whole. Shown as unavailable: never dropped, never 0.
+   */
+  unavailable?: string
 }
 
 export interface Holding {
@@ -240,6 +245,8 @@ export interface PortfolioSummary {
   walletCount: number
   /** The wallets the figures above are made of: never a watch-only one. */
   executableWalletCount: number
+  /** Of those, the wallets whose data couldn't be read whole just now (`Wallet.unavailable`): the figures are partial. */
+  unavailableWalletCount: number
   updatedAt: Timestamp
 }
 
@@ -411,7 +418,7 @@ export interface PnlReport {
   recentTrades: ClosedTrade[]
 }
 
-export type ActivityKind = 'swap' | 'multi-trade' | 'split' | 'consolidate' | 'batch-send' | 'order' | 'automation' | 'bridge'
+export type ActivityKind = 'swap' | 'multi-trade' | 'split' | 'consolidate' | 'batch-send' | 'send' | 'wallet' | 'order' | 'automation' | 'bridge'
 
 export type ActivityStatus = 'pending' | 'success' | 'partial' | 'failed' | 'unknown'
 
@@ -465,6 +472,24 @@ export interface QuoteFee {
   routerFeeBps: number | null
 }
 
+/**
+ * What a swap costs besides the NEARKITS fee, worked out once from the route (services/real/swapCosts.ts)
+ * and printed by every place that shows a quote. None of these is price impact, and impact counts none of them.
+ */
+export interface QuoteCosts {
+  /** The DCL pools' own fee along the route, one per pool, in ppm (10000 = 1%); null when the route doesn't itemise its pools (Rhea's routes: in the rate). */
+  poolFeesPpm: number[] | null
+  /** Rhea's protocol fee on its aggregator's routes, in ppm; null on routes that don't pay one. */
+  protocolFeePpm: number | null
+  /** The tokens' own transfer tax on this trade, in bps: on what enters the first exchange (sell) and what leaves the last (buy). Already in the amounts. */
+  tax: { inBps: number; outBps: number }
+  /**
+   * How price impact is known: 'pools', measured on the route's pools (fees and tax excluded); 'listed-prices', an
+   * estimate from listed USD prices (fees and tax taken off, the pools' own fees and any gap between a list and its pool left in).
+   */
+  impactBasis: 'pools' | 'listed-prices'
+}
+
 export interface Quote {
   request: QuoteRequest
   amountOut: number
@@ -480,6 +505,8 @@ export interface Quote {
    */
   priceImpactPct: number | null
   nearkitFee: QuoteFee
+  /** The route's other costs, each its own line; absent where there is no exchange (wrapping, the demo). */
+  costs?: QuoteCosts
   networkFeeNear: number
   /** Route through pools, as token symbols. */
   path: string[]
@@ -508,7 +535,9 @@ export interface MultiTradeLegQuote extends MultiTradeLeg {
   amountInValue: number
   amountOut: number
   minAmountOut: number
+  /** NearKit's fee on this wallet's route, in `nearkitFeeToken` (each route takes it in its own token). */
   nearkitFee: number
+  nearkitFeeToken: { id: TokenId; symbol: string }
   shortfall: number
 }
 
@@ -518,11 +547,13 @@ export interface MultiTradeQuote {
   totalIn: number
   totalOut: number
   totalMinOut: number
-  nearkitFeeTotal: number
-  feeTokenId: TokenId
+  /** NearKit's fee across the wallets that trade, one entry per token it is paid in (wallets on different routes may pay in different tokens). */
+  nearkitFees: { id: TokenId; symbol: string; amount: number }[]
   networkFeeNear: number
   /** Null when it can't be estimated (no prices on testnet). */
   priceImpactPct: number | null
+  /** The routes' other costs when every wallet's route has the same; absent when they differ (each wallet's review shows its own). */
+  costs?: QuoteCosts
   quotedAt: Timestamp
   expiresAt: Timestamp
 }

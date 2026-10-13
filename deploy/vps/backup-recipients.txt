@@ -1,0 +1,4 @@
+# age public keys the off-site backups are encrypted to (bin/backup-offsite, DEPLOYMENT.md §12).
+# Public keys only. The matching identity decrypts the backups; the owner keeps it, never on the
+# server and never in the backup repository. One key per line; a line starting with # is ignored.
+age15q4848rpn6ddep5dw4wlk3xzttyx0u05p5w0qrewttv0zhprsassdl79pw

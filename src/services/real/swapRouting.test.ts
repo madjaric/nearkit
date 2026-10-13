@@ -7,6 +7,7 @@ import { createNearContext } from './context'
 import { memoryStorage } from './stores'
 import { createSwapRouter, type RoutedSwap } from './swapRouting'
 import { createFakeChain, type FakeChainOptions } from './testing/fakeChain'
+import { fakeSmartxQuote } from './testing/fakeSmartx'
 
 const AGG = 'aggregatedex.near'
 const DCL = NETWORKS.mainnet.dex.dcl.contract
@@ -171,6 +172,142 @@ describe('a token that taxes transfers to and from its DCL pair (nearlytrade lau
     const r = await mainnet().router.route({ tokenIn: 'near', tokenOut: SING, amountIn: '1', slippagePct: 1, walletId: 'w' }, 'trader.near', true)
     expect(r.tax).toEqual({ inBps: 0, outBps: 0 })
     expect(r.minOut).toBe(r.signedMin)
+  })
+})
+
+/**
+ * Audit F-05: Rhea's aggregator quotes a taxed token's pools as if untaxed. NEARKITS reads the token's
+ * own tax (`get_tax`) for the aggregator's route too, and takes it off wherever the route's exchange
+ * is one of the token's pairs, before the routes are compared: a taxed DCL figure is never weighed
+ * against an untaxed Rhea one.
+ */
+describe('Rhea’s aggregator on a token that taxes its DCL pair (audit F-05)', () => {
+  const V1 = 'v2.ref-finance.near'
+  const SLIP = (x: bigint, pct: number) => (x * BigInt(10_000 - pct * 100)) / 10_000n
+  const less = (x: bigint, bps: number) => x - (x * BigInt(bps)) / 10_000n
+
+  function taxedMainnet(rhea: (tokenIn: string, tokenOut: string, amountIn: bigint) => unknown, options: { failTax?: boolean } = {}) {
+    const chain = createFakeChain({
+      accounts: { 'trader.near': { amount: 10n ** 25n }, [FEES]: { amount: 10n ** 24n } },
+      tokens: {
+        [WRAP]: { symbol: 'wNEAR', decimals: 24, registered: [AGG, DCL, 'trader.near', FEES], boundsMin: MIN_STORAGE },
+        [USDC]: { symbol: 'USDC', decimals: 6, registered: [AGG, DCL, 'trader.near'], boundsMin: MIN_STORAGE },
+        [SING]: {
+          symbol: 'SINGULARTY',
+          decimals: 18,
+          registered: [AGG, DCL, 'trader.near', FEES],
+          boundsMin: MIN_STORAGE,
+          balances: { 'trader.near': 10n ** 22n },
+          tax: { buyBps: 100, sellBps: 100, pairs: [DCL] },
+        },
+      },
+      aggregator: { contract: AGG, whitelist: [WRAP, USDC], protocolPpm: 1000, registered: {} },
+      dcl: { contract: DCL, pools: { [dclPoolId(SING, WRAP, 10000)]: pool(SING, 18000n) } },
+    })
+    chain.route('https://smartx.rhea.finance/', (url) =>
+      rhea(url.searchParams.get('tokenIn') ?? '', url.searchParams.get('tokenOut') ?? '', BigInt(url.searchParams.get('amountIn') ?? '0')),
+    )
+    const fetchImpl = options.failTax
+      ? ((async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (typeof init?.body === 'string' && init.body.includes('"get_tax"')) throw new TypeError('Failed to fetch')
+          return chain.fetch(input, init)
+        }) as typeof fetch)
+      : chain.fetch
+    const { env } = parseEnv({ VITE_NEAR_NETWORK: 'mainnet', VITE_NEARKIT_FEE_RECIPIENT: FEES })
+    return createSwapRouter(createNearContext({ env, network: NETWORKS.mainnet, fetch: fetchImpl, kv: memoryStorage() }))
+  }
+
+  /** Rhea's route for the pair through `dex`, quoting `out` with the user's slippage below it. */
+  const rheaQuote = (tokenIn: string, tokenOut: string, amountIn: bigint, out: bigint, slippagePct: number, dex = DCL) =>
+    fakeSmartxQuote({
+      user: 'trader.near',
+      tokenIn,
+      tokenOut,
+      amountIn,
+      amountOut: out,
+      minOut: SLIP(out, slippagePct),
+      dex,
+      appFeePpm: 5000,
+      feeRecipient: FEES,
+      skipUnwrapNear: tokenOut !== WRAP,
+      deadline: Date.now() + 600_000,
+    })
+
+  // DCL directly: 1 NEAR less the 0.50% fee into the 1% pool at 18,000 SINGULARTY per NEAR.
+  const dclPoolOut = pool(SING, 18000n).rate(WRAP, ONE - 5n * 10n ** 21n)
+  const buy = { tokenIn: 'near', tokenOut: SING, amountIn: '1', slippagePct: 1, walletId: 'w' }
+
+  it('buys: Rhea’s figure through the taxed pair comes off by the buy tax before the routes are compared, so Rhea no longer wins by the tax it ignores', async () => {
+    // Untaxed, Rhea's 0.995× would beat DCL's taxed 0.99× by 0.5%; after the same 1% buy tax it pays 0.5% less.
+    const rheaOut = (dclPoolOut * 995n) / 1000n
+    const r = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, rheaOut, 1)).route(buy, 'trader.near', false)
+    expect(r.source).toBe('dcl')
+    expect(r.amountOut).toBe(less(dclPoolOut, 100))
+    expect(r.minOut).toBe(less(SLIP(dclPoolOut, 1), 100))
+  })
+
+  it('buys through Rhea when it still pays more after the tax: the expected and minimum amounts are after it, the signed minimum is Rhea’s', async () => {
+    const rheaOut = (dclPoolOut * 1010n) / 1000n
+    const r = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, rheaOut, 1)).route(buy, 'trader.near', false)
+    expect(r.source).toBe('rhea-aggregator')
+    expect(r.tax).toEqual({ inBps: 0, outBps: 100 })
+    expect(r.amountOut).toBe(less(rheaOut, 100))
+    // The fee is taken from the wNEAR going in, so the signed minimum is the user's before the tax.
+    expect(r.signedMin).toBe(SLIP(rheaOut, 1))
+    expect(r.minOut).toBe(less(SLIP(rheaOut, 1), 100))
+  })
+
+  it('sells: a sell tax larger than the slippage would make Rhea’s route revert on its own minimum, so it is not offered; DCL routes it', async () => {
+    const sell = { tokenIn: SING, tokenOut: 'near', amountIn: '9000', slippagePct: 0.5, walletId: 'w' }
+    const rhea = taxedMainnet((i, o, a) => rheaQuote(i, o, a, 10n ** 24n, 0.5))
+    const r = await rhea.route(sell, 'trader.near', false)
+    expect(r.source).toBe('dcl')
+    expect(r.tax).toEqual({ inBps: 100, outBps: 0 })
+  })
+
+  it('sells through Rhea when the slippage covers the sell tax: the expected amount is after it, the minimum is what the exchange enforces', async () => {
+    const sell = { tokenIn: SING, tokenOut: 'near', amountIn: '9000', slippagePct: 3, walletId: 'w' }
+    const rheaOut = 10n ** 24n
+    const r = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, rheaOut, 3)).route(sell, 'trader.near', false)
+    expect(r.source).toBe('rhea-aggregator')
+    expect(r.tax).toEqual({ inBps: 100, outBps: 0 })
+    expect(r.amountOut).toBe(less(rheaOut, 100))
+    expect(r.signedMin).toBe(SLIP(rheaOut, 3))
+    // The fee comes off the wNEAR out (SINGULARTY isn't on Rhea's fee list): the minimum is the signed one less 0.60%.
+    expect(r.minOut).toBe((SLIP(rheaOut, 3) * (1_000_000n - 6000n)) / 1_000_000n)
+  })
+
+  it('a Rhea route through an exchange that isn’t the token’s pair pays no tax: Rhea’s figures as quoted', async () => {
+    const rheaOut = (dclPoolOut * 1010n) / 1000n
+    const r = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, rheaOut, 1, V1)).route(buy, 'trader.near', false)
+    expect(r.source).toBe('rhea-aggregator')
+    expect(r.tax).toEqual({ inBps: 0, outBps: 0 })
+    expect(r.amountOut).toBe(rheaOut)
+    expect(r.minOut).toBe(SLIP(rheaOut, 1))
+  })
+
+  it('an untaxed token: Rhea’s figures as quoted, unchanged', async () => {
+    const out = 4_700_000n
+    const r = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, out, 1)).route(
+      { tokenIn: 'near', tokenOut: USDC, amountIn: '1', slippagePct: 1, walletId: 'w' },
+      'trader.near',
+      false,
+    )
+    expect(r.source).toBe('rhea-aggregator')
+    expect(r.tax).toEqual({ inBps: 0, outBps: 0 })
+    expect(r.amountOut).toBe(out)
+    expect(r.signedMin).toBe(SLIP(out, 1))
+    expect(r.minOut).toBe(SLIP(out, 1))
+  })
+
+  it('a tax that can’t be read prices nothing: no route is offered (fail closed), never one quoted as if untaxed', async () => {
+    const rheaOut = (dclPoolOut * 1010n) / 1000n
+    const e = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, rheaOut, 1), { failTax: true })
+      .route(buy, 'trader.near', false)
+      .catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(NearKitError)
+    expect((e as NearKitError).code).toBe('QUOTE_UNAVAILABLE')
+    expect((e as NearKitError).message).toMatch(/^No executable route found for NEAR → SINGULARTY right now\./)
   })
 })
 

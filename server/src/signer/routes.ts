@@ -94,8 +94,9 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
   const agg = p.network.rhea.aggregator
   const floor = (expected: bigint) => (expected * (PPM - BigInt(p.maxSlippagePpm))) / PPM
   const ask = async () => {
+    let out: bigint
     try {
-      return await p.oracle.expectedOut({
+      out = await p.oracle.expectedOut({
         router: route.router,
         tokenIn: route.routeIn,
         tokenOut: route.routeOut,
@@ -110,6 +111,9 @@ export async function verifySwapRoute(route: SwapRouteFacts, walletAccount: stri
       // No independent quote, no signature: fail closed.
       throw new PolicyViolation(`the signer could not check the price (${e instanceof Error ? e.message : 'no answer'})`)
     }
+    // A quote of nothing would put the floor at zero and pass any minimum: no price, no signature.
+    if (out <= 0n) throw new PolicyViolation('the signer’s own quote is empty: nothing to check the price against')
+    return out
   }
 
   if (route.router === 'dcl') {

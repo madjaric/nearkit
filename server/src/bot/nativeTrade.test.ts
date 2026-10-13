@@ -351,4 +351,49 @@ describe('a slow NEAR network', () => {
     expect(usdtOf(h, w.accountId)).toBe(400_000n)
     expect(landed(h).length + h.chain.sent.filter((s) => s.mode === 'hidden').length).toBe(2)
   })
+
+  it('an error after the swap went out shows Processing, never “nothing was sent”, and the result follows', async () => {
+    const h = await walletBot()
+    const w = await h.funded(3n * ONE)
+    await h.say('/buy USDT 0.1')
+    // The swap (step 2: wrap + swap) reaches the chain, then NEARKITS' database fails as it notes that.
+    const store = h.custody.store
+    const markTx = store.markTx.bind(store)
+    let broke = false
+    store.markTx = async (intentId, step, status, outcome) => {
+      if (step === 1 && status === 'submitted' && !broke) {
+        broke = true
+        throw new Error('database connection lost')
+      }
+      return markTx(intentId, step, status, outcome)
+    }
+    await h.press(h.button('Confirm buy'))
+    expect(broke).toBe(true)
+    expect(landed(h).map((s) => s.tx.receiverId)).toEqual([USDT, WRAP])
+    const shown = h.last()?.text ?? ''
+    expect(shown).toContain('Processing — NEAR network is taking longer than usual')
+    expect(shown).toContain('Nothing will be sent twice')
+    const said = h.fake
+      .messages()
+      .map((m) => m.text)
+      .join('\n')
+    expect(said).not.toMatch(/Nothing was sent|went wrong/i)
+    // The resolver reads the chain and reports what really happened.
+    await h.custody.engine.resolvePending()
+    expect(lastToAlice(h)).toContain('Buy confirmed')
+    expect(usdtOf(h, w.accountId)).toBe(400_000n)
+  })
+
+  it('an error before anything was signed still says nothing was sent', async () => {
+    const h = await walletBot()
+    await h.funded(3n * ONE)
+    await h.say('/buy USDT 0.1')
+    // Confirm can't even take the quote: the engine never ran.
+    h.custody.store.confirmIntent = async () => {
+      throw new Error('database connection lost')
+    }
+    await h.press(h.button('Confirm buy'))
+    expect(h.chain.sent).toEqual([])
+    expect(h.last()?.text).toContain('Nothing was sent or signed')
+  })
 })

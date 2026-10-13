@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time OpenBao setup for NearKit (DEPLOYMENT.md §11). Run by the OWNER, in their own
+# One-time OpenBao setup for NearKit (DEPLOYMENT.md §10). Run by the OWNER, in their own
 # terminal (never by an assistant, never with output captured):
 #
 #   ssh -t -i ~/.ssh/nearkit_prod_ed25519 root@<host> /opt/nearkit/bin/openbao-init

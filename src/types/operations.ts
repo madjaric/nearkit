@@ -1,4 +1,4 @@
-import type { TokenId } from './domain'
+import type { QuoteCosts, TokenId } from './domain'
 
 /**
  * Value-moving operations. Every tool builds an `OperationPlan` first (exact raw
@@ -109,6 +109,11 @@ export interface FeeDisclosure {
   routerFee: FeeShare | null
   /** Amounts are estimates: the router takes the fee from a later token, so the exact figure is set at execution. */
   estimated?: boolean
+  /**
+   * Multi Trade wallets whose routes take the fee in different tokens: the total per token (`amount`/`token` are
+   * the first). Shares are then on each wallet's line, not here.
+   */
+  parts?: { amount: AmountValue; token: TokenRef }[]
   note: string | null
 }
 
@@ -124,6 +129,8 @@ export interface SwapDetails {
   minOut: AmountValue
   slippagePct: number
   priceImpactPct: number | null
+  /** The route's other costs (pool or protocol fee, token tax, how impact is known); absent for wrapping, the demo, or Multi Trade wallets whose routes differ. */
+  costs?: QuoteCosts
   route: string[]
   /** Routing tokens in order (wNEAR, not NEAR), for reading the outcome. */
   routeTokens?: TokenRef[]

@@ -121,6 +121,56 @@ describe('NEARKITS web session', () => {
     expect(web.session()).toBeNull()
   })
 
+  it('a session the server ended is remembered as ended (whose it was) until the user signs in again, or dismisses it', async () => {
+    const storage = memoryStorage()
+    let wallets: Handler = () => ({ status: 401, json: { error: { code: 'session', message: 'Your NEARKITS web session has ended.' } } })
+    const { fetchImpl } = server({
+      '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Alice', username: 'alice' } } }),
+      '/api/web/wallets': (b) => wallets(b),
+    })
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl, store: storage })
+    await web.login(CODE)
+    expect(web.ended()).toBeNull()
+    await expect(web.wallets()).rejects.toMatchObject({ status: 401, code: 'session' })
+    expect(web.session()).toBeNull()
+    expect(web.ended()).toMatchObject({ userName: 'Alice', userHandle: 'alice' })
+    // One object while nothing changes (React reads it as a store snapshot), and another page of this browser sees it too.
+    expect(web.ended()).toBe(web.ended())
+    expect(createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl, store: storage }).ended()).toMatchObject({ userName: 'Alice' })
+    // Signing in again clears it.
+    wallets = () => ({ status: 200, json: { wallets: [wallet], limit: 10, canCreate: true } })
+    await web.login(CODE)
+    expect(web.ended()).toBeNull()
+    // Dismissed, it is gone too, and listeners hear about it.
+    wallets = () => ({ status: 401, json: { error: { code: 'session', message: 'ended' } } })
+    await expect(web.wallets()).rejects.toMatchObject({ status: 401 })
+    let heard = 0
+    web.subscribe(() => heard++)
+    web.dismissEnded()
+    expect(web.ended()).toBeNull()
+    expect(heard).toBe(1)
+  })
+
+  it('an expired session reads as ended; signing out here leaves no notice', async () => {
+    const storage = memoryStorage()
+    storage.set('nearkit:web-session:testnet', JSON.stringify({ token: TOKEN, expiresAt: Date.now() - 1, userName: 'Alice', userHandle: null }))
+    const ok = server({
+      '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Bob' } } }),
+      '/api/web/logout': () => ({ status: 200, json: { ok: true } }),
+    })
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl: ok.fetchImpl, store: storage })
+    expect(web.session()).toBeNull()
+    expect(web.ended()).toMatchObject({ userName: 'Alice', userHandle: null })
+    web.dismissEnded()
+    expect(web.ended()).toBeNull()
+    await web.login(CODE)
+    await web.logout()
+    expect(web.session()).toBeNull()
+    expect(web.ended()).toBeNull()
+    // Without a NEARKITS server nothing ever ended.
+    expect(createNearKitWeb({ apiUrl: null, network: 'testnet', fetchImpl: ok.fetchImpl, store: storage }).ended()).toBeNull()
+  })
+
   it('without a NEARKITS server there is no session and no wallet', async () => {
     const web = createNearKitWeb({ apiUrl: null, network: 'testnet', fetchImpl: server({}).fetchImpl, store: memoryStorage() })
     expect(web.available).toBe(false)
@@ -149,6 +199,40 @@ describe('NEARKITS web session', () => {
     expect(calls.at(-1)).toEqual({ path: '/api/web/wallets/create', body: { session: TOKEN, name: 'Degen 1', createKey: key } })
     await web.wallets()
     expect(listed).toBe(2)
+  })
+
+  it('a late refusal of a session already replaced by a new sign-in ends nothing: the new session stays', async () => {
+    const storage = memoryStorage()
+    const NEW = 'N'.repeat(43)
+    let release: (r: Response) => void = () => undefined
+    const fetchImpl = (async (url: string | URL) => {
+      const path = String(url).slice(API.length)
+      if (path === '/api/web/wallets') return new Promise<Response>((resolve) => (release = resolve))
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+    storage.set('nearkit:web-session:testnet', JSON.stringify({ token: TOKEN, expiresAt: Date.now() + 60_000, userName: 'Alice', userHandle: null }))
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl, store: storage })
+    const pending = web.wallets()
+    await web.adopt({ token: NEW, expiresAt: Date.now() + 60_000, userName: 'Alice', userHandle: null })
+    release(new Response(JSON.stringify({ error: { code: 'session', message: 'ended' } }), { status: 401, headers: { 'content-type': 'application/json' } }))
+    await expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(web.session()?.token).toBe(NEW)
+    expect(web.ended()).toBeNull()
+  })
+
+  it('a server that can’t be reached ends nothing: the session stays, and nothing reads as ended', async () => {
+    const storage = memoryStorage()
+    let up = true
+    const ok = server({
+      '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Alice' } } }),
+      '/api/web/wallets': () => (up ? { status: 200, json: { wallets: [wallet], limit: 10, canCreate: true } } : { status: 502, json: null }),
+    })
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl: ok.fetchImpl, store: storage })
+    await web.login(CODE)
+    up = false
+    await expect(web.wallets()).rejects.toMatchObject({ status: 502 })
+    expect(web.session()?.token).toBe(TOKEN)
+    expect(web.ended()).toBeNull()
   })
 
   it('signing out forgets the session here even when the server can’t be reached', async () => {

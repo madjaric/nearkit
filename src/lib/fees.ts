@@ -147,4 +147,19 @@ export const GAS_RESERVE_YOCTO = toYocto('0.05')
 export const SLIPPAGE_PRESETS = [0.5, 1, 3] as const
 export const DEFAULT_SLIPPAGE = 1
 export const HIGH_SLIPPAGE = 5
+/** The most slippage a trade from a browser wallet may ask for: the user's own wallet signs it. */
 export const MAX_SLIPPAGE = 50
+/**
+ * The signer's price floor for NEARKITS-wallet swaps, in %: a swap's minimum may sit at most this far
+ * below the signer's own quote of the same route (server/src/signer/routes.ts), or it isn't signed.
+ * Production sets it explicitly (NEARKIT_SIGNER_MAX_SLIPPAGE_PCT; a mainnet signer refuses to start
+ * without it); this is the value it is set to, and the default elsewhere.
+ */
+export const SIGNER_MAX_SLIPPAGE = 10
+/**
+ * The most slippage a NEARKITS-wallet trade may ask for (web, Telegram, Volume Bot, Bridge & Buy),
+ * kept below the signer's floor: a launch token's sell tax and the price moving between the app's
+ * quote and the signer's check count against that floor too, so a trade inside this limit is never
+ * refused by the signer for its slippage alone.
+ */
+export const CUSTODY_MAX_SLIPPAGE = 5

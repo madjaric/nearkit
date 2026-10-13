@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { NETWORKS, type NetworkConfig } from '@/config/networks'
 import { base58Encode, base64Decode, base64Encode, base64UrlEncode, hexEncode } from '@/lib/encoding'
 import { createExportKeyPair, openExport } from '@/lib/exportCrypto'
-import { MAX_SLIPPAGE } from '@/lib/fees'
+import { SIGNER_MAX_SLIPPAGE } from '@/lib/fees'
 import { nep413Digest } from '@/services/near/nep413'
 import { createSignerClient, inProcessTransport, type TradingSigner } from '../custody/signer'
 import { keyring, localKeyWrapper } from '../custody/vault'
@@ -32,7 +32,7 @@ export async function testSigner(
     keys: keyring(localKeyWrapper(kek)),
     chain: o.chain ?? createSignerChain({ rpcUrls: ['https://rpc.test'], quorum: 1, fetch: o.fetch }),
     oracle: o.oracle ?? createRouteOracle(network, o.fetch),
-    config: { network, feeRecipient: null, recipient: 'nearkit.vercel.app', maxSlippagePpm: MAX_SLIPPAGE * 10_000, ...o.config },
+    config: { network, feeRecipient: null, recipient: 'nearkit.vercel.app', maxSlippagePpm: SIGNER_MAX_SLIPPAGE * 10_000, ...o.config },
     now,
   })
   const signer: TradingSigner = createSignerClient(inProcessTransport(core))

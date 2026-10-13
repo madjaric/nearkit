@@ -245,6 +245,32 @@ describe('intents', () => {
     expect((await store.allInFlight()).map((x) => x.id)).toEqual([i.id])
   })
 
+  it('lists the operations a user’s wallets ran, newest first: never a quote nobody confirmed, another network or another user’s', async () => {
+    const { wallet: w } = await store.createWallet(wallet())
+    const { wallet: bobs } = await store.createWallet(wallet(202, 'b'.repeat(64)))
+    const { wallet: main } = await store.createWallet({ ...wallet(USER, 'c'.repeat(64)), network: 'mainnet' })
+    const done = await intentFor(w.id)
+    await store.confirmIntent(done.id, USER)
+    await store.setStatus(done.id, ['confirmed'], 'done', { result: { ok: true, message: 'Bought', hashes: ['H1'] } })
+    now += 10
+    const flying = await intentFor(w.id)
+    await store.confirmIntent(flying.id, USER)
+    now += 10
+    await intentFor(w.id) // quoted, never confirmed
+    const bob = await store.createIntent({ walletId: bobs.id, userId: 202, chatId: 202, kind: 'buy', params: {}, ttlMs: 60_000 })
+    await store.confirmIntent(bob.id, 202)
+    const elsewhere = await store.createIntent({ walletId: main.id, userId: USER, chatId: USER, kind: 'buy', params: {}, ttlMs: 60_000 })
+    await store.confirmIntent(elsewhere.id, USER)
+
+    const listed = await store.recentIntents(USER, 'testnet', 10)
+    expect(listed.map((x) => [x.intent.id, x.intent.status, x.accountId])).toEqual([
+      [flying.id, 'confirmed', 'a'.repeat(64)],
+      [done.id, 'done', 'a'.repeat(64)],
+    ])
+    expect(await store.recentIntents(USER, 'testnet', 1)).toHaveLength(1)
+    expect(await store.recentIntents(202, 'testnet', 10)).toHaveLength(1)
+  })
+
   it('expires quotes nobody confirmed', async () => {
     const { wallet: w } = await store.createWallet(wallet())
     const i = await intentFor(w.id, 10)

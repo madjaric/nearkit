@@ -1,0 +1,49 @@
+name: Uptime
+
+# An outside check of NEARKITS, from GitHub's network: it still reports when the VPS, its
+# watchdog (DEPLOYMENT.md §13) or its Telegram alerts are down. A failed run emails the
+# repository owner (GitHub's notification for failed scheduled workflows). Scheduled runs
+# can start a few minutes late, and GitHub turns off schedules in a repository without
+# activity for 60 days: re-enable it under Actions → Uptime if that happens.
+
+on:
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: nearkits.com and its API answer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The web app
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --retry 2 --retry-delay 15 --retry-all-errors https://nearkits.com/ || true)
+          [ "$code" = 200 ] || { echo "::error::nearkits.com answered ${code:-nothing}"; exit 1; }
+
+      - name: The API, the bot, the signer and the host watchdog
+        run: |
+          body=$(curl -sS --max-time 20 --retry 2 --retry-delay 15 --retry-all-errors https://srv2021581.hstgr.cloud/health || true)
+          printf '%s' "$body" | python3 -c '
+          import json, sys
+          try:
+              h = json.load(sys.stdin)
+          except Exception:
+              print("::error::/health did not answer with JSON"); sys.exit(1)
+          bad = []
+          if h.get("ok") is not True: bad.append("not ok")
+          if h.get("bot") is not True: bad.append("bot off")
+          if h.get("signer") != "ok": bad.append("signer " + str(h.get("signer")))
+          # "ops" is the VPS watchdog verdict; builds before it existed do not report it.
+          if "ops" in h and h["ops"] != "ok": bad.append("host checks " + str(h["ops"]))
+          if bad:
+              print("::error::/health: " + ", ".join(bad)); sys.exit(1)
+          print("healthy", h.get("version", ""))
+          '

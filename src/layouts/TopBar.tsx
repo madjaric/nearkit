@@ -1,4 +1,4 @@
-import { ChevronDown, Coins, ExternalLink, LogOut, Menu as MenuIcon, Search, Settings, Wallet } from 'lucide-react'
+import { ChevronDown, Coins, ExternalLink, LogOut, Menu as MenuIcon, Plug, Search, Settings, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useNavigation } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
@@ -18,7 +18,9 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { isStale } from '@/lib/freshness'
 import { useNow, usePrevious } from '@/lib/hooks'
 import { useNetworkWording } from '@/lib/modeCopy'
-import { useCapabilities, useDisconnect, useNearPrice, useSession, useSummary } from '@/services/queries'
+import { nearkitUserLabel } from '@/services/identity'
+import type { NearKitWebSession } from '@/services/nearkitWeb'
+import { useCapabilities, useDisconnect, useIdentity, useNearKitMutations, useNearPrice, useSession, useSummary } from '@/services/queries'
 import { useConnectPrompt } from '@/state/contexts'
 import { GlobalSearch } from './GlobalSearch'
 
@@ -89,16 +91,80 @@ export function NetworkChip({ bare = false }: { bare?: boolean }) {
   )
 }
 
+/**
+ * Signed in to NEARKITS web only (the bot's /web link, no browser wallet): who, in the wallet chip's
+ * place, with the NEARKITS wallets' figures; a browser wallet can still be connected from here.
+ */
+function NearKitButton({ session }: { session: NearKitWebSession }) {
+  const { data: summary } = useSummary()
+  const { promptConnect } = useConnectPrompt()
+  const { logout } = useNearKitMutations()
+  const navigate = useNavigate()
+  const toast = useToast()
+  const who = nearkitUserLabel(session)
+  const named = session.userHandle ? `${session.userName} (@${session.userHandle})` : session.userName
+  return (
+    <Menu
+      label="NEARKITS web"
+      header={
+        <div className="mb-1 border-b border-line-soft px-3 pb-3 pt-2">
+          <span className="legend flex items-center gap-1.5">
+            <Led tone="on" /> Signed in · NEARKITS web
+          </span>
+          <p className="mt-1.5 truncate text-sm text-fg">{named}</p>
+          {summary && (
+            <p className="mt-1 text-xs text-fg-3">
+              <Figures>{`${summary.executableWalletCount} NEARKITS ${summary.executableWalletCount === 1 ? 'wallet' : 'wallets'} · ${formatAmount(summary.availableNear, 2)} NEAR available`}</Figures>
+            </p>
+          )}
+        </div>
+      }
+      entries={[
+        { label: 'Wallets & presets', icon: <Wallet size={15} />, onSelect: () => navigate('/wallets') },
+        { label: 'Positions', icon: <Coins size={15} />, onSelect: () => navigate('/positions') },
+        { label: 'Settings', icon: <Settings size={15} />, onSelect: () => navigate('/settings') },
+        { kind: 'divider' },
+        { label: 'Connect a wallet', icon: <Plug size={15} />, onSelect: promptConnect },
+        {
+          label: 'Sign out of NEARKITS web',
+          icon: <LogOut size={15} />,
+          tone: 'danger',
+          onSelect: () =>
+            logout.mutate(undefined, {
+              onSuccess: () => toast.push({ title: 'Signed out of NEARKITS web', detail: 'Your NEARKITS wallets are unchanged. Sign in again from Telegram: /web.' }),
+            }),
+        },
+      ]}
+      trigger={(props) => (
+        <button
+          {...props}
+          type="button"
+          aria-label={`NEARKITS web: signed in as ${named}`}
+          title={`Signed in to NEARKITS web as ${named}`}
+          className="flex h-10 min-w-0 max-w-[14rem] items-center gap-2 rounded-md border border-line bg-panel px-3 transition-colors hover:border-line-strong aria-expanded:border-line-strong max-sm:gap-1.5 max-sm:px-2.5"
+        >
+          <Led tone="on" />
+          <span className="truncate text-sm text-fg">{who}</span>
+          <ChevronDown size={13} className="shrink-0 text-fg-3" aria-hidden="true" />
+        </button>
+      )}
+    />
+  )
+}
+
 function WalletButton() {
   const caps = useCapabilities()
-  const { data: session, isPending } = useSession()
+  const { data: session } = useSession()
+  // The browser wallet's chip first (wait for it); with none, the NEARKITS web session's (useIdentity).
+  const who = useIdentity({ waitForWallet: true })
   const { data: summary } = useSummary()
   const { promptConnect } = useConnectPrompt()
   const disconnect = useDisconnect()
   const navigate = useNavigate()
   const toast = useToast()
 
-  if (isPending) return <Skeleton className="h-10 w-36" />
+  if (who.kind === 'pending') return <Skeleton className="h-10 w-36" />
+  if (!session && who.kind === 'signed-in' && who.nearkit) return <NearKitButton session={who.nearkit} />
   if (!session)
     return (
       // A phone's bar has room for a 36px key; under 380px the label drops to its verb (its name stays "Connect wallet").

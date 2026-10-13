@@ -238,6 +238,20 @@ describe('a Bridge to a NEARKITS wallet: NEARKITS unwraps exactly what NEAR Inte
     expect(unwraps(app)).toEqual([])
   })
 
+  it('failed at NEAR Intents, then SUCCESS with the wNEAR seen on chain: unwrapped once and complete, like any delivery', async () => {
+    const app = await startedBridge()
+    app.status('FAILED')
+    await app.tick()
+    expect((await app.order(app.v.id)).status).toBe('failed')
+    const amount = delivers(app, app.w.accountId, 'wnear')
+    app.h.advance(5 * 60_000)
+    await app.tick()
+    expect(await app.order(app.v.id)).toMatchObject({ status: 'unwrapping', delivered: { asset: 'wnear', amount: amount.toString() } })
+    await app.tick()
+    expect((await app.order(app.v.id)).status).toBe('complete')
+    expect(unwraps(app)).toEqual([{ amount: amount.toString() }])
+  })
+
   it('a source transfer is recorded once: the same hash again is fine, a different one is refused', async () => {
     const app = await startedBridge()
     await app.call('/api/bridge/deposit', { session: app.token, orderId: app.v.id, txHash: SOL_SIG })
@@ -305,6 +319,10 @@ describe('Bridge and Bridge & Buy side by side', () => {
       ].sort(),
     )
     expect(await app.failure('/api/bridge/quote', app.input(token, w.id, { kitsSlippagePct: undefined }))).toMatchObject({ code: 'slippage' })
+    // The $KITS purchase runs from a NEARKITS wallet: at most CUSTODY_MAX_SLIPPAGE (5%), inside the signer's price floor.
+    expect(await app.failure('/api/bridge/quote', app.input(token, w.id, { kitsSlippagePct: 5.5 }))).toMatchObject({ code: 'slippage' })
+    expect(await app.failure('/api/bridge/start', app.input(token, w.id, { kitsSlippagePct: 10 }))).toMatchObject({ code: 'slippage' })
+    expect(await app.call('/api/bridge/quote', app.input(token, w.id, { kitsSlippagePct: 5 }))).toMatchObject({ chain: 'sol' })
     // An unwrap retry is a Bridge's: a Bridge & Buy order isn't one.
     expect(await app.failure('/api/bridge/unwrap', { session: token, orderId: kits.id })).toMatchObject({ status: 409 })
   })

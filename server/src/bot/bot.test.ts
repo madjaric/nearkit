@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NearKitError } from '@/services/near/errors'
 import { accountsModule } from './accounts'
 import { coreModule } from './core'
 import { settingsModule, parseBuyPresets, parseSellPresets, parseSlippage } from './settings'
@@ -183,6 +184,10 @@ describe('settings', () => {
     expect(parseSlippage('0')).toBeNull()
     expect(parseSlippage('51')).toBeNull()
     expect(parseSlippage('1e1')).toBeNull()
+    // NEARKITS wallets trade within CUSTODY_MAX_SLIPPAGE (5%): inside the signer's 10% price floor.
+    expect(parseSlippage('5')).toBe(5)
+    expect(parseSlippage('5.01')).toBeNull()
+    expect(parseSlippage('10')).toBeNull()
     expect(parseBuyPresets('0.1, 1; 01')).toEqual({ ok: true, value: ['0.1', '1'] })
     expect(parseBuyPresets('0').ok).toBe(false)
     expect(parseBuyPresets('1 2 3 4 5 6 7').ok).toBe(false)
@@ -232,6 +237,64 @@ describe('robustness', () => {
     expect(h.last()?.text).not.toContain('database exploded')
     await h.say('/help')
     expect(h.last()?.text).toContain('NEARKITS · help')
+  })
+
+  it('answers a known NEAR error in its friendly words, never the raw message', async () => {
+    const h = await bot([
+      {
+        commands: {
+          rpc: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('RPC_ERROR', 'fetch failed: ECONNREFUSED 10.0.0.5:3030 (rpc.internal)')
+            },
+          },
+          slip: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('SLIPPAGE_EXCEEDED', 'Smart contract panicked: E68: slippage error at pool 1352')
+            },
+          },
+        },
+      },
+    ])
+    await h.say('/rpc')
+    expect(h.last()?.text).toBe('⚠️ The NEAR network isn’t answering right now. Try again in a moment.')
+    await h.say('/slip')
+    expect(h.last()?.text).toBe('⚠️ The price moved past your slippage. Get a fresh quote.')
+    expect(
+      h.fake
+        .messages()
+        .map((m) => m.text)
+        .join('\n'),
+    ).not.toMatch(/ECONNREFUSED|rpc\.internal|panicked|E68/)
+  })
+
+  it('never says "nothing was sent" about a transaction that failed on chain, and keeps messages written for people', async () => {
+    const h = await bot([
+      {
+        commands: {
+          txfail: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('TRANSACTION_FAILED', 'Smart contract panicked: E22: not enough tokens in deposit')
+            },
+          },
+          storage: {
+            scope: 'any',
+            run: async () => {
+              throw new NearKitError('STORAGE_REQUIRED', 'This wallet must register on the token first.')
+            },
+          },
+        },
+      },
+    ])
+    await h.say('/txfail')
+    expect(h.last()?.text).not.toMatch(/Nothing was sent/)
+    expect(h.last()?.text).toMatch(/failed on NEAR/)
+    expect(h.last()?.text).not.toMatch(/panicked|E22/)
+    await h.say('/storage')
+    expect(h.last()?.text).toBe('⚠️ This wallet must register on the token first.')
   })
 
   it('stops messaging a user who blocked the bot', async () => {

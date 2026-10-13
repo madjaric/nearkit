@@ -223,4 +223,77 @@ describe('NEARKITS wallets on the web', () => {
     expect((await h.custody?.store.ownedWallet(ALICE.id, alices.id))?.label).toBeNull()
     expect(((await call('/api/web/wallets', { session: bobToken })).wallets as unknown[]).length).toBe(0)
   })
+
+  it('each session lists exactly its own user’s wallets, whatever else the request names: the page shows the list as is, nothing to filter', async () => {
+    const { call, signIn } = await webApp({ link: false })
+    const alice = await signIn()
+    const bob = await signIn(BOB)
+    const mine = async (session: string, name: string, key: string) =>
+      (await call('/api/web/wallets/create', { session, name, createKey: key })).wallet as { id: string; accountId: string }
+    const a1 = await mine(alice, 'Alice 1', 'web-iso-alice-1')
+    const a2 = await mine(alice, 'Alice 2', 'web-iso-alice-2')
+    const b1 = await mine(bob, 'Bob 1', 'web-iso-bob-1')
+    const ids = async (body: Record<string, unknown>) => ((await call('/api/web/wallets', body)).wallets as { id: string }[]).map((w) => w.id)
+    expect(await ids({ session: alice })).toEqual([a1.id, a2.id])
+    expect(await ids({ session: bob })).toEqual([b1.id])
+    // A request that claims another user, account or wallet is still answered for the session's own user.
+    const claims = { userId: ALICE.id, user: { id: ALICE.id }, telegramId: ALICE.id, accountId: a1.accountId, walletId: a1.id, owner: 'alice.testnet' }
+    expect(await ids({ session: bob, ...claims })).toEqual([b1.id])
+    // Bob can't rename, order or delete Alice's wallets, by id or by account.
+    for (const walletId of [a1.id, a1.accountId]) {
+      await expect(call('/api/web/wallets/rename', { session: bob, walletId, name: 'Mine now' })).rejects.toMatchObject({ status: 403 })
+      await expect(call('/api/web/wallets/delete', { session: bob, walletId })).rejects.toMatchObject({ status: 403 })
+    }
+    await expect(call('/api/web/wallets/order', { session: bob, walletIds: [b1.id, a1.id] })).rejects.toMatchObject({ status: 400 })
+    expect(await ids({ session: alice })).toEqual([a1.id, a2.id])
+    expect(await ids({ session: bob })).toEqual([b1.id])
+  })
+})
+
+describe('one activity history on the web', () => {
+  it('lists what the user’s NEARKITS wallets ran from anywhere, newest first, in plain words: never a quote nobody confirmed, never another user’s', async () => {
+    const { h, call, signIn } = await webApp()
+    const w = await h.funded(2n * 10n ** 24n)
+    const store = h.custody?.store
+    if (!store) throw new Error('custody must be on')
+    const ran = async (kind: 'buy' | 'withdraw', params: Record<string, unknown>, status: 'done' | 'failed', result: { ok: boolean; message: string; hashes: string[] }) => {
+      const i = await store.createIntent({ walletId: w.id, userId: ALICE.id, chatId: ALICE.id, kind, params, ttlMs: 60_000 })
+      await store.confirmIntent(i.id, ALICE.id)
+      await store.setStatus(i.id, ['confirmed'], status, { result })
+      h.advance(1_000)
+      return i
+    }
+    // A buy from Telegram, then a send from the web that failed on chain, then a quote nobody confirmed.
+    const buy = await ran('buy', { side: 'buy', token: 'kits.testnet', symbol: 'KITS', decimals: 18, amountIn: '0.5', slippagePct: 1 }, 'done', {
+      ok: true,
+      message: 'Buy confirmed.',
+      hashes: ['HASH1'],
+    })
+    const send = await ran('withdraw', { asset: 'near', symbol: 'NEAR', decimals: 24, amount: '1250000000000000000000000', to: 'bob.testnet', linked: false }, 'failed', {
+      ok: false,
+      message: 'The transfer failed on chain.',
+      hashes: ['HASH2'],
+    })
+    await store.createIntent({ walletId: w.id, userId: ALICE.id, chatId: ALICE.id, kind: 'sell', params: { side: 'sell', symbol: 'KITS', amountIn: '9' }, ttlMs: 60_000 })
+
+    const token = await signIn()
+    const { items } = (await call('/api/web/activity', { session: token })) as { items: unknown[] }
+    expect(items).toEqual([
+      {
+        id: send.id,
+        kind: 'withdraw',
+        status: 'failed',
+        accountId: w.accountId,
+        title: 'Send NEAR',
+        detail: '1.25 NEAR to bob.testnet · The transfer failed on chain.',
+        hashes: ['HASH2'],
+        at: expect.any(Number),
+      },
+      { id: buy.id, kind: 'buy', status: 'success', accountId: w.accountId, title: 'Buy KITS', detail: '0.5 NEAR', hashes: ['HASH1'], at: expect.any(Number) },
+    ])
+
+    const bob = await signIn(BOB)
+    expect(((await call('/api/web/activity', { session: bob })) as { items: unknown[] }).items).toEqual([])
+    await expect(call('/api/web/activity', { session: 'x'.repeat(43) })).rejects.toMatchObject({ status: 401 })
+  })
 })

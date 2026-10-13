@@ -2,6 +2,7 @@ import { volumeModule } from './bot/volume'
 import { botRoutes } from './volumebot/routes'
 import { createVolumeBotRunner } from './volumebot/runner'
 import { VolumeBotStore } from './volumebot/store'
+import { readFile } from 'node:fs/promises'
 import type { Server } from 'node:http'
 import { MENU_FIRST } from '@/config/botCommands'
 import { API_LIMITS } from './api/limits'
@@ -69,6 +70,7 @@ import { WEB_CHAT, webRunsSettled } from './web/execute'
 import { webRoutes } from './web/routes'
 import { WebSessions } from './web/sessions'
 import { referralsModule } from './bot/referrals'
+import { buildVersion, monitorVerdict, type MonitorVerdict } from './ops/monitorStatus'
 import { OpsSwitches } from './ops/switches'
 import { createOneClick } from './bridge/oneclick'
 import { bridgeRoutes } from './bridge/routes'
@@ -391,8 +393,16 @@ export async function startServer(options: { env: Record<string, string | undefi
   }
 
   // What /health reports about the kill switches and the signer, refreshed every 15 s (fails closed to "unknown").
-  const health: { pauses: Record<string, boolean> | 'unknown'; signer: string } = { pauses: 'unknown', signer: custody ? 'unknown' : 'off' }
+  // Where the host runs the watchdog (deploy/vps/monitor.sh), also its verdict, and the commit the image was built from.
+  const monitorFile = options.env.NEARKIT_MONITOR_STATUS_FILE?.trim() || null
+  const version = buildVersion(options.env.NEARKIT_BUILD_SHA)
+  const health: { pauses: Record<string, boolean> | 'unknown'; signer: string; ops: MonitorVerdict } = {
+    pauses: 'unknown',
+    signer: custody ? 'unknown' : 'off',
+    ops: 'unknown',
+  }
   const refreshHealth = async () => {
+    if (monitorFile) health.ops = monitorVerdict(await readFile(monitorFile, 'utf8').catch(() => null), Math.floor(now() / 1000))
     const switches = new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused)
     health.pauses = await switches
       .state()
@@ -495,6 +505,8 @@ export async function startServer(options: { env: Record<string, string | undefi
       pauses: health.pauses,
       signer: health.signer,
       boot: boot.boot,
+      ...(monitorFile ? { ops: health.ops } : {}),
+      ...(version ? { version } : {}),
     }),
     now,
   })

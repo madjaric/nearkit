@@ -23,7 +23,7 @@ import { formatAgo, formatUsd, truncateMiddle } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
 import { accountIdError } from '@/lib/validation'
 import { tradeWalletPool } from '@/lib/wallets'
-import { newRequestKey, rememberOrder, type BridgeDestinationRequest, type BridgeQuoteRequest, type BridgeWalletOption } from '@/services/bridge'
+import { rememberOrder, reviewKey, type BridgeDestinationRequest, type BridgeQuoteRequest, type BridgeWalletOption } from '@/services/bridge'
 import { usePlanners, useWallets } from '@/services/queries'
 import { WRAP_NETWORK_FEE_YOCTO } from '@/services/near/wrap'
 import type { Wallet } from '@/types/domain'
@@ -168,8 +168,7 @@ export function NearBridgeForm({ onStarted, initialChain, miniApp }: { onStarted
   const begin = () => {
     if (!request || !sourceAddress || reason) return
     const req = { ...request, sourceAddress }
-    const id = JSON.stringify(req)
-    if (keyFor.current?.request !== id) keyFor.current = { request: id, key: newRequestKey() }
+    keyFor.current = reviewKey(keyFor.current, req)
     start.mutate({ req, key: keyFor.current.key })
   }
 
@@ -365,9 +364,10 @@ function ConnectedDestination({ wallets, picked, onPick }: { wallets: Wallet[]; 
 /**
  * What arrives and who turns it into NEAR, for the destination chosen, as NEARKITS' server checked
  * it; and, when that destination can't receive it, why, with the one fix the page can offer (a
- * connected wallet registering with wrap.near, which a small wrap does, in its own review).
+ * connected wallet registering with wrap.near, which a small wrap does, in its own review). Bridge &
+ * Buy shows it only when the destination can't receive (BridgeForm).
  */
-function DeliveryNote({ delivery, wallet, onFixed }: { delivery: BridgeDelivery; wallet: Wallet | null; onFixed: () => void }) {
+export function DeliveryNote({ delivery, wallet, onFixed }: { delivery: BridgeDelivery; wallet: Wallet | null; onFixed: () => void }) {
   const planners = usePlanners()
   const [registering, setRegistering] = useState(false)
   if (delivery.blocked)

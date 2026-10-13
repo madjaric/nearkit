@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { PnlScope } from '@/components/chart/PnlScope'
 import { SimMark } from '@/components/domain/SimMark'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
-import { Page, PageHeader, RequireWallet } from '@/components/page/Page'
+import { LoadFailed, Page, PageHeader, RequireWallet } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -274,6 +274,20 @@ function Pnl() {
   const accounts = [...new Set(wallets.map((w) => w.accountId))]
   const judged = r ? r.wins + r.losses : 0
 
+  // A read that failed with nothing before it, or no wallet to read: said so, never a skeleton that waits forever.
+  if (pnl.isError && r === undefined)
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-3">
+          <Segmented label="Period" value={range} onChange={setRange} options={PERIODS} />
+        </div>
+        <Panel>
+          <LoadFailed title="PnL can’t be loaded right now" error={pnl.error} onRetry={() => void pnl.refetch()} />
+        </Panel>
+      </>
+    )
+  if (r === null) return <NoWallets />
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -429,6 +443,24 @@ function Pnl() {
   )
 }
 
+/** No wallet that trades yet (a NEARKITS session with no NEARKITS wallet, say): nothing to report on, which is not a loss of 0. */
+function NoWallets() {
+  return (
+    <Panel>
+      <EmptyState
+        title="No wallet to report on yet"
+        action={
+          <Link to="/wallets" className={buttonClass()}>
+            Open Wallets
+          </Link>
+        }
+      >
+        PnL is read from the on-chain history of your NEARKITS wallets and the wallets you connect. Create a NEARKITS wallet or connect one, and its trades show here.
+      </EmptyState>
+    </Panel>
+  )
+}
+
 /** Real mode: no cost basis is recorded yet, and NearKit won't infer one from balances. */
 function NotTracked() {
   return (
@@ -453,7 +485,9 @@ export default function PnlPage() {
   return (
     <Page>
       <PageHeader title="PnL" description="Realized and unrealized performance across every NEARKITS wallet, for the period you pick." />
-      <RequireWallet feature="PnL">{caps.pnl ? <Pnl /> : <NotTracked />}</RequireWallet>
+      <RequireWallet feature="PnL" nearkit>
+        {caps.pnl ? <Pnl /> : <NotTracked />}
+      </RequireWallet>
     </Page>
   )
 }

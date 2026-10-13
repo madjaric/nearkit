@@ -10,6 +10,8 @@ function demoNumber(text: string): number {
   return /^[0-9]*\.?[0-9]*$/.test(text.trim()) ? Number(text.trim()) || 0 : 0
 }
 const NEAR = TOKEN_IDS.near
+/** The demo takes its illustrative fee from the NEAR side, buying or selling. */
+const DEMO_FEE_TOKEN = { id: NEAR, symbol: 'NEAR' }
 
 /** Constant-product style impact against half the pool's USD depth. Demo model, not a router. */
 function impactFraction(state: MockState, tokenId: string, usd: number): number {
@@ -96,7 +98,7 @@ export function computeMultiQuote(state: MockState, request: MultiTradeRequest, 
       const fee = nearkitFee(leg.amountInValue)
       const out = ((leg.amountInValue - fee) * nearUsd) / (tokenUsd * (1 + impact))
       const available = Math.max(0, balanceOf(state, leg.walletId, NEAR) - GAS_RESERVE_NEAR)
-      return { ...leg, amountOut: out, minAmountOut: out * (1 - slip), nearkitFee: fee, shortfall: Math.max(0, leg.amountInValue - available) }
+      return { ...leg, amountOut: out, minAmountOut: out * (1 - slip), nearkitFee: fee, nearkitFeeToken: DEMO_FEE_TOKEN, shortfall: Math.max(0, leg.amountInValue - available) }
     })
     return summarize(request, quoted, impact, now)
   }
@@ -108,7 +110,7 @@ export function computeMultiQuote(state: MockState, request: MultiTradeRequest, 
     const fee = nearkitFee(gross)
     const out = gross - fee
     const available = balanceOf(state, leg.walletId, request.tokenId)
-    return { ...leg, amountOut: out, minAmountOut: out * (1 - slip), nearkitFee: fee, shortfall: Math.max(0, leg.amountInValue - available) }
+    return { ...leg, amountOut: out, minAmountOut: out * (1 - slip), nearkitFee: fee, nearkitFeeToken: DEMO_FEE_TOKEN, shortfall: Math.max(0, leg.amountInValue - available) }
   })
   return summarize(request, quoted, impact, now)
 }
@@ -121,8 +123,7 @@ function summarize(request: MultiTradeRequest, legs: MultiTradeQuote['legs'], im
     totalIn: live.reduce((s, l) => s + l.amountInValue, 0),
     totalOut: live.reduce((s, l) => s + l.amountOut, 0),
     totalMinOut: live.reduce((s, l) => s + l.minAmountOut, 0),
-    nearkitFeeTotal: live.reduce((s, l) => s + l.nearkitFee, 0),
-    feeTokenId: NEAR,
+    nearkitFees: [{ ...DEMO_FEE_TOKEN, amount: live.reduce((s, l) => s + l.nearkitFee, 0) }],
     networkFeeNear: NETWORK_FEE_NEAR_PER_TX * live.length,
     priceImpactPct: impact * 100,
     quotedAt: now,

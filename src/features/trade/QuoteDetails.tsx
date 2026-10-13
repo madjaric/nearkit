@@ -9,6 +9,8 @@ import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { formatAmount, formatNumber, formatPct, formatPrice, formatUsd } from '@/lib/format'
 import { useCapabilities } from '@/services/queries'
 import type { Quote } from '@/types/domain'
+import { impactEstimated } from '@/lib/quoteCosts'
+import { CostLines, ImpactLine } from './CostLines'
 import { WRAP_FEE_TEXT, wrapExplainer } from './wrapCopy'
 
 const bpsLabel = (bps: number) => `${formatNumber(bps / 100, 2, 2)}%`
@@ -64,9 +66,12 @@ export function QuoteDetails({
           : fee.amountNear === null
             ? `${NEARKIT_FEE_LABEL} of the trade`
             : `${formatNumber(fee.amountNear, 2, 4)} NEAR`
+  // Rhea's aggregator takes the fee inside the swap and keeps a share; a direct DCL route sends all of it to NEARKITS with the swap.
   const feeSplit =
-    fee && fee.charged && fee.receivedBps !== null && fee.routerShareBps !== null
-      ? `Of the ${NEARKIT_FEE_LABEL}, NEARKITS receives ${bpsLabel(fee.receivedBps)} and Rhea keeps ${bpsLabel(fee.routerShareBps)}.${fee.routerFeeBps ? ` Rhea also charges its own ${bpsLabel(fee.routerFeeBps)} on every swap.` : ''}`
+    fee && fee.charged && fee.receivedBps !== null
+      ? fee.routerShareBps
+        ? `Of the ${NEARKIT_FEE_LABEL}, NEARKITS receives ${bpsLabel(fee.receivedBps)} and Rhea keeps ${bpsLabel(fee.routerShareBps)}. Rhea’s aggregator takes it inside the swap.`
+        : `NEARKITS receives all of the ${NEARKIT_FEE_LABEL}: this route goes to the exchange directly, and the fee is a transfer to NEARKITS’ fee account in the same transaction as the swap.`
       : null
   const fade = stale && q ? 'opacity-45' : ''
   const small = q ? q.rate < 0.01 : false
@@ -110,9 +115,8 @@ export function QuoteDetails({
             )}
           </Line>
         )}
-        <Line label={<Term term="priceImpact" />}>
-          <span className={impactTone}>{!q ? '—' : impact === null ? 'Unknown' : formatPct(impact, { signed: false })}</span>
-        </Line>
+        <ImpactLine pct={impact} estimated={impactEstimated(q?.costs, false)} quoted={Boolean(q)} className={impactTone} />
+        {q && !wrapping && <CostLines costs={q.costs} inSymbol={inSymbol} outSymbol={outSymbol} />}
         <Line
           label={
             <>
@@ -128,7 +132,6 @@ export function QuoteDetails({
             feeText
           )}
         </Line>
-        {fee?.routerFeeBps ? <Line label="Rhea protocol fee">{bpsLabel(fee.routerFeeBps)}</Line> : null}
         <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>{q ? `≈ ${formatNumber(q.networkFeeNear, 4, 4)} NEAR` : '—'}</Line>
       </Lines>
       <QuoteFreshness quotedAt={q?.quotedAt} expiresAt={q?.expiresAt} fetching={settling} className="mt-0.5" />

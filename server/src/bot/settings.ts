@@ -1,6 +1,6 @@
 import { NEAR_DECIMALS } from '@/config/networks'
 import { tryParseUnits } from '@/lib/amounts'
-import { HIGH_SLIPPAGE, MAX_SLIPPAGE, SLIPPAGE_PRESETS } from '@/lib/fees'
+import { CUSTODY_MAX_SLIPPAGE, HIGH_SLIPPAGE, SLIPPAGE_PRESETS } from '@/lib/fees'
 import { bold, code, esc, plainText } from '../telegram/html'
 import { btn, documented, FLOW_TTL_MS, keyboard, type BotCtx, type BotModule } from './context'
 
@@ -42,12 +42,12 @@ async function showSettings(ctx: BotCtx, note?: string) {
   )
 }
 
-/** A slippage the web app would accept too: above 0, at most MAX_SLIPPAGE, two decimals. */
+/** A slippage a NEARKITS-wallet trade may use (web or Telegram): above 0, at most CUSTODY_MAX_SLIPPAGE, two decimals. */
 export function parseSlippage(text: string): number | null {
   const t = plainText(text, 16).replace('%', '').replace(',', '.').trim()
   if (!/^\d{1,2}(\.\d{1,2})?$/.test(t)) return null
   const v = Number(t)
-  return v > 0 && v <= MAX_SLIPPAGE ? v : null
+  return v > 0 && v <= CUSTODY_MAX_SLIPPAGE ? v : null
 }
 
 /** "0.1 0.5 1 5" → exact NEAR decimal strings, or an error to show. */
@@ -93,7 +93,7 @@ export function settingsModule(): BotModule {
         if (action === 'slip' && arg === 'custom') {
           await store.setSession(ctx.chat.id, ctx.user.id, 'settings.slippage', {}, FLOW_TTL_MS)
           await ctx.answer()
-          await ctx.reply(`Send the slippage in percent, e.g. ${code('0.8')}. At most ${MAX_SLIPPAGE}%. /cancel to keep the current one.`)
+          await ctx.reply(`Send the slippage in percent, e.g. ${code('0.8')}. At most ${CUSTODY_MAX_SLIPPAGE}%. /cancel to keep the current one.`)
           return
         }
         if (action === 'slip') {
@@ -125,7 +125,7 @@ export function settingsModule(): BotModule {
       'settings.slippage': async (ctx, text) => {
         const v = parseSlippage(text)
         if (v === null) {
-          await ctx.reply(`⚠️ ${esc(plainText(text, 16))} is not a slippage between 0 and ${MAX_SLIPPAGE}%. Try again, or /cancel.`)
+          await ctx.reply(`⚠️ ${esc(plainText(text, 16))} is not a slippage between 0 and ${CUSTODY_MAX_SLIPPAGE}%. Try again, or /cancel.`)
           return
         }
         await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)

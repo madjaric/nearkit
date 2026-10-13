@@ -5,6 +5,7 @@ import { esc } from '../telegram/html'
 import type { InlineKeyboard, TgCallbackQuery, TgChat, TgMessage, TgUpdate, TgUser } from '../telegram/types'
 import type { BotCtx, BotDeps, BotModule, Command } from './context'
 import { Buckets } from './ratelimit'
+import { friendlyError } from './ui'
 
 /**
  * Routes Telegram updates to the modules' commands, buttons and conversation
@@ -22,8 +23,10 @@ export interface BotApp {
 
 const EVENTS_PER_MINUTE = 30
 
-export function userMessage(e: unknown): string | null {
-  if (e instanceof NearKitError) return e.message
+/** What a user may read about an error they ran into: known errors in plain words, null for anything else. */
+export function userMessage(e: unknown, network: 'mainnet' | 'testnet'): string | null {
+  // NEAR errors carry technical wording (RPC, contract panics): only the friendly mapping reaches the chat.
+  if (e instanceof NearKitError) return friendlyError(e, { network })
   if (e instanceof LinkApiError) return e.message
   return null
 }
@@ -85,13 +88,13 @@ export function createBotApp(
     try {
       await run()
     } catch (e) {
-      const known = userMessage(e)
+      const known = userMessage(e, deps.config.network.id)
       if (e instanceof TelegramError && e.blocked) {
         await deps.store.markBlocked(ctx.user.id)
         return
       }
       if (!known) deps.log.error('handler failed', { what, error: e })
-      else deps.log.info('handler refused', { what, reason: known })
+      else deps.log.info('handler refused', { what, reason: e instanceof Error ? e.message : known, ...(e instanceof NearKitError ? { code: e.code } : {}) })
       await ctx.answer().catch(() => undefined)
       await ctx.reply(known ? `⚠️ ${esc(known)}` : '⚠️ Something went wrong on NEARKITS’ side. Nothing was sent or signed. Try again in a moment.').catch(() => undefined)
     } finally {

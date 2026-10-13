@@ -19,6 +19,7 @@ export const API_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   '/api/web/login': 10,
   '/api/web/logout': 20,
   '/api/web/wallets': 60,
+  '/api/web/activity': 60,
   '/api/web/wallets/create': 10,
   '/api/web/wallets/rename': 20,
   '/api/web/wallets/delete': 10,

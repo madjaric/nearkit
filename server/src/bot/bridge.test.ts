@@ -353,6 +353,34 @@ describe('notices: what the worker saw, each once', () => {
     expect(chatOf(app).filter((m) => /Bridge order expired/.test(m.text) && /Don’t send to that address any more/.test(m.text))).toHaveLength(1)
   })
 
+  it('failed at NEAR Intents, then refunded: each said once, the refund recorded once, and nothing more after', async () => {
+    const app = await telegramBridge()
+    const o = await app.ordered()
+    if (!o) throw new Error('no order')
+    const said = (re: RegExp) => chatOf(app).filter((m) => m.method === 'sendMessage' && re.test(m.text))
+    app.status('FAILED')
+    await app.step()
+    expect(said(/Bridge failed at NEAR Intents/)).toHaveLength(1)
+    expect(said(/Bridge failed at NEAR Intents/)[0]?.text).toMatch(/NEARKITS keeps checking/)
+    // NEAR Intents still says FAILED when it is asked again: nothing more is said.
+    for (let i = 0; i < 3; i++) await app.step()
+    expect(said(/Bridge failed at NEAR Intents/)).toHaveLength(1)
+    app.status('REFUNDED', { refundedAmount: '990000000', refundReason: 'Swap failed', originChainTxHashes: [{ hash: 'refund-tx', explorerUrl: '' }] })
+    for (let i = 0; i < 3; i++) await app.step()
+    expect(await app.store.get(o.id)).toMatchObject({
+      status: 'refunded',
+      refund: { amount: '990000000', reason: 'Swap failed' },
+      nextCheckAt: null,
+      notified: 'refunded',
+    })
+    expect(said(/Refunded/)).toHaveLength(1)
+    expect(said(/Refunded/)[0]?.text).toMatch(/NEAR Intents refunded <b>0\.99 SOL<\/b>/)
+    expect(said(/Refunded/)[0]?.text).toMatch(/No NEAR was delivered/)
+    for (let i = 0; i < 3; i++) await app.step()
+    expect(said(/Refunded/)).toHaveLength(1)
+    expect(said(/Bridge failed at NEAR Intents/)).toHaveLength(1)
+  })
+
   it('a slow Telegram never holds up the worker: the next order is stepped while a notice is still on its way', async () => {
     const app = await telegramBridge()
     const first = await app.ordered()

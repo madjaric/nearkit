@@ -133,11 +133,17 @@ export default function DocsPage() {
 
             <Section id="fees" title="Fees">
               <p>
-                On mainnet NEARKITS charges <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> on each trade. It is collected inside the swap by Rhea’s aggregator as an app
-                fee, never as a separate transfer: of the <span className="num text-fg">{NEARKIT_FEE_LABEL}</span>, NEARKITS receives{' '}
-                <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span> and Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>. Rhea also charges
-                its own <span className="num text-fg">0.10%</span> protocol fee on every swap. The fee comes out of the first NEAR, USDC or USDT the route touches, which is usually
-                the NEAR side. Every review shows the exact amount before you sign.
+                On mainnet NEARKITS charges <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> on each trade, once, in one of two ways depending on the route. Through Rhea’s
+                aggregator it is collected inside the swap as an app fee: of the <span className="num text-fg">{NEARKIT_FEE_LABEL}</span>, NEARKITS receives{' '}
+                <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span> and Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>, and Rhea also
+                charges its own <span className="num text-fg">0.10%</span> protocol fee on every swap. That fee comes out of the first NEAR, USDC or USDT the route touches, usually
+                the NEAR side. On a route straight to a DCL pool there is no aggregator: the full <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> of what you pay in is a
+                separate transfer to NEARKITS’ fee account in the same transaction as the swap, and NEARKITS receives all of it. If the exchange then refunds that swap (the price
+                moved past your slippage), the fee is not refunded. Pools charge their own fees inside the rate either way.
+              </p>
+              <p>
+                Some launch tokens charge their own buy or sell tax on trades with their pool. It belongs to the token, not to NEARKITS, and quotes already count it. Every quote
+                and review shows the route, the exact fee, the pool’s or Rhea’s fee, any token tax and the price impact on lines of their own before you sign.
               </p>
               <p>Batch send, Split and Consolidate carry no NEARKITS fee. Testnet trades are not charged, and the demo charges nothing.</p>
               <p>

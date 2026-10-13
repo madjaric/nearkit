@@ -14,7 +14,7 @@ import {
   type BridgeQuoteView,
   type BridgeTx,
 } from '@/lib/bridge/types'
-import { BRIDGE_FEE_BPS, MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
+import { BRIDGE_FEE_BPS, CUSTODY_MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountIdError } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { explorerTxUrl } from '@/services/near/explorer'
@@ -32,7 +32,7 @@ import type { Logger } from '../log'
 import type { ServerNear } from '../near'
 import type { OpsSwitches } from '../ops/switches'
 import { OneClickError, type OneClick, type OneClickQuote, type OneClickQuoteRequest, type OneClickSwapStatus } from './oneclick'
-import type { BridgeOrder, BridgeStore } from './store'
+import type { BridgeOrder, BridgeOrderPatch, BridgeStore } from './store'
 
 /**
  * Bridge & Buy $KITS, on NEARKITS' server. NEARKITS is the interface and orchestration; NEAR
@@ -43,7 +43,9 @@ import type { BridgeOrder, BridgeStore } from './store'
  * valid", checked 2026-10-08), so it runs in two stages and says so everywhere:
  * 1. SOL, ETH or BNB → NEAR: a 1Click quote (EXACT_INPUT, origin-chain deposit) delivering NEAR
  *    (1Click's wNEAR asset) to the NEAR wallet the user chose. The user's own wallet on the source
- *    chain sends the amount to the quote's deposit address; a refund goes back to that address.
+ *    chain sends the amount to the quote's deposit address; a refund goes back to that address. A
+ *    wallet that can't receive wNEAR, or a NEARKITS wallet with no NEAR for the unwrap that starts
+ *    stage 2, is refused before any deposit address exists, exactly as for the Bridge below.
  * 2. NEAR → $KITS: an ordinary NEARKITS buy of kits.nearlytrade.near, priced fresh when the NEAR
  *    is there. To a NEARKITS wallet NEARKITS' server runs it through the engine, exactly as a web
  *    trade (signer policy, the wallet's own key, the 0.50% trading fee), and only at or above the
@@ -84,10 +86,20 @@ export const STAGE2_MIN_NEAR = 10n ** 22n
 /** How long the worker holds an order while it steps it (the purchase can take a while under congestion). */
 export const ORDER_LEASE_MS = 3 * 60_000
 const ONE_NEAR = 10n ** 24n
-/** Statuses NEAR Intents may still move an order out of: in transit, or failed (its refund may follow). */
+/**
+ * Statuses an outcome NEAR Intents reports (a refund, a delivery) may move an order out of: in transit, or
+ * failed (its refund, or a delivery after all, may follow). Only such an outcome moves a failed order:
+ * NEAR Intents' progress (a deposit seen, processing) moves orders in transit only.
+ */
 const FOLLOWED: readonly BridgeOrderStatus[] = [...BRIDGE_IN_TRANSIT, 'failed']
-/** A failed order is followed this long for its refund. */
+/** A failed order is followed this long after it was made, for its refund. */
 const FAILED_FOLLOW_MS = 24 * 60 * 60_000
+/** And asked about this often meanwhile: slowly, never every pass of the worker. */
+const FAILED_RECHECK_MS = 5 * 60_000
+const FAILED_TEXT = 'NEAR Intents reported the swap as failed. Its refund process returns funds to your address on the source chain; NEARKITS keeps checking.'
+const FAILED_LET_GO =
+  `NEAR Intents reported the swap as failed and reported no refund within ${FAILED_FOLLOW_MS / 3_600_000} hours, so NEARKITS stopped checking. ` +
+  'NEAR Intents’ refund process returns funds to your address on the source chain: check that address, and ask NEAR Intents’ support with this order’s deposit address if nothing came back.'
 /** A busy wallet (its own trade running) is tried this many times before the user is asked. */
 const BUSY_TRIES = 3
 
@@ -188,10 +200,12 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
   }
 
   /**
-   * Bridge: whether the destination can receive what NEAR Intents delivers (wNEAR), and who turns it
-   * into native NEAR. It must exist on NEAR and be registered with wrap.near (an ft_transfer to an
-   * account the token doesn't know fails); a NEARKITS wallet also needs NEAR for the unwrap's own
-   * network fee, and the unwrap must be allowed now (the trading switch, the wallet's freeze).
+   * Both products: whether the destination can receive what NEAR Intents delivers (wNEAR), and who
+   * turns it into native NEAR. It must exist on NEAR and be registered with wrap.near (an ft_transfer
+   * to an account the token doesn't know fails); a NEARKITS wallet also needs NEAR for the unwrap's
+   * own network fee, and the unwrap must be allowed now (the trading switch, the wallet's freeze).
+   * For Bridge & Buy that unwrap is the purchase's first step, the only one paid from the wallet's own
+   * NEAR: the buy after it holds its gas and registrations back from the NEAR delivered (stepPurchase).
    */
   async function receivability(dest: { accountId: string; wallet: TradingWallet | null }, kind: BridgeDestinationInput['kind']): Promise<BridgeDelivery & { code: string | null }> {
     const unwrap: BridgeDelivery['unwrap'] = kind === 'nearkits' ? 'nearkits' : kind === 'connected' ? 'wallet' : 'none'
@@ -301,8 +315,8 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
   }
 
   /**
-   * One 1Click quote for this input, checked (fee included), with stage 2's estimate (Bridge & Buy)
-   * or whether the destination can receive the wNEAR and who unwraps it (Bridge).
+   * One 1Click quote for this input, checked (fee included), with whether the destination can receive
+   * the wNEAR and who unwraps it (both products), and stage 2's estimate (Bridge & Buy).
    */
   async function quoteFor(input: BridgeQuoteInput, dry: boolean) {
     const { product } = input
@@ -310,8 +324,9 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     const parsed = tryParseUnits(input.amount.trim(), chain.decimals)
     if (!parsed.ok || parsed.value <= 0n) throw new HttpError(400, 'amount', `Enter an amount of ${chain.symbol} above 0, with at most ${chain.decimals} decimals.`)
     const slippage = input.kitsSlippagePct ?? Number.NaN
-    if (product === 'buy-kits' && !(Number.isFinite(slippage) && slippage > 0 && slippage <= MAX_SLIPPAGE))
-      throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${MAX_SLIPPAGE}%.`)
+    // The $KITS purchase runs from a NEARKITS wallet, so it keeps inside the signer's price floor.
+    if (product === 'buy-kits' && !(Number.isFinite(slippage) && slippage > 0 && slippage <= CUSTODY_MAX_SLIPPAGE))
+      throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${CUSTODY_MAX_SLIPPAGE}% for a NEARKITS wallet.`)
     let refundTo: string
     if (input.sourceAddress !== null && input.sourceAddress.trim() !== '') {
       const problem = sourceAddressError(chain, input.sourceAddress)
@@ -353,10 +368,12 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       log.error('bridge: 1Click charges a different NEARKITS fee than configured; quote refused', { product, chain: chain.id, echoed: q.appFees, expected: BRIDGE_FEE_BPS })
       throw new HttpError(503, 'fee', `${productName(product)} is unavailable right now: its fee couldn’t be confirmed. Nothing was sent.`)
     }
-    // Bridge & Buy prices its purchase; a Bridge buys nothing, and says instead what arrives and whether it can.
-    const est = product === 'buy-kits' ? await estimateKits(q.amountOut, slippage, dest.accountId) : { kits: null, reason: null }
-    const receivable = product === 'bridge' ? await receivability(dest, input.destination.kind) : null
-    const delivery: BridgeDelivery | null = receivable ? { asset: receivable.asset, unwrap: receivable.unwrap, blocked: receivable.blocked, fix: receivable.fix } : null
+    // Both say what arrives and whether it can (the page offers the fix, or refuses to start); Bridge & Buy also prices its purchase.
+    const [est, receivable] = await Promise.all([
+      product === 'buy-kits' ? estimateKits(q.amountOut, slippage, dest.accountId) : Promise.resolve({ kits: null, reason: null }),
+      receivability(dest, input.destination.kind),
+    ])
+    const delivery: BridgeDelivery = { asset: receivable.asset, unwrap: receivable.unwrap, blocked: receivable.blocked, fix: receivable.fix }
     log.info('bridge quote', { product, chain: chain.id, dry, usd: q.amountInUsd, kits: est.kits !== null, ms: deps.now() - started, destination: input.destination.kind })
     return { chain, q, split, est, dest, refundTo, receivable, view: quoteView(chain, q, split.nearkitsBps, split.intentsBps, est, delivery) }
   }
@@ -460,6 +477,31 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     }
   }
 
+  /**
+   * A failed order's next check: slowly (FAILED_RECHECK_MS) while NEAR Intents may still report its
+   * refund or a delivery after all, until FAILED_FOLLOW_MS after the order was made; then it is let go
+   * and says so. NEARKITS never refunds anything itself: NEAR Intents refunds the source address.
+   */
+  function failedFollow(o: Pick<BridgeOrder, 'createdAt'>): Pick<BridgeOrderPatch, 'message' | 'nextCheckAt'> {
+    const now = deps.now()
+    return now - o.createdAt < FAILED_FOLLOW_MS ? { message: FAILED_TEXT, nextCheckAt: now + FAILED_RECHECK_MS } : { message: FAILED_LET_GO, nextCheckAt: null }
+  }
+
+  /**
+   * Moves an order the worker is stepping, only from `from` (a compare-and-set). A move that loses (the
+   * status changed under it, or isn't one this move comes from) still leaves the order a next check,
+   * on the status it has now, unless whoever moved it set one: no order is ever due again at once,
+   * asked about on every pass and holding up the others. True when it moved.
+   */
+  async function moveOrder(o: BridgeOrder, patch: BridgeOrderPatch, from: readonly BridgeOrderStatus[]): Promise<boolean> {
+    if (await store.update(o.id, patch, from)) return true
+    const current = await store.get(o.id)
+    if (current && current.nextCheckAt !== null && current.nextCheckAt <= deps.now())
+      await store.update(o.id, current.status === 'failed' ? failedFollow(current) : { nextCheckAt: nextCheck(current, current.status) }, [current.status])
+    log.info('bridge: order moved under its step', { order: o.id, was: o.status, is: current?.status ?? null })
+    return false
+  }
+
   /** Stage 1: where NEAR Intents is, recorded; on SUCCESS the delivery checked on chain. */
   async function stepTransit(o: BridgeOrder): Promise<void> {
     let s: OneClickSwapStatus
@@ -467,8 +509,14 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       s = await oneclick.status(o.depositAddress)
     } catch (e) {
       const failures = o.checks + 1
+      // A failed order is asked about at its own slow pace, whatever NEAR Intents answered; there was a deposit, so it never expires.
+      if (o.status === 'failed') {
+        log.info('bridge status check failed', { order: o.id, error: e, failures })
+        await moveOrder(o, { checks: failures, ...failedFollow(o) }, ['failed'])
+        return
+      }
       if (e instanceof OneClickError && e.kind === 'not-found' && deps.now() > o.depositDeadline + 60 * 60_000) {
-        await store.update(o.id, { status: 'expired', message: 'NEAR Intents has no record of a deposit. Nothing was sent.', nextCheckAt: null }, FOLLOWED)
+        await moveOrder(o, { status: 'expired', message: 'NEAR Intents has no record of a deposit. Nothing was sent.', nextCheckAt: null }, BRIDGE_IN_TRANSIT)
         return
       }
       log.info('bridge status check failed', { order: o.id, error: e, failures })
@@ -477,14 +525,26 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     }
     const depositTx = o.depositTx ?? s.originTxs[0]?.hash ?? null
     const base = { intentsStatus: s.status, checks: 0, depositTx }
+    // A failed order waits only for NEAR Intents' outcome: its refund, or a delivery after all. Any other
+    // answer (FAILED still) leaves it failed, asked about again later, slowly, and only for so long.
+    if (o.status === 'failed' && s.status !== 'REFUNDED' && s.status !== 'SUCCESS') {
+      const next = failedFollow(o)
+      await moveOrder(o, { ...base, ...next }, ['failed'])
+      if (next.nextCheckAt === null) log.warn('bridge: failed order no longer followed, no refund reported', { order: o.id, intents: s.status })
+      return
+    }
     switch (s.status) {
       case 'PENDING_DEPOSIT': {
         // Past the deadline with nothing seen: the address no longer takes deposits.
         if (deps.now() > o.depositDeadline + 10 * 60_000 && !depositTx) {
-          await store.update(o.id, { ...base, status: 'expired', message: 'Nothing arrived before the deposit address closed. Nothing was bridged.', nextCheckAt: null }, FOLLOWED)
+          await moveOrder(
+            o,
+            { ...base, status: 'expired', message: 'Nothing arrived before the deposit address closed. Nothing was bridged.', nextCheckAt: null },
+            BRIDGE_IN_TRANSIT,
+          )
           return
         }
-        await store.update(o.id, { ...base, nextCheckAt: nextCheck({ ...o, depositTx }, 'awaiting-deposit') }, FOLLOWED)
+        await moveOrder(o, { ...base, nextCheckAt: nextCheck({ ...o, depositTx }, 'awaiting-deposit') }, BRIDGE_IN_TRANSIT)
         return
       }
       case 'KNOWN_DEPOSIT_TX':
@@ -499,9 +559,10 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
           message: 'Less arrived than the quote needs. NEAR Intents refunds it to your address after the deadline unless the rest arrives.',
         })
         return
-      case 'REFUNDED':
-        await store.update(
-          o.id,
+      case 'REFUNDED': {
+        // In transit or failed → refunded, once: a refunded order is in neither, so no later answer records it again.
+        const moved = await moveOrder(
+          o,
           {
             ...base,
             status: 'refunded',
@@ -512,22 +573,13 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
                 : 'NEAR Intents couldn’t complete it and refunded your address on the source chain. No NEAR was delivered and no $KITS was bought.',
             nextCheckAt: null,
           },
-          BRIDGE_IN_TRANSIT,
+          FOLLOWED,
         )
-        log.info('bridge order refunded', { order: o.id, reason: s.refundReason })
+        if (moved) log.info('bridge order refunded', { order: o.id, reason: s.refundReason, was: o.status })
         return
+      }
       case 'FAILED':
-        await store.update(
-          o.id,
-          {
-            ...base,
-            status: 'failed',
-            message: 'NEAR Intents reported the swap as failed. Its refund process returns funds to your address on the source chain; NEARKITS keeps checking.',
-            nextCheckAt: deps.now() - o.createdAt < FAILED_FOLLOW_MS ? deps.now() + 5 * 60_000 : null,
-          },
-          BRIDGE_IN_TRANSIT,
-        )
-        log.warn('bridge order failed at NEAR Intents', { order: o.id })
+        if (await moveOrder(o, { ...base, status: 'failed', ...failedFollow(o) }, BRIDGE_IN_TRANSIT)) log.warn('bridge order failed at NEAR Intents', { order: o.id })
         return
       case 'SUCCESS': {
         let d: Delivered | 'wait'
@@ -539,8 +591,8 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
         }
         if (d === 'wait') {
           const failures = o.checks + 1
-          await store.update(
-            o.id,
+          await moveOrder(
+            o,
             {
               ...base,
               status: 'bridging',
@@ -554,8 +606,8 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
         }
         if (o.product === 'bridge') return arrived(o, base, d)
         const connected = o.kind === 'connected'
-        await store.update(
-          o.id,
+        const moved = await moveOrder(
+          o,
           {
             ...base,
             status: 'delivered',
@@ -563,9 +615,9 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
             message: connected ? 'NEAR arrived in your wallet. Buy $KITS with it: your wallet signs.' : 'NEAR arrived. NEARKITS is buying $KITS with it.',
             nextCheckAt: connected ? null : deps.now(),
           },
-          BRIDGE_IN_TRANSIT,
+          FOLLOWED,
         )
-        log.info('bridge delivered', { order: o.id, asset: d.asset })
+        if (moved) log.info('bridge delivered', { order: o.id, asset: d.asset, was: o.status })
         return
       }
     }
@@ -588,17 +640,18 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
         : o.kind === 'nearkits'
           ? { status: 'unwrapping', message: 'wNEAR arrived. NEARKITS is unwrapping it to NEAR in your wallet.', nextCheckAt: deps.now() }
           : { status: 'delivered', message: 'wNEAR arrived in your wallet. Unwrap it to NEAR: your wallet signs.', nextCheckAt: null }
-    await store.update(o.id, { ...base, delivered: d, ...next }, BRIDGE_IN_TRANSIT)
-    log.info('bridge delivered', { order: o.id, product: o.product, asset: d.asset, next: next.status })
+    if (await moveOrder(o, { ...base, delivered: d, ...next }, FOLLOWED))
+      log.info('bridge delivered', { order: o.id, product: o.product, asset: d.asset, next: next.status, was: o.status })
   }
 
+  /** NEAR Intents' progress, for an order still in transit (a failed one doesn't go back to it). */
   async function moveTo(o: BridgeOrder, status: BridgeOrderStatus, patch: Parameters<BridgeStore['update']>[1]) {
-    await store.update(o.id, { ...patch, status, nextCheckAt: nextCheck(o, status) }, FOLLOWED)
+    await moveOrder(o, { ...patch, status, nextCheckAt: nextCheck(o, status) }, BRIDGE_IN_TRANSIT)
   }
 
   /** Stage 2 stopped: the NEAR stays in the wallet and the user decides. */
   async function buyNeeded(o: BridgeOrder, message: string, stage2 = o.stage2) {
-    await store.update(o.id, { status: 'buy-needed', message, stage2, nextCheckAt: null }, ['delivered', 'buying'])
+    await moveOrder(o, { status: 'buy-needed', message, stage2, nextCheckAt: null }, ['delivered', 'buying'])
     log.info('bridge: $KITS purchase needs the user', { order: o.id, reason: message })
   }
 
@@ -717,8 +770,8 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     if (b.status !== 'done' || !b.result?.ok) return buyNeeded(o, `${failText(b.result, 'The $KITS purchase failed')}. Your NEAR is in the wallet.`, stage2)
     const facts = b.result.facts ?? {}
     const amount = typeof facts.tokenAmount === 'string' && /^\d+$/.test(facts.tokenAmount) ? facts.tokenAmount : null
-    await store.update(
-      o.id,
+    await moveOrder(
+      o,
       {
         status: 'complete',
         stage2,
@@ -735,7 +788,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
   async function unwrapNeeded(o: BridgeOrder, why: string, stage2 = o.stage2) {
     const d = o.delivered as Delivered | null
     const held = d?.wnear ? `${formatUnits(BigInt(d.wnear), NEAR_DECIMALS, { maxFraction: 4 })} wNEAR` : 'The wNEAR'
-    await store.update(o.id, { status: 'unwrap-needed', message: `${why} ${held} is in the wallet: unwrap it when you’re ready.`, stage2, nextCheckAt: null }, ['unwrapping'])
+    await moveOrder(o, { status: 'unwrap-needed', message: `${why} ${held} is in the wallet: unwrap it when you’re ready.`, stage2, nextCheckAt: null }, ['unwrapping'])
     log.info('bridge: unwrap needs the user', { order: o.id, reason: why })
   }
 
@@ -772,7 +825,7 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     if (!u) return void (await store.update(o.id, { nextCheckAt: deps.now() + 10_000 }))
     if (u.status !== 'done' || !u.result?.ok) return unwrapNeeded(o, `${failText(u.result, 'Unwrapping failed')}.`, stage2)
     const unwrapped = { amount: d.wnear, txs: u.result.hashes.map(nearTx) }
-    await store.update(o.id, { status: 'complete', stage2: { ...stage2, unwrapped }, message: null, nextCheckAt: null }, ['unwrapping'])
+    await moveOrder(o, { status: 'complete', stage2: { ...stage2, unwrapped }, message: null, nextCheckAt: null }, ['unwrapping'])
     log.info('bridge order complete (unwrapped)', { order: o.id })
   }
 
@@ -882,25 +935,17 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
       const paused = await deps.ops.bridgeBlocked()
       if (paused) throw new HttpError(409, 'paused', product === 'bridge' ? paused.replace(/^Bridge & Buy/, 'Bridge') : paused)
       const dest = await destinationOf(input.destination, product)
-      if (product === 'buy-kits') {
-        if (dest.wallet && deps.custody) {
-          const blocked = await deps.custody.ops.blocked('buy', dest.wallet)
-          if (blocked) throw new HttpError(409, 'paused', blocked)
-        }
-        // NEAR Intents delivers to an existing account: a new NEARKITS wallet needs a first deposit.
-        const state = await accountState(near.ctx.rpc, dest.accountId, 'final').catch(() => null)
-        if (!state) throw new HttpError(503, 'chain', 'The NEAR network isn’t answering right now. Try again in a moment.')
-        if (!state.exists)
-          throw new HttpError(409, 'not-on-chain', `${dest.accountId} isn’t on NEAR yet. Send it a little NEAR first: it needs NEAR for the network fees of the $KITS purchase.`)
+      if (product === 'buy-kits' && dest.wallet && deps.custody) {
+        const blocked = await deps.custody.ops.blocked('buy', dest.wallet)
+        if (blocked) throw new HttpError(409, 'paused', blocked)
       }
-      // A Bridge goes only where the wNEAR can arrive (and, for a NEARKITS wallet, be unwrapped now): checked
-      // before NEAR Intents is asked for a deposit address, so a refused destination never gets one.
-      if (product === 'bridge') {
-        const pre = await receivability(dest, input.destination.kind)
-        if (pre.blocked) {
-          const code = pre.code ?? 'destination'
-          throw new HttpError(code === 'chain' ? 503 : 409, code, `${pre.blocked} Nothing was sent.`)
-        }
+      // Both products deliver wNEAR: an order goes only where it can arrive (and, for a NEARKITS wallet, be
+      // unwrapped now), checked before NEAR Intents is asked for a deposit address, so a refused destination
+      // never gets one and no NEAR is stranded at NEAR Intents.
+      const pre = await receivability(dest, input.destination.kind)
+      if (pre.blocked) {
+        const code = pre.code ?? 'destination'
+        throw new HttpError(code === 'chain' ? 503 : 409, code, `${pre.blocked} Nothing was sent.`)
       }
       const r = await quoteFor(input, false)
       const okAddress = r.chain.family === 'solana' ? isSolanaAddress(r.q.depositAddress ?? '') : isEvmAddress(r.q.depositAddress ?? '')

@@ -1,4 +1,4 @@
-# NearKit's OpenBao (DEPLOYMENT.md §11): the key-encryption key for wallet keys, in the
+# NearKit's OpenBao (DEPLOYMENT.md §10): the key-encryption key for wallet keys, in the
 # transit engine. Reachable only from the signer, over an internal Docker network, with TLS.
 ui = false
 
