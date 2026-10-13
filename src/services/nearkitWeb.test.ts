@@ -326,3 +326,75 @@ describe('the unwrap calls (wNEAR back to NEAR in a NEARKITS wallet)', () => {
     expect(s.calls.at(-1)).toEqual({ path: '/api/web/unwrap/status', body: { session: TOKEN, intentId: 'u1' } })
   })
 })
+
+describe('the trading automation calls', () => {
+  const signedIn = async (routes: Record<string, Handler>) => {
+    const s = server({ '/api/web/login': () => ({ status: 200, json: { token: TOKEN, expiresAt: Date.now() + 60_000, user: { name: 'Alice' } } }), ...routes })
+    const web = createNearKitWeb({ apiUrl: API, network: 'testnet', fetchImpl: s.fetchImpl, store: memoryStorage() })
+    await web.login(CODE)
+    return { web, calls: s.calls }
+  }
+  const view = { id: 's1', kind: 'limit', status: 'active' }
+  const config = { kind: 'limit', limit: { type: 'take-profit' } } as never
+  const pair = { kind: 'limit', limit: { type: 'stop-loss' } } as never
+
+  it('features, list (optionally by kind), detail and preview, always with the session', async () => {
+    const features = { enabled: ['limit'], paused: false, pausedReason: null, limits: { maxTradeNear: 50, maxDailyNearPerUser: 200, maxSlippagePct: 5 } }
+    const { web, calls } = await signedIn({
+      '/api/web/auto/features': () => ({ status: 200, json: features }),
+      '/api/web/auto/list': () => ({ status: 200, json: { strategies: [view] } }),
+      '/api/web/auto/detail': () => ({ status: 200, json: { strategy: view, executions: [], events: [], detections: [] } }),
+      '/api/web/auto/preview': () => ({ status: 200, json: { side: 'sell', priceNear: '0.25', wouldTrigger: false } }),
+    })
+    expect(await web.autoFeatures()).toEqual(features)
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/features', body: { session: TOKEN } })
+    expect(await web.autoList()).toEqual([view])
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/list', body: { session: TOKEN } })
+    await web.autoList(['limit'])
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/list', body: { session: TOKEN, kinds: ['limit'] } })
+    expect((await web.autoDetail('s1')).strategy).toEqual(view)
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/detail', body: { session: TOKEN, id: 's1' } })
+    expect((await web.autoPreview('w1', config)).priceNear).toBe('0.25')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/preview', body: { session: TOKEN, walletId: 'w1', config } })
+  })
+
+  it('create sends the pair and the explicit buy confirmation only when given', async () => {
+    const { web, calls } = await signedIn({ '/api/web/auto/create': () => ({ status: 200, json: { strategies: [view] } }) })
+    expect(await web.autoCreate({ walletId: 'w1', config })).toEqual([view])
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/create', body: { session: TOKEN, walletId: 'w1', config } })
+    await web.autoCreate({ walletId: 'w1', config, pair })
+    expect(calls.at(-1)?.body).toEqual({ session: TOKEN, walletId: 'w1', config, pair })
+    await web.autoCreate({ walletId: 'w1', config, confirmExecute: true })
+    expect(calls.at(-1)?.body).toEqual({ session: TOKEN, walletId: 'w1', config, confirmExecute: true })
+    await web.autoCreate({ walletId: 'w1', config, confirmExecute: false })
+    expect(calls.at(-1)?.body).toEqual({ session: TOKEN, walletId: 'w1', config })
+  })
+
+  it('pause, resume, cancel name the strategy; pause-all answers how many paused', async () => {
+    const { web, calls } = await signedIn({
+      '/api/web/auto/pause': () => ({ status: 200, json: { strategy: { ...view, status: 'paused' } } }),
+      '/api/web/auto/resume': () => ({ status: 200, json: { strategy: view } }),
+      '/api/web/auto/cancel': () => ({ status: 200, json: { strategy: { ...view, status: 'cancelled' } } }),
+      '/api/web/auto/pause-all': () => ({ status: 200, json: { paused: 3 } }),
+    })
+    expect((await web.autoPause('s1')).status).toBe('paused')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/pause', body: { session: TOKEN, id: 's1' } })
+    expect((await web.autoResume('s1')).status).toBe('active')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/resume', body: { session: TOKEN, id: 's1' } })
+    expect((await web.autoCancel('s1')).status).toBe('cancelled')
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/cancel', body: { session: TOKEN, id: 's1' } })
+    expect(await web.autoPauseAll()).toBe(3)
+    expect(calls.at(-1)).toEqual({ path: '/api/web/auto/pause-all', body: { session: TOKEN } })
+  })
+
+  it('a refusal comes back with its code and the fields to fix; a session the server ended is forgotten', async () => {
+    const issues = [{ field: 'triggerPriceNear', message: 'Enter a trigger price in NEAR above 0' }]
+    const { web } = await signedIn({
+      '/api/web/auto/create': () => ({ status: 400, json: { error: { code: 'state', message: 'Check the highlighted fields.', detail: { issues } } } }),
+      '/api/web/auto/list': () => ({ status: 401, json: { error: { code: 'session', message: 'Your NEARKITS web session has ended.' } } }),
+    })
+    await expect(web.autoCreate({ walletId: 'w1', config })).rejects.toMatchObject({ status: 400, code: 'state', detail: { issues } })
+    await expect(web.autoList()).rejects.toMatchObject({ status: 401 })
+    expect(web.session()).toBeNull()
+  })
+})

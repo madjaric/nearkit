@@ -18,6 +18,7 @@ import { Pct, Price } from '@/components/ui/Num'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { isComingSoon } from '@/config/release'
+import { useIsComingSoon } from '@/lib/modeCopy'
 import { KitSpotlight } from '@/features/kit/KitSpotlight'
 import { ActivityList } from '@/features/portfolio/ActivityList'
 import { withBridgeActivity } from '@/features/bridge/activity'
@@ -184,6 +185,7 @@ function Readouts() {
 }
 
 function OpenOrdersPanel() {
+  const comingSoon = useIsComingSoon()
   const orders = useOrders()
   const view = useOrderView()
   const { data: tokens = [] } = useTokens()
@@ -196,7 +198,7 @@ function OpenOrdersPanel() {
         actions={
           <Link to="/limit-orders" className={linkKey}>
             Manage
-            {isComingSoon('/limit-orders') && <Tag tone="soon">Soon</Tag>}
+            {comingSoon('/limit-orders') && <Tag tone="soon">Soon</Tag>}
           </Link>
         }
       />
@@ -205,7 +207,7 @@ function OpenOrdersPanel() {
           title={view.demo ? 'No open orders' : 'No order drafts'}
           graphic={false}
           action={
-            isComingSoon('/limit-orders') ? (
+            comingSoon('/limit-orders') ? (
               <SoonKey>Place a limit order</SoonKey>
             ) : (
               <Link to="/limit-orders" className={linkKey}>

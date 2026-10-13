@@ -1,3 +1,4 @@
+import type { StrategyKind } from '@/lib/automation/config'
 import { ENV, PRODUCTION_BUILD, type AppEnv } from './env'
 
 /**
@@ -21,6 +22,25 @@ const COMING_SOON = comingSoonRoutes({ services: ENV.services, network: ENV.netw
 /** True when this route is COMING SOON in this build. */
 export function isComingSoon(path: string): boolean {
   return COMING_SOON.includes(path)
+}
+
+/** The trading automation each COMING SOON route is (the server switches each kind on by itself). */
+export const AUTOMATION_ROUTES: Readonly<Record<string, StrategyKind>> = { '/limit-orders': 'limit', '/dca': 'dca', '/copy-trade': 'copy', '/sniper': 'sniper' }
+
+/**
+ * Whether a route is COMING SOON for this user: the build's list, except an automation route whose
+ * kind NEARKITS' server reports switched on (`enabled`, read with the user's NEARKITS web session).
+ * No session, no answer from the server, or the kind not on: COMING SOON, exactly as the build says.
+ */
+export function routeComingSoon(path: string, comingSoon: readonly string[], enabled: readonly StrategyKind[] | null): boolean {
+  if (!comingSoon.includes(path)) return false
+  const kind = AUTOMATION_ROUTES[path]
+  return !(kind !== undefined && enabled !== null && enabled.includes(kind))
+}
+
+/** `isComingSoon` for this build, with the kinds the server switched on for this user (null: none known). */
+export function isComingSoonFor(path: string, enabled: readonly StrategyKind[] | null): boolean {
+  return routeComingSoon(path, COMING_SOON, enabled)
 }
 
 /**

@@ -1,3 +1,5 @@
+import type { AutomationFeatures, CreateStrategyInput, StrategyDetail, StrategyPreview, StrategyView } from '@/lib/automation/api'
+import type { StrategyConfig, StrategyKind } from '@/lib/automation/config'
 import type { BotDetail, BotSummary } from '@/lib/volumeBot/api'
 import type { BotConfig } from '@/lib/volumeBot/types'
 import type { QuoteCosts } from '@/types/domain'
@@ -227,6 +229,22 @@ export interface NearKitWeb {
   /** Nothing new is sent from now on; trades already sent are settled, then it ends stopped. */
   stopBot(botId: string, emergency: boolean): Promise<BotSummary>
   deleteBot(botId: string): Promise<void>
+  /** Which trading automations NEARKITS has switched on, its kill switch and limits. */
+  autoFeatures(): Promise<AutomationFeatures>
+  /** The user's automations (limit orders, Copy Trade, Sniper, DCA), optionally of some kinds only. */
+  autoList(kinds?: readonly StrategyKind[]): Promise<StrategyView[]>
+  /** One automation with its trades, its audit trail and (Copy Trade, Sniper) what it saw. */
+  autoDetail(id: string): Promise<StrategyDetail>
+  /** What it would trade now from this NEARKITS wallet, from a fresh executable quote; nothing is saved or signed. */
+  autoPreview(walletId: string, config: StrategyConfig): Promise<StrategyPreview>
+  /** Creates it (and its take-profit/stop-loss pair); refusals carry `detail.issues`, field by field. */
+  autoCreate(input: CreateStrategyInput): Promise<StrategyView[]>
+  autoPause(id: string): Promise<StrategyView>
+  autoResume(id: string): Promise<StrategyView>
+  /** Ends it for good: an order is cancelled, a rule stopped. A trade already sent is followed to the end. */
+  autoCancel(id: string): Promise<StrategyView>
+  /** Pauses every live automation of the user's; answers how many paused. */
+  autoPauseAll(): Promise<number>
   /** Called whenever the session starts or ends. */
   subscribe(listener: () => void): () => void
 }
@@ -502,6 +520,24 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     resumeBot: async (botId) => (await call<{ bot: BotSummary }>('/api/web/bots/resume', { botId })).bot,
     stopBot: async (botId, emergency) => (await call<{ bot: BotSummary }>('/api/web/bots/stop', { botId, emergency })).bot,
     deleteBot: async (botId) => void (await call<{ deleted: boolean }>('/api/web/bots/delete', { botId })),
+
+    autoFeatures: () => call<AutomationFeatures>('/api/web/auto/features', {}),
+    autoList: async (kinds) => (await call<{ strategies: StrategyView[] }>('/api/web/auto/list', kinds ? { kinds: [...kinds] } : {})).strategies,
+    autoDetail: (id) => call<StrategyDetail>('/api/web/auto/detail', { id }),
+    autoPreview: (walletId, config) => call<StrategyPreview>('/api/web/auto/preview', { walletId, config }),
+    autoCreate: async ({ walletId, config, pair, confirmExecute }) =>
+      (
+        await call<{ strategies: StrategyView[] }>('/api/web/auto/create', {
+          walletId,
+          config,
+          ...(pair ? { pair } : {}),
+          ...(confirmExecute === true ? { confirmExecute: true } : {}),
+        })
+      ).strategies,
+    autoPause: async (id) => (await call<{ strategy: StrategyView }>('/api/web/auto/pause', { id })).strategy,
+    autoResume: async (id) => (await call<{ strategy: StrategyView }>('/api/web/auto/resume', { id })).strategy,
+    autoCancel: async (id) => (await call<{ strategy: StrategyView }>('/api/web/auto/cancel', { id })).strategy,
+    autoPauseAll: async () => (await call<{ paused: number }>('/api/web/auto/pause-all', {})).paused,
 
     subscribe(listener) {
       listeners.add(listener)

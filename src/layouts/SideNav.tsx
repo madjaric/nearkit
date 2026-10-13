@@ -3,16 +3,21 @@ import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { SocialLinks } from '@/components/brand/Social'
 import { Led, Tag } from '@/components/ui/Indicators'
 import { KIT } from '@/config/kit'
-import { isComingSoon } from '@/config/release'
 import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { cn } from '@/lib/cn'
-import { useNetworkWording } from '@/lib/modeCopy'
+import { useIsComingSoon, useNetworkWording } from '@/lib/modeCopy'
 import { useCapabilities } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
 import { isNavAction, NAV_FOOTER, NAV_GROUPS, NAV_HOME, type NavAction, type NavItem } from './nav'
 
-/** Not live in this build: always-soon entries, and the ones the public beta holds back. */
-const isSoon = (item: NavItem) => item.soon === true || isComingSoon(item.to)
+/**
+ * Not live for this user: always-soon entries, and the ones the public beta holds back (an automation
+ * NEARKITS switched on for a signed-in user is live: useIsComingSoon).
+ */
+function useIsSoon(): (item: NavItem) => boolean {
+  const comingSoon = useIsComingSoon()
+  return (item: NavItem) => item.soon === true || comingSoon(item.to)
+}
 
 /** Build status line: what this build runs on. */
 function BuildStatus() {
@@ -40,6 +45,7 @@ const entryOn = 'bg-raised text-fg before:absolute before:left-0 before:top-1/2 
 const entryOff = 'text-fg-2 hover:bg-raised/60 hover:text-fg'
 
 function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+  const isSoon = useIsSoon()
   const Icon = item.icon
   // An entry with a hint is two lines (the label, then what tells it from its neighbour); the rest keep one.
   return (
@@ -120,6 +126,7 @@ function KitEntry({ onNavigate }: { onNavigate?: () => void }) {
  * this build is listed once, in a COMING SOON group at the end.
  */
 export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
+  const isSoon = useIsSoon()
   const groups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => isNavAction(i) || !isSoon(i)) })).filter((g) => g.items.length > 0)
   const soon = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_FOOTER].filter((i): i is NavItem => !isNavAction(i) && isSoon(i))
   return (

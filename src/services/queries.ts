@@ -10,6 +10,7 @@ import { identityOf, type Identity } from './identity'
 import type { NearKitEndedSession, NearKitWalletList, NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import type { NearKitServices as Services } from './types'
+import type { StrategyKind } from '@/lib/automation/config'
 import {
   createRefreshStatus,
   refreshTargets,
@@ -52,6 +53,9 @@ export const qk = {
   nearkitWallets: (token: string | null) => ['wallets', 'nearkit', token] as const,
   volumeBots: (token: string | null) => ['nearkit', 'bots', token] as const,
   volumeBot: (token: string | null, botId: string | null) => ['nearkit', 'bots', token, botId] as const,
+  autoFeatures: (token: string | null) => ['nearkit', 'auto', 'features', token] as const,
+  autoList: (token: string | null) => ['nearkit', 'auto', 'list', token] as const,
+  autoDetail: (token: string | null, id: string | null) => ['nearkit', 'auto', 'list', token, id] as const,
   tokenPrice: (id: string | null) => ['market', 'price', id] as const,
   priceHistory: (id: string | null, range: ChartRange) => ['market', 'history', id, range] as const,
   totalSupply: (id: string | null) => ['token-supply', id] as const,
@@ -175,6 +179,29 @@ export function useNearKitWallets() {
     enabled: s.nearkit.available && session !== null,
     retry: 1,
   })
+}
+
+/**
+ * Which trading automations NEARKITS' server has switched on (and its kill switch), read with the
+ * NEARKITS web session in real mode; never in the demo or without a session (no data: none known).
+ */
+export function useAutomationFeatures() {
+  const s = useServices()
+  const session = useNearKitSession()
+  return useQuery({
+    queryKey: qk.autoFeatures(session?.token ?? null),
+    queryFn: () => s.nearkit.autoFeatures(),
+    enabled: s.mode === 'near' && s.nearkit.available && session !== null,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    retry: 1,
+  })
+}
+
+/** The automation kinds switched on for this user, or null when none is known (demo, no session, no answer). */
+export function useAutomationEnabled(): readonly StrategyKind[] | null {
+  const { data } = useAutomationFeatures()
+  return data?.enabled ?? null
 }
 
 export function useNearKitMutations() {
