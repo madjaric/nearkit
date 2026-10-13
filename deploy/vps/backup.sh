@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Hourly backups (DEPLOYMENT.md §11), run by the nearkit-backup timer: both databases
-# (pg_dump) and OpenBao's storage (a raft snapshot). They stay on this server, root-only;
-# Hostinger's weekly server backups include them. Keeps every backup for 48 hours, then the
-# midnight (UTC) one of each day for 30 days. None opens a wallet key by itself: the signer's
-# dump holds data keys sealed by OpenBao, and OpenBao's snapshot is sealed by its master
+# Hourly backups (DEPLOYMENT.md §12), run by the nearkit-backup timer: both databases
+# (pg_dump) and OpenBao's storage (a raft snapshot), kept here root-only, then copied off this
+# server, encrypted, by bin/backup-offsite. Keeps every backup for 48 hours, then the midnight
+# (UTC) one of each day for 30 days, here and off-site. None opens a wallet key by itself: the
+# signer's dump holds data keys sealed by OpenBao, and OpenBao's snapshot is sealed by its master
 # key, which only the owner's unseal key opens.
 set -euo pipefail
 dir=/opt/nearkit/backups
@@ -45,6 +45,9 @@ fi
 find "$dir" \( -name '*.dump' -o -name '*.snap' \) -mmin +2880 ! -name '*T00*' -delete
 find "$dir" \( -name '*.dump' -o -name '*.snap' \) -mtime +30 -delete
 find "$dir" -name '*.partial' -mmin +60 -delete
+# Off this server, encrypted. A copy that can't be made fails the run (and bin/monitor reports it);
+# the local backups above are kept either way.
+/opt/nearkit/bin/backup-offsite "$stamp" || failed=1
 if [ "$failed" -ne 0 ]; then
   echo "backup at $stamp INCOMPLETE: see the lines above" >&2
   exit 1
