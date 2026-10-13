@@ -174,8 +174,24 @@ if $unseal; then
   printf 'Production unseal key (not shown, not stored): '
   read -rs unseal_key < /dev/tty
   printf '\n'
-  printf '%s' "$unseal_key" | docker exec -i -e BAO_ADDR=http://127.0.0.1:8200 "$tag-bao" bao operator unseal - > /dev/null || die "that key doesn't unseal this backup"
+  # Whitespace around it (a pasted CR or newline) is not part of the key.
+  unseal_key=${unseal_key#"${unseal_key%%[![:space:]]*}"}
+  unseal_key=${unseal_key%"${unseal_key##*[![:space:]]}"}
+  # Only an unseal key's form is sent: 44 Base64 characters ending in "=" (as openbao-init showed it), or
+  # the same 32 bytes as 64 hex characters. Anything else OpenBao refuses, so it is refused here, unsent.
+  if ! [[ "$unseal_key" =~ ^[A-Za-z0-9+/]{43}=$ || "$unseal_key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    unset unseal_key
+    die "that isn't an unseal key's form (44 Base64 characters ending in '=', or 64 hex characters): nothing was sent. Check it with: bash deploy/vps/unseal-key-check.sh"
+  fi
+  # On stdin as key=-, as openbao-init and openbao-unseal send it. (`bao operator unseal -` takes "-" as
+  # the key itself and never reads stdin: OpenBao then answers "'key' must be a valid hex or base64 string".)
+  answer=$(printf '%s' "$unseal_key" | docker exec -i -e BAO_ADDR=http://127.0.0.1:8200 "$tag-bao" bao write -format=json sys/unseal key=- 2>&1) || true
   unset unseal_key
+  if ! printf '%s' "$answer" | grep -q '"sealed": false'; then
+    printf '%s' "$answer" | grep -q 'valid hex or base64' && die "OpenBao refused the key's form ('key' must be a valid hex or base64 string)"
+    die "that key doesn't unseal this backup (well-formed, but not its unseal key)"
+  fi
+  unset answer
   # The signer's own token, against the wallet key: encrypt and decrypt a test value.
   docker exec -e BAO_ADDR=http://127.0.0.1:8200 "$tag-bao" sh -c '
     export BAO_TOKEN=$(cat /tmp/signer.token)
