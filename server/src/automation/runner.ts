@@ -5,6 +5,7 @@ import { sideOf, type CopyConfig, type DcaConfig, type LimitConfig, type SniperS
 import { formatPrice, meetsTrigger, priceYocto, targetYocto } from '@/lib/automation/price'
 import { liquidityOf } from '@/lib/volumeBot/risk'
 import { fetchAccountTxs, fetchFullTxs } from '@/services/near/history'
+import { walletErrorText } from '../bot/ui'
 import type { TradingWallet } from '../custody/store'
 import type { CustodyDeps } from '../custody/wallets'
 import type { Logger } from '../log'
@@ -206,7 +207,8 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     try {
       q = await custody.swaps.quote({ side, token: c.token.id, symbol: c.token.symbol, decimals: c.token.decimals, amountIn: amount.amount, slippagePct: c.slippagePct }, wallet)
     } catch (e) {
-      const reason = e instanceof Error ? e.message.slice(0, 200) : 'no quote'
+      // In plain words: a provider's URL (with any key in it) or an internal message stays in the server log.
+      const reason = walletErrorText(e, { network: deps.network.id === 'mainnet' ? 'mainnet' : 'testnet', side, log, context: 'automation order quote failed' })
       await store.setNext(s.id, now() + LIMIT_CHECK_MS, { ...s.state, waiting: `No quote right now: ${reason}`, armedAt: null })
       return
     }
@@ -482,7 +484,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   async function stepCopy(s: Strategy, c: CopyConfig): Promise<void> {
     const wallet = await walletOf(s)
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
-    const st = s.state as { since?: number; positions?: Record<string, Position> }
+    const st = s.state as { since?: number; positions?: Record<string, Position>; limitNoticeAt?: number }
     const since = st.since ?? s.createdAt
     let refs: Awaited<ReturnType<typeof fetchAccountTxs>>['txs']
     try {
@@ -536,7 +538,12 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         const size = copyBuySize(c, near(read.nearRaw), exposure)
         if ('skip' in size) {
           await store.updateDetection(s.id, tx.hash, 'skipped', { reason: size.skip })
-          await notify(s, `⛔ Copy of <b>${esc(c.target)}</b>: a buy of ${esc(token.symbol)} was not copied: ${esc(size.skip)}.`)
+          // A risk-limit refusal is worth a notice, once an hour per rule: every skip stays in the history.
+          const lastNotice = typeof st.limitNoticeAt === 'number' ? st.limitNoticeAt : 0
+          if (now() - lastNotice > 3_600_000) {
+            st.limitNoticeAt = now()
+            await notify(s, `⛔ Copy of <b>${esc(c.target)}</b>: a buy of ${esc(token.symbol)} was not copied: ${esc(size.skip)}.`)
+          }
           continue
         }
         const quality = await qualityProblem(token.id, c.minLiquidityUsd, null, null)
