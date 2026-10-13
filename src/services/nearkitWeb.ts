@@ -1,5 +1,7 @@
 import type { BotDetail, BotSummary } from '@/lib/volumeBot/api'
 import type { BotConfig } from '@/lib/volumeBot/types'
+import type { QuoteCosts } from '@/types/domain'
+import type { RouteSource } from './routing/select'
 import { apiPost, LinkRequestError } from './telegramLink'
 
 /**
@@ -67,6 +69,10 @@ export interface WebTradeLeg {
   available: string | null
   /** Yocto for registrations the trade makes first. */
   registration: string
+  /** This wallet's route: where it comes from, its other costs (pool or protocol fee, tax), its price impact; null when unknown. */
+  source: RouteSource | null
+  costs: QuoteCosts | null
+  priceImpactPct: number | null
   status: WebLegStatus
   received: string | null
   message: string | null
@@ -83,7 +89,11 @@ export interface WebTradeGroup {
   /** NearKit's fee on this route (none on testnet). */
   fee: { charged: boolean; bps: number }
   path: string[]
+  /** Every wallet's route source and costs when they share them; null when they differ (each leg has its own). */
+  source: RouteSource | null
+  costs: QuoteCosts | null
   networkFeeNear: string
+  /** The worst wallet's impact; null when any wallet's is unknown. */
   priceImpactPct: number | null
   busy: boolean
   expiresAt: number

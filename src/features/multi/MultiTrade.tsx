@@ -21,7 +21,7 @@ import { formatUnits, fractionOf, splitEqual, tryParseUnits } from '@/lib/amount
 import { cn } from '@/lib/cn'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { ACTUAL_NETWORK_FEE_LABEL } from '@/lib/gasReserve'
-import { floorTo, formatAmount, formatCompact, formatNumber, formatPct, parseAmount, toInputString } from '@/lib/format'
+import { floorTo, formatAmount, formatCompact, formatNumber, parseAmount, toInputString } from '@/lib/format'
 import { useDebouncedValue, useNow } from '@/lib/hooks'
 import { canExecute, executesViaNearKit, presetMembers, signsInBrowser } from '@/lib/wallets'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
@@ -30,6 +30,8 @@ import { useCapabilities, useHoldings, useMultiQuote, usePlanners, usePresets, u
 import { useConnectPrompt, useInComingSoon, useSettings } from '@/state/contexts'
 import type { MultiTradeRequest, TradeSide } from '@/types/domain'
 import { OperationModal } from '../tools/OperationModal'
+import { impactEstimated } from '@/lib/quoteCosts'
+import { CostLines, ImpactLine } from '../trade/CostLines'
 import { useKitsFirstToken } from '../trade/useDefaultToken'
 import { NearKitTradeModal, type NearKitTradeRequest } from './NearKitTrade'
 
@@ -523,7 +525,9 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
               {q ? `${side === 'buy' ? formatCompact(q.totalOut, 2) : formatNumber(q.totalOut, 2, 4)} ${outUnit}` : '—'}
             </Line>
             <Line label={<Term term="minReceived" />}>{q ? `${side === 'buy' ? formatCompact(q.totalMinOut, 2) : formatNumber(q.totalMinOut, 2, 4)} ${outUnit}` : '—'}</Line>
-            <Line label={<Term term="priceImpact" />}>{!q ? '—' : q.priceImpactPct === null ? 'Unknown' : formatPct(q.priceImpactPct, { signed: false })}</Line>
+            {/* Wallets on different routes: the worst of their impacts, at least one of them estimated. */}
+            <ImpactLine pct={q?.priceImpactPct ?? null} estimated={impactEstimated(q?.costs, caps.mode !== 'demo')} quoted={Boolean(q)} />
+            {q && <CostLines costs={q.costs} inSymbol={inUnit} outSymbol={outUnit} />}
             <Line
               label={
                 <>
@@ -535,7 +539,10 @@ export function MultiTrade({ initialSide, initialPresetId, initialTokenId = null
                 ? '—'
                 : caps.mode === 'near' && !caps.execution.trading.feeCharged
                   ? 'Not charged on testnet'
-                  : `${formatNumber(q.nearkitFeeTotal, 2, 6)} ${q.feeTokenId === NATIVE_TOKEN_ID ? 'NEAR' : symbol}`}
+                  : q.nearkitFees.length === 0
+                    ? '—'
+                    : // Wallets on different routes may pay in different tokens: one figure per token, never added across.
+                      q.nearkitFees.map((f) => `${formatNumber(f.amount, 2, 6)} ${f.symbol}`).join(' + ')}
             </Line>
             <Line label={<Term term="networkFee">{ACTUAL_NETWORK_FEE_LABEL}</Term>}>{q ? `≈ ${formatNumber(q.networkFeeNear, 4, 4)} NEAR · ${liveLegs} tx` : '—'}</Line>
           </Lines>

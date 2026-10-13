@@ -98,5 +98,15 @@ describe('price impact of a DCL trade', () => {
   it('a fill at or above the marginal price (rounding) is 0, never negative', () => {
     const out = BigInt(Math.round((1 / MID) * 0.99 * 1e24 * 1.000001))
     expect(dclImpactPct([{ pool: pool(), tokenIn: WRAP }], 10n ** 24n, out)).toBe(0)
+    // Within a tick: the pool's price sits anywhere inside its current point's tick.
+    const inTick = BigInt(Math.round((1 / MID) * 0.99 * 1e24 * 1.00009))
+    expect(dclImpactPct([{ pool: pool(), tokenIn: WRAP }], 10n ** 24n, inTick)).toBe(0)
+  })
+
+  it('stale pool data: a fill better than the pool’s price by more than a tick means the point read isn’t the pool the quote ran on, so unknown', () => {
+    const out = BigInt(Math.round((1 / MID) * 0.99 * 1e24 * 1.01))
+    expect(dclImpactPct([{ pool: pool(), tokenIn: WRAP }], 10n ** 24n, out)).toBeNull()
+    // The same quote against the point it really ran at measures normally.
+    expect(dclImpactPct([{ pool: pool({ point: 5299 - 100 }), tokenIn: WRAP }], 10n ** 24n, out)).not.toBeNull()
   })
 })

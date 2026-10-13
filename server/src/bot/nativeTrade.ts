@@ -4,7 +4,7 @@ import { NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { GAS_RESERVE_LABEL, GAS_RESERVE_NOT_FEE, GAS_RESERVE_NOTE, gasReserveYocto } from '@/lib/gasReserve'
 import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import { NETWORK_BUSY_WARNING } from '@/services/near/congestion'
-import { formatPct } from '@/lib/format'
+import { impactEstimated } from '@/lib/quoteCosts'
 import type { Intent } from '../custody/store'
 import { SWAP_QUOTE_TTL_MS, type SwapParams, type SwapQuote } from '../custody/swap'
 import { UNWRAP_TTL_MS, type UnwrapParams } from '../custody/unwrap'
@@ -13,7 +13,7 @@ import { btn, keyboard, type BotCtx, type BotDeps, type BotModule } from './cont
 import { intentKeyboard, registerIntentScreens, txLinks } from './intents'
 import { refreshPortfolio } from './portfolio'
 import { flowWallet, tradingWallet, walletLine } from './tradingWallet'
-import { friendlyError, nearText, UNKNOWN } from './ui'
+import { costTexts, friendlyError, impactText, nearText, UNKNOWN } from './ui'
 
 /**
  * Buy and Sell from the NearKit wallet: the quote screen with its Confirm button,
@@ -23,7 +23,6 @@ import { friendlyError, nearText, UNKNOWN } from './ui'
 
 const CALLBACK_TTL_MS = 30 * 60_000
 const fmt = (raw: bigint, decimals: number, maxFraction = 6) => formatUnits(raw, decimals, { maxFraction, group: true })
-const taxPct = (bps: number) => String(bps / 100)
 
 export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<string> {
   const p = intent.params as unknown as SwapParams
@@ -38,7 +37,7 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
       ? `none on ${deps.config.network.id}`
       : q.fee.routerShareBps === 0
         ? `${NEARKIT_FEE_LABEL} (${q.fee.token === p.token ? `${fmt(feeAmount, p.decimals)} ${p.symbol}` : `${fmt(feeAmount, NEAR_DECIMALS)} NEAR`}, sent with the swap)`
-        : `${NEARKIT_FEE_LABEL} (included in the rate)`
+        : `${NEARKIT_FEE_LABEL} (taken inside the swap by Rhea)`
   const registration = BigInt(q.registration)
   const need = q.need !== undefined ? BigInt(q.need) : null
   const available = q.available !== undefined ? BigInt(q.available) : null
@@ -52,8 +51,9 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     `You pay ${bold(`${p.amountIn} ${buy ? 'NEAR' : p.symbol}`)}`,
     `You receive ${bold(`≈ ${fmt(BigInt(q.amountOut), outDecimals)} ${outSymbol}`)}`,
     `Minimum ${esc(`${fmt(BigInt(q.minOut), outDecimals)} ${outSymbol}`)} · ${p.slippagePct}% slippage`,
-    `Price impact ${q.priceImpactPct === null ? `${UNKNOWN} (no prices on ${esc(deps.config.network.id)})` : esc(formatPct(q.priceImpactPct, { decimals: 2 }))}`,
+    esc(impactText(q.priceImpactPct, impactEstimated(q.costs, q.source !== 'dcl'))),
     `NEARKITS fee ${esc(fee)}`,
+    ...costTexts(q.costs, { in: buy ? 'NEAR' : p.symbol, out: outSymbol }).map(esc),
     `Actual network fee ≈ ${esc(nearText(BigInt(q.networkFeeNear)))} NEAR`,
     ...(registration > 0n ? [`Registration ${esc(nearText(registration, 5))} NEAR · first time with a token here`] : []),
     ...(need !== null
@@ -66,8 +66,6 @@ export async function nativeQuoteText(deps: BotDeps, intent: Intent): Promise<st
     ...(need !== null && available !== null && available < need
       ? [`⚠️ Your NEARKITS wallet has ${esc(fmt(available, NEAR_DECIMALS, 4))} NEAR. Deposit at least ${up(need - available)} NEAR more first.`]
       : []),
-    ...(q.tax?.inBps ? [`Token tax ${taxPct(q.tax.inBps)}% on tokens entering the pool (${esc(p.symbol)}’s own), already in the figures`] : []),
-    ...(q.tax?.outBps ? [`Token tax ${taxPct(q.tax.outBps)}% on tokens leaving the pool (${esc(p.symbol)}’s own), already in the figures`] : []),
     `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     ...(q.busy ? [`⚠️ ${esc(NETWORK_BUSY_WARNING)}`] : []),
     '',

@@ -2,6 +2,7 @@ import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, fractionOf, tryParseUnits } from '@/lib/amounts'
 import { GAS_RESERVE_YOCTO, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { formatNumber, formatPct, formatUsdCompact, formatUsdPrice } from '@/lib/format'
+import { impactEstimated } from '@/lib/quoteCosts'
 import { readTransferTax } from '@/services/dcl/tax'
 import { explorerTokenUrl } from '@/services/near/explorer'
 import type { MarketFigure, Quote, TokenListing, TokenMarket } from '@/types/domain'
@@ -14,7 +15,7 @@ import { looksLikeContract, resolveToken } from '../trade/tokens'
 import { btn, copyBtn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
 import { Buckets } from './ratelimit'
 import { sendNativeQuote } from './nativeTrade'
-import { amountText, friendlyError, nearText, UNKNOWN } from './ui'
+import { amountText, costTexts, friendlyError, impactText, nearText, UNKNOWN } from './ui'
 import { flowWallet, showWalletHome, tradingWallet, walletLine } from './tradingWallet'
 import { linkedAccount, needAccount } from './wallet'
 
@@ -281,9 +282,9 @@ function quoteText(ctx: BotCtx, side: Side, token: TokenListing, amountIn: strin
     `You pay ${bold(`${amountIn} ${inSymbol}`)}`,
     `You receive ${bold(`≈ ${out} ${outSymbol}`)}`,
     `Minimum ${esc(`${min} ${outSymbol}`)} · ${q.request.slippagePct}% slippage`,
-    `Price impact ${q.priceImpactPct === null ? `${UNKNOWN} (no prices on ${esc(ctx.deps.config.network.id)})` : esc(formatPct(q.priceImpactPct, { decimals: 2 }))}`,
+    esc(impactText(q.priceImpactPct, impactEstimated(q.costs, q.source !== 'dcl'))),
     `NEARKITS fee ${esc(fee)}`,
-    ...(f.charged && f.routerFeeBps !== null ? [`Rhea fee ${esc(`${(f.routerFeeBps / 100).toFixed(2)}%`)} · pool fees are in the rate`] : []),
+    ...costTexts(q.costs, { in: inSymbol, out: outSymbol }).map(esc),
     `Actual network fee ≈ ${esc(q.networkFeeNear.toFixed(4))} NEAR`,
     `Route ${esc(q.path.join(' → '))} · ${esc(q.source ? ROUTE_SOURCE_LABEL[q.source] : 'Rhea')}`,
     '',

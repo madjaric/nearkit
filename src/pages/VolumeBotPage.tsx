@@ -303,7 +303,7 @@ export default function VolumeBotPage() {
 
               <Section id="execution">
                 <p>
-                  <F>{`Trades run through NEARKITS custody like any other: Rhea’s route with the ${NEARKIT_FEE_LABEL} NEARKITS fee inside it (Rhea’s aggregator keeps ${RHEA_APP_FEE_SHARE_LABEL} of it), your slippage limit, and a confirmation read from chain. A buy counts when its tokens arrive; a sell when NEAR is back.`}</F>
+                  <F>{`Trades run through NEARKITS custody like any other: the route that pays the most, with the ${NEARKIT_FEE_LABEL} NEARKITS fee taken once (inside Rhea’s swap, where Rhea’s aggregator keeps ${RHEA_APP_FEE_SHARE_LABEL} of it, or sent to NEARKITS with the swap on a route straight to a DCL pool), your slippage limit, and a confirmation read from chain. A buy counts when its tokens arrive; a sell when NEAR is back.`}</F>
                 </p>
                 <p>If NEARKITS’s server restarts mid-trade, the bot settles that trade from its record when it comes back. It is never sent a second time.</p>
               </Section>

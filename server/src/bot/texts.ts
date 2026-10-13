@@ -1,5 +1,5 @@
 import { SOCIAL } from '@/config/social'
-import { NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL } from '@/lib/fees'
+import { NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL } from '@/lib/fees'
 import type { ServerConfig } from '../config'
 import { bold, code, esc, shortAccount } from '../telegram/html'
 
@@ -44,7 +44,7 @@ export function noWalletYet(config: Pick<ServerConfig, 'network'>, linked: { acc
 
 export function feeNote(config: Pick<ServerConfig, 'network'>): string {
   return config.network.id === 'mainnet'
-    ? `NEARKITS fee ${NEARKIT_FEE_LABEL} per swap (NEARKITS keeps ${NEARKIT_FEE_RECEIVED_LABEL}, Rhea the rest), plus Rhea’s own fee and gas.`
+    ? `NEARKITS fee ${NEARKIT_FEE_LABEL} per swap, taken once: through Rhea’s aggregator inside the swap (NEARKITS keeps ${NEARKIT_FEE_RECEIVED_LABEL}, Rhea ${RHEA_APP_FEE_SHARE_LABEL}, plus Rhea’s own fee), or all ${NEARKIT_FEE_LABEL} to NEARKITS with the swap on a route straight to a DCL pool. Pool fees and gas are separate; each quote shows them.`
     : 'No NEARKITS fee on testnet.'
 }
 

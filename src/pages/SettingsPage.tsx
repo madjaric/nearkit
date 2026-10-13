@@ -95,11 +95,15 @@ function FeesPanel() {
           </Line>
           {caps.mode === 'near' && t.feeCharged && (
             <>
-              <Line label="Of which" mono={false}>
-                NEARKITS receives <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span>, Rhea keeps <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>
+              <Line label="Through Rhea" mono={false}>
+                Inside the swap: NEARKITS receives <span className="num text-fg">{NEARKIT_FEE_RECEIVED_LABEL}</span>, Rhea keeps{' '}
+                <span className="num text-fg">{RHEA_APP_FEE_SHARE_LABEL}</span>
               </Line>
               <Line label="Rhea protocol fee" mono={false}>
-                <span className="num text-fg">0.10%</span> on every swap, Rhea’s own
+                <span className="num text-fg">0.10%</span> on every swap through Rhea’s aggregator, Rhea’s own
+              </Line>
+              <Line label="Straight to DCL" mono={false}>
+                All <span className="num text-fg">{NEARKIT_FEE_LABEL}</span> to NEARKITS, a transfer in the swap’s own transaction
               </Line>
               <Line label="Fee account" mono={Boolean(t.feeRecipient)}>
                 {t.feeRecipient ?? <span className="text-warn">Not configured: trades are blocked</span>}
@@ -120,8 +124,8 @@ function FeesPanel() {
           {caps.mode === 'demo'
             ? 'The demo charges no fee.'
             : t.feeCharged
-              ? 'The fee is collected inside the swap by Rhea’s aggregator, never as a separate transfer. Every review shows the exact amount before you sign.'
-              : `No fee is charged on ${caps.networkLabel.toLowerCase()}. On mainnet it is collected inside the swap by Rhea’s aggregator.`}
+              ? 'The fee is taken once per trade: inside the swap on a route through Rhea’s aggregator, or as a transfer with the swap on a route straight to a DCL pool. Every review shows the route and the exact amount before you sign.'
+              : `No fee is charged on ${caps.networkLabel.toLowerCase()}. On mainnet it is taken inside the swap through Rhea’s aggregator, or sent with the swap on a route straight to a DCL pool.`}
         </p>
       </div>
     </Panel>

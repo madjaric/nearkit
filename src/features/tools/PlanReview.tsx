@@ -6,9 +6,11 @@ import { Tag } from '@/components/ui/Indicators'
 import { Line, Lines } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { formatUnits, formatUnitsUp, groupDigits as g } from '@/lib/amounts'
-import { formatNumber, formatPct } from '@/lib/format'
+import { formatNumber } from '@/lib/format'
 import { ROUTE_SOURCE_LABEL } from '@/services/routing/select'
 import type { FeeDisclosure, OperationPlan, PlannedAction, TokenRef } from '@/types/operations'
+import { impactEstimated } from '@/lib/quoteCosts'
+import { CostLines, ImpactLine } from '../trade/CostLines'
 import { WRAP_FEE_TEXT, wrapExplainer } from '../trade/wrapCopy'
 
 const near = (yocto: string) => formatUnits(BigInt(yocto), 24, { maxFraction: 6, group: true })
@@ -49,7 +51,10 @@ function FeeLines({ fee, demo }: { fee: FeeDisclosure; demo: boolean }) {
   return (
     <>
       <Line label={`${fee.label} (${pct(fee.bps)})`} emphasis>
-        {fee.charged || demo ? `${g(fee.amount.display)} ${fee.token.symbol}` : 'Not charged'}
+        {!fee.charged && !demo
+          ? 'Not charged'
+          : // Wallets whose routes take the fee in different tokens: one figure per token, never added across.
+            (fee.parts ?? [{ amount: fee.amount, token: fee.token }]).map((p) => `${g(p.amount.display)} ${p.token.symbol}`).join(' + ')}
       </Line>
       {fee.charged && fee.received && <Line label={`NEARKITS receives (${pct(fee.received.bps)})`}>{`${g(fee.received.amount.display)} ${fee.token.symbol}`}</Line>}
       {fee.charged && fee.routerShare && (
@@ -123,7 +128,9 @@ export function PlanReview({ plan, networkLabel }: { plan: OperationPlan; networ
             <Line label="Expected">{`${estimate(swap.expectedOut.raw, swap.tokenOut.decimals)} ${swap.tokenOut.symbol}`}</Line>
             <Line label="Minimum received" emphasis>{`${estimate(swap.minOut.raw, swap.tokenOut.decimals)} ${swap.tokenOut.symbol}`}</Line>
             <Line label="Slippage limit">{`${formatNumber(swap.slippagePct, 1, 2)}%`}</Line>
-            <Line label="Price impact (est.)">{swap.priceImpactPct === null ? 'Unknown' : formatPct(swap.priceImpactPct, { signed: false })}</Line>
+            {/* Multi Trade wallets on different routes carry no shared costs: the worst impact, at least one estimated; each wallet's line has its route. */}
+            <ImpactLine pct={swap.priceImpactPct} estimated={impactEstimated(swap.costs, plan.mode !== 'demo')} quoted />
+            <CostLines costs={swap.costs} inSymbol={swap.tokenIn.symbol} outSymbol={swap.tokenOut.symbol} />
             <Line label="Route">{`${swap.route.join(' → ')}${swap.source ? ` · ${ROUTE_SOURCE_LABEL[swap.source]}` : ''}`}</Line>
             {swap.routeTokens && swap.routeTokens.length > 2 && (
               <Line label="Route tokens" mono={false}>

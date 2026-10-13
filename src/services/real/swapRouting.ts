@@ -6,7 +6,7 @@ import { createDclPoolReader, type DclPoolReader } from '@/services/dcl/pools'
 import { dclImpactPct } from '@/services/dcl/impact'
 import { bestDclRoute } from '@/services/dcl/quote'
 import { dclSwapMsg, directFee } from '@/services/dcl/swap'
-import { readTransferTax } from '@/services/dcl/tax'
+import { NO_TAX_TERMS, readTaxTerms, routeTax, taxOn, type TaxTerms } from '@/services/dcl/tax'
 import { accountState } from '@/services/near/account'
 import { NearKitError, toNearKitError } from '@/services/near/errors'
 import { storageBoundsMin, storageStatus } from '@/services/near/storage'
@@ -73,7 +73,10 @@ export interface RoutedSwap {
   msg: string
   /** Direct DCL routes: the pools of the path, in order. */
   pools?: string[]
-  /** Direct DCL routes: the tokens' own tax on this trade (what enters the pool, what leaves it), already in the amounts. */
+  /**
+   * DCL and aggregator routes: the tokens' own tax on this trade (what enters the first exchange, what
+   * leaves the last), already in `amountOut` and `minOut`; zeros when the route pays none.
+   */
   tax?: { inBps: number; outBps: number }
   /**
    * Direct DCL routes: price impact (%) measured on the pools themselves, against their price before
@@ -107,6 +110,8 @@ interface Pair {
   user: string | null
   verify: boolean
   quotedAt: number
+  /** A token's tax terms, read once per quote and shared by every source. */
+  taxTerms: (token: string) => Promise<TaxTerms>
 }
 
 /** Fees still to come off a quoted output, for comparing routes (an aggregator fee taken from the output). */
@@ -160,12 +165,19 @@ export function createSwapRouter(ctx: NearContext) {
     return feeConfig
   }
 
-  /** Rhea's aggregator: a signed route with NearKit's app fee, verified before it is trusted. */
+  /**
+   * Rhea's aggregator: a signed route with NearKit's app fee, verified before it is trusted. Rhea
+   * quotes a token's pools as if untaxed, so a launch token's own tax on a transfer to or from an
+   * exchange that is one of its pairs comes off here (routeTax), before routes are compared: the
+   * input's sell tax off what the first exchange receives (so about that much less comes out; the
+   * signed minimum, checked by the exchange, can't move), the output's buy tax off what the last
+   * exchange pays out (the expected and the user's minimum).
+   */
   async function aggregatorRoute(p: Pair): Promise<RoutedSwap> {
     if (!agg || !smartx) throw new Error('No aggregator on this network')
     const recipient = feeRecipient()
     const appPpm = NEARKIT_FEE_BPS * 100
-    const [quote, fees] = await Promise.all([
+    const [quote, fees, inTerms, outTerms] = await Promise.all([
       smartx.quote({
         tokenIn: p.routeIn,
         tokenOut: p.routeOut,
@@ -179,6 +191,8 @@ export function createSwapRouter(ctx: NearContext) {
         symbolOut: p.tokenOut.symbol,
       }),
       aggregatorFeeConfig(),
+      p.taxTerms(p.routeIn),
+      p.taxTerms(p.routeOut),
       p.verify ? assertFeeAccountExists(recipient) : null,
     ])
     if (p.verify && !(await verifySmartxSignature(quote.msg, quote.signature, agg.signerKey))) {
@@ -203,6 +217,24 @@ export function createSwapRouter(ctx: NearContext) {
     )
     const stepContracts = checked.steps.map((s) => s.contract)
     const stage = feeTokenFor(checked.routeTokens, stepContracts, fees.whitelist)
+    // A token handed from one exchange to the next is taxed on those transfers too: read it as well.
+    const handed = [...new Set(stepContracts.slice(1))]
+    const terms = new Map<string, TaxTerms>([
+      [p.routeIn, inTerms],
+      [p.routeOut, outTerms],
+    ])
+    for (const [i, t] of (await Promise.all(handed.map(p.taxTerms))).entries()) terms.set(handed[i] as string, t)
+    const tax = routeTax(checked.steps, (token) => terms.get(token) ?? NO_TAX_TERMS)
+    if (!tax) throw new NearKitError('QUOTE_UNAVAILABLE', `Rhea’s route hands a taxed token from one exchange to another; NEARKITS can’t price that route.`)
+    // What the first exchange receives is the input less the sell tax, so it pays out about that much less (no less than that on
+    // any pool); its signed minimum is checked on that. Below it, the swap would revert: not an executable route.
+    const afterSell = quote.amountOut - mulBps(quote.amountOut, tax.inBps)
+    if (afterSell < quote.minAmountOut)
+      throw new NearKitError(
+        'QUOTE_UNAVAILABLE',
+        `Rhea’s route would revert: ${p.tokenIn.symbol} takes ${tax.inBps / 100}% of what enters its pool, more than a ${p.slippagePct}% slippage allows.`,
+      )
+    const userMin = trueMinimum(quote.minAmountOut, stage.stage, appPpm, fees.protocolPpm)
     return {
       router: 'aggregator',
       source: 'rhea-aggregator',
@@ -212,9 +244,10 @@ export function createSwapRouter(ctx: NearContext) {
       routeOut: p.routeOut,
       amountIn: p.amountIn,
       swapAmount: p.amountIn,
-      amountOut: quote.amountOut,
+      amountOut: afterSell - mulBps(afterSell, tax.outBps),
       signedMin: quote.minAmountOut,
-      minOut: trueMinimum(quote.minAmountOut, stage.stage, appPpm, fees.protocolPpm),
+      minOut: userMin - mulBps(userMin, tax.outBps),
+      tax,
       slippagePct: p.slippagePct,
       routeTokens: checked.routeTokens,
       stepContracts,
@@ -273,11 +306,9 @@ export function createSwapRouter(ctx: NearContext) {
     const fee = recipient ? directFee(p.amountIn) : 0n
     const swapAmount = p.amountIn - fee
     if (swapAmount <= 0n) throw new NearKitError('INVALID_AMOUNT', 'The amount is too small to trade')
-    const [inTax, outTax] = await Promise.all([
-      readTransferTax(ctx.rpc, p.routeIn, dcl.contract),
-      readTransferTax(ctx.rpc, p.routeOut, dcl.contract),
-      p.verify && recipient ? assertFeeAccountExists(recipient) : null,
-    ])
+    const [inTerms, outTerms] = await Promise.all([p.taxTerms(p.routeIn), p.taxTerms(p.routeOut), p.verify && recipient ? assertFeeAccountExists(recipient) : null])
+    const inTax = taxOn(inTerms, dcl.contract)
+    const outTax = taxOn(outTerms, dcl.contract)
     const poolGets = swapAmount - mulBps(swapAmount, inTax.sellBps)
     if (poolGets <= 0n) throw new NearKitError('INVALID_AMOUNT', 'The amount is too small to trade')
     const best = await bestDclRoute(ctx.rpc, dcl.contract, dclPools, ctx.network, p.routeIn, p.routeOut, poolGets)
@@ -344,6 +375,13 @@ export function createSwapRouter(ctx: NearContext) {
     const routeIn = tokenIn.contract ?? ctx.network.wrapContract
     const routeOut = tokenOut.contract ?? ctx.network.wrapContract
     if (routeIn === routeOut) throw new NearKitError('INVALID_TOKEN', 'Wrapping or unwrapping NEAR is not a swap')
+    // Every source prices the same tax, read once for this quote; a tax that can't be read fails the source that needs it.
+    const taxes = new Map<string, Promise<TaxTerms>>()
+    const taxTerms = (token: string): Promise<TaxTerms> => {
+      let terms = taxes.get(token)
+      if (!terms) taxes.set(token, (terms = readTaxTerms(ctx.rpc, token)))
+      return terms
+    }
     const p: Pair = {
       tokenIn,
       tokenOut,
@@ -356,6 +394,7 @@ export function createSwapRouter(ctx: NearContext) {
       user,
       verify,
       quotedAt: ctx.now(),
+      taxTerms,
     }
     const sources: { source: RouteSource; ask: () => Promise<RoutedSwap> }[] = [
       agg && smartx ? { source: 'rhea-aggregator' as const, ask: () => aggregatorRoute(p) } : { source: 'rhea-classic' as const, ask: () => classicRoute(p) },

@@ -24,7 +24,7 @@ export const GLOSSARY = {
   },
   nearkitFee: {
     term: 'NEARKITS fee',
-    text: `NEARKITS' ${NEARKIT_FEE_LABEL} fee on each trade. On mainnet Rhea's aggregator collects it inside the swap: NEARKITS receives ${NEARKIT_FEE_RECEIVED_LABEL} and Rhea keeps ${RHEA_APP_FEE_SHARE_LABEL}. Testnet trades and the demo are not charged.`,
+    text: `NEARKITS' ${NEARKIT_FEE_LABEL} fee on each trade, taken once, two ways. On a route through Rhea's aggregator it is collected inside the swap: NEARKITS receives ${NEARKIT_FEE_RECEIVED_LABEL} and Rhea keeps ${RHEA_APP_FEE_SHARE_LABEL}. On a route straight to a DCL pool, the full ${NEARKIT_FEE_LABEL} is a transfer to NEARKITS' fee account in the swap's own transaction. Testnet trades and the demo are not charged.`,
   },
   networkFee: {
     term: 'Network fee',
