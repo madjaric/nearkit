@@ -186,7 +186,7 @@ describe('Rhea’s aggregator on a token that taxes its DCL pair (audit F-05)', 
   const SLIP = (x: bigint, pct: number) => (x * BigInt(10_000 - pct * 100)) / 10_000n
   const less = (x: bigint, bps: number) => x - (x * BigInt(bps)) / 10_000n
 
-  function taxedMainnet(rhea: (tokenIn: string, tokenOut: string, amountIn: bigint) => unknown, options: { failTax?: boolean } = {}) {
+  function taxedMainnet(rhea: (tokenIn: string, tokenOut: string, amountIn: bigint) => unknown, options: { failTax?: boolean; untaxed?: boolean } = {}) {
     const chain = createFakeChain({
       accounts: { 'trader.near': { amount: 10n ** 25n }, [FEES]: { amount: 10n ** 24n } },
       tokens: {
@@ -198,7 +198,7 @@ describe('Rhea’s aggregator on a token that taxes its DCL pair (audit F-05)', 
           registered: [AGG, DCL, 'trader.near', FEES],
           boundsMin: MIN_STORAGE,
           balances: { 'trader.near': 10n ** 22n },
-          tax: { buyBps: 100, sellBps: 100, pairs: [DCL] },
+          ...(options.untaxed ? {} : { tax: { buyBps: 100, sellBps: 100, pairs: [DCL] } }),
         },
       },
       aggregator: { contract: AGG, whitelist: [WRAP, USDC], protocolPpm: 1000, registered: {} },
@@ -275,6 +275,25 @@ describe('Rhea’s aggregator on a token that taxes its DCL pair (audit F-05)', 
     expect(r.signedMin).toBe(SLIP(rheaOut, 3))
     // The fee comes off the wNEAR out (SINGULARTY isn't on Rhea's fee list): the minimum is the signed one less 0.60%.
     expect(r.minOut).toBe((SLIP(rheaOut, 3) * (1_000_000n - 6000n)) / 1_000_000n)
+  })
+
+  it('sells whose fee Rhea takes from the NEAR out: its quote already holds that fee, so it is compared as quoted, never cut a second time', async () => {
+    // Production, 2026-10-07: a BLACKDRAGON → NEAR sell through Rhea, its fee taken from the wNEAR out, delivered exactly
+    // the quoted amount_out (to 2 yocto), and NEARKITS' fee read from chain was 80% of 0.50% of amount_out / 0.994. Rhea's
+    // amount_out is what the trader receives.
+    const sell = { tokenIn: SING, tokenOut: 'near', amountIn: '9000', slippagePct: 1, walletId: 'w' }
+    const refuses = () => ({ result_code: 1008, result_message: '', result_data: null })
+    const dcl = await taxedMainnet(refuses, { untaxed: true }).route(sell, 'trader.near', false)
+    expect(dcl.source).toBe('dcl')
+    // Rhea pays 0.30% more than DCL, net: Rhea's route, its figures as quoted.
+    const rheaOut = (dcl.amountOut * 1003n) / 1000n
+    const r = await taxedMainnet((i, o, a) => rheaQuote(i, o, a, rheaOut, 1), { untaxed: true }).route(sell, 'trader.near', false)
+    expect(r.source).toBe('rhea-aggregator')
+    expect(r.fee?.stage).toBe('output')
+    expect(r.amountOut).toBe(rheaOut)
+    // DCL paying materially more still wins.
+    const lower = (dcl.amountOut * 996n) / 1000n
+    expect((await taxedMainnet((i, o, a) => rheaQuote(i, o, a, lower, 1), { untaxed: true }).route(sell, 'trader.near', false)).source).toBe('dcl')
   })
 
   it('a Rhea route through an exchange that isn’t the token’s pair pays no tax: Rhea’s figures as quoted', async () => {

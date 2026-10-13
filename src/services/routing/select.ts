@@ -1,7 +1,8 @@
 /**
  * Choosing between executable routes from different sources. Deterministic: the route that
- * pays the most, measured the same way for every source (what the user receives after DEX
- * fees, the router's protocol fee and NearKit's fee). Rhea's aggregator is production-proven,
+ * pays the most, measured the same way for every source: each route's expected output is already what the
+ * user receives after DEX fees, the router's protocol fee and NearKit's fee (Rhea's aggregator quotes its
+ * amount_out net of a fee it takes from the output: a production sell delivered exactly that amount). Rhea's aggregator is production-proven,
  * so a route that beats it by less than RHEA_PREFERENCE_PPM keeps Rhea; a materially better
  * route wins whatever its source.
  */
@@ -17,15 +18,13 @@ const PPM = 1_000_000n
 
 export interface Rankable {
   source: RouteSource
-  /** Expected output as quoted. */
+  /** Expected output as quoted: what the user receives, every fee already out of it. */
   amountOut: bigint
-  /** Fees still to come off the quoted output (an aggregator fee taken from the output), in ppm. */
-  outputFeePpm: number
 }
 
-/** What the user is expected to receive: the quote less any fee still taken from it. */
+/** What the user is expected to receive: the quoted output (never cut again for a fee already in it). */
 export function netOutOf(r: Rankable): bigint {
-  return (r.amountOut * (PPM - BigInt(r.outputFeePpm))) / PPM
+  return r.amountOut
 }
 
 export function selectRoute<T extends Rankable>(candidates: readonly T[]): T {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { netOutOf, selectRoute, type Rankable } from './select'
 
-const route = (source: Rankable['source'], amountOut: bigint, outputFeePpm = 0): Rankable => ({ source, amountOut, outputFeePpm })
+const route = (source: Rankable['source'], amountOut: bigint): Rankable => ({ source, amountOut })
 
 describe('route selection', () => {
-  it('compares what the user receives: an aggregator fee still to come off the output counts', () => {
-    expect(netOutOf(route('rhea-aggregator', 1_000_000n, 6000))).toBe(994_000n)
+  it('compares what the user receives, as quoted: a fee already in a quote is never taken off again', () => {
+    expect(netOutOf(route('rhea-aggregator', 1_000_000n))).toBe(1_000_000n)
     expect(netOutOf(route('dcl', 1_000_000n))).toBe(1_000_000n)
   })
   it('keeps Rhea when another route is only marginally better, and takes the other when it is materially better', () => {
