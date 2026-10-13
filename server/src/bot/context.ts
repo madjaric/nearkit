@@ -87,6 +87,8 @@ export interface Command {
   section?: CommandSection
   /** Arguments, for /help, e.g. "[token] [NEAR amount]". */
   usage?: string
+  /** False: listed in /help, but not in Telegram's command menu (whose entries and order are pinned). */
+  menu?: boolean
   run(ctx: BotCtx, args: string): Promise<void>
 }
 

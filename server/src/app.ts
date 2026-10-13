@@ -1,4 +1,5 @@
 import { volumeModule } from './bot/volume'
+import { automationModule } from './bot/automation'
 import { botRoutes } from './volumebot/routes'
 import { automationRoutes } from './automation/routes'
 import { createAutomationRunner } from './automation/runner'
@@ -120,6 +121,7 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     volumeModule(),
     bridgeModule(),
     kitsModule(),
+    automationModule(),
   ]
 }
 
@@ -131,7 +133,7 @@ export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
   const rank = (name: string) => (MENU_FIRST.includes(name) ? MENU_FIRST.indexOf(name) : MENU_FIRST.length)
   return bot
     .commands()
-    .filter((c) => c.command.description && (c.command.scope === 'any' || c.command.scope === scope))
+    .filter((c) => c.command.description && c.command.menu !== false && (c.command.scope === 'any' || c.command.scope === scope))
     .map((c, i) => ({ c, i }))
     .sort((a, b) => rank(a.c.name) - rank(b.c.name) || a.i - b.i)
     .map(({ c }) => ({ command: c.name, description: (c.command.description as string).slice(0, 256) }))
