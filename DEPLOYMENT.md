@@ -97,7 +97,7 @@ Every server process fails closed on its configuration: a missing or doubtful cr
 | `NEARKIT_SIGNER_TELEGRAM_BOT_ID` | the bot's numeric id (public) | The signer checks approvals given in the bot's Mini App with Telegram's own key. Without it, wallets with no owner wallet can't approve withdrawal addresses, so the app creates none (a linked wallet is then required) |
 | `NEARKIT_FEE_RECIPIENT` | `nearkitfee.near` | Exactly this on mainnet |
 | `NEARKIT_SIGNER_RPC_URLS`, `NEARKIT_SIGNER_RPC_QUORUM` | ≥ 2 providers, quorum ≥ 2 | Security facts need agreeing providers |
-| `NEARKIT_SIGNER_MAX_SLIPPAGE_PCT` | owner decision (default 50) | A swap's minimum may not sit further below the signer's own Rhea quote. Lower means safer against a compromised app, but refuses trades with more slippage |
+| `NEARKIT_SIGNER_MAX_SLIPPAGE_PCT` | `10` (required on mainnet; the signer refuses to start without it) | The signer's price floor: a swap's minimum may not sit further below the signer's own quote (Rhea, or the DCL contract on chain). NEARKITS wallets trade with at most 5% slippage (web, Telegram and the Volume Bot refuse more), so 10 leaves room for a token's sell tax. A quote of nothing, or one the signer can't get, refuses the swap |
 | `NEARKIT_SIGNER_HOST`, `NEARKIT_SIGNER_PORT`, `NEARKIT_SIGNER_TLS_CERT`, `NEARKIT_SIGNER_TLS_KEY` | private interface and TLS | TLS is required unless it listens on 127.0.0.1 |
 | `NEARKIT_SIGNER_PAUSED`, `NEARKIT_SIGNER_PAUSE_FILE` | `false`, a path on persistent storage | Host-level kill switches, checked on every request. The flag is read at start (change it with a restart); the file pauses while it exists. `signer:admin -- resume` does not lift either |
 
@@ -121,7 +121,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 
 | Service | Check | Healthy when |
 |---|---|---|
-| App | `GET /health` (public, secret-free) | `ok: true`; `wallets: "on"` (when custody is on); `signer: "ok"`; `pauses` as intended; `bot: true`; `buybot` as configured |
+| App | `GET /health` (public, secret-free) | `ok: true`; `wallets: "on"` (when custody is on); `signer: "ok"`; `pauses` as intended; `bot: true`; `buybot` as configured; `ops: "ok"` (the host watchdog's last verdict, §13; `degraded` or `unknown` otherwise); `version` = the commit the app was built from |
 | Signer | `GET /livez` | Process alive (no details) |
 | Signer | `npm run signer:admin -- status` on its host, or the app's `/health` `signer` field | KEK `ok` (a KMS round trip), database `ok`, `paused false`, network `mainnet` |
 | Buy bot | `GET /health` on `BUYBOT_HEALTH_PORT` | `ok: true` (followed within 2 minutes); `posting: true` on exactly one instance |
@@ -197,7 +197,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 - **Security events.** App: `custody_audit`, listed by `npm run ops -- events`. Signer: `signer_events`, via `signer:admin status`.
   - Events: wallet create/delete/revoke/freeze, owner binding, backup key, export link, recovery session, export, destination approval, intent confirmed/blocked/done/failed, transaction signed/sent/resolved, referral attribution/earning/claim, signer denials and refused owner proofs, switch changes.
   - None ever holds a secret, and the lifecycle secret scan tests that (`server/src/bot/custodySecrets.test.ts`).
-- **Alert on:** signer denials, refused owner proofs, exports, withdrawal bursts, KMS Decrypt volume (CloudTrail), `/health` not ok, and the resolver's "couldn't confirm" outcomes.
+- **Alert on:** signer denials, refused owner proofs, exports, withdrawal bursts, KMS Decrypt volume (CloudTrail), `/health` not ok, and the resolver's "couldn't confirm" outcomes. On the VPS, `bin/monitor` does this (§13).
 
 ---
 
@@ -241,9 +241,69 @@ internet ──443──► caddy ──► app ──(signer-link)──► sig
   - `touch control/signer.paused`: stops all signing.
   - `docker compose stop openbao`: the emergency brake. Nothing can be unwrapped until the owner restarts and unseals it.
   - `NEARKIT_OPS_PAUSED` in `app.env`: the kill switches held on the host.
-- **Deploying** a commit: `/opt/nearkit/bin/deploy <commit>`, then `docker compose up -d` (and `--profile signer` for the signer). Every image is built on the server from the public repository.
+- **Deploying** a commit: `/opt/nearkit/bin/deploy <commit> [service …]`, then the `up` command it prints, per service (§11). Every image is built on the server from the public repository.
 - **Backups:** `nearkit-backup.timer` runs hourly and writes to `/opt/nearkit/backups` (root-only).
   - It keeps both database dumps (each checked with `pg_restore --list`) and an OpenBao raft snapshot.
   - Retention is 48 hours, then daily for 30 days. Hostinger's weekly server backups include it.
   - No backup opens a wallet key without the owner's unseal key.
+  - Each backup is also encrypted and copied off the server (§12).
 - **The host:** keys-only SSH, a firewall allowing 22, 80 and 443, unattended security upgrades, Docker from Docker's repository with log rotation, and OpenBao's audit log rotated daily for 30 days.
+
+---
+
+## 11. Deploying and rolling back (VPS)
+
+Each node service runs its own image tag, set in `/opt/nearkit/.env`: `NEARKIT_APP_TAG`, `NEARKIT_BUYBOT_TAG` and `NEARKIT_SIGNER_TAG`. Compose refuses to start a service without its tag, so a build for the app never moves the signer or the buy bot.
+
+**The signer is pinned.** It moves only in a signer release of its own: a reviewed change under `server/src/signer`, deployed with `bin/deploy <commit> signer`. A change to `signer.env` alone (for example the price floor) recreates the signer on the tag it already runs.
+
+**Releases go through a pull request.** `main` is protected: both CI jobs ("Typecheck, lint, test, build" and "Server on PostgreSQL (multi-instance races)") must pass before a merge, for admins too, and nothing force-pushes. A merge to `main` deploys the web app on Vercel; the VPS moves only when the owner deploys.
+
+**Deploying a commit:**
+1. `/opt/nearkit/bin/deploy <commit> [app|buybot|signer …]` (default: `app`).
+   - It refuses a commit unless every GitHub check run on it passed (`NEARKIT_DEPLOY_SKIP_CI=1` skips this, for an emergency only).
+   - It builds `nearkit-server:<sha>` (the build records the commit; `/health` reports it as `version`). A failed build changes nothing.
+   - It installs this directory's scripts, compose file, Caddyfile, `openbao.hcl` and the backup and monitor timers.
+   - It sets the tag of the named services only, keeps every image a service is set to plus the five newest, and **restarts nothing**.
+2. **Check that nothing is in flight:** `/opt/nearkit/bin/monitor --inflight`. It counts wallet operations under way, sent transactions not yet settled, bridge orders in their NEARKITS step (buy or unwrap) and the signer's signatures in the last minute, and exits 0 only when all are zero. While a Volume Bot runs, wait for a moment between its trades, or pause Volume Bots first (§7).
+3. Apply it per service, with the command `deploy` printed: `docker compose up -d --no-deps --wait app` (`--profile signer` for the signer). `--no-deps` keeps the databases, OpenBao and Caddy running as they are.
+4. Verify: `/health` shows the new `version`, `ok: true`, `signer: "ok"` and `ops: "ok"`; `bin/monitor --status` prints "all checks ok".
+
+**Rolling back a service:** `/opt/nearkit/bin/deploy --rollback <service> <tag>` points it back at an image still on this host (`docker images nearkit-server` lists them), then apply it as in step 3. Migrations are forward-only (§6): roll the app back only to a build that runs on the current schema. The web app rolls back on its own in Vercel (promote the previous production deployment); it holds no state.
+
+**On a fresh host,** or one still on the old shared `NEARKIT_IMAGE_TAG`, `deploy` sets each service's tag from the image that service runs now, so nothing moves until it is deployed on purpose.
+
+---
+
+## 12. Off-site backups and restore
+
+Every hourly backup (§10) is also copied off the server, encrypted, by `bin/backup-offsite`, which `bin/backup` runs after each local backup.
+
+- **What:** both database dumps, OpenBao's raft snapshot, and the configuration the stack needs to start again (`secrets/`, the env files, compose file, Caddyfile, `openbao.hcl`, the backup and monitor settings, and the TLS material of OpenBao and the signer).
+- **Encryption:** [age](https://age-encryption.org), to the public keys in `deploy/vps/backup-recipients.txt`. Only public keys are on the server. The identity that decrypts is kept by the owner on their own workstation, never on the server or in any repository. Even decrypted, no wallet key opens without OpenBao's unseal key, which only the owner holds.
+- **Where:** the private GitHub repository `madjaric/nearkit-backups`, one branch per backup (`b-<stamp>`), pushed over SSH with a deploy key that can write to that repository only (`secrets/backup_deploy_key`) and GitHub's host keys pinned (`github_known_hosts`). Each branch holds the ciphertext and a manifest of sizes and checksums; after the push, the script checks that GitHub holds exactly that commit.
+- **Retention:** every backup for 48 hours, then the midnight (UTC) one of each day for 30 days, as locally.
+- **Status:** `backups/.offsite.ok` or `.offsite.error`; the watchdog alerts when the copy fails or is over two hours old (§13).
+
+**Restore check** (on a workstation with Docker and the identity; nothing touches production):
+
+```
+deploy/vps/restore-check.sh <identity file> [b-<stamp>] [--unseal]
+```
+
+It clones the newest backup (or the one named), checks the manifest's checksums, decrypts everything, restores both databases into throwaway PostgreSQL 17 containers and counts their rows, restores the raft snapshot into a throwaway OpenBao 2.6.3 (and checks that the throwaway key no longer opens it), and lists the configuration archive. With `--unseal`, run by the owner only, it asks for the unseal key on the terminal and round-trips a value through the restored transit key with the signer's token from the backup: proof that the wallet keys would open. Last run: 2026-10-12, backup `b-20261012T230207Z`, passed without `--unseal`.
+
+**Disaster recovery outline** (not yet rehearsed on a new host): provision a host (`bootstrap.sh`), decrypt the configuration archive into `/opt/nearkit`, restore both databases from their dumps, restore the raft snapshot into OpenBao, have the owner unseal it, then deploy each service at its tag from the restored `.env` (§11).
+
+---
+
+## 13. Monitoring and alerts
+
+**On the host:** `bin/monitor`, every two minutes (`nearkit-monitor.timer`). It runs outside the app, so it reports when the app itself is down.
+- **Checks:** every container running, healthy and not restarting on its own; the app's `/health` through Caddy (`ok`, `bot`, `signer`); OpenBao sealed or unreachable; signer refusals (5 or more in 15 minutes); the local backup and its off-site copy (failed, or over two hours old); both databases accepting connections; bridge orders past their expected lifecycle; Telegram polling errors and a rejected bot token; bursts of app errors; wallet operations in flight for over 10 minutes; sent transactions not settled after 15; failed operations (5 or more in an hour); buy alerts not delivered; a stalled Volume Bot runner. A query that returns no number is an alert of its own, never read as zero.
+- **Alerts** go to the owner's Telegram chat through NEARKITS' bot: once when a check starts failing, again every 6 hours while it fails, and once when it recovers, plus a daily line at 07:00 UTC that says all is well (so a silent channel is noticed). They name the check and counts only: no secret, account, amount or transaction.
+- **Setup:** set `ALERT_TELEGRAM_CHAT_ID` (the owner's numeric Telegram id; the owner must have started the bot) in `/opt/nearkit/monitor.env`, then `bin/monitor --test`. Until it is set, alerts go to the journal only (`journalctl -u nearkit-monitor`). Thresholds can be tuned there too (`monitor.env.example`).
+- `bin/monitor --status` prints every check's state and sends nothing; `bin/monitor --inflight` is the pre-restart check (§11).
+- Each run writes its verdict to `control/monitor.json`, which the app reports on `/health` as `ops` (`ok`, `degraded`, or `unknown` when the watchdog has not run for 10 minutes).
+
+**From outside:** the GitHub Actions workflow `Uptime` (`.github/workflows/uptime.yml`) checks every 10 minutes that nearkits.com answers and that `/health` reports `ok`, the bot, the signer and `ops`. A failed run emails the repository owner. It still reports when the VPS, its watchdog or the Telegram alerts are down. GitHub can start scheduled runs late and turns schedules off in a repository without activity for 60 days.
