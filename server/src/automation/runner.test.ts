@@ -177,6 +177,29 @@ describe('limit orders', () => {
     expect((await store.events(o.id))[0]?.message).toMatch(/24 hours/)
   })
 
+  it('an uncertain outcome (sent, the chain’s answer late) is “submitted”, never filled, never sent twice; it fills once the chain confirms', async () => {
+    const { h, store, order, tick, notices } = await setup()
+    const [o] = await order({})
+    if (!o) throw new Error('no order')
+    h.market.usdtPerNear = 4_200_000n
+    await tick() // armed
+    h.chain.onSend((tx) => (tx.receiverId === 'wrap.testnet' ? 'hidden' : 'apply'))
+    await tick(6_000)
+    expect((await store.get(o.id))?.status).toBe('submitted')
+    expect(await store.executionsOf(o.id)).toMatchObject([{ status: 'submitted' }])
+    expect(notices.some((n) => /filled/.test(n))).toBe(false)
+    await tick(31_000)
+    await tick(31_000)
+    expect(await store.executionsOf(o.id)).toHaveLength(1)
+    // The chain answers; the resolver settles the intent, the worker the order.
+    h.chain.reveal()
+    await h.custody.engine.resolvePending()
+    await tick(3_000)
+    expect((await store.get(o.id))?.status).toBe('filled')
+    expect(await store.executionsOf(o.id)).toMatchObject([{ status: 'confirmed', tokenRaw: '4200000' }])
+    expect(notices.at(-1)).toMatch(/filled on chain/)
+  })
+
   it('a trade sent before a restart is settled from its intent: the order fills once the chain says so', async () => {
     const { h, w, store, order } = await setup()
     const [o] = await order({})
