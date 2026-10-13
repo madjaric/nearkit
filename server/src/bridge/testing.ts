@@ -35,6 +35,8 @@ export function fakeOneClick(now: () => number) {
   const quotes: Record<string, unknown>[] = []
   const submitted: { depositAddress: string; txHash: string }[] = []
   const statuses = new Map<string, Record<string, unknown>>()
+  /** Every status read, by deposit address, in order: how often NEARKITS asks about each order. */
+  const polls: string[] = []
   /** Every real quote gets its own deposit address, the first one DEPOSIT_SOL. */
   let deposits = 0
   const state = {
@@ -57,6 +59,7 @@ export function fakeOneClick(now: () => number) {
     const url = new URL(String(input))
     if (url.pathname === '/v0/tokens') return json(200, tokens())
     if (url.pathname === '/v0/status') {
+      polls.push(url.searchParams.get('depositAddress') ?? '')
       const s = statuses.get(url.searchParams.get('depositAddress') ?? '')
       return s ? json(200, s) : json(404, { message: 'not found' })
     }
@@ -114,7 +117,7 @@ export function fakeOneClick(now: () => number) {
       },
     })
   }
-  return { fetch, quotes, submitted, statuses, state }
+  return { fetch, quotes, submitted, statuses, polls, state }
 }
 
 /** FastNEAR's record of NEAR transactions: what the server checks a delivery and a purchase against. */

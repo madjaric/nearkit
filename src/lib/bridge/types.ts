@@ -89,15 +89,16 @@ export interface BridgeQuoteView {
   /** Null when the purchase can't be priced now (the reason is in `kitsUnavailable`); always null for a Bridge. */
   kits: BridgeKitsEstimate | null
   kitsUnavailable: string | null
-  /** Bridge only: what arrives and whether it can arrive there (null for Bridge & Buy). */
+  /** What arrives and whether it can arrive there (both products: NEAR Intents delivers wNEAR). */
   delivery?: BridgeDelivery | null
   quotedAt: number
 }
 
 /**
- * Bridge: what arrives on NEAR, and whether the destination can take it. NEAR Intents delivers NEAR
- * as wNEAR (`wrap.near`'s ft_transfer; it has no native NEAR asset), so the destination must be on
- * NEAR and registered with wrap.near, and native NEAR comes from an unwrap afterwards.
+ * What arrives on NEAR, and whether the destination can take it (both products). NEAR Intents delivers
+ * NEAR as wNEAR (`wrap.near`'s ft_transfer; it has no native NEAR asset), so the destination must be on
+ * NEAR and registered with wrap.near, and native NEAR comes from an unwrap afterwards (for Bridge & Buy,
+ * the purchase's first step).
  */
 export interface BridgeDelivery {
   /** What NEAR Intents delivers: wNEAR. */

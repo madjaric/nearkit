@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { SocialLinks } from '@/components/brand/Social'
 import { SOCIAL } from '@/config/social'
-import { createBridgeClient, newRequestKey } from './bridge'
+import { createBridgeClient, newRequestKey, reviewKey } from './bridge'
 
 /**
  * The bridge client's identity and keys. On NEARKITS web a request names the user with the web
@@ -44,6 +44,17 @@ describe('the bridge client names the user once, the way the page has', () => {
     await client.start(req).catch(() => undefined)
     expect(r.sent[0]?.body).toEqual({ ...req, requestKey: 'key-0123456789abcdef' })
     expect(r.sent[1]?.body).not.toHaveProperty('requestKey')
+  })
+
+  it('a review’s key: the same for the same request sent again (a retry after a lost answer), a new one for any other', () => {
+    const req = { chain: 'sol' as const, amount: '1', sourceAddress: 'So1', destination: { kind: 'nearkits' as const, walletId: 'w1' }, kitsSlippagePct: 1 }
+    const first = reviewKey(null, req)
+    expect(first.key).toMatch(/^[A-Za-z0-9_-]{16,64}$/)
+    expect(reviewKey(first, { ...req }).key).toBe(first.key)
+    expect(reviewKey(first, { ...req, amount: '2' }).key).not.toBe(first.key)
+    expect(reviewKey(first, { ...req, kitsSlippagePct: 2 }).key).not.toBe(first.key)
+    // After its order was made the form forgets it: the next start is a new review.
+    expect(reviewKey(null, req).key).not.toBe(first.key)
   })
 
   it('request keys are random, URL-safe and of the length the server takes (16–64)', () => {
