@@ -276,6 +276,31 @@ describe('trading from NEARKITS web: the web session authorizes, no Telegram ste
     expect(h.chain.sent.length).toBe(sent)
   })
 
+  it('a trade can’t carry another user’s quotes: Alice’s quote ids confirmed in Bob’s own trade run nothing of Alice’s', async () => {
+    const { h, call, signIn, wallets, quote, custody, account } = await webApp()
+    const token = await signIn()
+    const [a] = await wallets(token, 0)
+    const alices = await quote(token, 'buy', [{ walletId: a, amountIn: '0.1' }])
+    const aliceIds = (alices.legs as { intentId: string }[]).map((l) => l.intentId)
+    const bob = await signIn(BOB)
+    const made = (await call('/api/web/wallets/create', { session: bob, name: 'Bob 1', createKey: 'web-iso-bob-0001' })).wallet as { id: string; accountId: string }
+    h.chain.fund(made.accountId, 3n * ONE)
+    const bobs = await quote(bob, 'buy', [{ walletId: made.id, amountIn: '0.1' }])
+    const bobIds = (bobs.legs as { intentId: string }[]).map((l) => l.intentId)
+    const sent = h.chain.sent.length
+    // Only Alice's ids, in Bob's trade: nothing to run.
+    await expect(call('/api/web/trade/execute', { session: bob, groupId: bobs.groupId, intentIds: aliceIds })).rejects.toMatchObject({ status: 409, code: 'nothing-open' })
+    expect(h.chain.sent.length).toBe(sent)
+    // His own ids with hers alongside: only his run.
+    expect(await call('/api/web/trade/execute', { session: bob, groupId: bobs.groupId, intentIds: [...bobIds, ...aliceIds] })).toMatchObject({ started: 1 })
+    await webRunsSettled()
+    expect((await custody.store.intentsOfGroup(String(alices.groupId))).map((i) => i.status)).toEqual(['quoted'])
+    const signers = h.chain.sent.slice(sent).map((s) => s.tx.signerId)
+    expect(signers.length).toBeGreaterThan(0)
+    expect(signers.every((s) => s === made.accountId)).toBe(true)
+    expect(signers).not.toContain(await account(a))
+  })
+
   it('runs only the quotes the web confirmed: a new price runs only when its own id is confirmed', async () => {
     const { h, call, signIn, wallets, quote, statuses, usdt } = await webApp()
     const token = await signIn()

@@ -22,6 +22,17 @@ export interface NearKitWebSession {
   userHandle: string | null
 }
 
+/**
+ * A NearKit web session this browser had that ended without a sign-out here: it expired, or the
+ * server refused it (signed out from Telegram, everywhere). Who it was, so the page can say so.
+ */
+export interface NearKitEndedSession {
+  userName: string
+  userHandle: string | null
+  /** When this browser learned it ended (an expired one: when it expired). */
+  at: number
+}
+
 export interface NearKitWebWallet {
   /** The server's id for it (every call names the wallet by this). */
   id: string
@@ -138,6 +149,13 @@ export interface NearKitWeb {
   /** A NearKit server is configured for this build. */
   readonly available: boolean
   session(): NearKitWebSession | null
+  /**
+   * The session this browser had that ended on its own (expired, or the server ended it), until the
+   * user signs in again, signs out, or dismisses it; null otherwise. A sign-out here leaves none.
+   */
+  ended(): NearKitEndedSession | null
+  /** Forgets an ended session: the page stops saying it ended. */
+  dismissEnded(): void
   login(code: string): Promise<NearKitWebSession>
   /**
    * Redeems a sign-in link's code without signing this browser in: the link may be someone
@@ -256,16 +274,26 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
   const now = options.now ?? Date.now
   const store = options.store ?? localStore()
   const key = `nearkit:web-session:${options.network}`
+  const endedKey = `nearkit:web-session-ended:${options.network}`
   const listeners = new Set<() => void>()
   let listed: { token: string; at: number; value: Promise<NearKitWalletList> } | null = null
 
   const emit = () => {
     for (const l of listeners) l()
   }
+  /** A new session, or none (signed out here): either way nothing reads as ended any more. */
   const save = (s: NearKitWebSession | null) => {
     listed = null
     if (s) store.set(key, JSON.stringify(s))
     else store.remove(key)
+    store.remove(endedKey)
+    emit()
+  }
+  /** The server ended this session: it is forgotten here at once, and who it was is kept for the page to say so. */
+  const end = (s: NearKitWebSession) => {
+    listed = null
+    store.remove(key)
+    store.set(endedKey, JSON.stringify({ userName: s.userName, userHandle: s.userHandle, at: now() } satisfies NearKitEndedSession))
     emit()
   }
 
@@ -279,11 +307,12 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     return value
   }
 
-  function parse(raw: string | null): NearKitWebSession | null {
+  /** The stored session as it was saved, expired or not; null when there is none or it is unreadable. */
+  function stored(raw: string | null): NearKitWebSession | null {
     if (!raw) return null
     try {
       const s = JSON.parse(raw) as Partial<NearKitWebSession>
-      if (typeof s.token !== 'string' || typeof s.expiresAt !== 'number' || s.expiresAt <= now()) return null
+      if (typeof s.token !== 'string' || typeof s.expiresAt !== 'number') return null
       return {
         token: s.token,
         expiresAt: s.expiresAt,
@@ -293,6 +322,39 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     } catch {
       return null
     }
+  }
+
+  function parse(raw: string | null): NearKitWebSession | null {
+    const s = stored(raw)
+    return s && s.expiresAt > now() ? s : null
+  }
+
+  // Like `session`: one object while the stored session, the ended record and whether the session is live stay the same.
+  let endedRead: { raw: string | null; ended: string | null; live: boolean; value: NearKitEndedSession | null } | null = null
+  function ended(): NearKitEndedSession | null {
+    if (!apiUrl) return null
+    const raw = store.get(key)
+    const endedRaw = store.get(endedKey)
+    // A live session: nothing ended (a new sign-in clears the record anyway).
+    const live = session() !== null
+    if (endedRead && endedRead.raw === raw && endedRead.ended === endedRaw && endedRead.live === live) return endedRead.value
+    endedRead = { raw, ended: endedRaw, live, value: live ? null : readEnded(raw, endedRaw) }
+    return endedRead.value
+  }
+
+  function readEnded(raw: string | null, endedRaw: string | null): NearKitEndedSession | null {
+    if (endedRaw) {
+      try {
+        const e = JSON.parse(endedRaw) as Partial<NearKitEndedSession>
+        if (typeof e.userName === 'string')
+          return { userName: e.userName, userHandle: typeof e.userHandle === 'string' ? e.userHandle : null, at: typeof e.at === 'number' ? e.at : 0 }
+      } catch {
+        // unreadable: as if none
+      }
+    }
+    // A stored session whose time ran out.
+    const expired = stored(raw)
+    return expired ? { userName: expired.userName, userHandle: expired.userHandle, at: expired.expiresAt } : null
   }
 
   const unavailable = () => new LinkRequestError(0, 'unavailable', 'This NEARKITS build has no NEARKITS server, so NEARKITS wallets aren’t available here.')
@@ -318,7 +380,8 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     try {
       return await apiPost<T>(apiUrl, path, { session: s.token, ...body }, fetchImpl)
     } catch (e) {
-      if (e instanceof LinkRequestError && e.status === 401) save(null)
+      // Only this session ends: a sign-in that replaced it meanwhile stays.
+      if (e instanceof LinkRequestError && e.status === 401 && stored(store.get(key))?.token === s.token) end(s)
       throw e
     }
   }
@@ -326,6 +389,15 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
   return {
     available: apiUrl !== null,
     session,
+    ended,
+
+    dismissEnded() {
+      store.remove(endedKey)
+      // An expired session is the other way one reads as ended: it is of no use any more either.
+      if (!session()) store.remove(key)
+      listed = null
+      emit()
+    },
 
     async login(code) {
       const s = await redeem(code)

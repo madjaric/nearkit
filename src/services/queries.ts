@@ -6,7 +6,8 @@ import type { OperationPlan, OperationProgress } from '@/types/operations'
 import { useServices } from './context'
 import { inFlight } from './inFlight'
 import { reconnectAs } from './ownerConnect'
-import type { NearKitWalletList, NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
+import { identityOf, type Identity } from './identity'
+import type { NearKitEndedSession, NearKitWalletList, NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import type { NearKitServices as Services } from './types'
 import {
@@ -140,6 +141,28 @@ export function useResetDemo() {
 export function useNearKitSession(): NearKitWebSession | null {
   const { nearkit } = useServices()
   return useSyncExternalStore(nearkit.subscribe, nearkit.session, nearkit.session)
+}
+
+/** The NearKit web session this browser had that ended on its own (expired, or ended by the server), or null. */
+export function useNearKitEnded(): NearKitEndedSession | null {
+  const { nearkit } = useServices()
+  return useSyncExternalStore(nearkit.subscribe, nearkit.ended, nearkit.ended)
+}
+
+/**
+ * Who the user is (identity.ts): the one check pages ask. `custodial` (default): the page takes
+ * NEARKITS wallets, so a NEARKITS web session alone signs the user in, where this build has a
+ * NEARKITS server. `waitForWallet`: pending until the browser wallet is restored.
+ */
+export function useIdentity(options: { custodial?: boolean; waitForWallet?: boolean } = {}): Identity {
+  const { nearkit } = useServices()
+  const { data: wallet, isPending } = useSession()
+  const web = useNearKitSession()
+  const ended = useNearKitEnded()
+  return identityOf(
+    { wallet, walletPending: isPending, nearkit: web, ended },
+    { custodial: (options.custodial ?? true) && nearkit.available, waitForWallet: options.waitForWallet },
+  )
 }
 
 /** The signed-in user's NearKit wallets, as the server lists them; null data when signed out. */

@@ -11,7 +11,7 @@ import { accessKeyPermission } from '@/services/near/nep413'
 import type { SignedMessageResult, WalletSession } from '@/services/near/wallet'
 import type { Holding, PresetInput, Session, Wallet, WalletPreset, WalletSnapshot } from '@/types/domain'
 import { canExecute, executableWallets } from '@/lib/wallets'
-import type { NearKitWeb } from '../nearkitWeb'
+import type { NearKitWeb, NearKitWebWallet } from '../nearkitWeb'
 import type { WalletService } from '../types'
 import type { NearContext } from './context'
 import type { Market } from './market'
@@ -89,29 +89,77 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
   }
 
   /**
-   * The signed-in Telegram user's NearKit wallets, as NearKit's server lists them (it decides
-   * which are the user's). None when signed out, or while the server can't be reached.
+   * The NearKit wallets NearKit's server last listed for this session, in this page: when the server
+   * can't be reached, they stay listed, marked unavailable, rather than vanish (a portfolio that
+   * silently lost them would read, and record, as a drop in value).
    */
-  async function nearkitWallets(): Promise<Wallet[]> {
-    const list = nearkit ? await nearkit.wallets().catch(() => null) : null
-    return (list?.wallets ?? [])
-      .filter((w) => !isForeignToNetwork(w.accountId, ctx.network.id))
-      .map((w) => ({
-        id: w.accountId,
-        label: w.name,
-        accountId: w.accountId,
-        kind: accountKind(w.accountId) === 'named' ? 'named' : 'implicit',
-        isMain: false,
-        access: 'signer',
-        source: 'nearkit',
-        nearkitId: w.id,
-        owner: w.owner,
-        frozen: w.frozen,
-      }))
+  let lastListed: { token: string; wallets: NearKitWebWallet[] } | null = null
+
+  /**
+   * The signed-in Telegram user's NearKit wallets, as NearKit's server lists them (it decides
+   * which are the user's: the list is used as it comes, never filtered here by user). None when
+   * signed out, or when the server ended the session. While the server can't be reached: the
+   * wallets it last listed, each marked unavailable, or, when it listed none yet in this page,
+   * `problem` (the portfolio can't be read whole without them).
+   */
+  async function nearkitWallets(): Promise<{ wallets: Wallet[]; problem: NearKitError | null }> {
+    if (!nearkit) return { wallets: [], problem: null }
+    const token = nearkit.session()?.token ?? null
+    let rows: NearKitWebWallet[]
+    let unavailable: string | undefined
+    try {
+      const list = await nearkit.wallets()
+      rows = list?.wallets ?? []
+      lastListed = list && token ? { token, wallets: list.wallets } : null
+    } catch (e) {
+      // The server ended the session (nearkitWeb forgot it): signed out, so there is nothing to list.
+      if (nearkit.session() === null) {
+        lastListed = null
+        return { wallets: [], problem: null }
+      }
+      const reason = e instanceof Error && e.message ? e.message : 'The NEARKITS server didn’t answer.'
+      if (!token || lastListed?.token !== token)
+        return { wallets: [], problem: new NearKitError('WALLET_UNAVAILABLE', `Your NEARKITS wallets can’t be listed right now. ${reason}`, { cause: e }) }
+      rows = lastListed.wallets
+      unavailable = `${reason} Until it answers, this NEARKITS wallet’s balances are read from chain, and it can’t trade or send.`
+    }
+    return {
+      problem: null,
+      wallets: rows
+        .filter((w) => !isForeignToNetwork(w.accountId, ctx.network.id))
+        .map((w) => ({
+          id: w.accountId,
+          label: w.name,
+          accountId: w.accountId,
+          kind: accountKind(w.accountId) === 'named' ? 'named' : 'implicit',
+          isMain: false,
+          access: 'signer',
+          source: 'nearkit',
+          nearkitId: w.id,
+          owner: w.owner,
+          frozen: w.frozen,
+          ...(unavailable ? { unavailable } : {}),
+        })),
+    }
   }
 
-  async function wallets(): Promise<Wallet[]> {
+  /** Every wallet, with the NearKit wallets' problem when they couldn't be listed at all (see nearkitWallets). */
+  async function listed(): Promise<{ wallets: Wallet[]; problem: NearKitError | null }> {
     const [session, own] = await Promise.all([currentSession(), nearkitWallets()])
+    return { wallets: withAccounts(session, own.wallets), problem: own.problem }
+  }
+
+  /** The pickers' list: what can be listed now (a NearKit wallet list that failed leaves the browser wallet's accounts). */
+  const wallets = async (): Promise<Wallet[]> => (await listed()).wallets
+
+  /** The wallets a whole read needs: it fails when the NearKit wallets couldn't be listed, rather than leave them out of a total. */
+  async function wholeWallets(): Promise<Wallet[]> {
+    const { wallets: list, problem } = await listed()
+    if (problem) throw problem
+    return list
+  }
+
+  function withAccounts(session: Session | null, own: Wallet[]): Wallet[] {
     if (!session) return own
     // A NearKit wallet also in the account book (added to watch it before) is listed once, as what it is.
     const mine = new Set(own.map((w) => w.accountId))
@@ -159,12 +207,15 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
         return price === undefined ? null : h.amount * price
       })
       const valueUsd = ctx.capabilities.prices ? priced.reduce<number>((s, v) => s + (v ?? 0), 0) : null
-      return { ...w, nearBalance: display(nearRaw, NEAR_DECIMALS), holdings, valueUsd }
+      // An account the RPC couldn't read: its NEAR is unknown, not 0.
+      const unavailable = w.unavailable ?? (b?.state === null ? 'Its NEAR balance can’t be read right now: the NEAR network didn’t answer. Try again in a moment.' : undefined)
+      return { ...w, nearBalance: display(nearRaw, NEAR_DECIMALS), holdings, valueUsd, ...(unavailable ? { unavailable } : {}) }
     })
   }
-  const snapshots = async () => snapshotsOf(await wallets())
+  /** Every wallet with its balances; fails when the NearKit wallets couldn't be listed (never a total without them). */
+  const snapshots = async () => snapshotsOf(await wholeWallets())
   /** The portfolio's wallets, filtered before any balance is read: watch-only wallets are left out here, not subtracted later. */
-  const portfolioSnapshots = async () => snapshotsOf(executableWallets(await wallets()))
+  const portfolioSnapshots = async () => snapshotsOf(executableWallets(await wholeWallets()))
 
   const validatePreset = (input: PresetInput, known: Wallet[], ignoreId?: string): PresetInput => {
     const name = input.name.trim().toUpperCase()
@@ -259,8 +310,9 @@ export function createWalletService(ctx: NearContext, market: Market, nearkit: N
     listSnapshots: snapshots,
     listPortfolioSnapshots: portfolioSnapshots,
 
+    // Each wallet's own balances (the tickets read them wallet by wallet): what can be listed now, no total.
     async listHoldings() {
-      return (await snapshots()).flatMap((s) => s.holdings)
+      return (await snapshotsOf(await wallets())).flatMap((s) => s.holdings)
     },
 
     async addAccount(input) {

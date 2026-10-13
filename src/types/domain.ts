@@ -158,6 +158,11 @@ export interface Wallet {
   owner?: string | null
   /** A NearKit wallet NearKit froze for the user's protection: it doesn't trade or send. */
   frozen?: boolean
+  /**
+   * Why this wallet's data can't be read right now (NEARKITS' server or the RPC didn't answer), in
+   * plain words; absent when it was read whole. Shown as unavailable: never dropped, never 0.
+   */
+  unavailable?: string
 }
 
 export interface Holding {
@@ -240,6 +245,8 @@ export interface PortfolioSummary {
   walletCount: number
   /** The wallets the figures above are made of: never a watch-only one. */
   executableWalletCount: number
+  /** Of those, the wallets whose data couldn't be read whole just now (`Wallet.unavailable`): the figures are partial. */
+  unavailableWalletCount: number
   updatedAt: Timestamp
 }
 
