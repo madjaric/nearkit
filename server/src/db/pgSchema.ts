@@ -510,4 +510,92 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
       CREATE UNIQUE INDEX bridge_orders_request ON bridge_orders(request_key);
     `,
   },
+  {
+    version: 9,
+    name: 'Trading automation: limit orders, Copy Trade, Sniper and DCA, their trades, audit trail and detections',
+    sql: `
+      -- Trading automation: limit orders (take profit, stop loss), Copy Trade, Sniper and DCA. Each
+      -- strategy trades from one NEARKITS wallet through the custody engine; the worker takes a strategy
+      -- under its lease (lease_owner/lease_until), so two instances never act on the same one.
+      -- subject: the token traded, or the account followed (Copy Trade). oco_group: a take profit and a
+      -- stop loss on the same position, where the first to trigger cancels the other.
+      CREATE TABLE auto_strategies (
+        id TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES telegram_users(user_id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('limit', 'copy', 'sniper', 'dca')),
+        wallet_id TEXT NOT NULL REFERENCES trading_wallets(id),
+        subject TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'paused', 'triggered', 'executing', 'submitted', 'filled', 'completed', 'cancelled', 'stopped', 'expired', 'failed')),
+        config TEXT NOT NULL,
+        state TEXT NOT NULL,
+        oco_group TEXT,
+        next_check_at BIGINT,
+        lease_owner TEXT,
+        lease_until BIGINT,
+        expires_at BIGINT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status_reason TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        closed_at BIGINT
+      );
+      CREATE INDEX auto_strategies_due ON auto_strategies(status, next_check_at);
+      CREATE INDEX auto_strategies_user ON auto_strategies(user_id, created_at);
+      CREATE INDEX auto_strategies_oco ON auto_strategies(oco_group);
+      CREATE UNIQUE INDEX auto_strategies_one_copy_per_account ON auto_strategies(user_id, network, subject) WHERE kind = 'copy' AND status IN ('active', 'paused');
+      -- One automated trade each. idem_key makes a trade unique per trigger (an order's attempt, a copied
+      -- source transaction, a DCA run): a retry or a second worker can't make a second one. Saved before
+      -- anything is signed; 'confirmed' only once the engine saw the delivery on chain.
+      CREATE TABLE auto_executions (
+        id TEXT PRIMARY KEY,
+        strategy_id TEXT NOT NULL REFERENCES auto_strategies(id) ON DELETE CASCADE,
+        user_id BIGINT NOT NULL,
+        wallet_id TEXT NOT NULL,
+        idem_key TEXT NOT NULL UNIQUE,
+        side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+        token TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('executing', 'submitted', 'confirmed', 'failed', 'cancelled')),
+        intent_id TEXT UNIQUE,
+        near_in_raw TEXT,
+        amount_in_raw TEXT,
+        expected_out_raw TEXT,
+        min_out_raw TEXT,
+        price_yocto TEXT,
+        near_raw TEXT,
+        token_raw TEXT,
+        tx_hashes TEXT,
+        message TEXT,
+        source TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX auto_executions_strategy ON auto_executions(strategy_id, created_at);
+      CREATE INDEX auto_executions_status ON auto_executions(status, updated_at);
+      CREATE INDEX auto_executions_user ON auto_executions(user_id, created_at);
+      -- The audit trail: every trigger, decision, refusal, signature request and result. No secret.
+      CREATE TABLE auto_events (
+        id BIGSERIAL PRIMARY KEY,
+        strategy_id TEXT NOT NULL REFERENCES auto_strategies(id) ON DELETE CASCADE,
+        at BIGINT NOT NULL,
+        kind TEXT NOT NULL,
+        message TEXT NOT NULL
+      );
+      CREATE INDEX auto_events_strategy ON auto_events(strategy_id, at);
+      -- What Copy Trade and Sniper saw: a source transaction or a market, once per strategy.
+      CREATE TABLE auto_detections (
+        strategy_id TEXT NOT NULL REFERENCES auto_strategies(id) ON DELETE CASCADE,
+        source_key TEXT NOT NULL,
+        at BIGINT NOT NULL,
+        side TEXT,
+        token TEXT,
+        token_raw TEXT,
+        near_raw TEXT,
+        status TEXT NOT NULL CHECK (status IN ('detected', 'eligible', 'skipped', 'executing', 'submitted', 'confirmed', 'failed')),
+        reason TEXT,
+        execution_id TEXT,
+        PRIMARY KEY (strategy_id, source_key)
+      );
+      CREATE INDEX auto_detections_at ON auto_detections(strategy_id, at);    `,
+  },
 ]

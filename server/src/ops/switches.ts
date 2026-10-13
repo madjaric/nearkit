@@ -31,9 +31,12 @@ import type { Database } from '../db/database'
  * `bridge`: Bridge & Buy hands out no new deposit address; orders already under way are still
  * followed to the end (NEAR Intents moves them whatever NEARKITS does), and their $KITS purchase
  * follows the trading switch like any trade.
+ * `automation`: no limit order, take profit, stop loss, Copy Trade, Sniper or DCA trade is sent; their
+ * trades not signed yet are cancelled, and the engine refuses any automated intent while it is set.
+ * Trades already sent are still followed to the end. Manual trading goes on.
  */
-export type SwitchName = 'trading' | 'withdrawals' | 'volumebot' | 'bridge'
-export const SWITCHES: readonly SwitchName[] = ['trading', 'withdrawals', 'volumebot', 'bridge']
+export type SwitchName = 'trading' | 'withdrawals' | 'volumebot' | 'bridge' | 'automation'
+export const SWITCHES: readonly SwitchName[] = ['trading', 'withdrawals', 'volumebot', 'bridge', 'automation']
 
 export interface SwitchState {
   paused: boolean
@@ -64,7 +67,7 @@ export class OpsSwitches {
       const r = rows.find((x) => x.name === name)
       return r && r.paused === 1 ? { paused: true, reason: r.reason, since: r.updated_at } : { paused: false, reason: null, since: r?.updated_at ?? null }
     }
-    return { trading: of('trading'), withdrawals: of('withdrawals'), volumebot: of('volumebot'), bridge: of('bridge') }
+    return { trading: of('trading'), withdrawals: of('withdrawals'), volumebot: of('volumebot'), bridge: of('bridge'), automation: of('automation') }
   }
 
   async set(name: SwitchName, paused: boolean, reason: string, by: string): Promise<void> {
@@ -77,6 +80,9 @@ export class OpsSwitches {
       // Pausing every bot also cancels their trades not signed yet: none is signed after the switch is set.
       if (name === 'volumebot' && paused)
         await this.db.run(`UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE group_id LIKE 'vb-%' AND status IN ('quoted', 'confirmed')`, [this.now()])
+      // Pausing automation does the same for every automated trade (limit orders, Copy Trade, Sniper, DCA).
+      if (name === 'automation' && paused)
+        await this.db.run(`UPDATE wallet_intents SET status = 'cancelled', updated_at = ? WHERE group_id LIKE 'auto-%' AND status IN ('quoted', 'confirmed')`, [this.now()])
     })
     await this.audit.audit({ action: paused ? 'ops-paused' : 'ops-resumed', detail: { switch: name, reason, by } })
   }
@@ -111,12 +117,19 @@ export class OpsSwitches {
     }
   }
 
-  /** The engine's gate: the same rule, for an intent at Confirm; a Volume Bot's trade also needs the Volume Bot switch on. */
+  /**
+   * The engine's gate: the same rule, for an intent at Confirm; a Volume Bot's trade also needs the Volume Bot
+   * switch on, and an automated trade (limit order, Copy Trade, Sniper, DCA: group auto-…) the automation switch.
+   */
   gate = async (intent: Intent, wallet: TradingWallet): Promise<string | null> => {
     const blocked = await this.blocked(intent.kind, wallet)
-    if (blocked || !intent.groupId?.startsWith('vb-')) return blocked
+    const vb = intent.groupId?.startsWith('vb-') ?? false
+    const auto = intent.groupId?.startsWith('auto-') ?? false
+    if (blocked || (!vb && !auto)) return blocked
     try {
-      return (await this.state()).volumebot.paused ? 'NEARKITS has paused the Volume Bot right now.' : null
+      const s = await this.state()
+      if (vb) return s.volumebot.paused ? 'NEARKITS has paused the Volume Bot right now.' : null
+      return s.automation.paused ? 'NEARKITS has paused automated trading right now.' : null
     } catch {
       return 'NEARKITS can’t confirm that this is allowed right now. Try again in a moment.'
     }

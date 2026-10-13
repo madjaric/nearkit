@@ -1,4 +1,5 @@
 import type { VolumeBotStore } from '../volumebot/store'
+import type { AutomationService } from '../automation/service'
 import { commandDoc } from '@/config/botCommands'
 import type { WebSessions } from '../web/sessions'
 import type { ServerConfig } from '../config'
@@ -43,6 +44,8 @@ export interface BotDeps {
   web: WebSessions | null
   /** The user's Volume Bots (/volume); null or absent when NEARKITS wallets are off here. */
   volumeBots?: VolumeBotStore | null
+  /** Trading automation (limit orders, Copy Trade, Sniper, DCA): the same service NEARKITS web uses. */
+  automation?: AutomationService | null
   /** The Bridge to NEAR (NEAR Intents' 1Click): the web's own service and orders; null or absent where it doesn't run (testnet). */
   bridge?: { service: BridgeService; store: BridgeStore } | null
   /** $KITS' Buyback & Burn and holder rewards, read from chain (mainnet); null or absent where they aren't read. */

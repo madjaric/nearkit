@@ -15,7 +15,7 @@ import { OpsSwitches, SWITCHES, type SwitchName } from './switches'
  * The operator's kill switches, run with the app's configuration (`npm run ops -- <command>`):
  *
  *   status                                   the switches, frozen wallets, the signer
- *   pause <trading|withdrawals|volumebot> <reason>     stop it now (fails closed; see ops/switches.ts for what keeps working)
+ *   pause <trading|withdrawals|volumebot|bridge|automation> <reason>     stop it now (fails closed; see ops/switches.ts for what keeps working)
  *   resume <trading|withdrawals|volumebot> <reason>
  *   freeze <wallet id or account> <reason>   that wallet neither trades nor withdraws
  *   unfreeze <wallet id or account> <reason>
