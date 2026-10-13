@@ -34,9 +34,15 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
   { name: 'web', description: 'open your NEARKITS wallets on NEARKITS web (a one-time sign-in link)', section: 'Account', scope: 'private' },
   { name: 'buy', usage: '[token] [NEAR amount]', description: 'buy a token with NEAR, right here from your NEARKITS wallet', section: 'Trading', scope: 'private' },
   { name: 'sell', usage: '[token] [amount or %]', description: 'sell a token for NEAR, right here from your NEARKITS wallet', section: 'Trading', scope: 'private' },
-  { name: 'quote', usage: '[token] [NEAR amount]', description: 'price a buy through Rhea without signing anything', section: 'Trading', scope: 'private' },
+  {
+    name: 'quote',
+    usage: '[token] [NEAR amount]',
+    description: 'see a buy’s price first, the same flow as /buy: nothing trades unless you then confirm it',
+    section: 'Trading',
+    scope: 'private',
+  },
   { name: 'token', usage: '<symbol or contract>', description: 'token details read from chain', section: 'Trading', scope: 'private' },
-  { name: 'balance', description: 'balances of your NEARKITS wallet (or your linked account)', section: 'Trading', scope: 'private' },
+  { name: 'balance', description: 'balances of your selected NEARKITS wallet', section: 'Trading', scope: 'private' },
   {
     name: 'volume',
     usage: '[start|pause|resume|stop]',

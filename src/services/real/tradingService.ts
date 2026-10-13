@@ -208,7 +208,7 @@ export function createTradingService(ctx: NearContext, market: Market, wallets: 
         received: null,
         routerShare: null,
         routerFee: null,
-        note: `Not charged on testnet. On mainnet the ${NEARKIT_FEE_LABEL} is collected inside the swap by Rhea’s aggregator.`,
+        note: `Not charged on testnet. On mainnet the ${NEARKIT_FEE_LABEL} is taken inside the swap through Rhea’s aggregator, or sent to NEARKITS with the swap on a route straight to a DCL pool.`,
       }
     }
     const d = f.token.decimals
