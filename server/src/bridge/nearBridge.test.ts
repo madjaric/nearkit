@@ -319,6 +319,10 @@ describe('Bridge and Bridge & Buy side by side', () => {
       ].sort(),
     )
     expect(await app.failure('/api/bridge/quote', app.input(token, w.id, { kitsSlippagePct: undefined }))).toMatchObject({ code: 'slippage' })
+    // The $KITS purchase runs from a NEARKITS wallet: at most CUSTODY_MAX_SLIPPAGE (5%), inside the signer's price floor.
+    expect(await app.failure('/api/bridge/quote', app.input(token, w.id, { kitsSlippagePct: 5.5 }))).toMatchObject({ code: 'slippage' })
+    expect(await app.failure('/api/bridge/start', app.input(token, w.id, { kitsSlippagePct: 10 }))).toMatchObject({ code: 'slippage' })
+    expect(await app.call('/api/bridge/quote', app.input(token, w.id, { kitsSlippagePct: 5 }))).toMatchObject({ chain: 'sol' })
     // An unwrap retry is a Bridge's: a Bridge & Buy order isn't one.
     expect(await app.failure('/api/bridge/unwrap', { session: token, orderId: kits.id })).toMatchObject({ status: 409 })
   })

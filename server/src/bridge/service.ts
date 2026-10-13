@@ -14,7 +14,7 @@ import {
   type BridgeQuoteView,
   type BridgeTx,
 } from '@/lib/bridge/types'
-import { BRIDGE_FEE_BPS, MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
+import { BRIDGE_FEE_BPS, CUSTODY_MAX_SLIPPAGE, NEARKIT_FEE_BPS } from '@/lib/fees'
 import { accountIdError } from '@/lib/validation'
 import { accountState } from '@/services/near/account'
 import { explorerTxUrl } from '@/services/near/explorer'
@@ -324,8 +324,9 @@ export function bridgeFor(deps: BridgeServiceDeps, token: string) {
     const parsed = tryParseUnits(input.amount.trim(), chain.decimals)
     if (!parsed.ok || parsed.value <= 0n) throw new HttpError(400, 'amount', `Enter an amount of ${chain.symbol} above 0, with at most ${chain.decimals} decimals.`)
     const slippage = input.kitsSlippagePct ?? Number.NaN
-    if (product === 'buy-kits' && !(Number.isFinite(slippage) && slippage > 0 && slippage <= MAX_SLIPPAGE))
-      throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${MAX_SLIPPAGE}%.`)
+    // The $KITS purchase runs from a NEARKITS wallet, so it keeps inside the signer's price floor.
+    if (product === 'buy-kits' && !(Number.isFinite(slippage) && slippage > 0 && slippage <= CUSTODY_MAX_SLIPPAGE))
+      throw new HttpError(400, 'slippage', `Slippage is above 0 and at most ${CUSTODY_MAX_SLIPPAGE}% for a NEARKITS wallet.`)
     let refundTo: string
     if (input.sourceAddress !== null && input.sourceAddress.trim() !== '') {
       const problem = sourceAddressError(chain, input.sourceAddress)
