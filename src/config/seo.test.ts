@@ -5,6 +5,7 @@ import { AI_CRAWLERS, headHtml, headTags, isNoindexPath, jsonLdText, kitDescript
 import { SITEMAP_PATHS } from './site'
 
 const URL = 'https://nearkits.com'
+const MAINNET = { services: 'near', network: 'mainnet', server: true } as const
 
 describe('each public page’s title and description', () => {
   it('exist for every sitemap page, each its own, short enough to show whole in results', () => {
@@ -179,8 +180,8 @@ describe('crawler files', () => {
     for (const p of publicPages().filter((x) => x.path !== '/')) expect(txt).toContain(`(https://nearkits.com${p.path}): ${p.description}`)
   })
 
-  it('llms.txt says who signs, where withdrawals go, the risks, what $KITS is and what is coming soon, and links the bot', () => {
-    const txt = llmsTxt(URL, 'NearKitBot')
+  it('llms.txt says who signs, where withdrawals go, the risks, what $KITS is and where the automations run, and links the bot', () => {
+    const txt = llmsTxt(URL, 'NearKitBot', MAINNET)
     expect(txt).toContain('[@NearKitBot](https://t.me/NearKitBot)')
     expect(txt).toMatch(/NEARKITS wallets are custodial/)
     expect(txt).toMatch(/owner wallet/)
@@ -194,7 +195,6 @@ describe('crawler files', () => {
     expect(txt).not.toMatch(/APR|APY|guaranteed/i)
     // The Bridge, apart from Bridge & Buy: what it delivers and its fee, nothing bought.
     expect(txt).toMatch(/- The Bridge \(https:\/\/[^)]+\/bridge-near\), apart from Bridge & Buy: [^\n]*Nothing is bought\.[^\n]*wNEAR[^\n]*0\.25%[^\n]*no trading fee/)
-    expect(txt).toMatch(/Coming soon[^\n]*limit orders[^\n]*DCA[^\n]*copy trading[^\n]*sniper/i)
     // The bot only where the build names it; the community and X, NEARKITS' own accounts, always.
     expect(llmsTxt(URL)).not.toContain('t.me/NearKitBot')
     expect(txt).toContain(
@@ -231,5 +231,36 @@ describe('structured data as one graph', () => {
       'https://nearkits.com/volume-bot#breadcrumb',
       'https://nearkits.com/volume-bot#faq',
     ])
+  })
+})
+
+describe('llms.txt on the automations, by what the build runs on', () => {
+  // The key fact on them (the All Tools page's description names them too, as tools).
+  const automation = (txt: string) => txt.split('\n').filter((l) => /^- (In the demo, )?Limit Orders \(/.test(l))
+
+  it('mainnet with NEARKITS’ server: live from NEARKITS wallets after a Telegram sign-in; never from a browser wallet; never "coming soon"', () => {
+    const txt = llmsTxt(URL, 'NearKitBot', MAINNET)
+    const [line, ...more] = automation(txt)
+    expect(more).toEqual([])
+    expect(line).toMatch(
+      /^- Limit Orders \(limit buy, limit sell, take profit, stop loss\), DCA, Copy Trade and the Sniper are live on NEAR mainnet: NEARKITS’ server runs them from NEARKITS wallets/,
+    )
+    expect(line).toContain('signed in with Telegram (send /web to @NearKitBot for a one-time sign-in link)')
+    expect(line).toContain('A browser wallet you connect can’t run them.')
+    expect(line).toContain('https://nearkits.com/docs')
+    expect(txt).not.toMatch(/coming soon/i)
+    expect(llmsTxt(URL, null, MAINNET)).toContain('send /web to the NEARKITS bot')
+  })
+
+  it('testnet with the server: only when the server switches them on; no server: nothing runs here; the demo: simulated', () => {
+    expect(automation(llmsTxt(URL, null, { services: 'near', network: 'testnet', server: true }))[0]).toMatch(
+      /run on NEARKITS’ server on NEAR testnet when it switches them on, from NEARKITS wallets after a Telegram sign-in; a browser wallet you connect can’t run them/,
+    )
+    expect(automation(llmsTxt(URL, null, { services: 'near', network: 'mainnet', server: false }))[0]).toMatch(
+      /run only on NEARKITS’ server, which this build doesn’t use: nothing runs or executes for them here\.$/,
+    )
+    expect(automation(llmsTxt(URL, null, { services: 'demo', network: 'mainnet', server: false }))[0]).toMatch(
+      /^- In the demo, .* are simulated: rules are saved in standby and nothing runs or executes\.$/,
+    )
   })
 })
