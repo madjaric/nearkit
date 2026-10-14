@@ -8,7 +8,8 @@ import { cn } from '@/lib/cn'
 import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import { useTokenRanking } from '@/features/tokens/useTokenRanking'
-import { useCapabilities, useTokenLookup, useTokens } from '@/services/queries'
+import { isComingSoonFor } from '@/config/release'
+import { useAutomationEnabled, useCapabilities, useTokenLookup, useTokens } from '@/services/queries'
 import { buildResults, type Result } from './searchResults'
 
 export function GlobalSearch({ className, autoFocus = false, onDone }: { className?: string; autoFocus?: boolean; onDone?: () => void }) {
@@ -29,9 +30,15 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
   const lookupState = lookup.isPending ? 'checking' : lookup.data ? 'found' : 'not-found'
   // No wallet of its own: what every executable wallet holds ranks first (never watch-only).
   const rank = useTokenRanking(null)
+  // SOON as the sidebar has it: the build's list, opened for each automation NEARKITS' server runs.
+  const enabled = useAutomationEnabled()
   const results = useMemo(
-    () => buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote, state: lookupState } : null, { rank }),
-    [query, tokens, lookupId, lookup.data, lookupNote, lookupState, rank],
+    () =>
+      buildResults(query, tokens, lookupId ? { token: lookup.data ?? null, note: lookupNote, state: lookupState } : null, {
+        rank,
+        isSoon: (path) => isComingSoonFor(path, enabled),
+      }),
+    [query, tokens, lookupId, lookup.data, lookupNote, lookupState, rank, enabled],
   )
 
   // "/" focuses search from anywhere that isn't already a text field.

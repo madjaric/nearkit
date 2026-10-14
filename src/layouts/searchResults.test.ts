@@ -145,3 +145,16 @@ describe('global search: a contract in no list', () => {
     expect(bad.map((r) => r.group)).toEqual(['Tokens', 'Scan'])
   })
 })
+
+describe('SOON in the search results follows the same rule as the sidebar', () => {
+  it('a page or a command is tagged SOON exactly when the given rule says so (the server’s answer included)', () => {
+    const isSoon = (path: string) => path === '/limit-orders'
+    const pages = buildResults('limit', [], null, { isSoon })
+    expect(pages.find((r) => r.to === '/limit-orders')?.soon).toBe(true)
+    const live = buildResults('limit', [], null, { isSoon: () => false })
+    expect(live.find((r) => r.to === '/limit-orders')?.soon).toBe(false)
+    const commands = buildResults('/', [], null, { isSoon })
+    expect(commands.find((r) => r.to === '/limit-orders')?.soon).toBe(true)
+    expect(commands.find((r) => r.to === '/dca')?.soon).toBe(false)
+  })
+})

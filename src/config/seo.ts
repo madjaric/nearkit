@@ -2,6 +2,7 @@ import { FAQ, VOLUME_BOT_DESCRIPTION, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_
 import { NAV_GROUPS } from '@/layouts/nav'
 import { BRIDGE_FEE_LABEL, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { KIT, KIT_LAUNCH, KITS_CONTRACT } from './kit'
+import { ENV, type AppEnv } from './env'
 import { BETA_COMING_SOON } from './release'
 import { SOCIAL, SOCIAL_ACCOUNTS } from './social'
 import { canonicalUrl, SITEMAP_PATHS } from './site'
@@ -324,22 +325,37 @@ export function robotsTxt(publicUrl: string): string {
   return ['User-agent: *', 'Allow: /', '', ...AI_CRAWLERS.map((a) => `User-agent: ${a}`), 'Allow: /', '', `Sitemap: ${publicUrl}/sitemap.xml`, ''].join('\n')
 }
 
-/** llms.txt: what NEARKITS is and its public pages, for AI assistants (llmstxt.org). */
-/** The features COMING SOON in this build, by name (llms.txt states them plainly). */
-const COMING_SOON_NAMES: Record<string, string> = {
-  '/limit-orders': 'limit orders (take-profit, stop-loss)',
-  '/dca': 'DCA',
-  '/copy-trade': 'copy trading',
-  '/sniper': 'the sniper',
+/** What a build runs on, for llms.txt: the services, the network, and whether it names NEARKITS' server. */
+export interface LlmsBuild {
+  services: AppEnv['services']
+  network: AppEnv['network']
+  server: boolean
 }
 
-export function llmsTxt(publicUrl: string, telegramBot: string | null = null): string {
+const THIS_BUILD: LlmsBuild = { services: ENV.services, network: ENV.network, server: ENV.services === 'near' && ENV.apiUrl !== null }
+
+/**
+ * Where Limit Orders, DCA, Copy Trade and the Sniper run, for this build. NEARKITS' server switches
+ * each one on by itself (NEARKIT_AUTOMATION, read by the app from its /health); on mainnet it runs
+ * all four, from NEARKITS wallets only. The app and the Documentation show which run at any moment.
+ */
+export function automationFact(publicUrl: string, telegramBot: string | null, build: LlmsBuild): string {
+  const names = 'Limit Orders (limit buy, limit sell, take profit, stop loss), DCA, Copy Trade and the Sniper'
+  if (build.services === 'demo') return `In the demo, ${names} are simulated: rules are saved in standby and nothing runs or executes.`
+  if (!build.server) return `${names} run only on NEARKITS’ server, which this build doesn’t use: nothing runs or executes for them here.`
+  const bot = telegramBot ? `@${telegramBot}` : 'the NEARKITS bot'
+  if (build.network !== 'mainnet')
+    return `${names} run on NEARKITS’ server on NEAR ${build.network} when it switches them on, from NEARKITS wallets after a Telegram sign-in; a browser wallet you connect can’t run them. The app and its Documentation show which run now.`
+  return `${names} are live on NEAR mainnet: NEARKITS’ server runs them from NEARKITS wallets, within the user’s own settings and NEARKITS’ limits, for a user signed in with Telegram (send /web to ${bot} for a one-time sign-in link). A browser wallet you connect can’t run them. NEARKITS’ server switches each one on or off; the app and its Documentation (${canonicalUrl(publicUrl, '/docs')}) show which run now.`
+}
+
+/** llms.txt: what NEARKITS is and its public pages, for AI assistants (llmstxt.org). */
+export function llmsTxt(publicUrl: string, telegramBot: string | null = null, build: LlmsBuild = THIS_BUILD): string {
   const pages = publicPages()
   const line = (p: PageSeo) => `- [${p.name}](${canonicalUrl(publicUrl, p.path)}): ${p.description}`
   const apart = new Set(['/', VOLUME_BOT_PATH, '/docs', '/telegram', '/kit'])
   const tools = pages.filter((p) => !apart.has(p.path))
   const of = (path: string) => pages.filter((p) => p.path === path).map(line)
-  const soon = BETA_COMING_SOON.map((p) => COMING_SOON_NAMES[p]).filter((x): x is string => Boolean(x))
   return [
     `# ${SITE_NAME}`,
     '',
@@ -374,7 +390,7 @@ export function llmsTxt(publicUrl: string, telegramBot: string | null = null): s
     `- ${kitDescription()}`,
     `- ${KIT.ticker} tokenomics, from its launch configuration on ${KIT.launchVenue}: ${kitFacts().join(' ')}`,
     `- The Bridge (${publicUrl}/bridge-near), apart from Bridge & Buy: ${nearBridgeFacts().join(' ')}`,
-    ...(soon.length ? [`- Coming soon (nothing runs or executes for them yet): ${soon.join(', ')}.`] : []),
+    `- ${automationFact(publicUrl, telegramBot, build)}`,
     '',
   ].join('\n')
 }

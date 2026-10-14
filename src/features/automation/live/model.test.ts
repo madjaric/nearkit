@@ -43,7 +43,7 @@ import {
   type Reviewed,
   type SniperDraft,
 } from './model'
-import { automationLive } from './queries'
+import { automationAccess, automationLive } from './queries'
 
 /**
  * NEARKITS web's automation forms validate with the server's own rules (src/lib/automation/config.ts):
@@ -299,6 +299,32 @@ describe('which page a user sees', () => {
     expect(automationLive('near', undefined, 'limit')).toBe(false)
     expect(automationLive('demo', ['limit', 'copy', 'sniper', 'dca'], 'limit')).toBe(false)
     expect(automationLive('demo', ['sniper'], 'sniper')).toBe(false)
+  })
+
+  const base = { mode: 'near' as const, available: true, session: false, sessionKinds: undefined, sessionPending: false, serverKinds: undefined, serverPending: false }
+
+  it('no NEARKITS session, the server runs it (public /health): the live page asks to sign in, never drafts or "coming soon"', () => {
+    expect(automationAccess({ ...base, serverKinds: ['limit', 'dca', 'sniper', 'copy'] }, 'copy')).toBe('sign-in')
+    // The server runs other kinds, or none: the page as it was.
+    expect(automationAccess({ ...base, serverKinds: ['dca'] }, 'copy')).toBe('held')
+    expect(automationAccess({ ...base, serverKinds: [] }, 'copy')).toBe('held')
+    // The answer is on its way: nothing is shown as held (or live) yet; it failed: as it was.
+    expect(automationAccess({ ...base, serverPending: true }, 'copy')).toBe('checking')
+    expect(automationAccess({ ...base, serverKinds: null }, 'copy')).toBe('held')
+  })
+
+  it('with a session, its own answer decides: live, held, or checking while it is read', () => {
+    const signedIn = { ...base, session: true, serverKinds: ['limit', 'dca', 'sniper', 'copy'] as const }
+    expect(automationAccess({ ...signedIn, sessionKinds: ['limit'] }, 'limit')).toBe('live')
+    expect(automationAccess({ ...signedIn, sessionKinds: ['dca'] }, 'limit')).toBe('held')
+    expect(automationAccess({ ...signedIn, sessionPending: true }, 'limit')).toBe('checking')
+    // The session's read failed: as it was (the live page needs it).
+    expect(automationAccess(signedIn, 'limit')).toBe('held')
+  })
+
+  it('the demo and a build without a server: always the page as it was', () => {
+    expect(automationAccess({ ...base, mode: 'demo', serverKinds: ['limit'] }, 'limit')).toBe('held')
+    expect(automationAccess({ ...base, available: false, serverKinds: ['limit'] }, 'limit')).toBe('held')
   })
 })
 

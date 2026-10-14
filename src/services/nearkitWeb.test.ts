@@ -33,6 +33,25 @@ function server(routes: Record<string, Handler>) {
 
 const wallet = { id: 'w1', accountId: 'a'.repeat(64), name: 'Main', slot: 1, owner: null, frozen: false, createdAt: 1 }
 
+describe('what NEARKITS’ server runs, from its public /health (no session)', () => {
+  const web = (fetchImpl: typeof fetch) => createNearKitWeb({ apiUrl: API, network: 'mainnet', fetchImpl, store: memoryStorage() })
+  const health = (automation: unknown) => server({ '/health': () => ({ status: 200, json: { ok: true, network: 'mainnet', automation } }) })
+
+  it('reads the automations the server runs, without a session; "off" is none; a kind it doesn’t know is dropped', async () => {
+    const s = health('limit,dca,sniper,copy')
+    expect(await web(s.fetchImpl).serverAutomation()).toEqual(['limit', 'dca', 'sniper', 'copy'])
+    expect(s.calls).toEqual([{ path: '/health', body: {} }])
+    expect(await web(health('off').fetchImpl).serverAutomation()).toEqual([])
+    expect(await web(health('limit,moon').fetchImpl).serverAutomation()).toEqual(['limit'])
+  })
+
+  it('a server that doesn’t say is unknown (null), never "none"; a server that fails is an error', async () => {
+    expect(await web(health(undefined).fetchImpl).serverAutomation()).toBeNull()
+    expect(await createNearKitWeb({ apiUrl: null, network: 'mainnet', store: memoryStorage() }).serverAutomation()).toBeNull()
+    await expect(web(server({ '/health': () => ({ status: 503, json: {} }) }).fetchImpl).serverAutomation()).rejects.toThrow()
+  })
+})
+
 describe('the sign-in link', () => {
   it('reads only a well-formed #login= code', () => {
     expect(readLoginCode(`#login=${CODE}`)).toBe(CODE)

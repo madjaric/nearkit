@@ -14,8 +14,8 @@ import { formatAccount, formatAgo } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
 import { cn } from '@/lib/cn'
-import { countByKind, KIND_PAGE, type StrategyRow } from './strategies'
-import type { ActiveStrategies, StrategiesOff } from './useActiveStrategies'
+import { countByKind, KIND_PAGE, type StrategiesOff, type StrategyRow } from './strategies'
+import type { ActiveStrategies } from './useActiveStrategies'
 
 const SHOWN = 5
 const linkKey = 'keycap inline-flex h-8 items-center gap-1.5 rounded-sm px-3 text-2xs text-fg-2 transition-colors hover:bg-raised hover:text-fg'

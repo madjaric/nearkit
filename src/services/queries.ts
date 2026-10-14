@@ -9,6 +9,7 @@ import { reconnectAs } from './ownerConnect'
 import { identityOf, type Identity } from './identity'
 import type { NearKitEndedSession, NearKitWalletList, NearKitWebSession, WebLegStatus, WebSendInput, WebSendStatus, WebTradeGroup, WebTradeInput } from './nearkitWeb'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { knownAutomation } from '@/config/release'
 import type { NearKitServices as Services } from './types'
 import type { StrategyKind } from '@/lib/automation/config'
 import {
@@ -54,6 +55,7 @@ export const qk = {
   volumeBots: (token: string | null) => ['nearkit', 'bots', token] as const,
   volumeBot: (token: string | null, botId: string | null) => ['nearkit', 'bots', token, botId] as const,
   autoFeatures: (token: string | null) => ['nearkit', 'auto', 'features', token] as const,
+  serverAutomation: ['nearkit', 'auto', 'server'] as const,
   autoList: (token: string | null) => ['nearkit', 'auto', 'list', token] as const,
   autoDetail: (token: string | null, id: string | null) => ['nearkit', 'auto', 'list', token, id] as const,
   tokenPrice: (id: string | null) => ['market', 'price', id] as const,
@@ -198,10 +200,30 @@ export function useAutomationFeatures() {
   })
 }
 
-/** The automation kinds switched on for this user, or null when none is known (demo, no session, no answer). */
+/**
+ * The automation kinds NEARKITS' server runs, from its public /health: what a visitor without a
+ * NEARKITS web session can know (real mode with a server only; no data: none known).
+ */
+export function useServerAutomation() {
+  const s = useServices()
+  return useQuery({
+    queryKey: qk.serverAutomation,
+    queryFn: () => s.nearkit.serverAutomation(),
+    enabled: s.mode === 'near' && s.nearkit.available,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    retry: 1,
+  })
+}
+
+/**
+ * The automation kinds the server runs, as far as is known: the session's answer, else the public
+ * one (knownAutomation); null when none is known (demo, no server, no answer yet).
+ */
 export function useAutomationEnabled(): readonly StrategyKind[] | null {
   const { data } = useAutomationFeatures()
-  return data?.enabled ?? null
+  const server = useServerAutomation()
+  return knownAutomation(data?.enabled, server.data)
 }
 
 export function useNearKitMutations() {

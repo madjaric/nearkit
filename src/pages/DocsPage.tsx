@@ -6,9 +6,14 @@ import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { GAS_RESERVE_NEAR, NEARKIT_FEE_LABEL, NEARKIT_FEE_RECEIVED_LABEL, RHEA_APP_FEE_SHARE_LABEL, STORAGE_DEPOSIT_NEAR } from '@/lib/fees'
 import { ENV } from '@/config/env'
 import { KIT } from '@/config/kit'
-import { isComingSoon, TELEGRAM_BOT_LIVE } from '@/config/release'
+import { AUTOMATION_ROUTES, isComingSoon, isComingSoonFor, TELEGRAM_BOT_LIVE } from '@/config/release'
+import { useAutomationAccess } from '@/features/automation/live/queries'
+import { automationDocState, automationSummary, type AutomationDocState } from '@/features/automation/status'
+import type { StrategyKind } from '@/lib/automation/config'
 import { GLOSSARY } from '@/lib/glossary'
-import { useCapabilities } from '@/services/queries'
+import { BOT_NAME } from '@/lib/telegramLinks'
+import { useServices } from '@/services/context'
+import { useAutomationEnabled, useCapabilities } from '@/services/queries'
 
 const SECTIONS = [
   { id: 'status', title: 'What works' },
@@ -26,7 +31,7 @@ type AreaState = 'live' | 'local' | 'drafts' | 'soon' | 'mainnet'
 /** NEARKITS wallets (and the Volume Bot on them) run where this build names NEARKITS' server. */
 const CUSTODY: AreaState = ENV.services === 'near' && ENV.apiUrl ? 'live' : 'soon'
 
-/** Feature status in real mode; the demo simulates every live flow. */
+/** Feature status in real mode; the demo simulates every live flow. The automations follow (useAutomationStatus), then STATUS_AFTER. */
 const STATUS: [string, AreaState][] = [
   ['Wallet connection (NEAR Connect)', 'live'],
   ['Balances and token discovery', 'live'],
@@ -40,8 +45,9 @@ const STATUS: [string, AreaState][] = [
   ['NEARKITS wallets (custodial: NEARKITS signs)', CUSTODY],
   ['Volume Bot', CUSTODY],
   ['Wallet presets, watch accounts', 'local'],
-  ['Limit, take-profit and stop-loss orders', isComingSoon('/limit-orders') ? 'soon' : 'drafts'],
-  ['DCA, Copy trade, Sniper', isComingSoon('/dca') ? 'soon' : 'drafts'],
+]
+
+const STATUS_AFTER: [string, AreaState][] = [
   ['Telegram bot', TELEGRAM_BOT_LIVE ? 'live' : 'soon'],
   ['$KITS token (kits.nearlytrade.near)', KIT.status === 'live' ? 'live' : 'mainnet'],
 ]
@@ -61,6 +67,61 @@ function statusCopy(state: AreaState, demo: boolean, network: string) {
   }
 }
 
+const AUTOMATION_AREA: Record<StrategyKind, string> = {
+  limit: 'Limit Orders (limit, take profit, stop loss)',
+  dca: 'DCA',
+  copy: 'Copy Trade',
+  sniper: 'Sniper',
+}
+
+/** Each automation's status, from the same answer its page uses: NEARKITS' server, by the session or its public /health. */
+function useAutomationStatus(): Record<StrategyKind, AutomationDocState> {
+  const s = useServices()
+  const known = useAutomationEnabled() !== null
+  const access = {
+    limit: useAutomationAccess('limit'),
+    dca: useAutomationAccess('dca'),
+    copy: useAutomationAccess('copy'),
+    sniper: useAutomationAccess('sniper'),
+  }
+  const state = (path: string, kind: StrategyKind) => automationDocState({ access: access[kind], comingSoon: isComingSoon(path), available: s.nearkit.available, known })
+  return { limit: state('/limit-orders', 'limit'), dca: state('/dca', 'dca'), copy: state('/copy-trade', 'copy'), sniper: state('/sniper', 'sniper') }
+}
+
+function automationCopy(state: AutomationDocState, demo: boolean, network: string) {
+  switch (state) {
+    case 'nearkits':
+      return { lamp: 'on' as const, text: `Live on ${network}: NEARKITS wallets, after Telegram sign-in` }
+    case 'checking':
+      return { lamp: 'idle' as const, text: 'Checking NEARKITS’ server' }
+    case 'off':
+      return { lamp: 'off' as const, text: 'Switched off on NEARKITS’ server' }
+    case 'unknown':
+      return { lamp: 'off' as const, text: 'Unknown: NEARKITS’ server didn’t answer' }
+    case 'drafts':
+      return statusCopy('drafts', demo, network)
+    default:
+      return statusCopy('soon', demo, network)
+  }
+}
+
+function StatusRow({ area, iface, lamp, text }: { area: string; iface: ReactNode; lamp: 'on' | 'idle' | 'off'; text: string }) {
+  return (
+    <Tr>
+      <Td className="whitespace-normal text-fg">{area}</Td>
+      <Td>{iface}</Td>
+      <Td className="whitespace-normal">
+        <span className="flex items-center gap-2 text-fg-2">
+          <Led tone={lamp} />
+          {text}
+        </span>
+      </Td>
+    </Tr>
+  )
+}
+
+const areaTag = (state: AreaState) => (state === 'soon' ? <ComingSoon /> : state === 'mainnet' ? <Tag>Mainnet</Tag> : <Tag tone="neutral">Ready</Tag>)
+
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-h`} className="scroll-mt-16">
@@ -76,6 +137,9 @@ export default function DocsPage() {
   const caps = useCapabilities()
   const demo = caps.mode === 'demo'
   const network = caps.networkLabel.toLowerCase()
+  const automation = useAutomationStatus()
+  const enabled = useAutomationEnabled()
+  const areaRow = ([area, state]: [string, AreaState]) => <StatusRow key={area} area={area} iface={areaTag(state)} {...statusCopy(state, demo, network)} />
   return (
     <Page>
       <PageHeader title="Documentation" description="How NEARKITS works, what runs for real and what doesn't yet, and the terms used across the app." />
@@ -112,21 +176,24 @@ export default function DocsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {STATUS.map(([area, state]) => {
-                    const s = statusCopy(state, demo, network)
-                    return (
-                      <Tr key={area}>
-                        <Td className="whitespace-normal text-fg">{area}</Td>
-                        <Td>{state === 'soon' ? <ComingSoon /> : state === 'mainnet' ? <Tag>Mainnet</Tag> : <Tag tone="neutral">Ready</Tag>}</Td>
-                        <Td className="whitespace-normal">
-                          <span className="flex items-center gap-2 text-fg-2">
-                            <Led tone={s.lamp} />
-                            {s.text}
-                          </span>
-                        </Td>
-                      </Tr>
-                    )
-                  })}
+                  {STATUS.map(areaRow)}
+                  {Object.entries(AUTOMATION_ROUTES).map(([path, kind]) => (
+                    <StatusRow
+                      key={path}
+                      area={AUTOMATION_AREA[kind]}
+                      iface={isComingSoonFor(path, enabled) ? <ComingSoon /> : <Tag tone="neutral">Ready</Tag>}
+                      {...automationCopy(automation[kind], demo, network)}
+                    />
+                  ))}
+                  {!demo && (
+                    <StatusRow
+                      area="Automations from a connected browser wallet"
+                      iface={<span className="text-fg-3">—</span>}
+                      lamp="off"
+                      text="Not supported: they run only from NEARKITS wallets"
+                    />
+                  )}
+                  {STATUS_AFTER.map(areaRow)}
                 </tbody>
               </Table>
             </Section>
@@ -190,11 +257,7 @@ export default function DocsPage() {
                 runs on NEARKITS’ server and trades from your NEARKITS wallets: a market maker that trades only with an edge over its fair-value estimate, or TWAP accumulate and
                 distribute, inside the limits you set. It can lose money, and nothing promises volume or profit.
               </p>
-              <p>
-                {isComingSoon('/limit-orders')
-                  ? 'Limit, take-profit and stop-loss orders, DCA, copy trading and the sniper are COMING SOON: nothing watches prices or wallets for them, and nothing executes them yet.'
-                  : 'DCA plans, copy-trade rules, sniper configs and limit orders can be created and managed now. They are saved as drafts in this browser (in standby in the demo): nothing watches prices or wallets, and nothing executes.'}
-              </p>
+              <p>{automationSummary(automation, { network, bot: BOT_NAME })}</p>
             </Section>
 
             <Section id="scanner" title="Scanner indicators">

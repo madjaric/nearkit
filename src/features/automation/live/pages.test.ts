@@ -8,6 +8,7 @@ import type { AutomationFeatures, DetectionView, StrategyDetail, StrategyView } 
 import type { LimitConfig, SniperSettings, StrategyKind } from '@/lib/automation/config'
 import CopyTradePage from '@/pages/CopyTradePage'
 import DcaPage from '@/pages/DcaPage'
+import DocsPage from '@/pages/DocsPage'
 import LimitOrdersPage from '@/pages/LimitOrdersPage'
 import SniperPage from '@/pages/SniperPage'
 import { createMockServices } from '@/services/mock'
@@ -148,6 +149,8 @@ const buttons = (html: string) => [...html.matchAll(/<button[^>]*>(.*?)<\/button
 const RENDERS = { timeout: 30_000 }
 const on = (kinds: StrategyKind[], paused = false): [readonly unknown[], unknown] => [qk.autoFeatures(TOKEN), features(kinds, paused)]
 const list = (kind: StrategyKind, items: StrategyView[]): [readonly unknown[], unknown] => [[...qk.autoList(TOKEN), kind], items]
+/** What NEARKITS' server says it runs on its public /health (read without a session). */
+const running = (kinds: StrategyKind[]): [readonly unknown[], unknown] => [qk.serverAutomation, kinds]
 
 describe('Limit Orders, server-backed when NEARKITS switched it on', RENDERS, () => {
   it('signed in with limit orders on: the live form, NEARKITS wallets only, review before create, honest terms', async () => {
@@ -192,9 +195,32 @@ describe('Limit Orders, server-backed when NEARKITS switched it on', RENDERS, ()
     expect(text).not.toContain('Live · NEARKITS wallets')
   })
 
-  it('no NEARKITS session: the page as it was, whatever was read before', async () => {
-    const text = read(await render(h(LimitOrdersPage), '/limit-orders', { signedIn: false, data: [on(['limit'])] }))
-    expect(text).not.toContain('Live · NEARKITS wallets')
+  it('no NEARKITS session, the server runs limit orders (public /health): the live page asks to sign in; no drafts, no form, no "coming soon"', async () => {
+    const html = await render(h(LimitOrdersPage), '/limit-orders', { signedIn: false, data: [running(['limit', 'dca', 'sniper', 'copy'])] })
+    const text = read(html)
+    expect(text).toContain('Live · NEARKITS wallets')
+    expect(text).toContain('Sign in with Telegram to use Limit Orders')
+    expect(text).toMatch(/NEARKITS wallets, run by NEARKITS’ server/)
+    expect(text).not.toMatch(/Drafts only|not part of the public beta|coming soon/i)
+    expect(buttons(html)).not.toContain('Review limit buy')
+  })
+
+  it('no NEARKITS session and the server doesn’t run it (another kind, or none): the page as it was', async () => {
+    for (const kinds of [['dca'], []] as StrategyKind[][]) {
+      const text = read(await render(h(LimitOrdersPage), '/limit-orders', { signedIn: false, data: [running(kinds)] }))
+      expect(text).toContain('Drafts only · not monitored')
+      expect(text).not.toContain('Live · NEARKITS wallets')
+    }
+  })
+
+  it('while the answer that decides is on its way, neither drafts nor the live form flash up', async () => {
+    // No session, the public answer not in yet; then a session whose own answer isn't in yet.
+    for (const signedIn of [false, true]) {
+      const html = await render(h(LimitOrdersPage), '/limit-orders', { signedIn })
+      const text = read(html)
+      expect(text).not.toMatch(/Drafts only|Review limit buy|Sign in with Telegram/)
+      expect(html).toContain('aria-busy="true"')
+    }
   })
 
   it('the demo is unaffected, even with a features answer in the cache', async () => {
@@ -228,6 +254,19 @@ describe('Copy Trade, Sniper and DCA, server-backed when switched on', RENDERS, 
     expect(text).toContain('Live · NEARKITS wallets')
     expect(text).toContain('Every day')
     expect(buttons(html)).toContain('Review plan')
+  })
+
+  it('without a NEARKITS session, each asks to sign in when the server runs it', async () => {
+    for (const [page, path, feature] of [
+      [CopyTradePage, '/copy-trade', 'Copy Trade'],
+      [SniperPage, '/sniper', 'Sniper'],
+      [DcaPage, '/dca', 'DCA'],
+    ] as const) {
+      const text = read(await render(h(page), path, { signedIn: false, data: [running(['limit', 'dca', 'sniper', 'copy'])] }))
+      expect(text, feature).toContain(`Sign in with Telegram to use ${feature}`)
+      expect(text, feature).toContain('Live · NEARKITS wallets')
+      expect(text, feature).not.toMatch(/coming soon|not part of the public beta/i)
+    }
   })
 
   it('each page stays as it was when only another kind is on', async () => {
@@ -450,5 +489,37 @@ describe('Limit orders: a take profit / stop loss pair', RENDERS, () => {
     const html = await render(h(LimitOrdersPage), '/limit-orders', { data: [on(['limit']), list('limit', [tp, sl])] })
     expect(html).toContain('cancelling either cancels both')
     expect(buttons(html).filter((b) => b === 'Cancel')).toHaveLength(2)
+  })
+})
+
+describe('the Documentation’s automation status, from the same answer the pages use', RENDERS, () => {
+  const rows = (text: string) => text.slice(text.indexOf('Wallet presets'), text.indexOf('Telegram bot'))
+
+  it('the server runs all four, no session: each live from NEARKITS wallets after Telegram sign-in; a browser wallet can’t run them', async () => {
+    const text = read(await render(h(DocsPage), '/docs', { signedIn: false, data: [running(['limit', 'dca', 'sniper', 'copy'])] }))
+    const status = rows(text)
+    for (const area of ['Limit Orders (limit, take profit, stop loss)', 'DCA', 'Copy Trade', 'Sniper'])
+      expect(status).toContain(`${area} Ready Live on mainnet: NEARKITS wallets, after Telegram sign-in`)
+    expect(status).toContain('Automations from a connected browser wallet — Not supported: they run only from NEARKITS wallets')
+    expect(text).toContain('Limit Orders, DCA, Copy Trade and the Sniper run on NEARKITS’ server on NEAR mainnet, from your NEARKITS wallets')
+    expect(text).toContain('A browser wallet you connect can’t run them')
+    // (The Telegram bot and NEARKITS wallets rows follow the test build, which names no bot or server.)
+    expect(status.slice(status.indexOf('Limit Orders'))).not.toMatch(/COMING SOON|Not live on this site yet|Drafts/)
+    expect(text.slice(text.indexOf('NEARKITS Volume Bot'))).not.toMatch(/coming soon/i)
+  })
+
+  it('the server runs only DCA: DCA live, the others as this build keeps them (drafts on the dev server)', async () => {
+    const text = read(await render(h(DocsPage), '/docs', { signedIn: false, data: [running(['dca'])] }))
+    expect(rows(text)).toContain('DCA Ready Live on mainnet')
+    expect(rows(text)).toContain('Copy Trade Ready Drafts saved, nothing runs')
+    expect(text).toContain('DCA runs on NEARKITS’ server on NEAR mainnet')
+    expect(text).toContain('Limit Orders, Copy Trade and the Sniper are not running now')
+  })
+
+  it('the demo: simulated standby rules, and no browser-wallet row', async () => {
+    const text = read(await render(h(DocsPage), '/docs', { demo: true }))
+    expect(rows(text)).toContain('Sniper Ready Saved in standby, nothing runs')
+    expect(text).not.toContain('Automations from a connected browser wallet')
+    expect(text).toContain('saved as drafts in this browser (in standby in the demo)')
   })
 })

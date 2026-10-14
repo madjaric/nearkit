@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CreateStrategyInput, StrategyDetail, StrategyView } from '@/lib/automation/api'
 import { LIVE_STATUSES, type StrategyConfig, type StrategyKind } from '@/lib/automation/config'
 import { useServices } from '@/services/context'
-import { qk, useAutomationFeatures, useNearKitSession } from '@/services/queries'
+import { qk, useAutomationFeatures, useNearKitSession, useServerAutomation } from '@/services/queries'
 import { sendCreate } from './model'
 
 /**
@@ -29,6 +29,54 @@ export function useAutomationLive(kind: StrategyKind): boolean {
   const s = useServices()
   const { data } = useAutomationFeatures()
   return automationLive(s.mode, data?.enabled, kind)
+}
+
+/**
+ * What an automation page shows: 'live' (a NEARKITS session, and the server runs the kind), 'sign-in'
+ * (the server runs it, by its public /health, but this browser has no NEARKITS session), 'checking'
+ * (the answer that decides is still on its way), 'held' (the page as it was: the demo, no server, the
+ * kind not on, or no answer).
+ */
+export type AutomationAccess = 'live' | 'sign-in' | 'checking' | 'held'
+
+export function automationAccess(
+  i: {
+    mode: 'demo' | 'near'
+    available: boolean
+    session: boolean
+    sessionKinds: readonly StrategyKind[] | undefined
+    sessionPending: boolean
+    serverKinds: readonly StrategyKind[] | null | undefined
+    serverPending: boolean
+  },
+  kind: StrategyKind,
+): AutomationAccess {
+  if (i.mode !== 'near' || !i.available) return 'held'
+  if (i.session) {
+    if (i.sessionKinds) return i.sessionKinds.includes(kind) ? 'live' : 'held'
+    return i.sessionPending ? 'checking' : 'held'
+  }
+  if (i.serverKinds) return i.serverKinds.includes(kind) ? 'sign-in' : 'held'
+  return i.serverPending ? 'checking' : 'held'
+}
+
+export function useAutomationAccess(kind: StrategyKind): AutomationAccess {
+  const s = useServices()
+  const session = useNearKitSession()
+  const features = useAutomationFeatures()
+  const server = useServerAutomation()
+  return automationAccess(
+    {
+      mode: s.mode,
+      available: s.nearkit.available,
+      session: session !== null,
+      sessionKinds: features.data?.enabled,
+      sessionPending: features.isPending,
+      serverKinds: server.data,
+      serverPending: server.isPending,
+    },
+    kind,
+  )
 }
 
 export function useStrategies(kind: StrategyKind) {

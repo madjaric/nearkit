@@ -1,26 +1,26 @@
 import { Page, PageGrid, PageHeader, RequireWallet } from '@/components/page/Page'
 import { Tag } from '@/components/ui/Indicators'
 import { LimitOrderForm } from '@/features/automation/live/LimitOrderForm'
-import { LiveAutomation } from '@/features/automation/live/LiveAutomation'
-import { useAutomationLive } from '@/features/automation/live/queries'
+import { LiveAutomationPage } from '@/features/automation/live/LiveAutomation'
+import { useAutomationAccess } from '@/features/automation/live/queries'
 import { useRuleWording } from '@/lib/modeCopy'
 import { OrderForm } from '@/features/orders/OrderForm'
 import { OrdersPanel } from '@/features/orders/OrdersPanel'
 
 export default function LimitOrdersPage() {
   const wording = useRuleWording()
-  // NEARKITS' server runs limit orders for this user (real services, a NEARKITS session, switched on).
-  const live = useAutomationLive('limit')
-  if (live)
+  // NEARKITS' server runs limit orders: live with a NEARKITS session, a sign-in without one (useAutomationAccess).
+  const access = useAutomationAccess('limit')
+  if (access !== 'held')
     return (
-      <Page>
-        <PageHeader
-          title="Limit Orders"
-          status={<Tag tone="accent">Live · NEARKITS wallets</Tag>}
-          description="Limit buy, limit sell, take profit and stop loss in NEAR per token, watched and executed by NEARKITS’ server from your NEARKITS wallets."
-        />
-        <LiveAutomation kind="limit" title="Your orders" form={(onCreated) => <LimitOrderForm onCreated={onCreated} />} />
-      </Page>
+      <LiveAutomationPage
+        access={access}
+        kind="limit"
+        feature="Limit Orders"
+        description="Limit buy, limit sell, take profit and stop loss in NEAR per token, watched and executed by NEARKITS’ server from your NEARKITS wallets."
+        listTitle="Your orders"
+        form={(onCreated) => <LimitOrderForm onCreated={onCreated} />}
+      />
     )
   return (
     <Page>

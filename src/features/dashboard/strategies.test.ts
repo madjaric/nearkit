@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { StrategyView } from '@/lib/automation/api'
 import type { StrategyConfig, StrategyStatus } from '@/lib/automation/config'
 import type { DcaPlan, LimitOrder, TokenListing } from '@/types/domain'
-import { countByKind, demoRows, kindsCaption, serverRows } from './strategies'
+import { countByKind, demoRows, kindsCaption, serverRows, strategiesOff } from './strategies'
 
 const KITS = { id: 'kits.nearlytrade.near', symbol: 'KITS', decimals: 18 }
 
@@ -125,5 +125,26 @@ describe('in the demo, the seeded orders and rules', () => {
     expect(rows[1]).toMatchObject({ type: 'Take profit', subject: 'BLACKDRAGON / NEAR', amount: '1,000,000 BLACKDRAGON', lamp: { source: 'demo', status: 'open' } })
     expect(rows[1]?.trigger).toMatch(/^≥ \$/)
     expect(rows[0]).toMatchObject({ type: 'DCA', trigger: 'Every 1 day', amount: '2 NEAR', lamp: { source: 'demo', status: 'standby' } })
+  })
+})
+
+describe('why no strategy is listed (real mode, nothing to read)', () => {
+  const base = { sessionEnded: false, available: true, session: false, signedOut: true, serverKinds: undefined }
+
+  it('no session and the server runs automations: sign in (a visitor, or a browser wallet only)', () => {
+    expect(strategiesOff({ ...base, serverKinds: ['limit', 'dca'] })).toBe('signed-out')
+    expect(strategiesOff({ ...base, signedOut: false, serverKinds: ['limit'] })).toBe('no-session')
+    // Not known yet, or not said: the way in is still a sign-in.
+    expect(strategiesOff(base)).toBe('signed-out')
+  })
+
+  it('the server runs none ("off"): coming soon, never "sign in" for nothing', () => {
+    expect(strategiesOff({ ...base, serverKinds: [] })).toBe('not-enabled')
+  })
+
+  it('a session that ended, a build without a server, a session with none switched on', () => {
+    expect(strategiesOff({ ...base, sessionEnded: true, serverKinds: [] })).toBe('session-ended')
+    expect(strategiesOff({ ...base, available: false, serverKinds: ['limit'] })).toBe('unavailable')
+    expect(strategiesOff({ ...base, session: true, signedOut: false, serverKinds: ['limit'] })).toBe('not-enabled')
   })
 })

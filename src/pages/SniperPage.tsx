@@ -22,8 +22,8 @@ import { fromLocalInput, nextHour, toLocalInput } from '@/lib/time'
 import { accountIdError } from '@/lib/validation'
 import { useAutomationMutations, useHoldings, usePresets, useSniperConfigs, useWallets } from '@/services/queries'
 import type { SniperPriority, SniperTrigger } from '@/types/domain'
-import { LiveAutomation } from '@/features/automation/live/LiveAutomation'
-import { useAutomationLive } from '@/features/automation/live/queries'
+import { LiveAutomationPage } from '@/features/automation/live/LiveAutomation'
+import { useAutomationAccess } from '@/features/automation/live/queries'
 import { SniperForm } from '@/features/automation/live/SniperForm'
 
 const TRIGGER_WORDS: Record<SniperTrigger, string> = { 'liquidity-added': 'when liquidity is added', 'first-trade': 'on the first trade', 'at-time': 'at the set time' }
@@ -330,18 +330,18 @@ function Sniper() {
 }
 
 export default function SniperPage() {
-  // NEARKITS' server runs snipers for this user (real services, a NEARKITS session, switched on).
-  const live = useAutomationLive('sniper')
-  if (live)
+  // NEARKITS' server runs snipers: live with a NEARKITS session, a sign-in without one (useAutomationAccess).
+  const access = useAutomationAccess('sniper')
+  if (access !== 'held')
     return (
-      <Page>
-        <PageHeader
-          title="Sniper"
-          status={<Tag tone="accent">Live · NEARKITS wallets</Tag>}
-          description="Watch one token until it trades against NEAR, or new pools as Ref DCL and Ref v2 create them, within your limits: notify only, or buy from a NEARKITS wallet after your explicit confirmation."
-        />
-        <LiveAutomation kind="sniper" title="Your snipers" form={(onCreated) => <SniperForm onCreated={onCreated} />} />
-      </Page>
+      <LiveAutomationPage
+        access={access}
+        kind="sniper"
+        feature="Sniper"
+        description="Watch one token until it trades against NEAR, or new pools as Ref DCL and Ref v2 create them, within your limits: notify only, or buy from a NEARKITS wallet after your explicit confirmation."
+        listTitle="Your snipers"
+        form={(onCreated) => <SniperForm onCreated={onCreated} />}
+      />
     )
   return (
     <Page>

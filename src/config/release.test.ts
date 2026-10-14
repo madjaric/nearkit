@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_NAV } from '@/layouts/nav'
-import { AUTOMATION_ROUTES, BETA_COMING_SOON, comingSoonRoutes, isComingSoon, isComingSoonFor, routeComingSoon } from './release'
+import { AUTOMATION_ROUTES, BETA_COMING_SOON, comingSoonRoutes, isComingSoon, isComingSoonFor, knownAutomation, routeComingSoon } from './release'
 
 const publicBeta = { services: 'near', network: 'testnet', production: true } as const
 
@@ -68,5 +68,31 @@ describe('routeComingSoon: an automation NEARKITS switched on is live for a sign
   it('in this (test) build nothing is gated, whatever the server says', () => {
     expect(isComingSoonFor('/limit-orders', null)).toBe(false)
     expect(isComingSoonFor('/limit-orders', [])).toBe(false)
+  })
+})
+
+describe('knownAutomation: what the server runs, known with or without a session', () => {
+  const soon = comingSoonRoutes({ ...publicBeta, network: 'mainnet' })
+  const ALL = ['limit', 'dca', 'sniper', 'copy'] as const
+
+  it('without a session, the server’s public answer (/health) opens every kind it runs: no SOON for a visitor', () => {
+    const known = knownAutomation(undefined, [...ALL])
+    for (const route of BETA_COMING_SOON) expect(routeComingSoon(route, soon, known), route).toBe(false)
+  })
+
+  it('the server running only some: only those open; it runs none ("off"), or doesn’t answer: every one stays SOON', () => {
+    const some = knownAutomation(undefined, ['limit', 'dca'])
+    expect(BETA_COMING_SOON.filter((r) => routeComingSoon(r, soon, some))).toEqual(['/copy-trade', '/sniper'])
+    for (const route of BETA_COMING_SOON) {
+      expect(routeComingSoon(route, soon, knownAutomation(undefined, [])), route).toBe(true)
+      expect(routeComingSoon(route, soon, knownAutomation(undefined, null)), route).toBe(true)
+      expect(routeComingSoon(route, soon, knownAutomation(undefined, undefined)), route).toBe(true)
+    }
+  })
+
+  it('with a session, the session’s own answer counts', () => {
+    expect(knownAutomation(['limit'], [...ALL])).toEqual(['limit'])
+    expect(knownAutomation([], [...ALL])).toEqual([])
+    expect(knownAutomation(undefined, undefined)).toBeNull()
   })
 })
