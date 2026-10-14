@@ -28,9 +28,18 @@ export function isComingSoon(path: string): boolean {
 export const AUTOMATION_ROUTES: Readonly<Record<string, StrategyKind>> = { '/limit-orders': 'limit', '/dca': 'dca', '/copy-trade': 'copy', '/sniper': 'sniper' }
 
 /**
+ * The automation kinds NEARKITS' server is known to run: its answer to the user's NEARKITS web session
+ * when there is one, otherwise its public /health (the same server-wide switch, read without signing
+ * in). Null when neither has answered: nothing is opened on a guess.
+ */
+export function knownAutomation(session: readonly StrategyKind[] | undefined, server: readonly StrategyKind[] | null | undefined): readonly StrategyKind[] | null {
+  return session ?? server ?? null
+}
+
+/**
  * Whether a route is COMING SOON for this user: the build's list, except an automation route whose
- * kind NEARKITS' server reports switched on (`enabled`, read with the user's NEARKITS web session).
- * No session, no answer from the server, or the kind not on: COMING SOON, exactly as the build says.
+ * kind NEARKITS' server reports switched on (`enabled`: knownAutomation). No answer from the server,
+ * or the kind not on: COMING SOON, exactly as the build says.
  */
 export function routeComingSoon(path: string, comingSoon: readonly string[], enabled: readonly StrategyKind[] | null): boolean {
   if (!comingSoon.includes(path)) return false

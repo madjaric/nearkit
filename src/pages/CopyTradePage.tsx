@@ -22,8 +22,8 @@ import { accountIdError, isValidAccountId } from '@/lib/validation'
 import { useAutomationMutations, useCopyRules } from '@/services/queries'
 import type { CopyRule, CopySide } from '@/types/domain'
 import { CopyRuleForm } from '@/features/automation/live/CopyRuleForm'
-import { LiveAutomation } from '@/features/automation/live/LiveAutomation'
-import { useAutomationLive } from '@/features/automation/live/queries'
+import { LiveAutomationPage } from '@/features/automation/live/LiveAutomation'
+import { useAutomationAccess } from '@/features/automation/live/queries'
 
 const SIDE_WORDS: Record<CopySide, string> = { buy: 'buys', sell: 'sells', both: 'buys and sells' }
 
@@ -237,18 +237,18 @@ function CopyTrade() {
 }
 
 export default function CopyTradePage() {
-  // NEARKITS' server runs Copy Trade for this user (real services, a NEARKITS session, switched on).
-  const live = useAutomationLive('copy')
-  if (live)
+  // NEARKITS' server runs Copy Trade: live with a NEARKITS session, a sign-in without one (useAutomationAccess).
+  const access = useAutomationAccess('copy')
+  if (access !== 'held')
     return (
-      <Page>
-        <PageHeader
-          title="Copy Trade"
-          status={<Tag tone="accent">Live · NEARKITS wallets</Tag>}
-          description="Follow a NEAR account and copy its NEAR swaps from your NEARKITS wallets, within your own sizing, limits and exclusions."
-        />
-        <LiveAutomation kind="copy" title="Your Copy Trade rules" form={(onCreated) => <CopyRuleForm onCreated={onCreated} />} />
-      </Page>
+      <LiveAutomationPage
+        access={access}
+        kind="copy"
+        feature="Copy Trade"
+        description="Follow a NEAR account and copy its NEAR swaps from your NEARKITS wallets, within your own sizing, limits and exclusions."
+        listTitle="Your Copy Trade rules"
+        form={(onCreated) => <CopyRuleForm onCreated={onCreated} />}
+      />
     )
   return (
     <Page>

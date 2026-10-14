@@ -47,6 +47,8 @@ export interface SearchContext {
   /** NEARKITS' token order, besides the query (src/lib/tokenRanking.ts). */
   rank?: Omit<RankOptions, 'query' | 'selectedId'>
   kit?: Pick<KitConfig, 'name' | 'symbol' | 'ticker' | 'launchVenue' | 'status'>
+  /** Whether a page is COMING SOON for this user (the sidebar's rule, with the server's answer); the build's list by default. */
+  isSoon?: (path: string) => boolean
 }
 
 /**
@@ -59,6 +61,7 @@ export interface SearchContext {
  */
 export function buildResults(raw: string, tokens: TokenListing[], found: ContractLookup | null = null, context: SearchContext = {}): Result[] {
   const q = raw.trim().toLowerCase()
+  const soonOf = context.isSoon ?? isComingSoon
   const kit = context.kit ?? KIT
   const kitSoon = kit.status === 'mainnet-only' && !tokens.some((t) => isKitToken(t.id))
   if (!q) {
@@ -76,7 +79,7 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
       detail: c.label,
       to: c.to,
       icon: SquareSlash,
-      soon: isComingSoon(c.to.split('?')[0] ?? c.to),
+      soon: soonOf(c.to.split('?')[0] ?? c.to),
     }))
   }
   // Closest match first: an exact symbol or name before a token whose contract merely contains the query.
@@ -130,7 +133,7 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
         detail: item.description,
         to: item.to,
         icon: item.icon,
-        soon: isComingSoon(item.to),
+        soon: soonOf(item.to),
       })
     }
   }

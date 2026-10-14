@@ -231,6 +231,11 @@ export interface NearKitWeb {
   deleteBot(botId: string): Promise<void>
   /** Which trading automations NEARKITS has switched on, its kill switch and limits. */
   autoFeatures(): Promise<AutomationFeatures>
+  /**
+   * The automations NEARKITS' server runs, from its public /health (no session: the same server-wide
+   * switch every visitor gets). Null where this build has no server or the server doesn't say.
+   */
+  serverAutomation(): Promise<StrategyKind[] | null>
   /** The user's automations (limit orders, Copy Trade, Sniper, DCA), optionally of some kinds only. */
   autoList(kinds?: readonly StrategyKind[]): Promise<StrategyView[]>
   /** One automation with its trades, its audit trail and (Copy Trade, Sniper) what it saw. */
@@ -406,6 +411,8 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
   }
 
   const unavailable = () => new LinkRequestError(0, 'unavailable', 'This NEARKITS build has no NEARKITS server, so NEARKITS wallets aren’t available here.')
+  // The automation kinds this client knows (a value here, so the main bundle doesn't take in the automation config's validators).
+  const KINDS: readonly StrategyKind[] = ['limit', 'copy', 'sniper', 'dca']
 
   async function redeem(code: string): Promise<NearKitWebSession> {
     if (!apiUrl) throw unavailable()
@@ -528,6 +535,18 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     deleteBot: async (botId) => void (await call<{ deleted: boolean }>('/api/web/bots/delete', { botId })),
 
     autoFeatures: () => call<AutomationFeatures>('/api/web/auto/features', {}),
+    serverAutomation: async () => {
+      if (!apiUrl) return null
+      const res = await fetchImpl(`${apiUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(8_000) })
+      if (!res.ok) throw new LinkRequestError(res.status, 'unavailable', 'NEARKITS’ server didn’t answer.')
+      const said = ((await res.json()) as { automation?: unknown }).automation
+      if (typeof said !== 'string') return null
+      // "off", or the kinds the worker runs ("limit,dca,sniper,copy"); one this client doesn't know is left out.
+      return said
+        .split(',')
+        .map((k) => k.trim())
+        .filter((k): k is StrategyKind => (KINDS as readonly string[]).includes(k))
+    },
     autoList: async (kinds) => (await call<{ strategies: StrategyView[] }>('/api/web/auto/list', kinds ? { kinds: [...kinds] } : {})).strategies,
     autoDetail: (id) => call<StrategyDetail>('/api/web/auto/detail', { id }),
     autoPreview: (walletId, config) => call<StrategyPreview>('/api/web/auto/preview', { walletId, config }),

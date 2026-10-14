@@ -190,3 +190,25 @@ export function countByKind(rows: readonly StrategyRow[]): Record<StrategyKind, 
   for (const r of rows) out[r.kind] += 1
   return out
 }
+
+/** Why nothing is listed in real mode: no figure stands in for a strategy that can't exist here. */
+export type StrategiesOff = 'signed-out' | 'session-ended' | 'no-session' | 'unavailable' | 'not-enabled'
+
+/**
+ * Why no strategy is listed: a session that ended, a build without NEARKITS' server, no session
+ * (sign in, while the server runs automations or hasn't said yet), or none switched on ("coming soon").
+ * `serverKinds` is NEARKITS' public answer (/health): an empty list means it runs none.
+ */
+export function strategiesOff(i: {
+  sessionEnded: boolean
+  available: boolean
+  session: boolean
+  signedOut: boolean
+  serverKinds: readonly StrategyKind[] | null | undefined
+}): StrategiesOff {
+  if (i.sessionEnded) return 'session-ended'
+  if (!i.available) return 'unavailable'
+  if (i.session) return 'not-enabled'
+  if (i.serverKinds?.length === 0) return 'not-enabled'
+  return i.signedOut ? 'signed-out' : 'no-session'
+}

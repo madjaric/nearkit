@@ -2,11 +2,20 @@ import { useQuery } from '@tanstack/react-query'
 import { isWorking } from '@/features/automation/live/queries'
 import { LIVE_STATUSES } from '@/lib/automation/config'
 import { useServices } from '@/services/context'
-import { qk, useAutomationFeatures, useCapabilities, useCopyRules, useDcaPlans, useIdentity, useNearKitSession, useOrders, useSniperConfigs, useTokens } from '@/services/queries'
-import { demoRows, serverRows, type StrategyRow } from './strategies'
-
-/** Why nothing is listed in real mode: no figure stands in for a strategy that can't exist here. */
-export type StrategiesOff = 'signed-out' | 'session-ended' | 'no-session' | 'unavailable' | 'not-enabled'
+import {
+  qk,
+  useAutomationFeatures,
+  useCapabilities,
+  useCopyRules,
+  useDcaPlans,
+  useIdentity,
+  useNearKitSession,
+  useOrders,
+  useServerAutomation,
+  useSniperConfigs,
+  useTokens,
+} from '@/services/queries'
+import { demoRows, serverRows, strategiesOff, type StrategiesOff, type StrategyRow } from './strategies'
 
 export interface ActiveStrategies {
   /** 'server': NEARKITS runs them; 'demo': the demo's seeded, simulated ones; 'off': none can run here (see `off`). */
@@ -39,6 +48,8 @@ export function useActiveStrategies(): ActiveStrategies {
   const who = useIdentity()
   const session = useNearKitSession()
   const features = useAutomationFeatures()
+  // NEARKITS' public answer: without a session, whether there is anything to sign in for.
+  const server = useServerAutomation()
   const enabled = features.data?.enabled ?? []
   const demo = caps.mode === 'demo'
   const serverOn = !demo && s.nearkit.available && session !== null && enabled.length > 0
@@ -85,16 +96,13 @@ export function useActiveStrategies(): ActiveStrategies {
       refetch: () => void list.refetch(),
     }
   }
-  const off: StrategiesOff =
-    who.kind === 'session-ended'
-      ? 'session-ended'
-      : !s.nearkit.available
-        ? 'unavailable'
-        : session === null
-          ? who.kind === 'signed-out'
-            ? 'signed-out'
-            : 'no-session'
-          : 'not-enabled'
+  const off = strategiesOff({
+    sessionEnded: who.kind === 'session-ended',
+    available: s.nearkit.available,
+    session: session !== null,
+    signedOut: who.kind === 'signed-out',
+    serverKinds: server.data,
+  })
   const waiting = who.kind === 'pending' || (session !== null && features.isPending)
   return { ...base, source: 'off', off, rows: [], loading: waiting, failed: false, error: null, refetch: () => void features.refetch() }
 }

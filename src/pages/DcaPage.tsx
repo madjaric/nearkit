@@ -26,8 +26,8 @@ import { useAutomationMutations, useBalance, useDcaPlans, useSession, useTokens,
 import { useInComingSoon } from '@/state/contexts'
 import type { DcaFrequency } from '@/types/domain'
 import { DcaForm } from '@/features/automation/live/DcaForm'
-import { LiveAutomation } from '@/features/automation/live/LiveAutomation'
-import { useAutomationLive } from '@/features/automation/live/queries'
+import { LiveAutomationPage } from '@/features/automation/live/LiveAutomation'
+import { useAutomationAccess } from '@/features/automation/live/queries'
 
 function Dca() {
   const toast = useToast()
@@ -254,18 +254,18 @@ function Dca() {
 }
 
 export default function DcaPage() {
-  // NEARKITS' server runs DCA for this user (real services, a NEARKITS session, switched on).
-  const live = useAutomationLive('dca')
-  if (live)
+  // NEARKITS' server runs DCA: live with a NEARKITS session, a sign-in without one (useAutomationAccess).
+  const access = useAutomationAccess('dca')
+  if (access !== 'held')
     return (
-      <Page>
-        <PageHeader
-          title="DCA"
-          status={<Tag tone="accent">Live · NEARKITS wallets</Tag>}
-          description="Buy a fixed amount of NEAR’s worth of a token on a schedule, server-side from your NEARKITS wallets."
-        />
-        <LiveAutomation kind="dca" title="Your DCA plans" form={(onCreated) => <DcaForm onCreated={onCreated} />} />
-      </Page>
+      <LiveAutomationPage
+        access={access}
+        kind="dca"
+        feature="DCA"
+        description="Buy a fixed amount of NEAR’s worth of a token on a schedule, server-side from your NEARKITS wallets."
+        listTitle="Your DCA plans"
+        form={(onCreated) => <DcaForm onCreated={onCreated} />}
+      />
     )
   return (
     <Page>

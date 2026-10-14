@@ -148,6 +148,8 @@ const buttons = (html: string) => [...html.matchAll(/<button[^>]*>(.*?)<\/button
 const RENDERS = { timeout: 30_000 }
 const on = (kinds: StrategyKind[], paused = false): [readonly unknown[], unknown] => [qk.autoFeatures(TOKEN), features(kinds, paused)]
 const list = (kind: StrategyKind, items: StrategyView[]): [readonly unknown[], unknown] => [[...qk.autoList(TOKEN), kind], items]
+/** What NEARKITS' server says it runs on its public /health (read without a session). */
+const running = (kinds: StrategyKind[]): [readonly unknown[], unknown] => [qk.serverAutomation, kinds]
 
 describe('Limit Orders, server-backed when NEARKITS switched it on', RENDERS, () => {
   it('signed in with limit orders on: the live form, NEARKITS wallets only, review before create, honest terms', async () => {
@@ -192,9 +194,32 @@ describe('Limit Orders, server-backed when NEARKITS switched it on', RENDERS, ()
     expect(text).not.toContain('Live · NEARKITS wallets')
   })
 
-  it('no NEARKITS session: the page as it was, whatever was read before', async () => {
-    const text = read(await render(h(LimitOrdersPage), '/limit-orders', { signedIn: false, data: [on(['limit'])] }))
-    expect(text).not.toContain('Live · NEARKITS wallets')
+  it('no NEARKITS session, the server runs limit orders (public /health): the live page asks to sign in; no drafts, no form, no "coming soon"', async () => {
+    const html = await render(h(LimitOrdersPage), '/limit-orders', { signedIn: false, data: [running(['limit', 'dca', 'sniper', 'copy'])] })
+    const text = read(html)
+    expect(text).toContain('Live · NEARKITS wallets')
+    expect(text).toContain('Sign in with Telegram to use Limit Orders')
+    expect(text).toMatch(/NEARKITS wallets, run by NEARKITS’ server/)
+    expect(text).not.toMatch(/Drafts only|not part of the public beta|coming soon/i)
+    expect(buttons(html)).not.toContain('Review limit buy')
+  })
+
+  it('no NEARKITS session and the server doesn’t run it (another kind, or none): the page as it was', async () => {
+    for (const kinds of [['dca'], []] as StrategyKind[][]) {
+      const text = read(await render(h(LimitOrdersPage), '/limit-orders', { signedIn: false, data: [running(kinds)] }))
+      expect(text).toContain('Drafts only · not monitored')
+      expect(text).not.toContain('Live · NEARKITS wallets')
+    }
+  })
+
+  it('while the answer that decides is on its way, neither drafts nor the live form flash up', async () => {
+    // No session, the public answer not in yet; then a session whose own answer isn't in yet.
+    for (const signedIn of [false, true]) {
+      const html = await render(h(LimitOrdersPage), '/limit-orders', { signedIn })
+      const text = read(html)
+      expect(text).not.toMatch(/Drafts only|Review limit buy|Sign in with Telegram/)
+      expect(html).toContain('aria-busy="true"')
+    }
   })
 
   it('the demo is unaffected, even with a features answer in the cache', async () => {
@@ -228,6 +253,19 @@ describe('Copy Trade, Sniper and DCA, server-backed when switched on', RENDERS, 
     expect(text).toContain('Live · NEARKITS wallets')
     expect(text).toContain('Every day')
     expect(buttons(html)).toContain('Review plan')
+  })
+
+  it('without a NEARKITS session, each asks to sign in when the server runs it', async () => {
+    for (const [page, path, feature] of [
+      [CopyTradePage, '/copy-trade', 'Copy Trade'],
+      [SniperPage, '/sniper', 'Sniper'],
+      [DcaPage, '/dca', 'DCA'],
+    ] as const) {
+      const text = read(await render(h(page), path, { signedIn: false, data: [running(['limit', 'dca', 'sniper', 'copy'])] }))
+      expect(text, feature).toContain(`Sign in with Telegram to use ${feature}`)
+      expect(text, feature).toContain('Live · NEARKITS wallets')
+      expect(text, feature).not.toMatch(/coming soon|not part of the public beta/i)
+    }
   })
 
   it('each page stays as it was when only another kind is on', async () => {
