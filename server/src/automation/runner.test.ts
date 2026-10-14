@@ -859,6 +859,29 @@ describe('Copy Trade', () => {
     expect(await store.executionsOf(rule.id)).toMatchObject([{ side: 'buy', status: 'confirmed', source: viaRpc.transaction.hash }])
   })
 
+  it('a transaction neither the index nor RPC can serve is tried again a few times, then recorded as skipped (never silently lost)', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('testone.near') })
+    if (!rule) throw new Error('no rule')
+    h.advance(30_000)
+    idx.state.serveFull = false
+    const swap = toTestnet(swapUsdt)
+    idx.add(swap)
+    const rpc = h.deps.near.ctx.rpc
+    rpc.txStatus = (async () => {
+      throw new Error('UNKNOWN_TRANSACTION')
+    }) as typeof rpc.txStatus
+    await tick(1_000)
+    await tick(5_000)
+    expect(await store.detectionsOf(rule.id)).toEqual([])
+    await tick(5_000)
+    expect((await store.detectionsOf(rule.id))[0]).toMatchObject({ sourceKey: swap.transaction.hash, status: 'skipped', reason: expect.stringMatching(/couldn’t be read/) })
+    expect(await store.executionsOf(rule.id)).toEqual([])
+  })
+
   it('exposure counts buys still under way: a second copy that would pass the limit is skipped before anything is signed', async () => {
     let clock = { now: () => 0 }
     const idx = drivenIndex(() => clock.now())
