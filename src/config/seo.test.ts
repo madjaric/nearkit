@@ -44,7 +44,14 @@ describe('each public page’s title and description', () => {
       'Buyback & Burn is tracked live on NEAR mainnet: the KITS burned, each burn transaction and the supply after burns, read from the chain. Holder rewards are tracked live too: what Nearly’s launchpad has paid to $KITS holders in NEAR and what it holds for them, each payout round verified on chain.',
       'No return, reward rate, burn amount or buyback frequency is promised.',
     ])
-    for (const p of publicPages().filter((x) => !['/kit', '/bridge', '/bridge-near'].includes(x.path))) expect(p.facts, p.path).toBeUndefined()
+    for (const p of publicPages().filter((x) => !['/kit', '/bridge', '/bridge-near', '/tools'].includes(x.path))) expect(p.facts, p.path).toBeUndefined()
+  })
+
+  it('All Tools lists every tool by group for a reader without JavaScript, as the page does', () => {
+    const facts = pageSeo('/tools')?.facts ?? []
+    expect(facts[0]).toBe('Trade: Swap, Quick Trade, Multi Trade, Limit Orders.')
+    expect(facts.map((f) => f.split(':')[0])).toEqual(['Trade', 'Tools', 'Automation', 'Portfolio', 'Intelligence', 'Other'])
+    expect(facts.join(' ')).toMatch(/Automation: Volume Bot, DCA, Copy Trade, Sniper\./)
   })
 
   it('Bridge & Buy says what it does: SOL, ETH or BNB through NEAR Intents to $KITS, two steps, non-custodial, its fees apart', () => {

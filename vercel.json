@@ -12,7 +12,7 @@
       "permanent": true
     },
     {
-      "source": "/(swap|bridge|bridge-near|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs).html",
+      "source": "/(swap|bridge|bridge-near|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs|tools).html",
       "destination": "/$1",
       "permanent": true
     }
@@ -65,6 +65,10 @@
     {
       "source": "/docs",
       "destination": "/docs.html"
+    },
+    {
+      "source": "/tools",
+      "destination": "/tools.html"
     },
     {
       "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg)",

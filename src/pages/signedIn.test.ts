@@ -149,7 +149,7 @@ describe('signed in with only a NEARKITS web session (no browser wallet)', RENDE
     )
     expect(text).toContain('$15.00')
     expect(text).toContain('across 2 executable wallets')
-    expect(text).toContain('2 executable wallets · Mainnet')
+    expect(text).toContain('Your trading terminal on NEAR.')
     expect(text).not.toMatch(/Connect a wallet|No wallet connected/)
   })
 
@@ -215,9 +215,10 @@ describe('a read that failed is said so: never $0, “No positions” or a skele
     expect(buttons(html)).toContain('Try again')
   })
 
-  it('Dashboard: failed positions are not “No positions”', async () => {
+  it('Dashboard: failed positions are not “No tokens yet”', async () => {
     const text = read(await render(h(DashboardPage), '/', { web: 'signed-in', data: [[qk.summary, summary()]], failed: [[qk.positions, 'RPC down']] }))
-    expect(text).toContain('Positions can’t be loaded right now')
+    expect(text).toContain('Assets can’t be loaded right now')
+    expect(text).not.toContain('No tokens yet')
     expect(text).toContain('RPC down')
   })
 

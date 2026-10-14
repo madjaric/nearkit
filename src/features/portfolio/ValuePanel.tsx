@@ -33,7 +33,7 @@ function perBucket<T extends { t: number }>(points: readonly T[], bucket: number
  * Portfolio value over time, with a table twin for exact readings. Real mode shows what this browser
  * recorded while NearKit was open (src/lib/valueHistory.ts), placed by time: a gap stays a gap.
  */
-export function ValuePanel() {
+export function ValuePanel({ title = 'Portfolio value', className }: { title?: string; className?: string } = {}) {
   const caps = useCapabilities()
   const [range, setRange] = useState<Range>('7')
   const [view, setView] = useState<View>('chart')
@@ -46,9 +46,9 @@ export function ValuePanel() {
   const recorded = caps.mode !== 'demo'
 
   return (
-    <Panel>
+    <Panel className={className}>
       <PanelHeader
-        title="Portfolio value"
+        title={title}
         meta={first && last ? <Pct value={change} /> : undefined}
         actions={
           <>

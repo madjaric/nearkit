@@ -64,17 +64,91 @@ const visible = (page, text, opts = {}) => page.getByText(text, opts).first().wa
 
 const page = await newPage()
 
-await step('dashboard renders readouts, positions and ticket', async () => {
+/** The Quick Trade ticket, opened from the Dashboard's BUY key (the ticket the sidebar's Quick Trade opens too). */
+const openTicket = async (p = page) => {
+  const drawer = p.getByRole('dialog', { name: 'Trade ticket' })
+  if (!(await drawer.isVisible())) await p.getByRole('button', { name: 'Buy', exact: true }).first().click()
+  await drawer.getByText('Trade KITS').waitFor()
+  return drawer
+}
+
+await step('dashboard: five readouts, exactly four featured tools, then performance, assets, active strategies and activity', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
-  await visible(page, 'Portfolio value')
-  await visible(page, 'BLACKDRAGON')
-  await page.getByRole('heading', { name: 'Quick trade' }).waitFor()
+  for (const legend of ['Portfolio value', 'Available NEAR', 'Active positions', 'Active strategies', 'Total wallets']) await visible(page, legend)
+  const tools = page.getByRole('region', { name: 'Most used tools' })
+  const cards = await tools
+    .getByRole('listitem')
+    .getByRole('link')
+    .evaluateAll((links) => links.map((a) => a.getAttribute('href')))
+  if (cards.join() !== '/swap,/limit-orders,/sniper,/dca') throw new Error(`featured tools: ${cards.join(', ')}`)
+  await page.getByRole('table', { name: 'Your assets' }).getByText('BLACKDRAGON').waitFor()
+  await page.getByRole('table', { name: 'Active strategies' }).waitFor()
+  await page.getByRole('heading', { name: 'Recent activity' }).waitFor()
+  await page.getByRole('img', { name: /Portfolio value, last 7 days/ }).waitFor()
 })
 
-await step('Quick Trade opens on $KITS, the NEARKITS token: its ticket, the Dashboard’s Buy key and the sidebar’s Quick Trade', async () => {
-  const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
-  await ticket.getByRole('button', { name: 'Token: KITS' }).waitFor()
-  await ticket.getByRole('button', { name: 'Buy KITS' }).waitFor()
+await step('each featured tool opens its page', async () => {
+  for (const [name, path, heading] of [
+    ['Swap', '/swap', 'Swap'],
+    ['Limit Orders', '/limit-orders', 'Limit Orders'],
+    ['Sniper', '/sniper', 'Sniper'],
+    ['DCA', '/dca', 'DCA'],
+  ]) {
+    await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+    const card = page.getByRole('region', { name: 'Most used tools' }).locator(`li a[href="${path}"]`)
+    // The card is one link, named by the tool first (its status, when it has one, follows).
+    if (!((await card.textContent()) ?? '').trim().startsWith(name)) throw new Error(`the ${name} card is not named ${name} first`)
+    await card.click()
+    await page.waitForURL(new RegExp(`${path}$`))
+    await page.getByRole('heading', { level: 1, name: heading }).waitFor()
+  }
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+})
+
+await step('sidebar: MAIN, Trade, Tools, Automation, Portfolio, Intelligence and Other, every entry opening its page; All Tools at the end', async () => {
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await nav.getByRole('group', { name: 'Other' }).waitFor()
+  const groups = await nav.getByRole('group').evaluateAll((gs) => gs.map((g) => g.getAttribute('aria-label')))
+  if (groups.join() !== 'Main,Trade,Tools,Automation,Portfolio,Intelligence,Other') throw new Error(`sidebar groups: ${groups.join(', ')}`)
+  const links = await nav.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href')))
+  for (const href of links) {
+    await nav.locator(`a[href="${href}"]`).click()
+    await page.waitForURL((u) => u.pathname === href)
+    await page.locator('main h1').first().waitFor()
+  }
+  await page.locator('aside').getByRole('link', { name: 'All Tools' }).click()
+  await page.waitForURL(/\/tools$/)
+  await page.getByRole('heading', { level: 1, name: 'All Tools' }).waitFor()
+})
+
+await step('All Tools: every tool by group; search by name, task or group; a group key narrows it; a row opens its tool', async () => {
+  await page.goto(BASE + '/tools', { waitUntil: 'networkidle' })
+  await page.getByRole('status').getByText('20 tools').waitFor()
+  const search = page.getByRole('searchbox', { name: 'Search tools' })
+  await search.fill('take profit')
+  await page.getByRole('status').getByText('1 of 20 tools').waitFor()
+  await page
+    .getByRole('main')
+    .getByRole('link', { name: /Limit Orders/ })
+    .waitFor()
+  await search.fill('zzz')
+  await page.getByText('No tool matches “zzz”').waitFor()
+  await page.getByRole('button', { name: 'Show every tool' }).click()
+  await page
+    .getByRole('group', { name: 'Filter by group' })
+    .getByRole('button', { name: /^Automation/ })
+    .click()
+  await page.waitForURL(/group=automation/)
+  await page.getByRole('status').getByText('4 of 20 tools').waitFor()
+  await page
+    .getByRole('main')
+    .getByRole('link', { name: /^Copy Trade/ })
+    .click()
+  await page.waitForURL(/\/copy-trade$/)
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+})
+
+await step('Quick Trade opens on $KITS, the NEARKITS token: the Dashboard’s Buy key and the sidebar’s Quick Trade', async () => {
   for (const open of [
     () => page.getByRole('button', { name: 'Buy', exact: true }).first().click(),
     () => page.locator('aside').getByRole('button', { name: 'Quick Trade' }).click(),
@@ -83,6 +157,7 @@ await step('Quick Trade opens on $KITS, the NEARKITS token: its ticket, the Dash
     const drawer = page.getByRole('dialog', { name: 'Trade ticket' })
     await drawer.getByText('Trade KITS').waitFor()
     await drawer.getByRole('button', { name: 'Token: KITS' }).waitFor()
+    await drawer.getByRole('button', { name: 'Buy KITS' }).waitFor()
     await page.keyboard.press('Escape')
     await drawer.waitFor({ state: 'hidden' })
   }
@@ -133,13 +208,13 @@ await step('Multi Trade from the sidebar opens on $KITS; Black Dragon can be cho
   await main.getByRole('button', { name: 'Token: BLACKDRAGON' }).waitFor()
   await page.reload({ waitUntil: 'networkidle' })
   await main.getByRole('button', { name: 'Token: KITS' }).waitFor()
-  // Back where the next steps start: the Dashboard and its ticket.
+  // Back where the next steps start: the Dashboard, whose BUY key opens the ticket.
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
 })
 
 // NearKit's fee is set once, in src/lib/fees.ts (NEARKIT_FEE): 50 bps.
 await step('quick trade: MAX fills, quote prints, fee is 0.50%', async () => {
-  const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
+  const ticket = await openTicket()
   await ticket.getByRole('button', { name: 'MAX' }).click()
   await ticket.getByText('You receive (est.)').waitFor()
   await ticket.getByText(/1 NEAR ≈ [\d,.]+[KMB]? KITS/).waitFor({ timeout: 6000 })
@@ -147,7 +222,7 @@ await step('quick trade: MAX fills, quote prints, fee is 0.50%', async () => {
 })
 
 await step('quick trade: two-step arm then confirm simulates and toasts', async () => {
-  const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
+  const ticket = await openTicket()
   const amount = ticket.getByLabel('You pay')
   await amount.fill('5')
   await page.waitForTimeout(700)
@@ -170,15 +245,18 @@ await step('quick trade: two-step arm then confirm simulates and toasts', async 
 })
 
 await step('quick trade: insufficient balance blocks the key', async () => {
-  const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
+  const ticket = await openTicket()
   await ticket.getByLabel('You pay').fill('999999')
   await ticket.getByText(/Main holds 8,420\.55 NEAR/).waitFor()
   if (await ticket.getByRole('button', { name: /^Buy KITS$/i }).isEnabled()) throw new Error('Buy key should be disabled when the balance is short')
   await ticket.getByLabel('You pay').fill('')
+  await page.keyboard.press('Escape')
+  await ticket.waitFor({ state: 'hidden' })
 })
 
-await step('positions BUY opens the trade drawer prefilled', async () => {
-  await page.getByRole('button', { name: 'Sell SHITZU' }).first().click()
+await step('your assets: a row’s menu opens the trade drawer prefilled', async () => {
+  await page.getByRole('button', { name: 'SHITZU actions' }).first().click()
+  await page.getByRole('menuitem', { name: 'Sell SHITZU' }).click()
   const drawer = page.getByRole('dialog', { name: 'Trade ticket' })
   await drawer.getByText('Trade SHITZU').waitFor()
   await drawer.getByRole('radio', { name: 'Sell' }).waitFor()
@@ -188,7 +266,8 @@ await step('positions BUY opens the trade drawer prefilled', async () => {
 })
 
 await step('the trade drawer’s token list opens inside the drawer (never behind it): search, pick, and the ticket follows', async () => {
-  await page.getByRole('button', { name: 'Buy BLACKDRAGON' }).first().click()
+  await page.getByRole('button', { name: 'BLACKDRAGON actions' }).first().click()
+  await page.getByRole('menuitem', { name: 'Buy BLACKDRAGON' }).click()
   const drawer = page.getByRole('dialog', { name: 'Trade ticket' })
   await drawer.getByText('Trade BLACKDRAGON').waitFor()
   await drawer.getByRole('button', { name: /^Token: BLACKDRAGON/ }).click()
@@ -630,7 +709,7 @@ await step('settings: one-click mode fires without arming', async () => {
   await page.getByRole('switch', { name: 'Two-step confirmation' }).click()
   // Settings live in session state, so move client-side through the sidebar.
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Dashboard' }).click()
-  const ticket = page.locator('section', { has: page.getByRole('heading', { name: 'Quick trade' }) })
+  const ticket = await openTicket()
   await ticket.getByLabel('You pay').fill('3')
   await page.waitForTimeout(700)
   await ticket.getByRole('button', { name: /^Buy KITS$/i }).click()
@@ -653,14 +732,16 @@ const phone = await newPage(390, 844)
 await step('phone: tab bar, drawer navigation and trade access', async () => {
   await phone.goto(BASE + '/', { waitUntil: 'networkidle' })
   await phone.getByRole('navigation', { name: 'Quick navigation' }).waitFor()
-  await phone.getByRole('heading', { name: 'Quick trade' }).waitFor()
+  await phone.getByRole('region', { name: 'Most used tools' }).waitFor()
+  if (await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('the Dashboard scrolls sideways on a phone')
   await phone.getByRole('button', { name: 'Open navigation' }).click()
   const drawer = phone.getByRole('dialog', { name: 'Navigation' })
+  await drawer.getByRole('link', { name: 'All Tools' }).waitFor()
   await drawer.getByRole('link', { name: 'Scanner' }).click()
   await phone.waitForURL(/\/scanner$/)
   await drawer.waitFor({ state: 'hidden' })
   await phone.getByRole('navigation', { name: 'Quick navigation' }).getByRole('link', { name: 'Positions' }).click()
-  // The row's own Buy key: during the route change the Dashboard's Quick Trade key can still be in the page for a moment.
+  // The row's own Buy key on the Positions page.
   await phone.getByRole('list', { name: 'Positions' }).getByRole('button', { name: 'Buy KITS' }).click()
   await phone.getByRole('dialog', { name: 'Trade ticket' }).getByText('Trade KITS').waitFor()
   await shot(phone, 'phone-trade-sheet')

@@ -20,6 +20,7 @@ export const SITEMAP_PATHS: readonly string[] = [
   '/kit',
   '/telegram',
   '/docs',
+  '/tools',
 ]
 
 /** The public address as an origin (https, or http on localhost; no path, query, hash or credentials). Blank: NearKit's own. Null: not one. */

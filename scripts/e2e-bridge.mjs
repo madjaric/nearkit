@@ -781,15 +781,21 @@ await step('Activity: a “Bridge” row, distinct from Bridge & Buy, linked to 
   await context.close()
 })
 
-await step('navigation: the sidebar has Bridge and Bridge & Buy, each with its own line; search for “bridge” offers both; /bridge stays Bridge & Buy', async () => {
+await step('navigation: the sidebar has Bridge and Bridge & Buy, each saying what it does; search for “bridge” offers both; /bridge stays Bridge & Buy', async () => {
   const { context, page } = await openPage()
   await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
-  const nav = page.getByRole('navigation').first()
-  const bridge = nav.getByRole('link', { name: /^Bridge Move assets from other chains into NEAR\.$/ })
-  const buy = nav.getByRole('link', { name: /^Bridge & Buy Bridge your assets and automatically buy \$KITS\.$/ })
+  const nav = page.getByRole('navigation', { name: 'Main' }).first()
+  const bridge = nav.getByRole('link', { name: 'Bridge', exact: true })
+  const buy = nav.getByRole('link', { name: 'Bridge & Buy', exact: true })
   await bridge.waitFor()
   await buy.waitFor()
   if ((await bridge.getAttribute('href')) !== '/bridge-near' || (await buy.getAttribute('href')) !== '/bridge') throw new Error('the entries point elsewhere')
+  // What tells them apart, on hover and to assistive tech (the All Tools directory prints it too).
+  if (
+    (await bridge.getAttribute('title')) !== 'Move assets from other chains into NEAR.' ||
+    (await buy.getAttribute('title')) !== 'Bridge your assets and automatically buy $KITS.'
+  )
+    throw new Error('the entries no longer say what tells them apart')
   await bridge.click()
   await page.waitForURL(/\/bridge-near$/)
   await page.getByRole('heading', { level: 1, name: 'Bridge' }).waitFor()

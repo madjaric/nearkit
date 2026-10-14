@@ -77,36 +77,34 @@ const SOON = [
   { route: '/sniper', label: 'Sniper', form: true },
 ]
 const LIVE = ['/swap', '/multi-trade', '/split', '/consolidate', '/batch-send', '/wallets', '/positions', '/pnl', '/scanner']
-/** The sidebar, top to bottom: live features first, everything held back in COMING SOON. */
+/**
+ * The sidebar, top to bottom, in its fixed groups: an entry the beta holds back keeps its place,
+ * tagged SOON, so nothing moves when it goes live.
+ */
 const SIDEBAR = [
-  ['Trade', ['Swap', 'Quick Trade', 'Multi Trade']],
+  // $KITS sits under the Dashboard, MAINNET on this testnet build: it isn't coming soon, it trades on mainnet.
+  ['Main', ['Dashboard', '$KITS MAINNET']],
+  ['Trade', ['Swap', 'Quick Trade', 'Multi Trade', 'Limit Orders SOON']],
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
+  ['Automation', ['Volume Bot SOON', 'DCA SOON', 'Copy Trade SOON', 'Sniper SOON']],
   ['Portfolio', ['Positions', 'PnL']],
   ['Intelligence', ['Scanner']],
-  // $KITS sits under the Dashboard, MAINNET on this testnet build: it isn't coming soon, it trades on mainnet.
-  // Bridge & Buy brings SOL, ETH or BNB to $KITS on mainnet: a testnet build can't run it.
-  [
-    'Coming soon',
-    [
-      // The two bridge products, each with its own line (mainnet only: held back on the testnet beta).
-      'Bridge Move assets from other chains into NEAR.',
-      'Bridge & Buy Bridge your assets and automatically buy $KITS.',
-      'Limit Orders',
-      'Volume Bot',
-      'DCA',
-      'Copy Trade',
-      'Sniper',
-      'Telegram',
-    ].map((l) => `${l} SOON`),
-  ],
+  // The two bridge products are mainnet only: held back on the testnet beta, as is the bot.
+  ['Other', ['Bridge SOON', 'Bridge & Buy SOON', 'Settings', 'Documentation', 'Telegram SOON']],
 ]
-/** Group names and entries of a navigation body, as rendered. */
+/** Group names and entries of a navigation body, as rendered (tags read in capitals, as they print). */
 const navGroups = (nav) =>
-  nav
-    .locator('[role="group"]')
-    .evaluateAll((groups) =>
-      groups.map((g) => [g.getAttribute('aria-label'), [...g.querySelectorAll('li')].map((li) => li.innerText.replace(/\s+/g, ' ').trim().replace(/soon$/i, 'SOON'))]),
-    )
+  nav.locator('[role="group"]').evaluateAll((groups) =>
+    groups.map((g) => [
+      g.getAttribute('aria-label'),
+      [...g.querySelectorAll('li')].map((li) =>
+        li.innerText
+          .replace(/\s+/g, ' ')
+          .trim()
+          .replace(/ (soon|mainnet|live)$/i, (t) => t.toUpperCase()),
+      ),
+    ]),
+  )
 const sameNav = (actual) => JSON.stringify(actual) === JSON.stringify(SIDEBAR)
 
 const errors = []
@@ -156,11 +154,10 @@ await step('boots as the testnet beta', async () => {
 })
 
 if (WIDTH >= 1024) {
-  await step('the sidebar lists the live features first and every held-back one under COMING SOON', async () => {
+  await step('the sidebar keeps every feature in its group, a held-back one tagged SOON in place, and All Tools at the end', async () => {
     const groups = await navGroups(page.locator('aside nav[aria-label="Main"]'))
     if (!sameNav(groups)) throw new Error(`Sidebar is ${JSON.stringify(groups)}`)
-    const footer = await page.locator('aside nav[aria-label="Main"] + div > ul:first-child > li').allInnerTexts()
-    if (footer.map((t) => t.trim()).join() !== 'Settings,Documentation') throw new Error(`Footer is ${footer}`)
+    await page.locator('aside nav[aria-label="Main"] + div').getByRole('link', { name: 'All Tools' }).waitFor()
     // Under it, NEARKITS' community: the Telegram group and X, the two official accounts.
     const community = await page
       .locator('aside')
@@ -189,18 +186,18 @@ await step('without a wallet, a held-back page says it is coming soon', async ()
   await shot('beta-01-no-wallet')
 })
 
-await step('Dashboard: the limit-order shortcuts are tagged SOON; Multi buy is live', async () => {
+await step('Dashboard: the held-back featured tools are tagged SOON, Swap and Multi buy are live, and no strategy runs', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   const main = page.locator('main')
-  // Place a limit order is an action the beta can't do: shown, tagged, not clickable.
-  const key = main.locator('[aria-disabled="true"]', { hasText: /place a limit order/i })
-  if (!/soon/i.test(await key.innerText())) throw new Error('Place a limit order has no SOON tag')
+  const tools = page.getByRole('region', { name: 'Most used tools' })
+  // Each card opens its page, which says COMING SOON itself.
+  for (const route of ['/limit-orders', '/sniper', '/dca']) {
+    if (!/soon/i.test(await tools.locator(`a[href="${route}"]`).innerText())) throw new Error(`${route}'s card has no SOON tag`)
+  }
+  if (/soon/i.test(await tools.locator('a[href="/swap"]').innerText())) throw new Error('Swap is tagged SOON')
   const multi = main.locator('a[href="/multi-trade"]', { hasText: /multi buy/i })
   if ((await multi.count()) !== 1 || /soon/i.test(await multi.innerText())) throw new Error('Multi buy is not a live link')
-  // Manage only opens the orders page, which says COMING SOON itself.
-  const manage = main.locator('a[href="/limit-orders"]', { hasText: /manage/i })
-  if (!/soon/i.test(await manage.innerText())) throw new Error('Manage has no SOON tag')
-  if ((await main.locator('a[href="/limit-orders"]', { hasText: /place a limit order/i }).count()) !== 0) throw new Error('Place a limit order still links')
+  await main.getByText('Automation is coming soon').waitFor()
   // The live shortcuts are untouched.
   for (const route of ['/batch-send']) {
     if (/soon/i.test(await main.locator(`header a[href="${route}"]`).innerText())) throw new Error(`${route} is tagged SOON`)
@@ -395,7 +392,8 @@ await step(
     // Served from localhost here, as from nearkit.vercel.app: the page still names nearkits.com, without the query.
     await page.goto(BASE + '/swap?from=near&to=kit', { waitUntil: 'networkidle' })
     await expectNamed('https://nearkits.com/swap')
-    // And follows in-app navigation.
+    // And follows in-app navigation (below 1024px the sidebar is the drawer: open it first).
+    if (WIDTH < 1024) await page.getByRole('button', { name: 'Open navigation' }).first().click()
     await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Split', exact: true }).click()
     await page.waitForURL(/\/split$/)
     await expectNamed('https://nearkits.com/split')

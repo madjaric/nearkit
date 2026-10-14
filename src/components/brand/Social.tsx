@@ -30,7 +30,27 @@ const markOf = (a: SocialAccount, size: number) => (a === SOCIAL.x ? <XMark size
 /** What the link says on screen: short, since its accessible name says the rest. */
 const shortName = (a: SocialAccount) => (a === SOCIAL.x ? 'X' : 'Telegram')
 
-export function SocialLinks({ variant, className }: { variant: 'nav' | 'inline'; className?: string }) {
+export function SocialLinks({ variant, className }: { variant: 'nav' | 'icons' | 'inline'; className?: string }) {
+  // The sidebar's footer row: the marks alone, each named for assistive tech and on hover.
+  if (variant === 'icons')
+    return (
+      <ul aria-label="NEARKITS community" className={cn('flex items-center gap-0.5', className)}>
+        {SOCIAL_ACCOUNTS.map((a) => (
+          <li key={a.url}>
+            <a
+              href={a.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={a.label}
+              title={a.label}
+              className="grid size-7 place-items-center rounded-sm text-fg-3 transition-colors duration-100 hover:bg-raised hover:text-fg"
+            >
+              {markOf(a, 14)}
+            </a>
+          </li>
+        ))}
+      </ul>
+    )
   if (variant === 'nav')
     return (
       <ul aria-label="NEARKITS community" className={cn('grid grid-cols-2 gap-1', className)}>

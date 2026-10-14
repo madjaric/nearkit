@@ -264,12 +264,24 @@ components:
 > - **Tables fit their own box.** Columns drop out as the table's panel narrows (measured against the panel, not
 >   the window) and, below the last tier, the rows print as a card list holding every figure. A table scrolls its
 >   panel sideways only where it has no card list (documentation tables).
-> - **Shell:** 232px sidebar (40px items, a lime bar and raised ground on the active one, plain uppercase group
->   labels, the version in its footer), 64px top bar (40px search, ticker, network chip, wallet chip), 64px
->   phone tab bar. On a phone the Connect key is 36px, the account chip truncates rather than widening the
->   page, and the strip under the bar prints the ticker and the network flat. Nothing overflows at 360px.
+> - **Shell:** 232px sidebar (32px items, a lime bar and raised ground on the active one, plain uppercase group
+>   labels; its footer holds All Tools, then the build status, the version and the community marks), 64px top
+>   bar (40px search, ticker, network chip, wallet chip), 64px phone tab bar. On a phone the Connect key is
+>   36px, the account chip truncates rather than widening the page, and the strip under the bar prints the
+>   ticker and the network flat. Nothing overflows at 360px.
+> - **Navigation (2026-10-14):** fixed groups, in order: MAIN (Dashboard, $KITS), Trade, Tools, Automation,
+>   Portfolio, Intelligence, Other. An entry the build doesn't run yet keeps its place with a SOON tag (nothing
+>   moves when it goes live). Every entry has one plain description (`src/layouts/nav.ts`): the sidebar's
+>   tooltip, the search box and the All Tools directory (`/tools`) print it. The directory lists the same
+>   groups, searchable by name, task or group, with group keys; both live in the address (`?q=`, `?group=`).
 > - **Page head:** title, status tag, one line of context, and the page's actions at right; the Dashboard's are
 >   BUY, SELL, SEND and MULTI BUY.
+> - **Dashboard (2026-10-14):** "Your trading terminal on NEAR." under the title; five stat cards (portfolio
+>   value, available NEAR, active positions, active strategies, total wallets); **Most used tools**, exactly
+>   four cards (Swap, Limit Orders, Sniper, DCA), each one link with an outlined lime key and a status only from
+>   real state (its running or paused strategies, or SOON); then Portfolio performance beside Your assets and
+>   Active strategies beside Recent activity (two columns from 1280px, stacked below). The Quick Trade ticket
+>   opens from BUY / SELL and the sidebar; it is not inlined on the page.
 > - **Charts:** a lime trace on the graticule with a faint fill fading to the panel (20% to 0). Candles and
 >   points are only ever observed data. The time axis prints the time of day for a window within a day and the
 >   date beyond it; its inner labels drop out where the plot is too narrow for all of them.
@@ -431,7 +443,7 @@ Fixed-slot measurement strip. The strip ground is `line-soft` and slots sit on i
 
 ### Navigation
 - **Sidebar:** 224px on `well`. Group legends open with the corner bracket. Items are 32px with a 16px line icon: active is `raised` with `fg` text, a lime icon and a lit LED at right; inactive is `fg-2`. Unshipped entries carry a SOON tag.
-  - **Order:** live features come first, in their groups (Trade, Tools, Portfolio, Intelligence); a group left empty is hidden. Every entry that is not live in the build sits in one COMING SOON group at the end, above Settings and Documentation.
+  - **Order (2026-10-14):** MAIN, Trade, Tools, Automation, Portfolio, Intelligence, Other, each with all of its entries; an entry that is not live in the build keeps its place with a SOON tag. All Tools is pinned under the list. (Before 2026-10-14 held-back entries moved to a COMING SOON group at the end.)
   - **Quick Trade:** it has no page of its own. Its entry opens the Quick Trade ticket over the current page, on the default trade token.
   - **Phone:** the drawer mirrors the sidebar, and a held-back tab moves after the live tabs in the tab bar.
 - **Top bar:** 48px on `canvas` (see Layout).

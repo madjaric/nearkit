@@ -127,7 +127,7 @@ export function buildResults(raw: string, tokens: TokenListing[], found: Contrac
         id: `p-${item.to}`,
         group: 'Go to',
         label: item.label,
-        ...(item.hint ? { detail: item.hint } : {}),
+        detail: item.description,
         to: item.to,
         icon: item.icon,
         soon: isComingSoon(item.to),
