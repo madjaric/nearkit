@@ -14,7 +14,8 @@ import {
 } from '@/lib/automation/config'
 import { formatPrice, meetsTrigger, priceYocto, targetYocto } from '@/lib/automation/price'
 import { liquidityOf } from '@/lib/volumeBot/risk'
-import { fetchAccountTxs, fetchFullTxs } from '@/services/near/history'
+import { fromRpc, type NormalizedTx } from '@/services/near/flows'
+import { fetchAccountTxs, fetchFullTxs, fetchIndexLag, type TxRef } from '@/services/near/history'
 import { walletErrorText } from '../bot/ui'
 import type { TradingWallet } from '../custody/store'
 import type { CustodyDeps } from '../custody/wallets'
@@ -61,6 +62,18 @@ const SNIPER_CHECK_MS = 20_000
 const COPY_CHECK_MS = 20_000
 /** A source transaction this young may not be final yet: read it next time. */
 const COPY_FINALITY_MS = 10_000
+/** A trade seen longer than this after it happened (the index behind or down) is not copied: its price has moved. */
+const COPY_MAX_DELAY_MS = 3 * 60_000
+/** The index this far behind the chain is said on the rule (its copies may come too late). */
+const COPY_MAX_LAG_SEC = 60
+/** Transactions listed per step (paged back to the rule's cursor), and read in full per step. */
+const COPY_LIST_MAX = 100
+const COPY_READ_PER_STEP = 10
+/** A transaction neither the index nor RPC can serve is tried this many steps, then recorded as skipped. */
+const COPY_MAX_READ_TRIES = 3
+const INDEX_STATUS_TTL_MS = 15_000
+/** The index down this long: the rule's owner is told (once per outage). */
+const INDEX_DOWN_NOTICE_MS = 10 * 60_000
 const DCA_RETRY_MS = 60_000
 const DCA_MAX_TRIES = 5
 const LIQUIDITY_MAX_AGE_SEC = 300
@@ -583,108 +596,282 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   // ─── Copy Trade ───────────────────────────────────────────────────────────
 
   type Position = { nearIn: string; tokenRaw: string }
+  type CopyState = {
+    since?: number
+    /** Every transaction of the account up to this moment (ms) is handled: recorded, or not one it started. */
+    cursorMs?: number
+    positions?: Record<string, Position>
+    limitNoticeAt?: number
+    /** Since when the transaction index hasn't answered (null: it answers). */
+    indexDownSince?: number | null
+    indexNoticeAt?: number
+    /** Transactions neither the index nor RPC could serve yet, with the tries so far. */
+    unread?: Record<string, number>
+    waiting?: string | null
+  }
 
+  /** FastNEAR's lag behind the chain (seconds), read once for every rule every little while; 'down' when it doesn't answer. */
+  let indexStatus: { at: number; lag: Promise<number | 'down'> } | null = null
+  function indexLag(): Promise<number | 'down'> {
+    if (indexStatus && now() - indexStatus.at < INDEX_STATUS_TTL_MS) return indexStatus.lag
+    const lag = fetchIndexLag(fetchImpl, deps.network.discovery.fastnearTxUrl)
+      .then((l) => l ?? 0)
+      .catch(() => 'down' as const)
+    indexStatus = { at: now(), lag }
+    return lag
+  }
+
+  /** A transaction the followed account signed itself, read from NEAR RPC: the fallback when the index can't serve it. */
+  async function rpcTx(r: TxRef, signer: string): Promise<NormalizedTx | null> {
+    try {
+      return fromRpc(await deps.near.ctx.rpc.txStatus(r.hash, signer, 'FINAL'), { height: r.blockHeight, timestampMs: r.timestampMs })
+    } catch {
+      return null
+    }
+  }
+
+  /** The index doesn't answer: the rule waits (and says so); its owner is told once when that lasts. */
+  async function indexDown(s: Strategy, c: CopyConfig, st: CopyState): Promise<void> {
+    const since = st.indexDownSince ?? now()
+    const next: CopyState = { ...st, indexDownSince: since, waiting: 'FastNEAR’s transaction index isn’t answering: copies wait' }
+    const minutes = Math.round((now() - since) / 60_000)
+    if (now() - since >= INDEX_DOWN_NOTICE_MS && !(typeof st.indexNoticeAt === 'number' && st.indexNoticeAt >= since)) {
+      next.indexNoticeAt = now()
+      await store.event(s.id, 'held', `The transaction index hasn’t answered for ${minutes} min: copies wait`)
+      await notify(
+        s,
+        `⚠️ Copy of <b>${esc(c.target)}</b>: FastNEAR’s transaction index hasn’t answered for ${minutes} minutes. Copies wait; a trade seen more than ${COPY_MAX_DELAY_MS / 60_000} minutes after it happened is not copied.`,
+      )
+    }
+    await store.setNext(s.id, now() + 60_000, next)
+  }
+
+  /**
+   * Reads the followed account's new transactions (FastNEAR's index, paged back to where the rule got
+   * to; each transaction the account started read in full, from the index or else from NEAR RPC) and
+   * copies each once, in order. A trade seen too late (the index behind or down) is recorded, not copied.
+   */
   async function stepCopy(s: Strategy, c: CopyConfig): Promise<void> {
     const wallet = await walletOf(s)
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
-    const st = s.state as { since?: number; positions?: Record<string, Position>; limitNoticeAt?: number }
+    const st: CopyState = { ...(s.state as CopyState) }
     const since = st.since ?? s.createdAt
-    let refs: Awaited<ReturnType<typeof fetchAccountTxs>>['txs']
+    const url = deps.network.discovery.fastnearTxUrl
+    const lag = await indexLag()
+    if (lag === 'down') return indexDown(s, c, st)
+    let refs: TxRef[]
     try {
-      refs = (await fetchAccountTxs(fetchImpl, deps.network.discovery.fastnearTxUrl, c.target, { max: 25, pageSize: 25, pace: async () => undefined })).txs
+      refs = (await fetchAccountTxs(fetchImpl, url, c.target, { max: COPY_LIST_MAX, pageSize: 25, pace: async () => undefined, until: st.cursorMs ?? since })).txs
     } catch (e) {
       log.warn('copy trade: the transaction index failed', { strategy: s.id, error: e })
-      return void (await store.setNext(s.id, now() + 60_000))
+      return indexDown(s, c, st)
     }
-    const fresh = refs.filter((r) => r.timestampMs > since && now() - r.timestampMs > COPY_FINALITY_MS).sort((a, b) => a.timestampMs - b.timestampMs)
-    const unseen = []
-    for (const r of fresh) if (!(await store.detection(s.id, r.hash))) unseen.push(r)
-    if (!unseen.length) return void (await store.setNext(s.id, now() + COPY_CHECK_MS))
-    let full: Awaited<ReturnType<typeof fetchFullTxs>>
-    try {
-      full = await fetchFullTxs(fetchImpl, deps.network.discovery.fastnearTxUrl, unseen.slice(0, 10), async () => undefined)
-    } catch (e) {
-      log.warn('copy trade: reading transactions failed', { strategy: s.id, error: e })
-      return void (await store.setNext(s.id, now() + 60_000))
+    if (typeof st.indexDownSince === 'number') {
+      await store.event(s.id, 'resumed', `The transaction index answers again after ${Math.round((now() - st.indexDownSince) / 60_000)} min`)
+      st.indexDownSince = null
     }
-    const positions = { ...(st.positions ?? {}) }
-    for (const tx of full) {
-      const read = readCopyTrade(tx, c.target, deps.network)
-      const base = { strategyId: s.id, sourceKey: tx.hash, at: tx.timestampMs ?? now() }
-      if (!read.ok) {
-        await store.addDetection({ ...base, side: null, token: null, tokenRaw: null, nearRaw: null, status: 'skipped', reason: read.reason })
-        continue
-      }
-      const detected = { ...base, side: read.side, token: read.token, tokenRaw: read.tokenRaw.toString(), nearRaw: read.nearRaw.toString() }
-      const skip = async (reason: string, risk = false) => {
-        await store.addDetection({ ...detected, status: 'skipped', reason })
-        if (risk) await notify(s, `⛔ Copy of <b>${esc(c.target)}</b>: a ${read.side} was not copied: ${esc(reason)}.`)
-      }
-      if (c.copy !== 'both' && c.copy !== read.side) {
-        await skip(`Copying ${c.copy}s only`)
-        continue
-      }
-      if (c.exclude.includes(read.token)) {
-        await skip('The token is excluded')
-        continue
-      }
-      const meta = await deps.near.ctx.reader.metadata(read.token).catch(() => null)
-      if (!meta) {
-        await skip('The token’s metadata can’t be read from chain')
-        continue
-      }
-      const token: TokenRef = { id: read.token, symbol: meta.symbol, decimals: meta.decimals }
-      if (!(await store.addDetection({ ...detected, status: 'eligible', reason: null }))) continue
-      let amountIn: string
-      if (read.side === 'buy') {
-        const exposure = Object.values(positions).reduce((sum, p) => sum + near(p.nearIn), 0)
-        const size = copyBuySize(c, near(read.nearRaw), exposure)
-        if ('skip' in size) {
-          await store.updateDetection(s.id, tx.hash, 'skipped', { reason: size.skip })
-          // A risk-limit refusal is worth a notice, once an hour per rule: every skip stays in the history.
-          const lastNotice = typeof st.limitNoticeAt === 'number' ? st.limitNoticeAt : 0
-          if (now() - lastNotice > 3_600_000) {
-            st.limitNoticeAt = now()
-            await notify(s, `⛔ Copy of <b>${esc(c.target)}</b>: a buy of ${esc(token.symbol)} was not copied: ${esc(size.skip)}.`)
-          }
-          continue
-        }
-        const quality = await qualityProblem(token.id, c.minLiquidityUsd, null, null)
-        if (quality) {
-          await store.updateDetection(s.id, tx.hash, 'skipped', { reason: quality })
-          continue
-        }
-        amountIn = size.near.toFixed(6).replace(/\.?0+$/, '')
-      } else {
-        const pos = positions[token.id]
-        const held = await tokenBalance(token.id, wallet)
-        const sell = pos && held !== null ? (BigInt(pos.tokenRaw) < held ? BigInt(pos.tokenRaw) : held) : 0n
-        if (sell <= 0n) {
-          await store.updateDetection(s.id, tx.hash, 'skipped', { reason: 'Nothing this rule bought of it is left to sell' })
-          continue
-        }
-        amountIn = formatUnits(sell, token.decimals)
-      }
-      if (!takeQuote()) {
-        await store.updateDetection(s.id, tx.hash, 'skipped', { reason: 'NEARKITS’ quote budget was spent; too late to copy' })
-        continue
-      }
-      await store.updateDetection(s.id, tx.hash, 'executing')
-      const out = await executor.trade({
-        strategy: s,
-        wallet,
-        side: read.side,
-        token,
-        amountIn,
-        slippagePct: c.slippagePct,
-        idemKey: `copy:${s.id}:${tx.hash}`,
-        source: tx.hash,
-        message: `Copy of ${c.target}’s ${read.side}`,
-        stillAllowed: allowedWhile(s, ['active']),
+    st.waiting = lag > COPY_MAX_LAG_SEC ? `FastNEAR’s index is ${Math.round(lag)} s behind the chain: trades seen late are not copied` : null
+    const floor = st.cursorMs ?? since
+    // Final and after the rule was made; the same moment as the cursor again (one block holds several transactions).
+    const candidates = refs.filter((r) => r.timestampMs > since && r.timestampMs >= floor && now() - r.timestampMs > COPY_FINALITY_MS).sort((a, b) => a.timestampMs - b.timestampMs)
+    const todo: TxRef[] = []
+    for (const r of candidates) if (!(await store.detection(s.id, r.hash))) todo.push(r)
+    // Only what the account started can be copied: the rest isn't read in full. A failed one is recorded without reading it.
+    const started = todo.filter((r) => r.signer !== false)
+    for (const r of started.filter((x) => x.success === false))
+      await store.addDetection({
+        strategyId: s.id,
+        sourceKey: r.hash,
+        at: r.timestampMs,
+        side: null,
+        token: null,
+        tokenRaw: null,
+        nearRaw: null,
+        status: 'skipped',
+        reason: 'Failed on chain',
       })
-      await settledCopy(s, c, token, tx.hash, out, positions)
+    const batch = started.filter((r) => r.success !== false).slice(0, COPY_READ_PER_STEP)
+    let full: NormalizedTx[] = []
+    try {
+      full = batch.length ? await fetchFullTxs(fetchImpl, url, batch, async () => undefined) : []
+    } catch (e) {
+      log.warn('copy trade: reading transactions from the index failed', { strategy: s.id, error: e })
     }
-    await store.setNext(s.id, now() + COPY_CHECK_MS, { ...st, since, positions })
+    const got = new Set(full.map((t) => t.hash))
+    for (const r of batch) {
+      if (got.has(r.hash) || !r.directSigner) continue
+      const tx = await rpcTx(r, c.target)
+      if (tx) {
+        full.push(tx)
+        got.add(r.hash)
+      }
+    }
+    full.sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))
+    const positions = { ...(st.positions ?? {}) }
+    for (const tx of full) await copyOne(s, c, wallet, st, positions, tx)
+    // Readable nowhere yet: tried again on the next steps, then recorded as skipped.
+    const unread = { ...(st.unread ?? {}) }
+    for (const r of batch) {
+      if (got.has(r.hash)) {
+        delete unread[r.hash]
+        continue
+      }
+      const tries = (unread[r.hash] ?? 0) + 1
+      if (tries < COPY_MAX_READ_TRIES) unread[r.hash] = tries
+      else {
+        delete unread[r.hash]
+        await store.addDetection({
+          strategyId: s.id,
+          sourceKey: r.hash,
+          at: r.timestampMs,
+          side: null,
+          token: null,
+          tokenRaw: null,
+          nearRaw: null,
+          status: 'skipped',
+          reason: 'Its details couldn’t be read (the index and NEAR RPC both failed)',
+        })
+      }
+    }
+    for (const k of Object.keys(unread).slice(0, -50)) delete unread[k]
+    // The cursor moves up to the first transaction still to do (unread, or beyond this step's batch).
+    const pending = new Set([
+      ...Object.keys(unread),
+      ...started
+        .filter((r) => r.success !== false)
+        .slice(COPY_READ_PER_STEP)
+        .map((r) => r.hash),
+    ])
+    let cursor = st.cursorMs ?? since
+    for (const r of candidates) {
+      if (pending.has(r.hash)) break
+      cursor = Math.max(cursor, r.timestampMs)
+    }
+    await store.setNext(s.id, now() + (pending.size ? 3_000 : COPY_CHECK_MS), { ...st, since, cursorMs: cursor, positions, unread })
+  }
+
+  /** One transaction of the followed account: skipped with its reason, or copied (a token-for-token swap as two NEAR trades). */
+  async function copyOne(s: Strategy, c: CopyConfig, wallet: TradingWallet, st: CopyState, positions: Record<string, Position>, tx: NormalizedTx): Promise<void> {
+    const read = readCopyTrade(tx, c.target, deps.network)
+    const at = tx.timestampMs ?? now()
+    const base = { strategyId: s.id, sourceKey: tx.hash, at }
+    if (!read.ok) return void (await store.addDetection({ ...base, side: null, token: null, tokenRaw: null, nearRaw: null, status: 'skipped', reason: read.reason }))
+    // Seen too long after it happened (the index was behind or down): its price has moved, so it isn't copied.
+    const late = now() - at
+    if (late > COPY_MAX_DELAY_MS) {
+      const reason = `Seen ${Math.round(late / 1000)} s after it happened (the index was behind): not copied at a price that has moved`
+      if (read.side === 'swap') await store.addDetection({ ...base, side: null, token: read.bought, tokenRaw: read.boughtRaw.toString(), nearRaw: null, status: 'skipped', reason })
+      else
+        await store.addDetection({ ...base, side: read.side, token: read.token, tokenRaw: read.tokenRaw.toString(), nearRaw: read.nearRaw.toString(), status: 'skipped', reason })
+      return
+    }
+    if (read.side !== 'swap')
+      return copyLeg(s, c, wallet, st, positions, { key: tx.hash, side: read.side, token: read.token, tokenRaw: read.tokenRaw, sourceNear: read.nearRaw, at })
+    // A token-for-token swap: NEARKITS wallets trade against NEAR, so it is copied as a sell of what this
+    // rule holds of the first token and a buy of the second with NEAR (each its own trade and record).
+    const recorded = await store.addDetection({
+      ...base,
+      side: null,
+      token: read.bought,
+      tokenRaw: read.boughtRaw.toString(),
+      nearRaw: null,
+      status: 'detected',
+      reason: `A swap of ${read.sold} for ${read.bought}: copied as NEAR trades (a sell of what this rule holds of the first, a buy of the second)`,
+    })
+    if (!recorded) return
+    await copyLeg(s, c, wallet, st, positions, { key: `${tx.hash}:sell`, side: 'sell', token: read.sold, tokenRaw: read.soldRaw, sourceNear: null, at })
+    // A buy sized as a share of what the account spent needs that in NEAR: the token's executable NEAR value now.
+    const value = c.sizing.mode === 'percent' && c.copy !== 'sell' ? await nearValueOf(read.sold, read.soldRaw, wallet) : null
+    await copyLeg(s, c, wallet, st, positions, { key: `${tx.hash}:buy`, side: 'buy', token: read.bought, tokenRaw: read.boughtRaw, sourceNear: value, at })
+  }
+
+  /** What `raw` of a token would sell for in NEAR now (an executable quote from the rule's wallet); null when unknown. */
+  async function nearValueOf(token: string, raw: bigint, wallet: TradingWallet): Promise<bigint | null> {
+    const meta = await deps.near.ctx.reader.metadata(token).catch(() => null)
+    if (!meta || !takeQuote()) return null
+    try {
+      const q = await custody.swaps.quote(
+        { side: 'sell', token, symbol: meta.symbol, decimals: meta.decimals, amountIn: formatUnits(raw, meta.decimals), slippagePct: AUTOMATION_MAX_SLIPPAGE },
+        wallet,
+      )
+      return quoteAmounts('sell', q).nearRaw
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * One copied trade, with everything checked again right before it: the side and exclusions, the
+   * token from chain, the size within the rule's limits and its exposure (trades still under way
+   * included), what the wallet holds (a sell never sells more than this rule bought, nor than the wallet
+   * holds), the quote budget; then the custody path (fresh quote, slippage, NEARKITS' limits, the signer).
+   */
+  async function copyLeg(
+    s: Strategy,
+    c: CopyConfig,
+    wallet: TradingWallet,
+    st: CopyState,
+    positions: Record<string, Position>,
+    leg: { key: string; side: 'buy' | 'sell'; token: string; tokenRaw: bigint; sourceNear: bigint | null; at: number },
+  ): Promise<void> {
+    const detected = {
+      strategyId: s.id,
+      sourceKey: leg.key,
+      at: leg.at,
+      side: leg.side,
+      token: leg.token,
+      tokenRaw: leg.tokenRaw.toString(),
+      nearRaw: leg.sourceNear?.toString() ?? null,
+    }
+    const skip = async (reason: string) => void (await store.addDetection({ ...detected, status: 'skipped', reason }))
+    if (c.copy !== 'both' && c.copy !== leg.side) return skip(`Copying ${c.copy}s only`)
+    if (c.exclude.includes(leg.token)) return skip('The token is excluded')
+    const meta = await deps.near.ctx.reader.metadata(leg.token).catch(() => null)
+    if (!meta) return skip('The token’s metadata can’t be read from chain')
+    const token: TokenRef = { id: leg.token, symbol: meta.symbol, decimals: meta.decimals }
+    if (!(await store.addDetection({ ...detected, status: 'eligible', reason: null }))) return
+    const skipped = async (reason: string) => store.updateDetection(s.id, leg.key, 'skipped', { reason })
+    let amountIn: string
+    if (leg.side === 'buy') {
+      if (c.sizing.mode === 'percent' && leg.sourceNear === null) return skipped('What the account spent is unknown in NEAR')
+      // Exposure: NEAR in copied buys not sold back, and in buys still under way.
+      const exposure = Object.values(positions).reduce((sum, p) => sum + near(p.nearIn), 0) + near(await store.openBuyNear(s.id))
+      const size = copyBuySize(c, leg.sourceNear === null ? 0 : near(leg.sourceNear), exposure)
+      if ('skip' in size) {
+        await skipped(size.skip)
+        // A risk-limit refusal is worth a notice, once an hour per rule: every skip stays in the history.
+        const lastNotice = typeof st.limitNoticeAt === 'number' ? st.limitNoticeAt : 0
+        if (now() - lastNotice > 3_600_000) {
+          st.limitNoticeAt = now()
+          await notify(s, `⛔ Copy of <b>${esc(c.target)}</b>: a buy of ${esc(token.symbol)} was not copied: ${esc(size.skip)}.`)
+        }
+        return
+      }
+      const quality = await qualityProblem(token.id, c.minLiquidityUsd, null, null)
+      if (quality) return skipped(quality)
+      amountIn = size.near.toFixed(6).replace(/\.?0+$/, '')
+    } else {
+      const pos = positions[token.id]
+      const held = await tokenBalance(token.id, wallet)
+      const sell = pos && held !== null ? (BigInt(pos.tokenRaw) < held ? BigInt(pos.tokenRaw) : held) : 0n
+      if (sell <= 0n) return skipped(`Nothing this rule bought of ${token.symbol} is left to sell`)
+      amountIn = formatUnits(sell, token.decimals)
+    }
+    if (!takeQuote()) return skipped('NEARKITS’ quote budget was spent; too late to copy')
+    await store.updateDetection(s.id, leg.key, 'executing')
+    const out = await executor.trade({
+      strategy: s,
+      wallet,
+      side: leg.side,
+      token,
+      amountIn,
+      slippagePct: c.slippagePct,
+      idemKey: `copy:${s.id}:${leg.key}`,
+      source: leg.key,
+      message: `Copy of ${c.target}’s ${leg.side}`,
+      stillAllowed: allowedWhile(s, ['active']),
+    })
+    await settledCopy(s, c, token, leg.key, out, positions)
   }
 
   async function settledCopy(s: Strategy, c: CopyConfig, token: TokenRef, source: string, out: TradeOutcome, positions: Record<string, Position>): Promise<void> {

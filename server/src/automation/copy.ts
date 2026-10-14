@@ -4,14 +4,26 @@ import { accountLegs, flowsOf, type NormalizedTx } from '@/services/near/flows'
 
 /**
  * Copy Trade's reading of a followed account's transaction. A copyable trade is a swap the account
- * itself started, of NEAR (or wNEAR) for exactly one token or back, that went through an exchange
- * NEARKITS routes through (Rhea's aggregator, Ref's v2 exchange, Ref DCL). Anything else is skipped
- * with its reason: a transfer or a refund (a token arriving with nothing given up), a liquidity move
- * (tokens and NEAR both leaving or both arriving), token-for-token or multi-token trades, and calls
- * that never touched an exchange.
+ * itself started that went through an exchange NEARKITS routes through (Rhea's aggregator, Ref's v2
+ * exchange, Ref DCL):
+ *
+ * - NEAR (or wNEAR) for exactly one token, or back: a buy or a sell;
+ * - one token for exactly one other token, with no NEAR traded (a swap): NEARKITS wallets trade
+ *   against NEAR, so it is copied as two NEAR trades (a sell of what the rule holds of the first token,
+ *   a buy of the second with NEAR), never as a token-for-token swap.
+ *
+ * Anything else is skipped with its reason: a transfer or a refund (a token arriving with nothing
+ * given up), a liquidity move (tokens both leaving or both arriving), trades of more than two tokens,
+ * and calls that never touched an exchange.
  */
 
-export type CopyRead = { ok: true; side: 'buy' | 'sell'; token: string; tokenRaw: bigint; nearRaw: bigint } | { ok: false; reason: string }
+export type CopyRead =
+  | { ok: true; side: 'buy' | 'sell'; token: string; tokenRaw: bigint; nearRaw: bigint }
+  | { ok: true; side: 'swap'; sold: string; soldRaw: bigint; bought: string; boughtRaw: bigint }
+  | { ok: false; reason: string }
+
+/** NEAR moving in a token-for-token swap that is still no NEAR trade: storage registrations, the 1 yocto deposits. */
+const SWAP_NEAR_DUST = 20_000_000_000_000_000_000_000n // 0.02 NEAR
 
 /** The exchanges a copied trade must have gone through, on this network. */
 export function exchangesOf(network: NetworkConfig): Set<string> {
@@ -28,17 +40,24 @@ export function readCopyTrade(tx: NormalizedTx, account: string, network: Networ
   const flows = flowsOf(tx, { wrapContract: network.wrapContract })
   const legs = accountLegs(flows, account, network.wrapContract)
   const near = legs.get('near') ?? 0n
-  const tokens = [...legs.entries()].filter(([asset]) => asset !== 'near')
+  const tokens = [...legs.entries()].filter(([asset, delta]) => asset !== 'near' && delta !== 0n)
   if (tokens.length === 0) return { ok: false, reason: 'No token traded' }
-  if (tokens.length > 1) return { ok: false, reason: 'More than one token moved: not a NEAR swap' }
+  const exchanges = exchangesOf(network)
+  const through = (assets: readonly string[]) =>
+    flows.some((f) => assets.includes(f.asset) && ((f.to !== null && exchanges.has(f.to)) || (f.from !== null && exchanges.has(f.from))))
+  if (tokens.length === 2) {
+    const sold = tokens.find(([, d]) => d < 0n)
+    const bought = tokens.find(([, d]) => d > 0n)
+    if (!sold || !bought) return { ok: false, reason: 'Two tokens moved the same way (a liquidity deposit or withdrawal, or transfers)' }
+    if (near > SWAP_NEAR_DUST || -near > SWAP_NEAR_DUST) return { ok: false, reason: 'Two tokens and NEAR moved: not a swap NEARKITS can copy' }
+    if (!through([sold[0], bought[0]])) return { ok: false, reason: 'Not through an exchange NEARKITS routes through' }
+    return { ok: true, side: 'swap', sold: sold[0], soldRaw: -sold[1], bought: bought[0], boughtRaw: bought[1] }
+  }
+  if (tokens.length > 2) return { ok: false, reason: 'More than two tokens moved: not a swap NEARKITS copies' }
   const [token, delta] = tokens[0] as [string, bigint]
   if (delta > 0n && near >= 0n) return { ok: false, reason: 'Tokens arrived with no NEAR given up (a transfer, a refund or a liquidity withdrawal)' }
   if (delta < 0n && near <= 0n) return { ok: false, reason: 'Tokens left with no NEAR received (a transfer or a liquidity deposit)' }
-  const exchanges = exchangesOf(network)
-  const touched = flows.some(
-    (f) => (f.asset === token || f.asset === network.wrapContract) && ((f.to !== null && exchanges.has(f.to)) || (f.from !== null && exchanges.has(f.from))),
-  )
-  if (!touched) return { ok: false, reason: 'Not through an exchange NEARKITS routes through' }
+  if (!through([token, network.wrapContract])) return { ok: false, reason: 'Not through an exchange NEARKITS routes through' }
   return delta > 0n ? { ok: true, side: 'buy', token, tokenRaw: delta, nearRaw: -near } : { ok: true, side: 'sell', token, tokenRaw: -delta, nearRaw: near }
 }
 

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { LimitConfig, StrategyKind } from '@/lib/automation/config'
 import swapUsdt from '@/services/near/fixtures/flows/testone-swap1-near-to-usdt.fastnear.json'
 import storageDeposit from '@/services/near/fixtures/flows/storage-deposit.fastnear.json'
+import aggBuy from '@/services/near/fixtures/flows/aggregator-buy-with-rhea.fastnear.json'
+import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
+import directBuyRpc from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.rpc.json'
 import { ALICE } from '../bot/testing'
 import { ONE, USDT, walletBot } from '../bot/walletTesting'
 import { SWAP_QUOTE_TTL_MS } from '../custody/swap'
@@ -534,12 +537,169 @@ describe('Copy Trade', () => {
         const u = String(url)
         calls.push(u)
         const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as { tx_hashes?: string[] }) : {}
+        if (u.endsWith('/status')) return new Response(JSON.stringify({ status: 'ok', lag_seconds: 2 }), { status: 200 })
         if (u.endsWith('/v0/account')) return new Response(JSON.stringify({ account_txs: listed }), { status: 200 })
         if (u.endsWith('/v0/transactions')) return new Response(JSON.stringify({ transactions: txs.filter((t) => body.tx_hashes?.includes(t.transaction.hash)) }), { status: 200 })
         return new Response('not found', { status: 404 })
       }) as typeof fetch,
     }
   }
+
+  /** Mainnet contracts as the fake chain names them (and a real token as the fake chain's USDT). */
+  const toTestnet = (raw: unknown, token?: string) => {
+    let text = JSON.stringify(raw)
+      .replaceAll('usdt.tether-token.near', USDT)
+      .replaceAll('wrap.near', 'wrap.testnet')
+      .replaceAll('v2.ref-finance.near', 'ref-finance-101.testnet')
+      .replaceAll('dclv2.ref-labs.near', 'dclv2.ref-dev.testnet')
+    if (token) text = text.replaceAll(token, USDT)
+    return JSON.parse(text) as { transaction: { hash: string; signer_id: string } }
+  }
+
+  /**
+   * A FastNEAR index the test drives: the transactions it lists (each with its age, and whether the
+   * account signed it), whether /status answers (and its lag), and which full transactions it serves.
+   */
+  function drivenIndex(now: () => number) {
+    const full = new Map<string, unknown>()
+    let listed: { transaction_hash: string; tx_block_height: number; tx_block_timestamp: string; is_signer?: boolean; is_success?: boolean }[] = []
+    const state = { up: true, lag: 2, serveFull: true }
+    return {
+      state,
+      add(raw: { transaction: { hash: string } }, opts: { ageMs?: number; signer?: boolean; success?: boolean } = {}) {
+        full.set(raw.transaction.hash, raw)
+        const ns = BigInt(now() - (opts.ageMs ?? 20_000)) * 1_000_000n
+        listed = [
+          {
+            transaction_hash: raw.transaction.hash,
+            tx_block_height: 100 + listed.length,
+            tx_block_timestamp: ns.toString(),
+            is_signer: opts.signer ?? true,
+            is_success: opts.success ?? true,
+          },
+          ...listed,
+        ]
+      },
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url)
+        if (!state.up) throw new Error('connect ECONNREFUSED')
+        const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as { tx_hashes?: string[] }) : {}
+        if (u.endsWith('/status')) return new Response(JSON.stringify({ status: 'ok', lag_seconds: state.lag }), { status: 200 })
+        if (u.endsWith('/v0/account')) return new Response(JSON.stringify({ account_txs: listed }), { status: 200 })
+        if (u.endsWith('/v0/transactions'))
+          return new Response(JSON.stringify({ transactions: state.serveFull ? (body.tx_hashes ?? []).map((h) => full.get(h)).filter(Boolean) : [] }), { status: 200 })
+        return new Response('not found', { status: 404 })
+      }) as typeof fetch,
+    }
+  }
+
+  const copyRule = (target: string, patch: Record<string, unknown> = {}) => ({
+    kind: 'copy' as const,
+    copy: {
+      target,
+      copy: 'both' as const,
+      sizing: { mode: 'fixed' as const, amountNear: 1 },
+      maxTradeNear: 2,
+      minTradeNear: null,
+      maxExposureNear: 10,
+      slippagePct: 2,
+      minLiquidityUsd: null,
+      exclude: [],
+      ...patch,
+    },
+  })
+
+  it('a token-for-token swap is copied as NEAR trades: the sell of what the rule holds (nothing yet: recorded), the buy with NEAR', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('alijay3637.tg') })
+    if (!rule) throw new Error('no rule')
+    h.advance(30_000)
+    // RHEA for SINGULARTY on mainnet; SINGULARTY played by the fake chain's USDT.
+    const swap = toTestnet(aggBuy, 'singularty.nearlytrade.near')
+    idx.add(swap)
+    await tick(1_000)
+    const d = await store.detectionsOf(rule.id)
+    expect(d.find((x) => x.sourceKey === swap.transaction.hash)).toMatchObject({ status: 'detected', token: USDT })
+    expect(d.find((x) => x.sourceKey === `${swap.transaction.hash}:sell`)).toMatchObject({ side: 'sell', status: 'skipped' })
+    expect(d.find((x) => x.sourceKey === `${swap.transaction.hash}:buy`)).toMatchObject({ side: 'buy', token: USDT, status: 'confirmed' })
+    expect(await store.executionsOf(rule.id)).toMatchObject([{ side: 'buy', status: 'confirmed', nearRaw: ONE.toString(), source: `${swap.transaction.hash}:buy` }])
+  })
+
+  it('a trade seen too long after it happened (the index behind) is recorded, not copied; the lag is said on the rule', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('testone.near') })
+    if (!rule) throw new Error('no rule')
+    h.advance(600_000)
+    idx.state.lag = 240
+    idx.add(toTestnet(swapUsdt), { ageMs: 240_000 })
+    await tick(1_000)
+    expect(await store.executionsOf(rule.id)).toEqual([])
+    expect((await store.detectionsOf(rule.id))[0]).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/after it happened/) })
+    expect((await service.list(ALICE.id))[0]?.waiting).toMatch(/240 s behind/)
+  })
+
+  it('the index down: the rule waits and says so, its owner is told once after 10 minutes; back up, it copies what is still fresh', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick, notices } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('testone.near') })
+    if (!rule) throw new Error('no rule')
+    idx.state.up = false
+    for (let i = 0; i < 12; i++) await tick(61_000)
+    expect((await service.list(ALICE.id))[0]?.waiting).toMatch(/isn’t answering/)
+    expect(notices.filter((n) => /hasn’t answered/.test(n))).toHaveLength(1)
+    idx.state.up = true
+    idx.add(toTestnet(swapUsdt))
+    await tick(61_000)
+    expect(await store.executionsOf(rule.id)).toMatchObject([{ side: 'buy', status: 'confirmed' }])
+    expect((await store.events(rule.id)).map((e) => e.message).join(' ')).toMatch(/answers again/)
+  })
+
+  it('a transaction the index lists but can’t serve is read from NEAR RPC (the account signed it) and copied', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('mort1705.tg') })
+    if (!rule) throw new Error('no rule')
+    h.advance(30_000)
+    const viaRpc = toTestnet(directBuyRpc, 'singularty.nearlytrade.near')
+    idx.state.serveFull = false
+    idx.add(viaRpc)
+    const rpc = h.deps.near.ctx.rpc
+    const real = rpc.txStatus.bind(rpc)
+    rpc.txStatus = (async (hash: string, sender: string, wait?: never) => (hash === viaRpc.transaction.hash ? viaRpc : real(hash, sender, wait))) as typeof rpc.txStatus
+    await tick(1_000)
+    expect(await store.executionsOf(rule.id)).toMatchObject([{ side: 'buy', status: 'confirmed', source: viaRpc.transaction.hash }])
+  })
+
+  it('exposure counts buys still under way: a second copy that would pass the limit is skipped before anything is signed', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('testone.near', { maxTradeNear: 1, maxExposureNear: 1 }) })
+    if (!rule) throw new Error('no rule')
+    h.advance(30_000)
+    idx.add(toTestnet(swapUsdt))
+    h.chain.onSend((tx) => (tx.receiverId === 'wrap.testnet' ? 'hidden' : 'apply'))
+    await tick(1_000)
+    expect(await store.executionsOf(rule.id)).toMatchObject([{ side: 'buy', status: 'submitted' }])
+    // A second buy of the same account, while the first is still on its way.
+    const second = toTestnet(directBuy, 'singularty.nearlytrade.near')
+    second.transaction.signer_id = 'testone.near'
+    idx.add(JSON.parse(JSON.stringify(second).replaceAll('mort1705.tg', 'testone.near')) as typeof second)
+    await tick(31_000)
+    expect(await store.executionsOf(rule.id)).toHaveLength(1)
+    expect((await store.detectionsOf(rule.id)).find((d) => d.sourceKey === second.transaction.hash)).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/exposure/) })
+  })
 
   it('copies a NEAR swap of the followed account once, within its limits; other transactions are skipped with their reason', async () => {
     let clock = { now: () => 0 }

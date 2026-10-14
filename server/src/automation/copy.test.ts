@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { NETWORKS } from '@/config/networks'
 import type { CopyConfig } from '@/lib/automation/config'
-import { fromFastnear } from '@/services/near/flows'
+import { fromFastnear, fromRpc } from '@/services/near/flows'
 import aggBuy from '@/services/near/fixtures/flows/aggregator-buy-with-rhea.fastnear.json'
+import aggBuyRpc from '@/services/near/fixtures/flows/aggregator-buy-with-rhea.rpc.json'
+import directBuyRpc from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.rpc.json'
+import directSellRpc from '@/services/near/fixtures/flows/direct-sell-dcl.rpc.json'
 import aggSell from '@/services/near/fixtures/flows/aggregator-sell.fastnear.json'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
 import directSell from '@/services/near/fixtures/flows/direct-sell-dcl.fastnear.json'
@@ -32,13 +35,38 @@ describe('which transactions Copy Trade copies', () => {
     expect(read(swapUsdc, 'testone.near')).toMatchObject({ ok: true, side: 'buy', token: '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1' })
   })
 
-  it('never copies a token-for-token swap, a refunded swap, a registration, a storage deposit or a launchpad’s own transfer', () => {
-    // RHEA for SINGULARTY: no NEAR side to copy.
-    expect(read(aggBuy, 'alijay3637.tg')).toEqual({ ok: false, reason: 'More than one token moved: not a NEAR swap' })
+  it('a token-for-token swap through Rhea’s aggregator (RHEA for SINGULARTY): what was sold and what was bought, both raw', () => {
+    expect(read(aggBuy, 'alijay3637.tg')).toEqual({
+      ok: true,
+      side: 'swap',
+      sold: 'token.rhealab.near',
+      soldRaw: 15_000_000_000_000_000_000n,
+      bought: SING,
+      boughtRaw: 26_073_706_223_015_229_382_024n,
+    })
+  })
+
+  it('never copies a refunded swap, a registration, a storage deposit or a launchpad’s own transfer', () => {
     expect(read(aggSell, 'pulamica.near')).toEqual({ ok: false, reason: 'No token traded' })
     expect(read(registration, 'testone.near')).toMatchObject({ ok: false })
     expect(read(storage, 'xhung1984.near')).toMatchObject({ ok: false })
     expect(read(tax, 'nearlytrade.near')).toMatchObject({ ok: false, reason: expect.stringMatching(/no NEAR received/) })
+  })
+
+  it('a token-for-token swap that went through no exchange NEARKITS routes through is not copied', () => {
+    expect(
+      readCopyTrade(fromFastnear(aggBuy), 'alijay3637.tg', {
+        ...NETWORKS.mainnet,
+        rhea: { ...NETWORKS.mainnet.rhea, aggregator: null, classic: { ...NETWORKS.mainnet.rhea.classic, exchange: 'x.near' } },
+        dex: { dcl: { contract: 'y.near' } },
+      }),
+    ).toEqual({ ok: false, reason: 'Not through an exchange NEARKITS routes through' })
+  })
+
+  it('the same transactions read from NEAR RPC (the fallback when the index can’t serve one) read the same', () => {
+    expect(readCopyTrade(fromRpc(aggBuyRpc as never), 'alijay3637.tg', NETWORKS.mainnet)).toEqual(read(aggBuy, 'alijay3637.tg'))
+    expect(readCopyTrade(fromRpc(directBuyRpc as never), 'mort1705.tg', NETWORKS.mainnet)).toEqual(read(directBuy, 'mort1705.tg'))
+    expect(readCopyTrade(fromRpc(directSellRpc as never), 'iwillwin.user.intear.near', NETWORKS.mainnet)).toEqual(read(directSell, 'iwillwin.user.intear.near'))
   })
 
   it('only the account that started the transaction is copied: an account merely touched by it is not', () => {
