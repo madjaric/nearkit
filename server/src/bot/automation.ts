@@ -1436,8 +1436,8 @@ async function quit(ctx: BotCtx): Promise<void> {
 
 // ─── the module ─────────────────────────────────────────────────────────────
 
-/** Not in Telegram's command menu (its order is pinned): listed in /help. */
-const command = (name: string, run: (ctx: BotCtx) => Promise<void>) => ({ ...documented(name), menu: false as const, run })
+/** In Telegram's command menu, after every other command (MENU_FIRST pins the lead), and in /help. */
+const command = (name: string, run: (ctx: BotCtx) => Promise<void>) => ({ ...documented(name), run })
 
 export function automationModule(): BotModule {
   return {

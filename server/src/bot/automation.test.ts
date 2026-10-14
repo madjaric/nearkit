@@ -916,11 +916,14 @@ describe('DCA (/dca) and /auto', () => {
 })
 
 describe('/help', () => {
-  it('lists the automation commands; Telegram’s pinned command menu stays as it was', async () => {
+  it('lists the automation commands; Telegram’s private menu ends with them, after its pinned lead; groups never get them', async () => {
     const h = await autoBot()
     await h.say('/help')
     for (const c of ['/orders', '/copy', '/snipe', '/dca', '/auto']) expect(h.text()).toContain(c)
     const menu = menuCommands(h.app, 'private').map((c) => c.command)
-    for (const c of ['orders', 'copy', 'snipe', 'dca', 'auto']) expect(menu).not.toContain(c)
+    expect(menu[0]).toBe('start')
+    expect(menu.slice(-5)).toEqual(['orders', 'copy', 'snipe', 'dca', 'auto'])
+    const group = menuCommands(h.app, 'group').map((c) => c.command)
+    for (const c of ['orders', 'copy', 'snipe', 'dca', 'auto']) expect(group).not.toContain(c)
   })
 })

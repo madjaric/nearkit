@@ -187,6 +187,8 @@ export function createTelegramApi(options: TelegramApiOptions) {
     getChatMember: (chatId: number | string, userId: number) => call<TgChatMember>('getChatMember', { chat_id: chatId, user_id: userId }),
     getChat: (chatId: number | string) => call<TgChat>('getChat', { chat_id: chatId }),
     setMyCommands: (commands: { command: string; description: string }[], scope?: { type: string }) => call<boolean>('setMyCommands', { commands, ...(scope ? { scope } : {}) }),
+    /** The menu Telegram holds for a scope (none: the default one), as it was last set; empty when none is. */
+    getMyCommands: (scope?: { type: string }) => call<{ command: string; description: string }[]>('getMyCommands', scope ? { scope } : {}),
     deleteWebhook: () => call<boolean>('deleteWebhook', { drop_pending_updates: false }),
   }
 }

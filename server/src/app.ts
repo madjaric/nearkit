@@ -2,6 +2,7 @@ import { volumeModule } from './bot/volume'
 import { automationModule } from './bot/automation'
 import { botRoutes } from './volumebot/routes'
 import { KIT_LAUNCHPAD } from '@/config/kit'
+import { automationHealth } from './automation/healthView'
 import { createPoolFeed, PoolStore } from './automation/pools'
 import { automationRoutes } from './automation/routes'
 import { createAutomationRunner } from './automation/runner'
@@ -532,7 +533,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : config.buybot.runner === 'separate' ? 'separate process' : 'needs the bot token',
       wallets: custody ? 'on' : 'off',
       volumebot: volumeRunner ? 'running' : 'off',
-      automation: automationRunner ? [...automationEnabled].join(',') || 'off' : 'off',
+      ...automationHealth(automationRunner !== null, automationEnabled, config.automation.sniperBuy),
       bridge: bridge ? 'on' : 'off',
       pauses: health.pauses,
       signer: health.signer,
@@ -592,7 +593,8 @@ export async function startServer(options: { env: Record<string, string | undefi
         })
       : null
   automationRunner?.start()
-  if (automationRunner) log.info('trading automation worker running', { kinds: [...automationEnabled] })
+  if (automationRunner)
+    log.info('trading automation worker running', { kinds: [...automationEnabled], sniperBuy: automationHealth(true, automationEnabled, config.automation.sniperBuy).sniperBuy })
   // Bridge & Buy orders, each stepped under its own lease (NEAR Intents' status, then the $KITS purchase).
   // A Bridge to a NEARKITS wallet tells its Telegram user what the worker saw (deposit, delivery, unwrap, refund), each once.
   const bridgeWorker =

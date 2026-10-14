@@ -235,6 +235,8 @@ await step('the command menu the server registers: /start first, then /bridge, /
   if (priv.slice(0, first.length).join() !== first.join()) throw new Error(`private menu: ${priv.join(', ')}`)
   for (const kept of ['wallet', 'deposit', 'withdraw', 'buy', 'sell', 'quote', 'token', 'balance', 'positions', 'pnl', 'settings', 'referral', 'web', 'volume', 'buybot'])
     if (!priv.includes(kept)) throw new Error(`/${kept} left the private menu`)
+  // Trading automation's commands close the private menu (whether or not this server switched it on).
+  if (priv.slice(-5).join() !== 'orders,copy,snipe,dca,auto') throw new Error(`automation commands not last in the private menu: ${priv.join(', ')}`)
   const group = names('all_group_chats')
   if (group.slice(0, 3).join() !== 'start,help,cancel' || !group.includes('buybot')) throw new Error(`group menu: ${group.join(', ')}`)
   // Only these two scopes, with no language of their own: nothing narrower overrides them.
