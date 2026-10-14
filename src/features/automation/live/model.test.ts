@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ExecutionView } from '@/lib/automation/api'
-import { STRATEGY_STATUSES, validateCopy, validateDca, validateLimit, validateSniper, type TokenRef } from '@/lib/automation/config'
+import { REQUEST_KEY, type CreateStrategyInput, type ExecutionView, type StrategyView } from '@/lib/automation/api'
+import { parseStrategy, STRATEGY_STATUSES, validateCopy, validateDca, validateLimit, validateSniper, type TokenRef } from '@/lib/automation/config'
 import { LinkRequestError } from '@/services/telegramLink'
 import {
   buildCopy,
@@ -8,20 +8,40 @@ import {
   buildLimit,
   buildSniper,
   buildStopLossPair,
+  buyConfirmation,
   controlsFor,
+  createRefusalOf,
   decimalText,
   describeStrategy,
+  DETECTION_LAMP,
+  detectionLamp,
+  detectionSourceOf,
+  detectionTitle,
+  endedNote,
+  endPrompt,
   executionAmounts,
   EXECUTION_LAMP,
   issuesByField,
+  newRequestKey,
+  pairSibling,
   refusalOf,
+  retryableCreate,
+  REVIEW_AGAIN,
+  reviewOf,
+  sendCreate,
   shownRaw,
   SLIPPAGE_CHOICES,
+  sniperCreatedNote,
+  sniperSummary,
+  sourcesText,
   STATUS_LAMP,
   tabOf,
   tokenRefOf,
+  validRequestKey,
   type CopyDraft,
   type LimitDraft,
+  type Reviewed,
+  type SniperDraft,
 } from './model'
 import { automationLive } from './queries'
 
@@ -92,6 +112,23 @@ describe('the limit order form', () => {
   })
 })
 
+const sniper = (o: Partial<SniperDraft> = {}): SniperDraft => ({
+  target: 'token',
+  token: USDT,
+  sources: [],
+  minPoolText: '',
+  maxBuysText: '1',
+  amountText: '1',
+  slippagePct: 1,
+  maxImpactText: '10',
+  minLiquidityText: '',
+  maxAttemptsText: '3',
+  expiry: 'gtc',
+  mode: 'notify',
+  ...o,
+})
+const pools = (o: Partial<SniperDraft> = {}): SniperDraft => sniper({ target: 'new-pools', token: USDT, sources: ['nearly', 'meme-cooking'], minPoolText: '5', ...o })
+
 describe('the Copy Trade, Sniper and DCA forms', () => {
   const copy = (o: Partial<CopyDraft> = {}): CopyDraft => ({
     target: ' Trader.NEAR ',
@@ -119,12 +156,56 @@ describe('the Copy Trade, Sniper and DCA forms', () => {
   })
 
   it('Sniper: notify only by default shape, attempts bounded, as the server checks', () => {
-    const base = { token: USDT, amountText: '1', slippagePct: 1, maxImpactText: '10', minLiquidityText: '', maxAttemptsText: '3', expiry: 'gtc' as const, mode: 'notify' as const }
-    const ok = buildSniper(base, NOW)
+    const ok = buildSniper(sniper(), NOW)
     expect(ok.issues).toEqual([])
+    expect(ok.config).toMatchObject({ target: 'token', token: USDT, sources: [], minPoolNear: null, maxBuys: 1, mode: 'notify' })
     expect(validateSniper(ok.config, NOW)).toEqual([])
-    expect(fields(buildSniper({ ...base, maxAttemptsText: '11' }, NOW).issues)).toEqual(['maxAttempts'])
-    expect(fields(buildSniper({ ...base, token: null }, NOW).issues)).toEqual(['token.id'])
+    expect(fields(buildSniper(sniper({ maxAttemptsText: '11' }), NOW).issues)).toEqual(['maxAttempts'])
+    expect(fields(buildSniper(sniper({ token: null }), NOW).issues)).toEqual(['token.id'])
+    // Pool settings typed before switching back to one token are never sent with it.
+    expect(buildSniper(sniper({ sources: ['other'], minPoolText: '9', maxBuysText: '4', mode: 'execute' }), NOW).config).toMatchObject({
+      sources: [],
+      minPoolNear: null,
+      maxBuys: 1,
+    })
+  })
+
+  it('Sniper on new pools: no token, its sources and pool minimum, no market-liquidity check; the server’s parser takes it unchanged', () => {
+    const { config, issues } = buildSniper(pools({ minLiquidityText: '1000' }), NOW)
+    expect(issues).toEqual([])
+    expect(config).toEqual({
+      target: 'new-pools',
+      token: null,
+      sources: ['nearly', 'meme-cooking'],
+      minPoolNear: 5,
+      maxBuys: 1,
+      amountNear: 1,
+      slippagePct: 1,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+      mode: 'notify',
+    })
+    expect(validateSniper(config, NOW)).toEqual([])
+    expect(parseStrategy({ kind: 'sniper', sniper: config }, NOW)).toEqual({ ok: true, config: { kind: 'sniper', sniper: config } })
+    // In the sources' own order, whatever order they were ticked in.
+    expect(buildSniper(pools({ sources: ['other', 'nearly'] }), NOW).config.sources).toEqual(['nearly', 'other'])
+    // Buy mode buys up to its number of tokens; notify-only buys nothing (one, as the server requires).
+    expect(buildSniper(pools({ mode: 'execute', maxBuysText: '3' }), NOW).config.maxBuys).toBe(3)
+    expect(buildSniper(pools({ mode: 'notify', maxBuysText: '3' }), NOW).config.maxBuys).toBe(1)
+  })
+
+  it('Sniper on new pools: the shared validator’s refusals, field by field', () => {
+    expect(fields(buildSniper(pools({ sources: [] }), NOW).issues)).toEqual(['sources'])
+    expect(fields(buildSniper(pools({ minPoolText: '' }), NOW).issues)).toEqual(['minPoolNear'])
+    expect(buildSniper(pools({ minPoolText: '0' }), NOW).issues).toEqual([])
+    expect(fields(buildSniper(pools({ mode: 'execute', maxBuysText: '11' }), NOW).issues)).toEqual(['maxBuys'])
+    expect(fields(buildSniper(pools({ mode: 'execute', maxBuysText: '' }), NOW).issues)).toEqual(['maxBuys'])
+    const ok = buildSniper(pools(), NOW).config
+    expect(fields(validateSniper({ ...ok, minLiquidityUsd: 100 }, NOW))).toEqual(['minLiquidityUsd'])
+    expect(fields(validateSniper({ ...ok, token: USDT }, NOW))).toEqual(['token'])
+    expect(fields(validateSniper({ ...ok, minPoolNear: null }, NOW))).toEqual(['minPoolNear'])
   })
 
   it('DCA: starts now unless a start is set, ends by runs or date, as the server checks', () => {
@@ -217,5 +298,195 @@ describe('which page a user sees', () => {
     expect(automationLive('near', null, 'limit')).toBe(false)
     expect(automationLive('near', undefined, 'limit')).toBe(false)
     expect(automationLive('demo', ['limit', 'copy', 'sniper', 'dca'], 'limit')).toBe(false)
+    expect(automationLive('demo', ['sniper'], 'sniper')).toBe(false)
+  })
+})
+
+describe('a new-pools sniper, in words', () => {
+  const describe1 = (o: Partial<SniperDraft> = {}) => describeStrategy({ config: { kind: 'sniper', sniper: buildSniper(pools(o), NOW).config } })
+
+  it('notify only: where its pools come from, the pool minimum, the amount', () => {
+    expect(describe1()).toBe('Notify only: new pools from Nearly launches, meme.cooking · pool ≥ 5 NEAR · 1 NEAR each')
+    expect(describe1({ sources: ['other', 'meme-cooking', 'nearly'] })).toBe(
+      'Notify only: new pools from Nearly launches, meme.cooking and other new pools · pool ≥ 5 NEAR · 1 NEAR each',
+    )
+    expect(describe1({ sources: ['other'], minPoolText: '0', amountText: '0.5' })).toBe('Notify only: other new pools · pool ≥ 0 NEAR · 0.5 NEAR each')
+    expect(sourcesText(['meme-cooking'])).toBe('meme.cooking')
+  })
+
+  it('buying: up to its number of tokens', () => {
+    expect(describe1({ mode: 'execute', maxBuysText: '3' })).toBe('Buys up to 3 new tokens from Nearly launches, meme.cooking · pool ≥ 5 NEAR · 1 NEAR each')
+    expect(describe1({ mode: 'execute', maxBuysText: '1', sources: ['nearly'] })).toBe('Buys up to 1 new token from Nearly launches · pool ≥ 5 NEAR · 1 NEAR each')
+  })
+
+  it('a sniper on one token reads as it did', () => {
+    expect(describeStrategy({ config: { kind: 'sniper', sniper: buildSniper(sniper(), NOW).config } })).toBe('Notify only: 1 NEAR of USDt · max impact 10%')
+    expect(describeStrategy({ config: { kind: 'sniper', sniper: buildSniper(sniper({ mode: 'execute' }), NOW).config } })).toBe('Buys 1 NEAR of USDt · max impact 10%')
+  })
+
+  it('the review: its limits, the explicit yes in words of what it buys, and what the toast says', () => {
+    const notify = buildSniper(pools(), NOW).config
+    expect(sniperSummary(notify)).toBe(
+      'Notify only: new pools from Nearly launches, meme.cooking · pool ≥ 5 NEAR · 1 NEAR each. Price impact at most 10%; a round trip loses at most 25%; slippage 1%.',
+    )
+    const buys = buildSniper(pools({ mode: 'execute', maxBuysText: '3', amountText: '2' }), NOW).config
+    expect(buyConfirmation(buys)).toBe('I confirm: buy 2 NEAR of each new token that passes these checks, up to 3 tokens, from my NEARKITS wallet without asking me again.')
+    expect(sniperSummary(buys)).toContain('It stops after 3 buys that weren’t made.')
+    expect(sniperCreatedNote(buys).title).toBe('Sniper armed to buy new pools')
+    expect(sniperCreatedNote(notify).detail).toBe('It buys nothing: it tells you about each new pool that passes its checks.')
+    expect(buyConfirmation(buildSniper(sniper({ mode: 'execute' }), NOW).config)).toContain('buy 1 NEAR of USDt from my NEARKITS wallet when it trades')
+  })
+})
+
+describe('one create per review (the request key)', () => {
+  const config = { kind: 'dca', dca: { token: USDT } } as never
+
+  it('a key the server accepts, a different one each time', () => {
+    const keys = new Set(Array.from({ length: 20 }, () => newRequestKey()))
+    expect(keys.size).toBe(20)
+    for (const k of keys) {
+      expect(validRequestKey(k)).toBe(true)
+      expect(REQUEST_KEY.test(k)).toBe(true)
+    }
+  })
+
+  it('every Confirm of one review sends its key; editing and reviewing again makes a new one', () => {
+    const first = reviewOf({ amount: 1 }, 'w1')
+    const input = (r: Reviewed<unknown>): CreateStrategyInput => ({ walletId: r.walletId, config, requestKey: r.requestKey })
+    // A second click, or a retry after a network failure: the same review, the same key.
+    expect(input(first).requestKey).toBe(input(first).requestKey)
+    const edited = reviewOf({ amount: 2 }, 'w1')
+    expect(edited.requestKey).not.toBe(first.requestKey)
+    expect(reviewOf({ amount: 1 }, 'w1', 'fixed-key-123').requestKey).toBe('fixed-key-123')
+  })
+
+  it('a create the server never answered is sent once more, unchanged; a refusal never is', async () => {
+    const sent: CreateStrategyInput[] = []
+    const wait = async () => undefined
+    const flaky = (failures: unknown[]) => async (i: CreateStrategyInput) => {
+      sent.push(i)
+      const e = failures.shift()
+      if (e) throw e
+      return ['made']
+    }
+    const input: CreateStrategyInput = { walletId: 'w1', config, requestKey: 'review-key-1' }
+    expect(await sendCreate(flaky([new LinkRequestError(0, 'unreachable', 'The NEARKITS server can’t be reached right now.')]), input, wait)).toEqual(['made'])
+    expect(sent).toEqual([input, input])
+    sent.length = 0
+    expect(await sendCreate(flaky([new LinkRequestError(502, 'error', 'The NEARKITS server answered 502.')]), input, wait)).toEqual(['made'])
+    expect(sent).toHaveLength(2)
+    // A refusal is the server's answer: not resent.
+    sent.length = 0
+    await expect(sendCreate(flaky([new LinkRequestError(409, 'limit', 'Too many live snipers')]), input, wait)).rejects.toMatchObject({ status: 409 })
+    expect(sent).toHaveLength(1)
+    // Without a key, nothing is resent (it could make the strategy twice).
+    sent.length = 0
+    await expect(sendCreate(flaky([new LinkRequestError(0, 'unreachable', 'down')]), { walletId: 'w1', config }, wait)).rejects.toMatchObject({ status: 0 })
+    expect(sent).toHaveLength(1)
+    expect(retryableCreate(new Error('boom'))).toBe(false)
+  })
+
+  it('a key the server saw with another request (409, request) asks for a new review, in plain words', () => {
+    const r = createRefusalOf(new LinkRequestError(409, 'request', 'This request was already used for a different automation: review it again.'))
+    expect(r).toEqual({ message: REVIEW_AGAIN, issues: [], reviewAgain: true })
+    expect(r.message).toMatch(/Review it again/)
+    const issues = [{ field: 'sources', message: 'Choose where new pools come from' }]
+    expect(createRefusalOf(new LinkRequestError(400, 'state', 'Check the highlighted fields.', { issues }))).toEqual({
+      message: 'Check the highlighted fields.',
+      issues,
+      reviewAgain: true,
+    })
+    expect(createRefusalOf(new LinkRequestError(409, 'limit', 'Too many'))).toEqual({ message: 'Too many', issues: [], reviewAgain: false })
+  })
+})
+
+const view = (o: Partial<StrategyView>): StrategyView => ({
+  id: 's1',
+  kind: 'limit',
+  status: 'active',
+  walletId: 'w1',
+  walletName: 'Main',
+  subject: USDT.id,
+  config: { kind: 'limit', limit: { type: 'take-profit', token: USDT, amount: { kind: 'percent', value: 100 }, triggerPriceNear: '0.5', slippagePct: 1, expiresAt: null } },
+  statusReason: null,
+  waiting: null,
+  lastPriceNear: null,
+  lastQuoteAt: null,
+  ocoGroup: null,
+  attempts: 0,
+  expiresAt: null,
+  createdAt: NOW,
+  updatedAt: NOW,
+  closedAt: null,
+  ...o,
+})
+
+describe('a take profit / stop loss pair is cancelled together', () => {
+  const tp = view({ id: 'tp', ocoGroup: 'oco-1' })
+  const sl = view({
+    id: 'sl',
+    ocoGroup: 'oco-1',
+    config: { kind: 'limit', limit: { type: 'stop-loss', token: USDT, amount: { kind: 'percent', value: 100 }, triggerPriceNear: '0.2', slippagePct: 1, expiresAt: null } },
+  })
+
+  it('the confirmation says both orders of the pair are cancelled', () => {
+    const p = endPrompt(tp)
+    expect(p.title).toBe('Cancel both orders of this pair?')
+    expect(p.description).toContain('both orders of the pair are cancelled')
+    expect(p.confirm).toBe('Cancel both orders')
+    expect(endPrompt(view({})).title).toBe('Cancel this limit order?')
+    expect(endPrompt(view({ kind: 'sniper' })).title).toBe('Stop this sniper?')
+    expect(pairSibling(tp, [tp, sl])?.id).toBe('sl')
+    expect(pairSibling(view({}), [tp, sl])).toBeNull()
+  })
+
+  it('after the cancel: "both" only when the list read again shows the other cancelled too', () => {
+    const cancelled = { ...tp, status: 'cancelled' as const }
+    expect(endedNote(tp, cancelled, [cancelled, { ...sl, status: 'cancelled' }]).title).toBe('Both orders of the pair are cancelled')
+    // The other is trading already: it is followed to the end, and the toast says so.
+    expect(endedNote(tp, cancelled, [cancelled, { ...sl, status: 'executing' }])).toEqual({
+      title: 'Order cancelled',
+      detail: 'The other order of its pair is trading already: its result is followed to the end.',
+    })
+    // Unknown (no list) or still listed active: the plain message, never a claim about the other.
+    expect(endedNote(tp, cancelled, undefined)).toEqual({ title: 'Order cancelled', detail: describeStrategy(tp) })
+    expect(endedNote(tp, cancelled, [cancelled, sl]).title).toBe('Order cancelled')
+    // It had ended on its own (filled) before the click: said as it is.
+    expect(endedNote(tp, { ...tp, status: 'filled' }, [tp, sl])).toEqual({ title: 'Not cancelled: it had ended already', detail: 'It is filled.' })
+    expect(endedNote(view({ kind: 'dca' }), view({ kind: 'dca', status: 'stopped' }), undefined).title).toBe('DCA stopped')
+  })
+})
+
+describe('what a Copy Trade rule or a sniper saw', () => {
+  const HASH = '7Hd2kq8yW3vX1sPzN5aBcDeFgHjKmNoPqRsTuVwXyZ1a'
+
+  it('new pools name their exchange and pool; a one-token sniper’s route is just a sighting', () => {
+    expect(detectionSourceOf('pool:dcl:abc.near|wrap.near|2000', 'sniper')).toEqual({ kind: 'pool', exchange: 'Ref DCL', poolId: 'abc.near|wrap.near|2000' })
+    expect(detectionSourceOf('pool:ref:5123', 'sniper')).toEqual({ kind: 'pool', exchange: 'Ref v2', poolId: '5123' })
+    expect(detectionSourceOf(`route:${USDT.id}`, 'sniper')).toEqual({ kind: 'route' })
+    expect(detectionTitle(detectionSourceOf('pool:ref:5123', 'sniper'))).toBe('New pool')
+  })
+
+  it('a token-for-token swap: the transaction, and its copied legs linked to it', () => {
+    expect(detectionSourceOf(HASH, 'copy')).toEqual({ kind: 'tx', txHash: HASH })
+    expect(detectionSourceOf(`${HASH}:sell`, 'copy')).toEqual({ kind: 'leg', side: 'sell', txHash: HASH })
+    expect(detectionSourceOf(`${HASH}:buy`, 'copy')).toEqual({ kind: 'leg', side: 'buy', txHash: HASH })
+    expect(detectionTitle(detectionSourceOf(`${HASH}:sell`, 'copy'))).toBe('Copied sell leg')
+    expect(detectionTitle(detectionSourceOf(`${HASH}:buy`, 'copy'))).toBe('Copied buy leg')
+    expect(detectionTitle(detectionSourceOf(HASH, 'copy'))).toBeNull()
+    expect(detectionSourceOf('not a hash:sell', 'copy')).toEqual({ kind: 'other' })
+  })
+
+  it('"detected" is only seen, never a trade or a fill; confirmed only as the server says', () => {
+    expect(DETECTION_LAMP.detected.label).toBe('Seen')
+    expect(DETECTION_LAMP.detected.label).not.toMatch(/trade|fill|confirm|bought|copied/i)
+    expect(detectionLamp('detected', 'sniper').label).toBe('Seen')
+    expect(detectionLamp('confirmed', 'sniper').label).toBe('Bought · confirmed')
+    expect(detectionLamp('confirmed', 'copy').label).toBe('Copied · confirmed')
+    for (const s of ['detected', 'eligible', 'skipped', 'executing', 'submitted', 'failed'] as const) {
+      // "Submitted · not confirmed" is the only mention of confirmed before the chain confirms.
+      expect(detectionLamp(s, 'sniper').label).not.toMatch(/(?<!not )confirmed|filled/i)
+      expect(detectionLamp(s, 'copy').label).not.toMatch(/(?<!not )confirmed|filled/i)
+    }
   })
 })

@@ -10,7 +10,7 @@ import { DEFAULT_SLIPPAGE } from '@/lib/fees'
 import { isValidAccountId } from '@/lib/validation'
 import { NumberField, SlippageField } from './formParts'
 import { useWalletChoice } from './hooks'
-import { buildCopy, describeStrategy, issuesByField, refusalOf, type CopyDraft } from './model'
+import { buildCopy, createRefusalOf, describeStrategy, issuesByField, reviewOf, type CopyDraft, type Reviewed } from './model'
 import { NearKitWalletField, ReviewModal } from './parts'
 import { useStrategyMutations } from './queries'
 
@@ -21,7 +21,7 @@ import { useStrategyMutations } from './queries'
  */
 
 export const COPY_TERMS =
-  'NEARKITS reads the followed account’s final transactions and copies its NEAR swaps through Rhea, Ref and DCL within your limits, server-side from your NEARKITS wallet, without asking again. A copy trades after theirs, at the market with your slippage: its price is not theirs and is not guaranteed. Sells exit only what this rule bought.'
+  'NEARKITS reads the followed account’s final transactions and copies its swaps through Rhea, Ref and DCL within your limits, server-side from your NEARKITS wallet, without asking again (a token-for-token swap is copied as NEAR trades: a sell of what this rule holds of the first token, a buy of the second). A copy trades after theirs, at the market with your slippage: its price is not theirs and is not guaranteed. Sells exit only what this rule bought.'
 
 const normalizeContract = (raw: string): string | null => {
   const v = raw.trim().toLowerCase()
@@ -48,7 +48,7 @@ export function CopyRuleForm({ onCreated }: { onCreated: (id: string) => void })
   const [attempted, setAttempted] = useState(false)
   const [serverIssues, setServerIssues] = useState<ConfigIssue[]>([])
   const [failure, setFailure] = useState<string | null>(null)
-  const [review, setReview] = useState<CopyConfig | null>(null)
+  const [review, setReview] = useState<Reviewed<CopyConfig> | null>(null)
 
   const built = buildCopy(d)
   const errors = attempted ? { ...issuesByField(serverIssues), ...issuesByField(built.issues) } : issuesByField(serverIssues)
@@ -62,13 +62,15 @@ export function CopyRuleForm({ onCreated }: { onCreated: (id: string) => void })
     setAttempted(true)
     setFailure(null)
     if (!walletId) return setFailure('Choose a NEARKITS wallet.')
-    if (built.issues.length === 0) setReview(built.config)
+    // A new review: a new request key.
+    if (built.issues.length === 0) setReview(reviewOf(built.config, walletId))
   }
 
   const confirm = () => {
     if (!review) return
+    // Exactly what was reviewed, with the review's key: a retry or a second click makes nothing twice.
     create.mutate(
-      { walletId, config: { kind: 'copy', copy: review } },
+      { walletId: review.walletId, config: { kind: 'copy', copy: review.config }, requestKey: review.requestKey },
       {
         onSuccess: (made) => {
           setReview(null)
@@ -77,9 +79,9 @@ export function CopyRuleForm({ onCreated }: { onCreated: (id: string) => void })
           if (made[0]) onCreated(made[0].id)
         },
         onError: (e) => {
-          const r = refusalOf(e)
+          const r = createRefusalOf(e)
           setFailure(r.message)
-          if (r.issues.length > 0) {
+          if (r.reviewAgain) {
             setServerIssues(r.issues)
             setReview(null)
           }
@@ -203,7 +205,7 @@ export function CopyRuleForm({ onCreated }: { onCreated: (id: string) => void })
         title="Review Copy Trade rule"
         summary={
           review && (
-            <Figures>{`Follow ${review.target}. ${describeStrategy({ config: { kind: 'copy', copy: review } })}; at most ${review.maxExposureNear} NEAR held in copied buys; slippage ${review.slippagePct}%.`}</Figures>
+            <Figures>{`Follow ${review.config.target}. ${describeStrategy({ config: { kind: 'copy', copy: review.config } })}; at most ${review.config.maxExposureNear} NEAR held in copied buys; slippage ${review.config.slippagePct}%.`}</Figures>
           )
         }
         preview={null}

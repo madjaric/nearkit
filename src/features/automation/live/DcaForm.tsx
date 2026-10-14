@@ -11,7 +11,7 @@ import { formatDateTime } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { NumberField, SlippageField, TokenField } from './formParts'
 import { useTokenChoice, useWalletChoice } from './hooks'
-import { buildDca, DCA_INTERVALS, describeStrategy, issuesByField, refusalOf, type DcaDraft } from './model'
+import { buildDca, createRefusalOf, DCA_INTERVALS, describeStrategy, issuesByField, refusalOf, reviewOf, type DcaDraft, type Reviewed } from './model'
 import { NearKitWalletField, PreviewLines, ReviewModal } from './parts'
 import { useStrategyMutations } from './queries'
 
@@ -37,7 +37,7 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
   const [attempted, setAttempted] = useState(false)
   const [serverIssues, setServerIssues] = useState<ConfigIssue[]>([])
   const [failure, setFailure] = useState<string | null>(null)
-  const [review, setReview] = useState<DcaConfig | null>(null)
+  const [review, setReview] = useState<Reviewed<DcaConfig> | null>(null)
   const now = useNow(15_000)
 
   const built = buildDca({ ...d, token }, now)
@@ -53,17 +53,19 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
     setFailure(null)
     if (!walletId) return setFailure('Choose a NEARKITS wallet.')
     if (built.issues.length > 0) return
-    // "Now" is the moment it is reviewed.
+    // "Now" is the moment it is reviewed. A new review: a new request key.
     const fresh = buildDca({ ...d, token }, Date.now()).config
-    setReview(fresh)
+    setReview(reviewOf(fresh, walletId))
     preview.reset()
     preview.mutate({ walletId, config: { kind: 'dca', dca: fresh } })
   }
 
   const confirm = () => {
     if (!review) return
+    const plan = review.config
+    // Exactly what was reviewed, with the review's key: a retry or a second click makes nothing twice.
     create.mutate(
-      { walletId, config: { kind: 'dca', dca: review } },
+      { walletId: review.walletId, config: { kind: 'dca', dca: plan }, requestKey: review.requestKey },
       {
         onSuccess: (made) => {
           setReview(null)
@@ -71,14 +73,14 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
           toast.push({
             tone: 'accent',
             title: 'DCA plan created',
-            detail: `First buy ${review.startAt <= Date.now() + 60_000 ? 'at the next check' : formatDateTime(review.startAt)}.`,
+            detail: `First buy ${plan.startAt <= Date.now() + 60_000 ? 'at the next check' : formatDateTime(plan.startAt)}.`,
           })
           if (made[0]) onCreated(made[0].id)
         },
         onError: (e) => {
-          const r = refusalOf(e)
+          const r = createRefusalOf(e)
           setFailure(r.message)
-          if (r.issues.length > 0) {
+          if (r.reviewAgain) {
             setServerIssues(r.issues)
             setReview(null)
           }
@@ -168,7 +170,7 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
         title="Review DCA plan"
         summary={
           review && (
-            <Figures>{`${describeStrategy({ config: { kind: 'dca', dca: review } })}, starting ${formatDateTime(review.startAt)}${review.endAt ? `, until ${formatDateTime(review.endAt)}` : ''}. Slippage ${review.slippagePct}%.`}</Figures>
+            <Figures>{`${describeStrategy({ config: { kind: 'dca', dca: review.config } })}, starting ${formatDateTime(review.config.startAt)}${review.config.endAt ? `, until ${formatDateTime(review.config.endAt)}` : ''}. Slippage ${review.config.slippagePct}%.`}</Figures>
           )
         }
         preview={
@@ -176,7 +178,7 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
             ? {
                 pending: preview.isPending,
                 error: preview.isError ? refusalOf(preview.error).message : null,
-                body: preview.data ? <PreviewLines preview={preview.data as StrategyPreview} token={review.token} /> : null,
+                body: preview.data ? <PreviewLines preview={preview.data as StrategyPreview} token={review.config.token} /> : null,
               }
             : null
         }

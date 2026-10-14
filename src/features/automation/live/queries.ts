@@ -3,6 +3,7 @@ import type { CreateStrategyInput, StrategyDetail, StrategyView } from '@/lib/au
 import { LIVE_STATUSES, type StrategyConfig, type StrategyKind } from '@/lib/automation/config'
 import { useServices } from '@/services/context'
 import { qk, useAutomationFeatures, useNearKitSession } from '@/services/queries'
+import { sendCreate } from './model'
 
 /**
  * Trading automation's data on NEARKITS web: the user's strategies and one strategy's detail, read
@@ -62,11 +63,15 @@ export function useStrategyMutations() {
   const s = useServices()
   const qc = useQueryClient()
   const session = useNearKitSession()
-  // Every list and every detail read again (they share the key's prefix).
+  // Every list and every detail read again (they share the key's prefix). Awaited by the mutations:
+  // a call's own onSuccess runs once the lists were read again.
   const changed = () => qc.invalidateQueries({ queryKey: qk.autoList(session?.token ?? null) })
   return {
+    /** The user's strategies of a kind as last read (no request). */
+    listed: (kind: StrategyKind) => qc.getQueryData<StrategyView[]>([...qk.autoList(session?.token ?? null), kind]),
     preview: useMutation({ mutationFn: ({ walletId, config }: { walletId: string; config: StrategyConfig }) => s.nearkit.autoPreview(walletId, config) }),
-    create: useMutation({ mutationFn: (input: CreateStrategyInput) => s.nearkit.autoCreate(input), onSuccess: changed }),
+    // One request per review: its key goes with every send, so a retry never makes a second strategy.
+    create: useMutation({ mutationFn: (input: CreateStrategyInput) => sendCreate((i) => s.nearkit.autoCreate(i), input), onSuccess: changed }),
     pause: useMutation({ mutationFn: (id: string) => s.nearkit.autoPause(id), onSettled: changed }),
     resume: useMutation({ mutationFn: (id: string) => s.nearkit.autoResume(id), onSettled: changed }),
     cancel: useMutation({ mutationFn: (id: string) => s.nearkit.autoCancel(id), onSettled: changed }),

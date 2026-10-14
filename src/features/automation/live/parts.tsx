@@ -10,26 +10,33 @@ import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { tabPanelProps } from '@/components/ui/tabs'
 import { useToast } from '@/components/ui/toast-context'
 import { LoadFailed } from '@/components/page/Page'
-import type { StrategyPreview, StrategyView } from '@/lib/automation/api'
+import type { DetectionView, ExecutionView, StrategyPreview, StrategyView } from '@/lib/automation/api'
 import { tokenOfStrategy, type StrategyKind, type TokenRef } from '@/lib/automation/config'
 import { cn } from '@/lib/cn'
 import { formatAccount, formatAgo, formatDateTime, formatNumber, formatUntil } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { explorerTxUrl } from '@/services/near/explorer'
-import { useAutomationFeatures, useCapabilities, useNearKitWallets } from '@/services/queries'
+import { useAutomationFeatures, useCapabilities, useNearKitWallets, useTokenLookup, useTokens } from '@/services/queries'
 import {
   controlsFor,
   describeStrategy,
-  DETECTION_LAMP,
+  detectionLamp,
+  detectionSourceOf,
+  detectionTitle,
+  endedNote,
+  endPrompt,
   endWord,
   EXECUTION_LAMP,
   executionAmounts,
   KIND_LABEL,
   NEAR_DECIMALS,
+  pairSibling,
   refusalOf,
   shownRaw,
+  sourcesText,
   STATUS_LAMP,
   tabOf,
+  tokenRefOf,
   type ListTab,
 } from './model'
 import { useStrategies, useStrategy, useStrategyMutations } from './queries'
@@ -161,12 +168,15 @@ export function PauseAllButton() {
 
 function Controls({ s, size = 'xs' }: { s: StrategyView; size?: 'xs' | 'sm' }) {
   const toast = useToast()
-  const { pause, resume, cancel } = useStrategyMutations()
+  const { pause, resume, cancel, listed } = useStrategyMutations()
   const [confirmEnd, setConfirmEnd] = useState(false)
   const c = controlsFor(s.status)
   const busy = (m: { isPending: boolean; variables?: unknown }) => m.isPending && m.variables === s.id
   const fail = (title: string) => (e: unknown) => toast.push({ tone: 'neg', title, detail: refusalOf(e).message })
   const word = endWord(s.kind)
+  const prompt = endPrompt(s)
+  // The other order of a pair, as the list last read it (it is cancelled with this one).
+  const sibling = confirmEnd && s.kind === 'limit' ? pairSibling(s, listed('limit')) : null
   if (!c.pause && !c.resume && !c.cancel) return null
   return (
     <span className="flex flex-wrap items-center gap-1.5">
@@ -189,49 +199,53 @@ function Controls({ s, size = 'xs' }: { s: StrategyView; size?: 'xs' | 'sm' }) {
         open={confirmEnd}
         onClose={() => setConfirmEnd(false)}
         size="sm"
-        title={`${word} this ${KIND_LABEL[s.kind].toLowerCase()}?`}
-        description={
-          s.kind === 'limit'
-            ? 'It is cancelled for good: nothing is sent from now on. Create a new order to trade again.'
-            : 'It is stopped for good: nothing new is sent. A trade already sent is followed to the end and recorded.'
-        }
+        title={prompt.title}
+        description={prompt.description}
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmEnd(false)}>
-              Keep it
+              Keep {s.kind === 'limit' && s.ocoGroup ? 'them' : 'it'}
             </Button>
             <Button
               variant="danger"
               loading={busy(cancel)}
               onClick={() =>
                 cancel.mutate(s.id, {
-                  onSuccess: () => {
+                  // The lists were read again before this runs: a pair's other order shows its own state.
+                  onSuccess: (after) => {
                     setConfirmEnd(false)
-                    toast.push({ title: s.kind === 'limit' ? 'Order cancelled' : `${KIND_LABEL[s.kind]} stopped`, detail: describeStrategy(s) })
+                    toast.push(endedNote(s, after, s.kind === 'limit' ? listed('limit') : undefined))
                   },
                   onError: fail(s.kind === 'limit' ? 'Not cancelled' : 'Not stopped'),
                 })
               }
             >
-              {word}
+              {prompt.confirm}
             </Button>
           </>
         }
       >
-        <p className="text-sm text-fg-2">
-          <Figures>{describeStrategy(s)}</Figures>
-        </p>
+        <div className="flex flex-col gap-1.5 text-sm text-fg-2">
+          <p className="wrap-break-word">
+            <Figures>{describeStrategy(s)}</Figures>
+          </p>
+          {sibling && (
+            <p className="wrap-break-word">
+              <Figures>{describeStrategy(sibling)}</Figures>
+            </p>
+          )}
+        </div>
       </Modal>
     </span>
   )
 }
 
-/** Why it is where it is, or what it waits for: the server's own words. */
+/** Why it is where it is, or what it waits for: the server's own words (long ones wrap, ids included). */
 function Reason({ s }: { s: StrategyView }) {
   const text = s.statusReason ?? (s.waiting ? `Waiting: ${s.waiting}` : null)
   if (!text) return null
   return (
-    <p className={cn('text-xs leading-5', s.status === 'failed' ? 'text-neg' : s.waiting && !s.statusReason ? 'text-warn' : 'text-fg-3')}>
+    <p className={cn('min-w-0 text-xs leading-5 wrap-break-word', s.status === 'failed' ? 'text-neg' : s.waiting && !s.statusReason ? 'text-warn' : 'text-fg-3')}>
       <Figures>{text}</Figures>
     </p>
   )
@@ -287,7 +301,7 @@ export function StrategiesPanel({ kind, selected, onSelect, title }: { kind: Str
                   <span className="flex min-w-0 items-center gap-2">
                     <StrategyLamp status={s.status} />
                     {s.ocoGroup && (
-                      <Tag tone="neutral" title="Take profit and stop loss: the first to trigger cancels the other">
+                      <Tag tone="neutral" title="Take profit and stop loss: the first to trigger cancels the other, and cancelling either cancels both">
                         Pair
                       </Tag>
                     )}
@@ -298,10 +312,10 @@ export function StrategiesPanel({ kind, selected, onSelect, title }: { kind: Str
                     </Figures>
                   </span>
                 </div>
-                <p className="text-sm text-fg">
+                <p className="text-sm text-fg wrap-break-word">
                   <Figures>{describeStrategy(s)}</Figures>
                 </p>
-                <p className="num text-xs text-fg-3">
+                <p className="num text-xs text-fg-3 wrap-break-word">
                   <Figures>
                     {[
                       kind === 'copy' ? `follows ${formatAccount(s.subject, 28)}` : null,
@@ -332,24 +346,101 @@ export function StrategiesPanel({ kind, selected, onSelect, title }: { kind: Str
   )
 }
 
-function TxLinks({ hashes }: { hashes: readonly string[] }) {
+function TxLinks({ hashes, label }: { hashes: readonly string[]; label?: string }) {
   const caps = useCapabilities()
   if (hashes.length === 0 || !caps.explorerUrl) return null
   const explorerUrl = caps.explorerUrl
   return (
-    <span className="flex flex-wrap gap-2">
+    <span className="flex flex-wrap items-center gap-2">
+      {label && <span className="text-xs text-fg-3">{label}</span>}
       {hashes.map((h) => (
         <a
           key={h}
           href={explorerTxUrl({ explorerUrl }, h)}
           target="_blank"
           rel="noreferrer noopener"
+          title={h}
           className="num inline-flex items-center gap-1 text-xs text-fg-2 underline-offset-2 hover:text-fg hover:underline"
         >
           {h.slice(0, 8)}… <ExternalLink size={11} aria-hidden="true" />
         </a>
       ))}
     </span>
+  )
+}
+
+/** The token a trade moved, with its symbol and decimals: the strategy's own, a listed one, or read from chain. */
+function useTradeToken(id: string, known: TokenRef | null): TokenRef | null {
+  const { data: tokens = [] } = useTokens()
+  const listed = known && known.id === id ? known : tokenRefOf(tokens.find((t) => t.contract === id))
+  const lookup = useTokenLookup(listed ? null : id)
+  if (listed) return listed
+  return lookup.data ? (tokenRefOf(lookup.data) ?? { id, symbol: lookup.data.symbol, decimals: lookup.data.decimals }) : null
+}
+
+/** One automated trade: confirmed only when the server says the chain confirmed it; before that, the quote's figures, labelled. */
+function ExecutionRow({ e, token: known, now }: { e: ExecutionView; token: TokenRef | null; now: number }) {
+  const token = useTradeToken(e.token, known)
+  const a = executionAmounts(e, token)
+  const lamp = EXECUTION_LAMP[e.status]
+  return (
+    <li className="flex flex-col gap-1 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-2">
+          <Tag tone={e.side === 'buy' ? 'accent' : 'neg'}>{e.side}</Tag>
+          <Lamp tone={lamp.tone} label={lamp.label} />
+        </span>
+        <span className="num text-xs text-fg-3">{formatAgo(e.createdAt, now)}</span>
+      </div>
+      <p className="num text-xs text-fg-2 wrap-break-word">
+        <Figures>{`${a.quoted ? 'Quoted: ' : ''}${a.spent} → ${a.received}${e.priceNear ? ` · ${e.priceNear} NEAR per token` : ''}`}</Figures>
+      </p>
+      {e.message && (
+        <p className={cn('text-xs wrap-break-word', e.status === 'failed' ? 'text-neg' : 'text-fg-3')}>
+          <Figures>{e.message}</Figures>
+        </p>
+      )}
+      <TxLinks hashes={e.txHashes} />
+    </li>
+  )
+}
+
+/**
+ * One thing a Copy Trade rule or a sniper saw, and what it decided. A new pool names its exchange and
+ * pool; a token-for-token swap's legs name the copied side and link the followed account's
+ * transaction. "Seen" is never a trade: a trade is in Trades, confirmed only once the chain says so.
+ */
+function DetectionRow({ d, kind, now }: { d: DetectionView; kind: StrategyKind; now: number }) {
+  const source = detectionSourceOf(d.sourceKey, kind)
+  const title = detectionTitle(source)
+  const lamp = detectionLamp(d.status, kind)
+  const tx = source.kind === 'leg' || source.kind === 'tx' ? source.txHash : null
+  return (
+    <li className="flex flex-col gap-1 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
+          {title ? <span className="text-xs font-medium text-fg">{title}</span> : d.side && <Tag tone={d.side === 'buy' ? 'accent' : 'neg'}>{d.side}</Tag>}
+          <Lamp tone={lamp.tone} label={lamp.label} />
+        </span>
+        <span className="num text-xs text-fg-3">{formatAgo(d.at, now)}</span>
+      </div>
+      {source.kind === 'pool' ? (
+        <p className="num text-xs text-fg-2 wrap-anywhere">
+          {`${source.exchange} pool ${source.poolId}`}
+          {d.token ? ` · ${formatAccount(d.token, 26)}` : ''}
+        </p>
+      ) : (
+        <p className="num text-xs text-fg-2 wrap-anywhere">
+          <Figures>{[d.token ? formatAccount(d.token, 26) : null, d.nearRaw ? `${shownRaw(d.nearRaw, NEAR_DECIMALS)} NEAR` : null].filter(Boolean).join(' · ') || '—'}</Figures>
+        </p>
+      )}
+      {d.reason && (
+        <p className="text-xs text-fg-3 wrap-break-word">
+          <Figures>{d.reason}</Figures>
+        </p>
+      )}
+      {tx && <TxLinks hashes={[tx]} label="Their transaction" />}
+    </li>
   )
 }
 
@@ -372,6 +463,8 @@ export function StrategyDetailPanel({ id, onClose }: { id: string; onClose: () =
     )
   const { strategy: s, executions, events, detections } = detail.data
   const token: TokenRef | null = tokenOfStrategy(s.config)
+  const pools = s.config.kind === 'sniper' && s.config.sniper.target === 'new-pools' ? s.config.sniper : null
+  const confirmedBuys = executions.filter((e) => e.side === 'buy' && e.status === 'confirmed').length
   return (
     <Panel>
       <PanelHeader
@@ -387,13 +480,21 @@ export function StrategyDetailPanel({ id, onClose }: { id: string; onClose: () =
           <StrategyLamp status={s.status} />
           <Controls s={s} size="sm" />
         </div>
-        <p className="text-sm text-fg">
+        <p className="text-sm text-fg wrap-break-word">
           <Figures>{describeStrategy(s)}</Figures>
         </p>
         <Reason s={s} />
         <Lines>
           {s.kind === 'copy' && <Line label="Follows">{formatAccount(s.subject, 30)}</Line>}
           {token && <Line label="Token">{`${token.symbol} · ${formatAccount(token.id, 24)}`}</Line>}
+          {pools && (
+            <>
+              <Line label="New pools from">{sourcesText(pools.sources)}</Line>
+              <Line label="Pool holds at least">{pools.minPoolNear === null ? '—' : `${formatNumber(pools.minPoolNear, 0, 4)} NEAR`}</Line>
+              <Line label="Each buy">{`${formatNumber(pools.amountNear, 0, 4)} NEAR`}</Line>
+              {pools.mode === 'execute' && <Line label="Tokens bought (on chain)">{`${confirmedBuys} of ${pools.maxBuys}`}</Line>}
+            </>
+          )}
           <Line label="Wallet">{s.walletName ?? '—'}</Line>
           {s.kind === 'limit' && (
             <Line label="Last price seen">{s.lastPriceNear ? `${s.lastPriceNear} NEAR${s.lastQuoteAt ? ` · ${formatAgo(s.lastQuoteAt, now)}` : ''}` : 'None read yet'}</Line>
@@ -409,65 +510,29 @@ export function StrategyDetailPanel({ id, onClose }: { id: string; onClose: () =
             <p className="text-xs text-fg-3">No trade yet.</p>
           ) : (
             <ul className="flex flex-col divide-y divide-line-soft rounded-md border border-line-soft">
-              {executions.map((e) => {
-                const a = executionAmounts(e, token && token.id === e.token ? token : null)
-                const lamp = EXECUTION_LAMP[e.status]
-                return (
-                  <li key={e.id} className="flex flex-col gap-1 px-3 py-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="flex items-center gap-2">
-                        <Tag tone={e.side === 'buy' ? 'accent' : 'neg'}>{e.side}</Tag>
-                        <Lamp tone={lamp.tone} label={lamp.label} />
-                      </span>
-                      <span className="num text-xs text-fg-3">{formatAgo(e.createdAt, now)}</span>
-                    </div>
-                    <p className="num text-xs text-fg-2">
-                      <Figures>{`${a.quoted ? 'Quoted: ' : ''}${a.spent} → ${a.received}${e.priceNear ? ` · ${e.priceNear} NEAR per token` : ''}`}</Figures>
-                    </p>
-                    {e.message && (
-                      <p className={cn('text-xs', e.status === 'failed' ? 'text-neg' : 'text-fg-3')}>
-                        <Figures>{e.message}</Figures>
-                      </p>
-                    )}
-                    <TxLinks hashes={e.txHashes} />
-                  </li>
-                )
-              })}
+              {executions.map((e) => (
+                <ExecutionRow key={e.id} e={e} token={token} now={now} />
+              ))}
             </ul>
           )}
         </section>
 
         {(s.kind === 'copy' || s.kind === 'sniper') && (
           <section aria-label="What it saw" className="flex flex-col gap-2">
-            <h3 className="legend">{s.kind === 'copy' ? 'Detected trades' : 'Sightings'}</h3>
+            <h3 className="legend">{s.kind === 'copy' ? 'Detected trades' : pools ? 'New pools seen' : 'Sightings'}</h3>
             {detections.length === 0 ? (
-              <p className="text-xs text-fg-3">{s.kind === 'copy' ? 'Nothing detected yet from the followed account.' : 'The token hasn’t been seen trading yet.'}</p>
+              <p className="text-xs text-fg-3">
+                {s.kind === 'copy'
+                  ? 'Nothing detected yet from the followed account.'
+                  : pools
+                    ? 'No new pool from its sources yet. Pools made before this sniper are never reported.'
+                    : 'The token hasn’t been seen trading yet.'}
+              </p>
             ) : (
               <ul className="flex flex-col divide-y divide-line-soft rounded-md border border-line-soft">
-                {detections.map((d) => {
-                  const lamp = DETECTION_LAMP[d.status]
-                  return (
-                    <li key={d.sourceKey} className="flex flex-col gap-1 px-3 py-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="flex items-center gap-2">
-                          {d.side && <Tag tone={d.side === 'buy' ? 'accent' : 'neg'}>{d.side}</Tag>}
-                          <Lamp tone={lamp.tone} label={lamp.label} />
-                        </span>
-                        <span className="num text-xs text-fg-3">{formatAgo(d.at, now)}</span>
-                      </div>
-                      <p className="num text-xs text-fg-2">
-                        <Figures>
-                          {[d.token ? formatAccount(d.token, 26) : null, d.nearRaw ? `${shownRaw(d.nearRaw, NEAR_DECIMALS)} NEAR` : null].filter(Boolean).join(' · ') || '—'}
-                        </Figures>
-                      </p>
-                      {d.reason && (
-                        <p className="text-xs text-fg-3">
-                          <Figures>{d.reason}</Figures>
-                        </p>
-                      )}
-                    </li>
-                  )
-                })}
+                {detections.map((d) => (
+                  <DetectionRow key={d.sourceKey} d={d} kind={s.kind} now={now} />
+                ))}
               </ul>
             )}
           </section>
@@ -482,7 +547,7 @@ export function StrategyDetailPanel({ id, onClose }: { id: string; onClose: () =
               {events.map((ev, i) => (
                 <li key={`${ev.at}-${i}`} className="flex gap-3 text-xs">
                   <span className="num w-24 shrink-0 text-fg-3">{formatAgo(ev.at, now)}</span>
-                  <span className="min-w-0 text-fg-2">
+                  <span className="min-w-0 text-fg-2 wrap-break-word">
                     <Figures>{ev.message}</Figures>
                   </span>
                 </li>

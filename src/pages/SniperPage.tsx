@@ -338,7 +338,7 @@ export default function SniperPage() {
         <PageHeader
           title="Sniper"
           status={<Tag tone="accent">Live · NEARKITS wallets</Tag>}
-          description="Watch a token until it trades against NEAR within your limits: notify only, or buy once from a NEARKITS wallet after your explicit confirmation."
+          description="Watch one token until it trades against NEAR, or new pools as Ref DCL and Ref v2 create them, within your limits: notify only, or buy from a NEARKITS wallet after your explicit confirmation."
         />
         <LiveAutomation kind="sniper" title="Your snipers" form={(onCreated) => <SniperForm onCreated={onCreated} />} />
       </Page>

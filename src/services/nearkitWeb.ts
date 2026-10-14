@@ -237,11 +237,17 @@ export interface NearKitWeb {
   autoDetail(id: string): Promise<StrategyDetail>
   /** What it would trade now from this NEARKITS wallet, from a fresh executable quote; nothing is saved or signed. */
   autoPreview(walletId: string, config: StrategyConfig): Promise<StrategyPreview>
-  /** Creates it (and its take-profit/stop-loss pair); refusals carry `detail.issues`, field by field. */
+  /**
+   * Creates it (and its take-profit/stop-loss pair); refusals carry `detail.issues`, field by field.
+   * With a request key (one per review), the same key again answers with what the first request made.
+   */
   autoCreate(input: CreateStrategyInput): Promise<StrategyView[]>
   autoPause(id: string): Promise<StrategyView>
   autoResume(id: string): Promise<StrategyView>
-  /** Ends it for good: an order is cancelled, a rule stopped. A trade already sent is followed to the end. */
+  /**
+   * Ends it for good: an order is cancelled, a rule stopped. A trade already sent is followed to the
+   * end. Cancelling either order of a take profit / stop loss pair cancels the other too, unless it trades.
+   */
   autoCancel(id: string): Promise<StrategyView>
   /** Pauses every live automation of the user's; answers how many paused. */
   autoPauseAll(): Promise<number>
@@ -525,13 +531,15 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     autoList: async (kinds) => (await call<{ strategies: StrategyView[] }>('/api/web/auto/list', kinds ? { kinds: [...kinds] } : {})).strategies,
     autoDetail: (id) => call<StrategyDetail>('/api/web/auto/detail', { id }),
     autoPreview: (walletId, config) => call<StrategyPreview>('/api/web/auto/preview', { walletId, config }),
-    autoCreate: async ({ walletId, config, pair, confirmExecute }) =>
+    autoCreate: async ({ walletId, config, pair, confirmExecute, requestKey }) =>
       (
         await call<{ strategies: StrategyView[] }>('/api/web/auto/create', {
           walletId,
           config,
           ...(pair ? { pair } : {}),
           ...(confirmExecute === true ? { confirmExecute: true } : {}),
+          // One per review: the server makes the strategies once and answers the same key with them.
+          ...(requestKey !== undefined ? { requestKey } : {}),
         })
       ).strategies,
     autoPause: async (id) => (await call<{ strategy: StrategyView }>('/api/web/auto/pause', { id })).strategy,

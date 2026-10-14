@@ -12,7 +12,7 @@ import { useNow } from '@/lib/hooks'
 import { DEFAULT_SLIPPAGE } from '@/lib/fees'
 import { ExpiryField, NumberField, SlippageField, TokenField } from './formParts'
 import { useTokenChoice, useWalletChoice } from './hooks'
-import { buildLimit, buildStopLossPair, conditionOf, issuesByField, ORDER_TYPE_LABEL, refusalOf, type ExpiryChoice } from './model'
+import { buildLimit, buildStopLossPair, conditionOf, createRefusalOf, issuesByField, ORDER_TYPE_LABEL, refusalOf, reviewOf, type ExpiryChoice, type Reviewed } from './model'
 import { NearKitWalletField, PreviewLines, ReviewModal } from './parts'
 import { useStrategyMutations } from './queries'
 
@@ -43,7 +43,7 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
   const [attempted, setAttempted] = useState(false)
   const [serverIssues, setServerIssues] = useState<ConfigIssue[]>([])
   const [failure, setFailure] = useState<string | null>(null)
-  const [review, setReview] = useState<{ config: LimitConfig; pair: LimitConfig | null } | null>(null)
+  const [review, setReview] = useState<Reviewed<{ order: LimitConfig; pair: LimitConfig | null }> | null>(null)
 
   const now = useNow(15_000)
   const draft = { type, token, sellBy, amountText, triggerText, slippagePct, expiry }
@@ -74,19 +74,26 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
       if (!walletId) setFailure('Choose a NEARKITS wallet.')
       return
     }
-    // The expiry counts from now, the moment it is reviewed.
+    // The expiry counts from now, the moment it is reviewed. A new review: a new request key.
     const at = Date.now()
     const fresh = buildLimit(draft, at)
     const freshPair = pairing ? buildStopLossPair(fresh.config, stopText, at).config : null
-    setReview({ config: fresh.config, pair: freshPair })
+    setReview(reviewOf({ order: fresh.config, pair: freshPair }, walletId))
     preview.reset()
     preview.mutate({ walletId, config: { kind: 'limit', limit: fresh.config } })
   }
 
   const confirm = () => {
     if (!review) return
+    const { order, pair } = review.config
+    // Exactly what was reviewed, with the review's key: a retry or a second click makes nothing twice.
     create.mutate(
-      { walletId, config: { kind: 'limit', limit: review.config }, ...(review.pair ? { pair: { kind: 'limit', limit: review.pair } } : {}) },
+      {
+        walletId: review.walletId,
+        config: { kind: 'limit', limit: order },
+        ...(pair ? { pair: { kind: 'limit', limit: pair } } : {}),
+        requestKey: review.requestKey,
+      },
       {
         onSuccess: (made) => {
           setReview(null)
@@ -96,15 +103,15 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
           setStopText('')
           toast.push({
             tone: 'accent',
-            title: made.length > 1 ? 'Take profit and stop loss created' : `${ORDER_TYPE_LABEL[review.config.type]} created`,
+            title: made.length > 1 ? 'Take profit and stop loss created' : `${ORDER_TYPE_LABEL[order.type]} created`,
             detail: 'NEARKITS watches the price from now on. It trades only when the trigger holds.',
           })
           if (made[0]) onCreated(made[0].id)
         },
         onError: (e) => {
-          const r = refusalOf(e)
+          const r = createRefusalOf(e)
           setFailure(r.message)
-          if (r.issues.length > 0) {
+          if (r.reviewAgain) {
             setServerIssues(r.issues)
             setReview(null)
           }
@@ -117,7 +124,7 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
     ? {
         pending: preview.isPending,
         error: preview.isError ? refusalOf(preview.error).message : null,
-        body: preview.data && token ? <PreviewLines preview={preview.data as StrategyPreview} token={token} triggerText={review.config.triggerPriceNear} /> : null,
+        body: preview.data && token ? <PreviewLines preview={preview.data as StrategyPreview} token={token} triggerText={review.config.order.triggerPriceNear} /> : null,
       }
     : null
 
@@ -227,7 +234,7 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
                 setWithStop(on)
               }}
               label="Add a stop loss"
-              description="The pair shares the amount: the first to trigger cancels the other."
+              description="The pair shares the amount: the first to trigger cancels the other, and cancelling either cancels both."
             />
             {withStop && (
               <NumberField
@@ -292,18 +299,18 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
       <ReviewModal
         open={review !== null}
         onClose={() => setReview(null)}
-        title={`Review ${review ? ORDER_TYPE_LABEL[review.config.type].toLowerCase() : 'order'}`}
+        title={`Review ${review ? ORDER_TYPE_LABEL[review.config.order.type].toLowerCase() : 'order'}`}
         summary={
           review && (
             <Figures>
-              {`${ORDER_TYPE_LABEL[review.config.type]} ${review.config.token.symbol} when the price is ${conditionOf(review.config.type)} ${review.config.triggerPriceNear} NEAR${review.pair ? `, with a stop loss at ≤ ${review.pair.triggerPriceNear} NEAR (the first to trigger cancels the other)` : ''}. Slippage ${review.config.slippagePct}%.`}
+              {`${ORDER_TYPE_LABEL[review.config.order.type]} ${review.config.order.token.symbol} when the price is ${conditionOf(review.config.order.type)} ${review.config.order.triggerPriceNear} NEAR${review.config.pair ? `, with a stop loss at ≤ ${review.config.pair.triggerPriceNear} NEAR (the first to trigger cancels the other; cancelling either cancels both)` : ''}. Slippage ${review.config.order.slippagePct}%.`}
             </Figures>
           )
         }
         preview={previewState}
         terms={`${LIMIT_TERMS} It runs server-side from your NEARKITS wallet without asking again; pause or cancel it any time before it triggers.`}
         error={failure}
-        confirmLabel={review?.pair ? 'Create both orders' : 'Create order'}
+        confirmLabel={review?.config.pair ? 'Create both orders' : 'Create order'}
         confirming={create.isPending}
         onConfirm={confirm}
       />

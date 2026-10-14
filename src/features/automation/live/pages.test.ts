@@ -4,8 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { Toaster } from '@/components/ui/Toaster'
-import type { AutomationFeatures, StrategyView } from '@/lib/automation/api'
-import type { StrategyKind } from '@/lib/automation/config'
+import type { AutomationFeatures, DetectionView, StrategyDetail, StrategyView } from '@/lib/automation/api'
+import type { LimitConfig, SniperSettings, StrategyKind } from '@/lib/automation/config'
 import CopyTradePage from '@/pages/CopyTradePage'
 import DcaPage from '@/pages/DcaPage'
 import LimitOrdersPage from '@/pages/LimitOrdersPage'
@@ -20,6 +20,7 @@ import { ConnectProvider } from '@/state/ConnectProvider'
 import { SettingsProvider } from '@/state/SettingsProvider'
 import { TradeDrawerProvider } from '@/state/TradeDrawerProvider'
 import type { TokenListing } from '@/types/domain'
+import { StrategyDetailPanel } from './parts'
 
 /**
  * Which automation page a user sees, rendered as the app renders it. The server-backed page appears
@@ -233,5 +234,221 @@ describe('Copy Trade, Sniper and DCA, server-backed when switched on', RENDERS, 
     expect(read(await render(h(CopyTradePage), '/copy-trade', { data: [on(['limit'])] }))).not.toContain('Live · NEARKITS wallets')
     expect(read(await render(h(SniperPage), '/sniper', { data: [on(['limit'])] }))).not.toContain('Live · NEARKITS wallets')
     expect(read(await render(h(DcaPage), '/dca', { data: [on(['limit'])] }))).not.toContain('Live · NEARKITS wallets')
+  })
+})
+
+const USDT_ID = 'usdt.tether-token.near'
+const HASH = '7Hd2kq8yW3vX1sPzN5aBcDeFgHjKmNoPqRsTuVwXyZ1a'
+
+const poolSniper = (o: Partial<SniperSettings> = {}): StrategyView =>
+  strategy({
+    kind: 'sniper',
+    subject: 'new-pools',
+    lastPriceNear: null,
+    config: {
+      kind: 'sniper',
+      sniper: {
+        target: 'new-pools',
+        token: null,
+        sources: ['nearly', 'meme-cooking'],
+        minPoolNear: 5,
+        maxBuys: 3,
+        amountNear: 1,
+        slippagePct: 1,
+        maxImpactPct: 10,
+        minLiquidityUsd: null,
+        maxAttempts: 3,
+        expiresAt: null,
+        mode: 'notify',
+        ...o,
+      },
+    },
+  })
+
+const detection = (o: Partial<DetectionView>): DetectionView => ({
+  sourceKey: 'x',
+  at: Date.now() - 60_000,
+  side: null,
+  token: null,
+  tokenRaw: null,
+  nearRaw: null,
+  status: 'detected',
+  reason: null,
+  ...o,
+})
+
+const detail = (s: StrategyView, o: Partial<StrategyDetail> = {}): [readonly unknown[], unknown] => [
+  qk.autoDetail(TOKEN, s.id),
+  { strategy: s, executions: [], events: [], detections: [], ...o } satisfies StrategyDetail,
+]
+
+describe('Sniper: one token, or new pools', RENDERS, () => {
+  it('the form starts on one token, notify only; the switch offers new pools', async () => {
+    const html = await render(h(SniperPage), '/sniper', { data: [on(['sniper']), list('sniper', [])] })
+    const text = read(html)
+    expect(buttons(html)).toEqual(expect.arrayContaining(['One token', 'New pools', 'Notify only', 'Buy', 'Review sniper']))
+    expect(html).toMatch(/aria-checked="true"[^>]*>One token</)
+    expect(html).toMatch(/aria-checked="true"[^>]*>Notify only</)
+    expect(text).toContain('Token contract')
+    expect(text).toContain('or new pools as Ref DCL and Ref v2 create them')
+  })
+
+  it('lists a new-pools sniper in words, with what it waits for', async () => {
+    const text = read(
+      await render(h(SniperPage), '/sniper', {
+        data: [
+          on(['sniper']),
+          list(
+            'sniper',
+            [poolSniper(), poolSniper({ mode: 'execute' })].map((s, i) => ({ ...s, id: `p${i}`, waiting: i ? 'This server doesn’t read new pools' : null })),
+          ),
+        ],
+      }),
+    )
+    expect(text).toContain('Notify only: new pools from Nearly launches, meme.cooking · pool ≥ 5 NEAR · 1 NEAR each')
+    expect(text).toContain('Buys up to 3 new tokens from Nearly launches, meme.cooking · pool ≥ 5 NEAR · 1 NEAR each')
+    expect(text).toContain('Waiting: This server doesn’t read new pools')
+  })
+
+  it('the demo’s Sniper page is unaffected (no server, no new-pools switch)', async () => {
+    const html = await render(h(SniperPage), '/sniper', { demo: true, data: [on(['limit', 'copy', 'sniper', 'dca'])] })
+    expect(read(html)).not.toContain('Live · NEARKITS wallets')
+    expect(buttons(html)).not.toContain('New pools')
+  })
+
+  it('detail: the pools it saw by exchange and pool id; "Seen" is not a trade; a buy is not confirmed before the chain says so', async () => {
+    const s = poolSniper({ mode: 'execute' })
+    const html = await render(h(StrategyDetailPanel, { id: s.id, onClose: () => undefined }), '/sniper', {
+      data: [
+        detail(s, {
+          detections: [
+            detection({ sourceKey: 'pool:dcl:abc.near|wrap.near|2000', side: 'buy', token: 'abc.near', status: 'detected', reason: 'Waiting for a route from a NEARKITS wallet' }),
+            detection({ sourceKey: 'pool:ref:5123', side: 'buy', token: 'cook.meme-cooking.near', status: 'skipped', reason: 'The pool holds 2 NEAR, below this sniper’s 5 NEAR' }),
+          ],
+          executions: [
+            {
+              id: 'e1',
+              side: 'buy',
+              token: 'abc.near',
+              status: 'submitted',
+              amountInRaw: '1000000000000000000000000',
+              expectedOutRaw: '5000',
+              minOutRaw: '4950',
+              nearRaw: null,
+              tokenRaw: null,
+              priceNear: null,
+              txHashes: [HASH],
+              message: 'Sniper buy of ABC (a new Nearly launch)',
+              source: 'pool:dcl:abc.near|wrap.near|2000',
+              createdAt: Date.now() - 30_000,
+              updatedAt: Date.now(),
+            },
+          ],
+        }),
+      ],
+    })
+    const text = read(html)
+    expect(text).toContain('New pools seen')
+    expect(text).toContain('New pool')
+    expect(text).toContain('Ref DCL pool abc.near|wrap.near|2000 · abc.near')
+    expect(text).toContain('Ref v2 pool 5123')
+    expect(text).toContain('Seen')
+    expect(text).toContain('Waiting for a route from a NEARKITS wallet')
+    expect(text).toContain('New pools from Nearly launches, meme.cooking')
+    expect(text).toContain('Tokens bought (on chain) 0 of 3')
+    expect(text).toContain('Submitted · not confirmed')
+    expect(text).not.toMatch(/Confirmed on chain|Bought · confirmed|Filled/)
+    expect(html).toContain(`href="https://nearblocks.io/txns/${HASH}"`)
+  })
+
+  it('detail of an empty new-pools sniper says pools from before it are never reported', async () => {
+    const s = poolSniper()
+    const text = read(await render(h(StrategyDetailPanel, { id: s.id, onClose: () => undefined }), '/sniper', { data: [detail(s)] }))
+    expect(text).toContain('No new pool from its sources yet. Pools made before this sniper are never reported.')
+    expect(text).not.toContain('Tokens bought')
+  })
+})
+
+describe('Copy Trade detail: token-for-token swaps copied as NEAR legs', RENDERS, () => {
+  it('the swap is "Seen", each leg names its side and links the followed account’s transaction', async () => {
+    const s = strategy({
+      kind: 'copy',
+      subject: 'trader.near',
+      lastPriceNear: null,
+      waiting: 'FastNEAR’s index is 45 s behind the chain: trades seen late are not copied',
+      config: {
+        kind: 'copy',
+        copy: {
+          target: 'trader.near',
+          copy: 'both',
+          sizing: { mode: 'fixed', amountNear: 1 },
+          maxTradeNear: 5,
+          minTradeNear: null,
+          maxExposureNear: 20,
+          slippagePct: 1,
+          minLiquidityUsd: null,
+          exclude: [],
+        },
+      },
+    })
+    const html = await render(h(StrategyDetailPanel, { id: s.id, onClose: () => undefined }), '/copy-trade', {
+      data: [
+        detail(s, {
+          detections: [
+            detection({ sourceKey: HASH, token: USDT_ID, status: 'detected', reason: `A swap of abc.near for ${USDT_ID}: copied as NEAR trades` }),
+            detection({
+              sourceKey: `${HASH}:sell`,
+              side: 'sell',
+              token: 'abc.near',
+              tokenRaw: '1000',
+              status: 'skipped',
+              reason: 'Nothing this rule bought of ABC is left to sell',
+            }),
+            detection({ sourceKey: `${HASH}:buy`, side: 'buy', token: USDT_ID, tokenRaw: '5000000', status: 'submitted' }),
+          ],
+        }),
+      ],
+    })
+    const text = read(html)
+    expect(text).toContain('Detected trades')
+    expect(text).toContain('Copied sell leg')
+    expect(text).toContain('Copied buy leg')
+    expect(text).toContain('Seen')
+    expect(text).toContain('copied as NEAR trades')
+    expect(text).toContain('Waiting: FastNEAR’s index is 45 s behind the chain')
+    expect(text).not.toMatch(/Copied · confirmed|Confirmed on chain/)
+    // The leg rows link the transaction (before the colon), like every tx link.
+    expect(html.match(new RegExp(`href="https://nearblocks.io/txns/${HASH}"`, 'g'))?.length).toBe(3)
+    expect(html).not.toContain(`txns/${HASH}%3A`)
+    // A long reason or wait wraps on a narrow screen instead of overflowing it.
+    expect(html).toMatch(/class="[^"]*wrap-break-word[^"]*"[^>]*><span>Waiting: FastNEAR/)
+  })
+})
+
+describe('Limit orders: a take profit / stop loss pair', RENDERS, () => {
+  it('is tagged as a pair whose orders are cancelled together; each keeps its own Cancel', async () => {
+    const tp = strategy({
+      id: 'tp',
+      ocoGroup: 'oco-1',
+      config: {
+        kind: 'limit',
+        limit: {
+          type: 'take-profit',
+          token: { id: USDT_ID, symbol: 'USDt', decimals: 6 },
+          amount: { kind: 'percent', value: 100 },
+          triggerPriceNear: '0.5',
+          slippagePct: 1,
+          expiresAt: null,
+        },
+      },
+    })
+    const sl = {
+      ...tp,
+      id: 'sl',
+      config: { kind: 'limit' as const, limit: { ...(tp.config as { kind: 'limit'; limit: LimitConfig }).limit, type: 'stop-loss' as const, triggerPriceNear: '0.2' } },
+    }
+    const html = await render(h(LimitOrdersPage), '/limit-orders', { data: [on(['limit']), list('limit', [tp, sl])] })
+    expect(html).toContain('cancelling either cancels both')
+    expect(buttons(html).filter((b) => b === 'Cancel')).toHaveLength(2)
   })
 })

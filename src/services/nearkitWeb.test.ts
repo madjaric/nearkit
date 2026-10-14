@@ -370,6 +370,30 @@ describe('the trading automation calls', () => {
     expect(calls.at(-1)?.body).toEqual({ session: TOKEN, walletId: 'w1', config })
   })
 
+  it('create carries the review’s request key; sent again, it is the same request', async () => {
+    let answered = 0
+    const { web, calls } = await signedIn({
+      '/api/web/auto/create': () => {
+        answered++
+        return { status: 200, json: { strategies: [view] } }
+      },
+    })
+    const input = { walletId: 'w1', config, pair, requestKey: 'review-3f2a9c1e' }
+    expect(await web.autoCreate(input)).toEqual([view])
+    expect(calls.at(-1)?.body).toEqual({ session: TOKEN, walletId: 'w1', config, pair, requestKey: 'review-3f2a9c1e' })
+    // A retry of the same review: the identical body, key included (the server answers it with what it made).
+    await web.autoCreate(input)
+    expect(calls.at(-1)?.body).toEqual(calls.at(-2)?.body)
+    expect(answered).toBe(2)
+  })
+
+  it('a reused request key is refused with its code (409, request)', async () => {
+    const { web } = await signedIn({
+      '/api/web/auto/create': () => ({ status: 409, json: { error: { code: 'request', message: 'This request was already used for a different automation: review it again.' } } }),
+    })
+    await expect(web.autoCreate({ walletId: 'w1', config, requestKey: 'review-3f2a9c1e' })).rejects.toMatchObject({ status: 409, code: 'request' })
+  })
+
   it('pause, resume, cancel name the strategy; pause-all answers how many paused', async () => {
     const { web, calls } = await signedIn({
       '/api/web/auto/pause': () => ({ status: 200, json: { strategy: { ...view, status: 'paused' } } }),

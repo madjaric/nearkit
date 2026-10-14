@@ -1,11 +1,12 @@
 import type { LedTone } from '@/components/ui/Indicators'
 import { formatUnitsShown } from '@/lib/amounts'
-import type { DetectionView, ExecutionView, StrategyView } from '@/lib/automation/api'
+import { REQUEST_KEY, type CreateStrategyInput, type DetectionView, type ExecutionView, type StrategyView } from '@/lib/automation/api'
 import type { TokenListing } from '@/types/domain'
 import {
   AUTOMATION_MAX_SLIPPAGE,
   DCA_INTERVALS_SEC,
   FINAL_STATUSES,
+  SNIPER_SOURCES,
   sideOf,
   validateCopy,
   validateDca,
@@ -18,11 +19,14 @@ import {
   type LimitConfig,
   type LimitOrderType,
   type SniperSettings,
+  type SniperSource,
+  type SniperTarget,
   type StrategyKind,
   type StrategyStatus,
   type TokenRef,
 } from '@/lib/automation/config'
 import { formatNumber } from '@/lib/format'
+import { newCreateKey } from '@/services/nearkitWeb'
 import { LinkRequestError } from '@/services/telegramLink'
 
 /**
@@ -60,14 +64,57 @@ export const EXECUTION_LAMP: Record<ExecutionStatus, { tone: LedTone; label: str
   cancelled: { tone: 'off', label: 'Cancelled' },
 }
 
+/**
+ * What a detection's status is called. `detected` is only "seen" (a token-for-token swap before its
+ * legs, a new pool waiting for a route): never a trade or a fill. Confirmed only as the server says.
+ */
 export const DETECTION_LAMP: Record<DetectionView['status'], { tone: LedTone; label: string }> = {
-  detected: { tone: 'idle', label: 'Detected' },
+  detected: { tone: 'idle', label: 'Seen' },
   eligible: { tone: 'on', label: 'Eligible' },
   skipped: { tone: 'off', label: 'Skipped' },
   executing: { tone: 'warn', label: 'Executing' },
   submitted: { tone: 'warn', label: 'Submitted · not confirmed' },
   confirmed: { tone: 'on', label: 'Copied · confirmed' },
   failed: { tone: 'neg', label: 'Failed' },
+}
+
+/** A detection's lamp for its kind: a sniper's confirmed detection is a buy, a Copy Trade's a copy. */
+export function detectionLamp(status: DetectionView['status'], kind: StrategyKind): { tone: LedTone; label: string } {
+  return status === 'confirmed' && kind === 'sniper' ? { tone: 'on', label: 'Bought · confirmed' } : DETECTION_LAMP[status]
+}
+
+/**
+ * What a detection's key names. A sniper on new pools: `pool:dcl:<pool id>` (Ref DCL) or
+ * `pool:ref:<index>` (Ref v2); on one token: `route:<token>`. Copy Trade: the followed account's
+ * transaction hash, and for a token-for-token swap its two legs, `<hash>:sell` and `<hash>:buy`.
+ */
+export type DetectionSource =
+  | { kind: 'pool'; exchange: 'Ref DCL' | 'Ref v2'; poolId: string }
+  | { kind: 'leg'; side: 'buy' | 'sell'; txHash: string }
+  | { kind: 'tx'; txHash: string }
+  | { kind: 'route' }
+  | { kind: 'other' }
+
+const TX_HASH = /^[1-9A-HJ-NP-Za-km-z]{32,64}$/
+
+export function detectionSourceOf(sourceKey: string, kind: StrategyKind): DetectionSource {
+  if (kind === 'sniper') {
+    if (sourceKey.startsWith('pool:dcl:') && sourceKey.length > 9) return { kind: 'pool', exchange: 'Ref DCL', poolId: sourceKey.slice(9) }
+    if (sourceKey.startsWith('pool:ref:') && sourceKey.length > 9) return { kind: 'pool', exchange: 'Ref v2', poolId: sourceKey.slice(9) }
+    if (sourceKey.startsWith('route:')) return { kind: 'route' }
+    return { kind: 'other' }
+  }
+  if (kind === 'copy') {
+    const leg = /^(.+):(sell|buy)$/.exec(sourceKey)
+    if (leg && TX_HASH.test(leg[1] as string)) return { kind: 'leg', side: leg[2] as 'buy' | 'sell', txHash: leg[1] as string }
+    if (TX_HASH.test(sourceKey)) return { kind: 'tx', txHash: sourceKey }
+  }
+  return { kind: 'other' }
+}
+
+/** A detection row's title, when its key says more than its side: "New pool", "Copied sell leg". */
+export function detectionTitle(source: DetectionSource): string | null {
+  return source.kind === 'pool' ? 'New pool' : source.kind === 'leg' ? `Copied ${source.side} leg` : null
 }
 
 export type ListTab = 'active' | 'paused' | 'history'
@@ -98,6 +145,72 @@ export const KIND_LABEL: Record<StrategyKind, string> = { limit: 'Limit order', 
 
 export const ORDER_TYPE_LABEL: Record<LimitOrderType, string> = { 'limit-buy': 'Limit buy', 'limit-sell': 'Limit sell', 'take-profit': 'Take profit', 'stop-loss': 'Stop loss' }
 
+/** The other order of a take profit / stop loss pair, from a list of the user's orders. */
+export function pairSibling(s: Pick<StrategyView, 'id' | 'ocoGroup'>, list: readonly StrategyView[] | undefined): StrategyView | null {
+  if (!s.ocoGroup) return null
+  return list?.find((x) => x.ocoGroup === s.ocoGroup && x.id !== s.id) ?? null
+}
+
+/**
+ * What ending it asks first. Cancelling either order of a take profit / stop loss pair cancels the
+ * other too (the server does both), unless the other is already trading: then that one is followed
+ * to the end.
+ */
+export function endPrompt(s: Pick<StrategyView, 'kind' | 'ocoGroup'>): { title: string; description: string; confirm: string } {
+  if (s.kind === 'limit' && s.ocoGroup)
+    return {
+      title: 'Cancel both orders of this pair?',
+      description:
+        'This take profit and stop loss end together: both orders of the pair are cancelled for good, and nothing is sent for either from now on. If the other order is already trading, it is followed to the end.',
+      confirm: 'Cancel both orders',
+    }
+  return s.kind === 'limit'
+    ? { title: 'Cancel this limit order?', description: 'It is cancelled for good: nothing is sent from now on. Create a new order to trade again.', confirm: 'Cancel' }
+    : {
+        title: `Stop this ${KIND_LABEL[s.kind].toLowerCase()}?`,
+        description: 'It is stopped for good: nothing new is sent. A trade already sent is followed to the end and recorded.',
+        confirm: 'Stop',
+      }
+}
+
+const TRADING: readonly StrategyStatus[] = ['triggered', 'executing', 'submitted']
+
+/**
+ * What the toast says once the server answered a cancel (or stop): `after` is the server's answer,
+ * `list` the user's orders read again since. A pair is "both cancelled" only when the list shows
+ * the other order cancelled too; one that had ended on its own is said as it is.
+ */
+export function endedNote(asked: StrategyView, after: StrategyView, list: readonly StrategyView[] | undefined): { title: string; detail: string } {
+  const target: StrategyStatus = asked.kind === 'limit' ? 'cancelled' : 'stopped'
+  if (after.status !== target)
+    return {
+      title: asked.kind === 'limit' ? 'Not cancelled: it had ended already' : 'Not stopped: it had ended already',
+      detail: `It is ${STATUS_LAMP[after.status].label.toLowerCase()}.`,
+    }
+  if (asked.kind !== 'limit') return { title: `${KIND_LABEL[asked.kind]} stopped`, detail: describeStrategy(asked) }
+  const sibling = pairSibling(asked, list)
+  if (sibling?.status === 'cancelled') return { title: 'Both orders of the pair are cancelled', detail: 'Nothing is sent for either from now on.' }
+  if (sibling && TRADING.includes(sibling.status)) return { title: 'Order cancelled', detail: 'The other order of its pair is trading already: its result is followed to the end.' }
+  return { title: 'Order cancelled', detail: describeStrategy(asked) }
+}
+
+/** Where a new-pools sniper's pools come from, as its checkboxes say. */
+export const SNIPER_SOURCE_LABEL: Record<SniperSource, { label: string; hint: string }> = {
+  nearly: { label: 'Nearly launches', hint: 'The Ref DCL pool a Nearly launch creates, once Nearly says the launch is done.' },
+  'meme-cooking': { label: 'meme.cooking graduations', hint: 'The Ref v2 pool a meme.cooking token graduates to.' },
+  other: { label: 'Other new pools', hint: 'Any other new Ref DCL or Ref v2 pool of a token against NEAR.' },
+}
+
+const SOURCE_SHORT: Record<SniperSource, string> = { nearly: 'Nearly launches', 'meme-cooking': 'meme.cooking', other: 'other new pools' }
+
+/** "Nearly launches, meme.cooking and other new pools", in the sources' own order. */
+export function sourcesText(sources: readonly SniperSource[]): string {
+  const ordered = SNIPER_SOURCES.filter((x) => sources.includes(x))
+  const named = ordered.filter((x) => x !== 'other').map((x) => SOURCE_SHORT[x])
+  if (!ordered.includes('other')) return named.join(', ')
+  return named.length ? `${named.join(', ')} and ${SOURCE_SHORT.other}` : SOURCE_SHORT.other
+}
+
 /** The trigger's direction on an executable price: a limit buy and a stop loss at or below, a limit sell and a take profit at or above. */
 export const conditionOf = (type: LimitOrderType): '≤' | '≥' => (type === 'limit-buy' || type === 'stop-loss' ? '≤' : '≥')
 
@@ -124,8 +237,17 @@ export function describeStrategy(s: Pick<StrategyView, 'config'>): string {
       const size = k.sizing.mode === 'fixed' ? `${n(k.sizing.amountNear)} NEAR each` : `${n(k.sizing.pct)}% of their size`
       return `Copies ${k.copy === 'both' ? 'buys and sells' : `${k.copy}s`} · ${size} · max ${n(k.maxTradeNear)} NEAR`
     }
-    case 'sniper':
-      return `${c.sniper.mode === 'execute' ? 'Buys' : 'Notify only:'} ${n(c.sniper.amountNear)} NEAR of ${c.sniper.token ? c.sniper.token.symbol : 'new pools'} · max impact ${n(c.sniper.maxImpactPct)}%`
+    case 'sniper': {
+      const k = c.sniper
+      if (k.target === 'new-pools') {
+        const src = sourcesText(k.sources)
+        const onlyOther = k.sources.length > 0 && k.sources.every((x) => x === 'other')
+        const what =
+          k.mode === 'execute' ? `Buys up to ${k.maxBuys} new token${k.maxBuys === 1 ? '' : 's'} from ${src}` : `Notify only: ${onlyOther ? src : `new pools from ${src}`}`
+        return `${what} · pool ≥ ${k.minPoolNear === null ? '—' : n(k.minPoolNear)} NEAR · ${n(k.amountNear)} NEAR each`
+      }
+      return `${k.mode === 'execute' ? 'Buys' : 'Notify only:'} ${n(k.amountNear)} NEAR of ${k.token ? k.token.symbol : 'a token'} · max impact ${n(k.maxImpactPct)}%`
+    }
     case 'dca':
       return `${n(c.dca.amountNear)} NEAR of ${c.dca.token.symbol} every ${intervalLabel(c.dca.everySec)}${c.dca.maxRuns ? ` · ${c.dca.maxRuns} buys` : ''}`
   }
@@ -151,6 +273,60 @@ export function refusalOf(e: unknown): { message: string; issues: ConfigIssue[] 
   }
   return { message: e instanceof Error && e.message ? e.message : 'NEARKITS couldn’t answer. Try again in a moment.', issues: [] }
 }
+
+/** The server refused a create whose request key it had seen with a different request (HTTP 409, code 'request'). */
+export const REVIEW_AGAIN = 'This review was already used for a different request, so nothing was created from it. Review it again.'
+
+/**
+ * A create's refusal, and whether the review closes so the form is reviewed again (a new review, a
+ * new request key): when the server named fields to fix, or refused the request key.
+ */
+export function createRefusalOf(e: unknown): { message: string; issues: ConfigIssue[]; reviewAgain: boolean } {
+  if (e instanceof LinkRequestError && e.code === 'request') return { message: REVIEW_AGAIN, issues: [], reviewAgain: true }
+  const r = refusalOf(e)
+  return { ...r, reviewAgain: r.issues.length > 0 }
+}
+
+// ─── one create per review ──────────────────────────────────────────────────
+
+/**
+ * A create request's key (src/lib/automation/api.ts REQUEST_KEY): made once when a review opens and
+ * sent with every Confirm of that review, so a retry or a second click makes nothing twice; the server
+ * answers the same key with what the first request made. Editing and reviewing again makes a new one.
+ * 16 random bytes, base64url (22 of A–Z, a–z, 0–9, _ and -), as a wallet Create's key.
+ */
+export const newRequestKey = (): string => newCreateKey()
+
+export const validRequestKey = (key: string) => REQUEST_KEY.test(key)
+
+/** What a review holds: exactly what Confirm sends (the configuration, the wallet) and its one request key. */
+export interface Reviewed<T> {
+  config: T
+  walletId: string
+  requestKey: string
+}
+
+export const reviewOf = <T>(config: T, walletId: string, requestKey: string = newRequestKey()): Reviewed<T> => ({ config, walletId, requestKey })
+
+/**
+ * Whether a create that failed this way may be sent again as it was: the server never answered (or
+ * answered with its own error), so it may have made the strategies; the same request key makes the
+ * server answer with them instead of making them twice. A refusal (4xx) is never resent.
+ */
+export const retryableCreate = (e: unknown): boolean => e instanceof LinkRequestError && (e.status === 0 || e.status >= 500)
+
+/** Sends a create; a request with a key that failed retryably is sent once more, unchanged (the same key). */
+export async function sendCreate<T>(send: (input: CreateStrategyInput) => Promise<T>, input: CreateStrategyInput, wait: (ms: number) => Promise<void> = sleep): Promise<T> {
+  try {
+    return await send(input)
+  } catch (e) {
+    if (!input.requestKey || !retryableCreate(e)) throw e
+    await wait(1_500)
+    return send(input)
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 // ─── form text → configuration ─────────────────────────────────────────────
 
@@ -266,33 +442,81 @@ export function buildCopy(d: CopyDraft): Built<CopyConfig> {
 }
 
 export interface SniperDraft {
+  /** One token contract, or new pools as the exchanges create them. */
+  target: SniperTarget
+  /** 'token': the contract to buy once it trades. Ignored for new pools (each new pool names its token). */
   token: TokenRef | null
+  /** New pools: where they come from. */
+  sources: SniperSource[]
+  /** New pools: the least NEAR a pool must hold. */
+  minPoolText: string
+  /** New pools in buy mode: how many different tokens it buys before it completes. */
+  maxBuysText: string
   amountText: string
   slippagePct: number
   maxImpactText: string
+  /** One token only (new pools have no market data yet). */
   minLiquidityText: string
   maxAttemptsText: string
   expiry: ExpiryChoice
   mode: SniperSettings['mode']
 }
 
+/** The new-pools sniper's starting NEAR minimum for a pool: enough to leave a trade room, small enough for a fresh launch. */
+export const DEFAULT_MIN_POOL_NEAR = '5'
+
+/**
+ * One token: the token, no pool sources, no pool minimum, one buy (as the server requires). New
+ * pools: no token, the sources, the pool's NEAR minimum, no market-liquidity check, and a number of
+ * tokens to buy (one in notify-only mode, where nothing is bought).
+ */
 export function buildSniper(d: SniperDraft, now: number): Built<SniperSettings> {
+  const pools = d.target === 'new-pools'
   const config: SniperSettings = {
-    target: 'token',
-    token: d.token ?? placeholder,
-    sources: [],
-    minPoolNear: null,
-    maxBuys: 1,
+    target: d.target,
+    token: pools ? null : (d.token ?? placeholder),
+    sources: pools ? SNIPER_SOURCES.filter((x) => d.sources.includes(x)) : [],
+    minPoolNear: pools ? numberOf(d.minPoolText) : null,
+    maxBuys: pools && d.mode === 'execute' ? numberOf(d.maxBuysText) : 1,
     amountNear: numberOf(d.amountText),
     slippagePct: d.slippagePct,
     maxImpactPct: numberOf(d.maxImpactText),
-    minLiquidityUsd: optionalNumberOf(d.minLiquidityText),
+    minLiquidityUsd: pools ? null : optionalNumberOf(d.minLiquidityText),
     maxAttempts: numberOf(d.maxAttemptsText),
     expiresAt: expiresAtOf(d.expiry, now),
     mode: d.mode,
   }
   const issues = validateSniper(config, now)
-  return { config, issues: d.token ? issues : [...noToken(null), ...issues.filter((i) => !i.field.startsWith('token'))] }
+  return { config, issues: pools || d.token ? issues : [...noToken(null), ...issues.filter((i) => !i.field.startsWith('token'))] }
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/** The explicit yes a sniper that buys needs, in the words of what it will do. */
+export function buyConfirmation(c: SniperSettings): string {
+  return c.target === 'new-pools'
+    ? `I confirm: buy ${c.amountNear} NEAR of each new token that passes these checks, up to ${plural(c.maxBuys, 'token')}, from my NEARKITS wallet without asking me again.`
+    : `I confirm: buy ${c.amountNear} NEAR of ${c.token ? c.token.symbol : 'this token'} from my NEARKITS wallet when it trades within these limits, without asking me again.`
+}
+
+/** A sniper's review summary: what it does, and the limits it keeps. */
+export function sniperSummary(c: SniperSettings): string {
+  const what = describeStrategy({ config: { kind: 'sniper', sniper: c } })
+  if (c.target === 'token') return `${what}. Up to ${c.maxAttempts} attempts; slippage ${c.slippagePct}%.`
+  const buys = c.mode === 'execute' ? ` It stops after ${plural(c.maxAttempts, 'buy')} that weren’t made.` : ''
+  return `${what}. Price impact at most ${c.maxImpactPct}%; a round trip loses at most 25%; slippage ${c.slippagePct}%.${buys}`
+}
+
+/** What the toast says once a sniper is created. */
+export function sniperCreatedNote(c: SniperSettings): { title: string; detail: string } {
+  const execute = c.mode === 'execute'
+  if (c.target === 'new-pools')
+    return execute
+      ? { title: 'Sniper armed to buy new pools', detail: `It buys up to ${plural(c.maxBuys, 'new token')}, ${c.amountNear} NEAR each, when their pools pass its checks.` }
+      : { title: 'Sniper watching new pools (notify only)', detail: 'It buys nothing: it tells you about each new pool that passes its checks.' }
+  return execute
+    ? { title: 'Sniper armed to buy', detail: 'It buys once when the token trades within your limits.' }
+    : { title: 'Sniper watching (notify only)', detail: 'It buys nothing: it tells you when the token trades.' }
 }
 
 export interface DcaDraft {
