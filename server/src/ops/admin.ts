@@ -16,7 +16,7 @@ import { OpsSwitches, SWITCHES, type SwitchName } from './switches'
  *
  *   status                                   the switches, frozen wallets, the signer
  *   pause <trading|withdrawals|volumebot|bridge|automation> <reason>     stop it now (fails closed; see ops/switches.ts for what keeps working)
- *   resume <trading|withdrawals|volumebot> <reason>
+ *   resume <trading|withdrawals|volumebot|bridge|automation> <reason>
  *   freeze <wallet id or account> <reason>   that wallet neither trades nor withdraws
  *   unfreeze <wallet id or account> <reason>
  *   signer-pause <reason>                    stop every signature, export and approval (resume on the signer's host)
@@ -77,7 +77,7 @@ export async function runOpsAdmin(
       case 'pause':
       case 'resume': {
         if (!SWITCHES.includes(target as SwitchName) || !reason) {
-          out(`usage: ${command} <trading|withdrawals|volumebot> <reason>`)
+          out(`usage: ${command} <${SWITCHES.join('|')}> <reason>`)
           return 2
         }
         await ops.set(target as SwitchName, command === 'pause', reason, by)
@@ -138,7 +138,7 @@ export async function runOpsAdmin(
         return 0
       }
       default:
-        out('usage: status | pause|resume <trading|withdrawals|volumebot> <reason> | freeze|unfreeze <wallet> <reason> | signer-pause <reason> | events [count]')
+        out(`usage: status | pause|resume <${SWITCHES.join('|')}> <reason> | freeze|unfreeze <wallet> <reason> | signer-pause <reason> | events [count]`)
         return 2
     }
   } finally {
