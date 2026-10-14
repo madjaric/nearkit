@@ -195,19 +195,23 @@ await step('Swap from the sidebar opens NEAR → $KITS (kits.nearlytrade.near), 
 await step('Multi Trade from the sidebar opens on $KITS; Black Dragon can be chosen, and a reload opens on $KITS again', async () => {
   await page.locator('aside').getByRole('link', { name: 'Multi Trade', exact: true }).click()
   await page.waitForURL(/\/multi-trade$/)
+  // The address changes before the new page is on screen: the router keeps the previous one (Swap) up
+  // while Multi Trade renders. Wait for Multi Trade itself, and name its picker exactly: a role name
+  // matches as a substring by default, and Swap's "To token: KITS" contains "Token: KITS".
+  await page.getByRole('heading', { level: 1, name: 'Multi Trade' }).waitFor()
   // Let the page settle (wallets, balances, quotes) before using its token picker.
   await page.waitForLoadState('networkidle')
   const main = page.locator('main')
-  await main.getByRole('button', { name: 'Token: KITS' }).waitFor()
-  await main.getByRole('button', { name: 'Token: KITS' }).click()
+  await main.getByRole('button', { name: 'Token: KITS', exact: true }).waitFor()
+  await main.getByRole('button', { name: 'Token: KITS', exact: true }).click()
   await page.getByRole('textbox', { name: 'Search tokens' }).fill('BLACKDRAGON')
   await page
     .getByRole('option', { name: /BLACKDRAGON/ })
     .first()
     .click()
-  await main.getByRole('button', { name: 'Token: BLACKDRAGON' }).waitFor()
+  await main.getByRole('button', { name: 'Token: BLACKDRAGON', exact: true }).waitFor()
   await page.reload({ waitUntil: 'networkidle' })
-  await main.getByRole('button', { name: 'Token: KITS' }).waitFor()
+  await main.getByRole('button', { name: 'Token: KITS', exact: true }).waitFor()
   // Back where the next steps start: the Dashboard, whose BUY key opens the ticket.
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
 })
@@ -331,7 +335,13 @@ await step('global search: "$KITS", "KITS", "Near Kits" and kits.nearlytrade.nea
 })
 
 await step('global search: "/" focuses, command routes to Split', async () => {
+  // The step before ends on goto(networkidle), which can return while the app still shows its boot
+  // screen (the demo's services answer after a delay, with no network): keys pressed then go nowhere,
+  // or the first "/" of "/split" is the one that focuses. Press "/" once the search box is on the
+  // page, and check that it took the focus.
+  await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().waitFor()
   await page.keyboard.press('/')
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search token, contract or command')
   await page.keyboard.type('/split')
   await page
     .getByRole('option', { name: /\/split/ })
@@ -558,6 +568,8 @@ await step('PnL: cursor handle moves with the keyboard', async () => {
 await step('PnL: 24H is a real period (its own figures, hourly chart, its trades), and switching periods changes them', async () => {
   await page.goto(BASE + '/pnl', { waitUntil: 'networkidle' })
   const periods = page.getByRole('radiogroup', { name: 'Period' })
+  // allInnerTexts() doesn't wait: read the periods once the page has drawn them.
+  await periods.getByRole('radio', { name: '24H' }).waitFor()
   const labels = await periods.getByRole('radio').allInnerTexts()
   if (labels.map((l) => l.trim()).join() !== '24H,7D,30D,90D,ALL' && labels.map((l) => l.trim()).join() !== '24H,7D,30D,90D,All') throw new Error(`periods: ${labels}`)
   const realized = () =>
