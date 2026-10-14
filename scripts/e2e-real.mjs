@@ -127,8 +127,12 @@ await step('boots on testnet with real services', async () => {
   await visible('Testnet data')
   // The public build is the testnet beta: the network chip says so at every width.
   await visible('Testnet beta', { exact: true })
-  // The side nav's status line shows from 1024 px; narrower screens keep it in the drawer.
-  if (WIDTH >= 1024) await visible('NEAR testnet beta · live')
+  // The side nav's status line shows from 1024 px; narrower screens keep it in the drawer. It is
+  // short there (the network chip names the beta) and says it in full on hover.
+  if (WIDTH >= 1024) {
+    await visible('Testnet · live', { exact: true })
+    if (!(await page.locator('aside [title="NEAR testnet beta · live"]').count())) throw new Error('the status line lost its full wording')
+  }
   await page.getByRole('button', { name: 'Connect wallet' }).first().waitFor()
 })
 
@@ -593,8 +597,9 @@ await step('a connected account sends through its own wallet (Batch Send, from i
 
 await step('the dashboard counts executable wallets only: the watched account is listed, never summed', async () => {
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  // The Total wallets card says how many trade; the page's line under the title is the product's own.
   await visible(/2 executable · 1 watch-only/)
-  await visible(/2 executable wallets · /)
+  await visible('Your trading terminal on NEAR.')
 })
 
 await step('a watch-only account never joins a Multi Buy or a preset: not offered, and said so', async () => {

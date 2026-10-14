@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Coins, Layers, LayoutGrid, Menu as MenuIcon, X } from 'lucide-react'
+import { ArrowLeftRight, Coins, House, Layers, Menu as MenuIcon, X } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet, ScrollRestoration, useLocation, useMatches } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
@@ -12,7 +12,7 @@ import { NavBody, Sidebar } from './SideNav'
 import { StatusStrip, TopBar } from './TopBar'
 
 const TAB_BAR = [
-  { to: '/', label: 'Home', icon: LayoutGrid, end: true },
+  { to: '/', label: 'Home', icon: House, end: true },
   { to: '/swap', label: 'Trade', icon: ArrowLeftRight },
   { to: '/multi-trade', label: 'Multi', icon: Layers },
   { to: '/positions', label: 'Positions', icon: Coins },

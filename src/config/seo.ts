@@ -1,4 +1,5 @@
 import { FAQ, VOLUME_BOT_DESCRIPTION, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_BOT_UPDATED } from '@/features/volumeBot/content'
+import { NAV_GROUPS } from '@/layouts/nav'
 import { BRIDGE_FEE_LABEL, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { KIT, KIT_LAUNCH, KITS_CONTRACT } from './kit'
 import { BETA_COMING_SOON } from './release'
@@ -65,6 +66,9 @@ export const nearBridgeFacts = (): string[] => [
 ]
 
 /** Every page the sitemap lists, in its order. */
+/** The directory's groups as plain lines, for readers without JavaScript (the page lists the same tools). */
+export const toolFacts = (): string[] => NAV_GROUPS.map((g) => `${g.label}: ${g.items.map((i) => i.label).join(', ')}.`)
+
 export function publicPages(): PageSeo[] {
   const pages: Record<string, Omit<PageSeo, 'path'>> = {
     '/': { title: HOME_TITLE, description: HOME_DESCRIPTION, name: 'Dashboard' },
@@ -121,6 +125,12 @@ export function publicPages(): PageSeo[] {
       title: 'Documentation: fees, wallets and tools · NEARKITS',
       description: 'How NEARKITS works, what runs for real and what doesn’t yet, and the terms used across the app.',
       name: 'Documentation',
+    },
+    '/tools': {
+      title: 'All tools: NEAR trading, wallets and automation · NEARKITS',
+      description: 'Every NEARKITS tool in one directory: Swap, Multi Trade, Limit Orders, Split, Batch Send, DCA, Copy Trade, Sniper, the Scanner and more.',
+      name: 'All Tools',
+      facts: toolFacts(),
     },
   }
   return SITEMAP_PATHS.map((path) => {

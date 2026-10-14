@@ -1,3 +1,4 @@
+import { ArrowRight } from 'lucide-react'
 import { NavLink } from 'react-router'
 import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { SocialLinks } from '@/components/brand/Social'
@@ -5,68 +6,50 @@ import { Led, Tag } from '@/components/ui/Indicators'
 import { KIT } from '@/config/kit'
 import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { cn } from '@/lib/cn'
-import { useIsComingSoon, useNetworkWording } from '@/lib/modeCopy'
+import { useNetworkWording } from '@/lib/modeCopy'
 import { useCapabilities } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
-import { isNavAction, NAV_FOOTER, NAV_GROUPS, NAV_HOME, type NavAction, type NavItem } from './nav'
+import { isNavAction, NAV_ALL_TOOLS, NAV_GROUPS, NAV_HOME, NAV_MAIN, type NavAction, type NavItem } from './nav'
+import { useIsSoon } from './navState'
 
-/**
- * Not live for this user: always-soon entries, and the ones the public beta holds back (an automation
- * NEARKITS switched on for a signed-in user is live: useIsComingSoon).
- */
-function useIsSoon(): (item: NavItem) => boolean {
-  const comingSoon = useIsComingSoon()
-  return (item: NavItem) => item.soon === true || comingSoon(item.to)
-}
-
-/** Build status line: what this build runs on. */
+/** What this build runs on, short enough for the sidebar's footer row; the network chip says the rest. */
 function BuildStatus() {
   const caps = useCapabilities()
   const network = useNetworkWording()
   if (caps.mode === 'demo') {
     return (
-      <>
+      <span className="flex min-w-0 items-center gap-1.5" title="Demo: simulated, nothing is sent">
         <Led tone="idle" />
-        <span>Demo · simulated, nothing is sent</span>
-      </>
+        <span className="truncate">Demo</span>
+      </span>
     )
   }
   const live = caps.execution.enabled
+  const text = `${caps.network === 'mainnet' ? 'Mainnet' : 'Testnet'} · ${live ? 'live' : 'view only'}`
   return (
-    <>
+    <span className="flex min-w-0 items-center gap-1.5" title={`NEAR ${network.name} · ${live ? 'live' : 'view only'}`}>
       <Led tone={live ? 'on' : 'warn'} />
-      <span>{live ? `NEAR ${network.name} · live` : `NEAR ${network.name} · view only`}</span>
-    </>
+      <span className="truncate">{text}</span>
+    </span>
   )
 }
 
-const entryBase = 'group relative flex h-10 items-center gap-3 rounded-md px-3 text-base transition-colors duration-100'
-const entryOn = 'bg-raised text-fg before:absolute before:left-0 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-accent'
+const entryBase = 'group relative flex h-8 items-center gap-2.5 rounded-sm px-2.5 text-base transition-colors duration-100'
+const entryOn = 'bg-raised text-fg before:absolute before:left-0 before:top-1/2 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-accent'
 const entryOff = 'text-fg-2 hover:bg-raised/60 hover:text-fg'
+const iconOn = 'text-accent'
+const iconOff = 'text-fg-3 group-hover:text-fg-2'
 
 function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const isSoon = useIsSoon()
   const Icon = item.icon
-  // An entry with a hint is two lines (the label, then what tells it from its neighbour); the rest keep one.
   return (
     <li>
-      <NavLink
-        to={item.to}
-        end={item.end}
-        onClick={onNavigate}
-        className={({ isActive }) => cn(entryBase, item.hint && 'h-auto min-h-10 items-start py-2', isActive ? entryOn : entryOff)}
-      >
+      <NavLink to={item.to} end={item.end} onClick={onNavigate} title={item.description} className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
         {({ isActive }) => (
           <>
-            <Icon size={18} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', item.hint && 'mt-0.5', isActive ? 'text-accent' : 'text-fg-3 group-hover:text-fg-2')} />
-            {item.hint ? (
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate">{item.label}</span>
-                <span className="text-2xs leading-4 text-fg-3">{item.hint}</span>
-              </span>
-            ) : (
-              <span className="flex-1 truncate">{item.label}</span>
-            )}
+            <Icon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? iconOn : iconOff)} />
+            <span className="flex-1 truncate">{item.label}</span>
             {isSoon(item) && <Tag tone="soon">Soon</Tag>}
           </>
         )}
@@ -78,7 +61,7 @@ function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
 /** Group label above a run of entries. */
 function GroupLegend({ label }: { label: string }) {
   return (
-    <div className="legend px-3 pb-2" aria-hidden="true">
+    <div className="legend px-2.5 pb-1" aria-hidden="true">
       {label}
     </div>
   )
@@ -93,13 +76,14 @@ function QuickTradeEntry({ entry, onNavigate }: { entry: NavAction; onNavigate?:
     <li>
       <button
         type="button"
+        title={entry.description}
         onClick={() => {
           onNavigate?.()
           openTrade({ tokenId, side: 'buy' })
         }}
         className={cn(entryBase, entryOff, 'w-full text-left')}
       >
-        <Icon size={18} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-fg-3 group-hover:text-fg-2" />
+        <Icon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', iconOff)} />
         <span className="flex-1 truncate">{entry.label}</span>
       </button>
     </li>
@@ -111,8 +95,8 @@ function KitEntry({ onNavigate }: { onNavigate?: () => void }) {
   const live = KIT.status === 'live'
   return (
     <li>
-      <NavLink to={KIT.links.page} onClick={onNavigate} className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
-        <LogoMark size={18} />
+      <NavLink to={KIT.links.page} onClick={onNavigate} title="The NEARKITS token" className={({ isActive }) => cn(entryBase, isActive ? entryOn : entryOff)}>
+        <LogoMark size={16} />
         <span className="num flex-1 text-sm tracking-[0.02em]">{KIT.ticker}</span>
         {live ? <Tag tone="accent">Live</Tag> : <Tag>Mainnet</Tag>}
       </NavLink>
@@ -120,55 +104,67 @@ function KitEntry({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+/** The sidebar's last entry: the searchable directory of every tool. */
+function AllToolsEntry({ onNavigate }: { onNavigate?: () => void }) {
+  const Icon = NAV_ALL_TOOLS.icon
+  return (
+    <NavLink
+      to={NAV_ALL_TOOLS.to}
+      onClick={onNavigate}
+      title={NAV_ALL_TOOLS.description}
+      className={({ isActive }) =>
+        cn(
+          'group flex h-10 items-center gap-2.5 rounded-sm border px-3 text-base transition-colors duration-100',
+          isActive ? 'border-accent/45 bg-raised text-fg' : 'border-line text-fg-2 hover:border-accent/45 hover:text-fg',
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <Icon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? iconOn : iconOff)} />
+          <span className="flex-1 truncate">{NAV_ALL_TOOLS.label}</span>
+          <ArrowRight size={14} aria-hidden="true" className="shrink-0 text-fg-3 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-accent" />
+        </>
+      )}
+    </NavLink>
+  )
+}
+
 /**
- * Navigation body shared by the desktop sidebar and the phone drawer. Live entries
- * stay in their groups (a group with none left is hidden); everything not live in
- * this build is listed once, in a COMING SOON group at the end.
+ * Navigation body shared by the desktop sidebar and the phone drawer: every group in its fixed
+ * order with all of its entries (one this build doesn't run yet carries a SOON tag in place, so
+ * nothing moves when it goes live), MAIN first with the Dashboard and $KITS ahead of its own
+ * entries, and All Tools pinned below the scrolling list.
  */
 export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
-  const isSoon = useIsSoon()
-  const groups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => isNavAction(i) || !isSoon(i)) })).filter((g) => g.items.length > 0)
-  const soon = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_FOOTER].filter((i): i is NavItem => !isNavAction(i) && isSoon(i))
   return (
     <>
-      <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4">
-        <ul className="flex flex-col gap-0.5">
-          <NavEntry item={NAV_HOME} onNavigate={onNavigate} />
-          <KitEntry onNavigate={onNavigate} />
-        </ul>
-        {groups.map((group) => (
-          <div key={group.label} className="mt-6" role="group" aria-label={group.label}>
+      <nav aria-label="Main" className="flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className={group === NAV_MAIN ? undefined : 'mt-3'} role="group" aria-label={group.label}>
             <GroupLegend label={group.label} />
-            <ul className="flex flex-col gap-0.5">
+            <ul className="flex flex-col gap-px">
+              {group === NAV_MAIN && (
+                <>
+                  <NavEntry item={NAV_HOME} onNavigate={onNavigate} />
+                  <KitEntry onNavigate={onNavigate} />
+                </>
+              )}
               {group.items.map((item) =>
                 isNavAction(item) ? <QuickTradeEntry key={item.action} entry={item} onNavigate={onNavigate} /> : <NavEntry key={item.to} item={item} onNavigate={onNavigate} />,
               )}
             </ul>
           </div>
         ))}
-        {soon.length > 0 && (
-          <div className="mt-6" role="group" aria-label="Coming soon">
-            <GroupLegend label="Coming soon" />
-            <ul className="flex flex-col gap-0.5">
-              {soon.map((item) => (
-                <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
-              ))}
-            </ul>
-          </div>
-        )}
       </nav>
-      <div className="border-t border-line px-3 py-3">
-        <ul className="flex flex-col gap-0.5">
-          {NAV_FOOTER.filter((item) => !isSoon(item)).map((item) => (
-            <NavEntry key={item.to} item={item} onNavigate={onNavigate} />
-          ))}
-        </ul>
-        {/* NEARKITS' community: the Telegram group and X, on every page (the phone drawer shows the same). */}
-        <SocialLinks variant="nav" className="mt-2 border-t border-line-soft pt-2" />
-      </div>
-      <div className="flex items-center gap-2 border-t border-line px-5 py-3 text-xs text-fg-3">
-        <BuildStatus />
-        <span className="num ml-auto text-fg-4">v{__NEARKIT_VERSION__}</span>
+      <div className="border-t border-line px-3 pb-2 pt-3">
+        <AllToolsEntry onNavigate={onNavigate} />
+        <div className="mt-2 flex h-7 items-center gap-2 pl-1 text-xs text-fg-3">
+          <BuildStatus />
+          <span className="num ml-auto shrink-0 text-fg-4">v{__NEARKIT_VERSION__}</span>
+          {/* NEARKITS' community: the Telegram group and X, on every page (the phone drawer shows the same). */}
+          <SocialLinks variant="icons" className="-mr-1 shrink-0" />
+        </div>
       </div>
     </>
   )
