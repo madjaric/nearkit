@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { REQUEST_KEY } from '@/lib/automation/api'
 import type { StrategyKind } from '@/lib/automation/config'
 import { menuCommands } from '../app'
 import { createAutomationService } from '../automation/service'
 import { AutomationStore } from '../automation/store'
 import type { TgUser } from '../telegram/types'
+import { requestKeyOf } from './automation'
 import { ALICE } from './testing'
 import { ONE, USDT, walletBot } from './walletTesting'
 
@@ -372,6 +374,8 @@ describe('Sniper (/snipe)', () => {
   async function reviewSniper(h: Bot, mode: 'Notify only' | 'Buy automatically') {
     await h.say('/snipe')
     await h.tap('New sniper')
+    expect(h.text()).toContain('What does the sniper watch?')
+    await h.tap('One token')
     await h.say('USDT')
     await h.tap('0.5 NEAR')
     await h.tap('1%')
@@ -409,6 +413,443 @@ describe('Sniper (/snipe)', () => {
     await h.press(yes)
     expect(h.text()).toContain('used already')
     expect(await h.service.list(ALICE.id, ['sniper'])).toHaveLength(1)
+  })
+})
+
+describe('Sniper on new pools (/snipe → 🆕 New pools)', () => {
+  /** /snipe → New sniper → New pools, ticking `sources`, up to the review (or, buying, up to the number of tokens). */
+  async function reviewNewPools(h: Bot, o: { sources?: string[]; min?: string; amount?: string; expiry?: string; mode?: 'Notify only' | 'Buy automatically'; buys?: string } = {}) {
+    await h.say('/snipe')
+    await h.tap('New sniper')
+    await h.tap('New pools')
+    for (const x of o.sources ?? ['Nearly launches', 'meme.cooking graduations']) await h.tap(`⬜ ${x}`)
+    await h.tap('Continue')
+    await h.tap(o.min ?? '5 NEAR')
+    await h.tap(o.amount ?? '0.5 NEAR')
+    await h.tap('1%')
+    await h.tap('10%')
+    await h.tap(o.expiry ?? 'No expiry')
+    await h.tap(o.mode ?? 'Notify only')
+    if (o.buys) await h.tap(o.buys)
+  }
+
+  const labels = (h: Bot) => h.buttons().map((b) => b.text)
+
+  it('notify only, end to end through the buttons: sources ticked, the pool minimum, a summary instead of a quote, one Confirm creates it', async () => {
+    const h = await autoBot()
+    await h.say('/snipe')
+    await h.tap('New sniper')
+    expect(h.text()).toContain('What does the sniper watch?')
+    expect(labels(h)).toEqual(expect.arrayContaining(['🎯 One token', '🆕 New pools']))
+    await h.tap('New pools')
+    // Sources: toggles, none ticked until the user ticks them; Continue needs at least one.
+    expect(h.text()).toContain('Which new pools?')
+    expect(labels(h)).toEqual(expect.arrayContaining(['⬜ Nearly launches', '⬜ meme.cooking graduations', '⬜ Other new pools', 'Continue »']))
+    await h.tap('Continue')
+    expect(h.toasts().at(-1)).toContain('Tick at least one')
+    expect(h.text()).toContain('Which new pools?')
+    await h.tap('⬜ Nearly launches')
+    await h.tap('⬜ Other new pools')
+    await h.tap('⬜ meme.cooking graduations')
+    await h.tap('✅ Other new pools')
+    expect(labels(h)).toEqual(expect.arrayContaining(['✅ Nearly launches', '✅ meme.cooking graduations', '⬜ Other new pools']))
+    await h.tap('Continue')
+    // The pool's NEAR minimum: buttons, or typed.
+    expect(h.text()).toContain('The least NEAR a new pool must hold?')
+    expect(labels(h)).toEqual(expect.arrayContaining(['1 NEAR', '5 NEAR', '20 NEAR']))
+    await h.say('lots')
+    expect(h.text()).toContain('from 0 to 100,000')
+    await h.say('7.5')
+    expect(h.text()).toContain('How much NEAR does it buy each new token with?')
+    await h.tap('0.5 NEAR')
+    await h.tap('1%')
+    await h.tap('10%')
+    await h.tap('7 days')
+    expect(h.text()).toContain('Notify only, or buy?')
+    expect(h.text()).toContain('each new pool whose token passes the checks')
+    await h.tap('Notify only')
+    // Notify only asks no number of tokens: straight to the review, a summary (nothing to quote yet).
+    const review = h.text()
+    expect(review).toContain('Review · Sniper: new pools')
+    expect(review).toContain('Watches Nearly launch pools and meme.cooking graduation pools holding at least <b>7.5 NEAR</b>')
+    expect(review).toContain('nothing is bought')
+    expect(review).toContain('nothing to quote until a new pool appears')
+    expect(review).toContain('New pools as Ref DCL and Ref v2 create them')
+    expect(review).toContain('at least your NEAR minimum')
+    expect(review).toContain('within your price impact')
+    expect(review).toContain('may lose at most 25%')
+    expect(review).toContain('Pools made before the sniper are never reported.')
+    expect(review).toContain('Expires in 7 days')
+    expect(review).toContain('Notify only: you get a message for each new pool whose token passes the checks; nothing is bought.')
+    expect(review).not.toContain('Now ≈')
+    expect(review).not.toContain('Too many quotes')
+    expect(await h.service.list(ALICE.id)).toEqual([])
+    await h.tap('Confirm sniper')
+    expect(h.text()).toContain('Sniper: new pools created')
+    expect(h.text()).toContain('you get a message for each new pool whose token passes the checks')
+    const list = await h.service.list(ALICE.id, ['sniper'])
+    expect(list).toHaveLength(1)
+    const [s] = list
+    expect(s?.subject).toBe('new-pools')
+    expect(s?.config).toEqual({
+      kind: 'sniper',
+      sniper: {
+        target: 'new-pools',
+        token: null,
+        sources: ['nearly', 'meme-cooking'],
+        minPoolNear: 7.5,
+        maxBuys: 1,
+        amountNear: 0.5,
+        slippagePct: 1,
+        maxImpactPct: 10,
+        minLiquidityUsd: null,
+        maxAttempts: 3,
+        expiresAt: expect.any(Number),
+        mode: 'notify',
+      },
+    })
+    expect(s?.expiresAt).toBeGreaterThan(h.deps.now() + 6 * 86_400_000)
+    // The list and the detail name it and say what it watches.
+    await h.say('/snipe')
+    expect(h.text()).toContain('Sniper: new pools')
+    await h.press(`au:v:${s?.id}`)
+    expect(h.text()).toContain('🔫 <b>Sniper: new pools</b>')
+    expect(h.text()).toContain('Watches Nearly launch pools and meme.cooking graduation pools holding at least <b>7.5 NEAR</b>')
+    expect(h.text()).toContain('🟢 Active')
+  })
+
+  it('a new-pools sniper that buys: the number of tokens, then a second yes that says what it buys; Confirm alone creates nothing', async () => {
+    const h = await autoBot()
+    await reviewNewPools(h, { sources: ['Other new pools'], min: '20 NEAR', amount: '1 NEAR', mode: 'Buy automatically' })
+    expect(h.text()).toContain('How many new tokens may it buy?')
+    expect(labels(h)).toEqual(expect.arrayContaining(['1 token', '3 tokens', '5 tokens']))
+    await h.say('11')
+    expect(h.text()).toContain('from 1 to 10')
+    await h.say('3')
+    const review = h.text()
+    expect(review).toContain('Watches other new pools holding at least <b>20 NEAR</b>: buys <b>1 NEAR</b> of each new token that passes the checks, up to 3 tokens')
+    expect(review).toContain('you confirm that once more next')
+    expect(review).toContain('No expiry')
+    await h.tap('Confirm sniper')
+    const second = h.text()
+    expect(second).toContain('Buy automatically?')
+    expect(second.replace(/<\/?b>/g, '')).toContain('buys 1 NEAR of each new token that passes the checks, up to 3 tokens')
+    expect(second).toContain('at most 3 NEAR in all')
+    expect(await h.service.list(ALICE.id)).toEqual([])
+    const yes = h.button('Yes, buy automatically')
+    expect(yes).toMatch(/^au:okx:/)
+    await h.press(yes)
+    expect(h.text()).toContain('Sniper: new pools created')
+    expect(h.text()).toContain('it buys each new token that passes the checks, up to 3 tokens')
+    const list = await h.service.list(ALICE.id, ['sniper'])
+    expect(list).toHaveLength(1)
+    expect(list[0]?.config).toMatchObject({
+      kind: 'sniper',
+      sniper: { target: 'new-pools', token: null, sources: ['other'], minPoolNear: 20, maxBuys: 3, amountNear: 1, mode: 'execute', expiresAt: null },
+    })
+    await h.press(yes)
+    expect(h.text()).toContain('used already')
+    expect(await h.service.list(ALICE.id, ['sniper'])).toHaveLength(1)
+  })
+
+  it('a buying new-pools sniper can’t skip the second yes: the plain Confirm only asks it', async () => {
+    const h = await autoBot()
+    await reviewNewPools(h, { mode: 'Buy automatically', buys: '1 token' })
+    const ok = h.button('Confirm sniper')
+    await h.press(ok)
+    await h.press(ok)
+    expect(h.text()).toContain('Buy automatically?')
+    expect(h.text().replace(/<\/?b>/g, '')).toContain('buys 0.5 NEAR of each new token that passes the checks, up to 1 token,')
+    expect(await h.service.list(ALICE.id)).toEqual([])
+  })
+
+  it('the detail lists the new pools it saw (pool, token, what became of it) and never calls one bought before its trade is confirmed', async () => {
+    const h = await autoBot()
+    await reviewNewPools(h, { mode: 'Buy automatically', buys: '3 tokens' })
+    await h.tap('Confirm sniper')
+    await h.tap('Yes, buy automatically')
+    const id = (await h.service.list(ALICE.id, ['sniper']))[0]?.id as string
+    // What the worker records (runner.ts): each pool once, keyed by its exchange and pool id.
+    const dcl = 'pool:dcl:pepe.nearlytrade.near|wrap.testnet|2000'
+    await h.autoStore.addDetection({
+      strategyId: id,
+      sourceKey: dcl,
+      side: 'buy',
+      token: 'pepe.nearlytrade.near',
+      tokenRaw: null,
+      nearRaw: (12n * ONE).toString(),
+      status: 'detected',
+      reason: 'Waiting for a route from a NEARKITS wallet',
+    })
+    h.advance(1_000)
+    await h.autoStore.addDetection({
+      strategyId: id,
+      sourceKey: 'pool:ref:5120',
+      side: 'buy',
+      token: 'cook.meme-cooking.near',
+      tokenRaw: null,
+      nearRaw: ONE.toString(),
+      status: 'skipped',
+      reason: 'A round trip loses 31.00% (fees, a tax or a thin pool): over 25%',
+    })
+    h.advance(1_000)
+    // Recorded as traded, but its own trade is only sent: no fill is claimed.
+    const sent = 'pool:ref:5121'
+    await h.autoStore.addDetection({
+      strategyId: id,
+      sourceKey: sent,
+      side: 'buy',
+      token: USDT,
+      tokenRaw: '1990000',
+      nearRaw: (ONE / 2n).toString(),
+      status: 'eligible',
+      reason: 'checks passed',
+    })
+    const e = await h.autoStore.addExecution({
+      strategyId: id,
+      userId: ALICE.id,
+      walletId: h.wallet.id,
+      idemKey: `sniper:${id}:${sent}`,
+      side: 'buy',
+      token: USDT,
+      amountInRaw: (ONE / 2n).toString(),
+      expectedOutRaw: '1990000',
+      source: sent,
+    })
+    await h.autoStore.updateExecution(e?.id as string, ['executing'], 'submitted', { txHashes: ['4bSentNotConfirmed111'] })
+    await h.autoStore.updateDetection(id, sent, 'confirmed', { executionId: e?.id as string })
+    await h.press(`au:v:${id}`)
+    let t = h.text()
+    expect(t).toContain('Seen lately')
+    expect(t).toContain(
+      '🆕 New pool <code>pepe.nearlytrade.near|wrap.testnet|2000</code> (Ref DCL) · <code>pepe.nearlytrade.near</code> · 👀 seen: Waiting for a route from a NEARKITS wallet',
+    )
+    expect(t).toContain('🆕 New pool <code>5120</code> (Ref v2) · <code>cook.meme-cooking.near</code> · ⏭ skipped: A round trip loses 31.00%')
+    expect(t).toContain(`🆕 New pool <code>5121</code> (Ref v2) · <code>${USDT}</code> · 📨 sent, not confirmed yet`)
+    expect(t).toContain(`📨 Buy · 0.5 NEAR → ${USDT}`)
+    expect(t).not.toContain('confirmed on chain')
+    expect(t).not.toContain('bought,')
+    // Once the chain confirms its trade, it is called bought.
+    await h.autoStore.updateExecution(e?.id as string, ['submitted'], 'confirmed', { nearRaw: (ONE / 2n).toString(), tokenRaw: '1985000', txHashes: ['4bSentNotConfirmed111'] })
+    await h.press(`au:v:${id}`)
+    t = h.text()
+    expect(t).toContain(`🆕 New pool <code>5121</code> (Ref v2) · <code>${USDT}</code> · ✅ bought, confirmed on chain`)
+    expect(t).toContain('👀 seen: Waiting for a route')
+  })
+
+  it('a detection recorded as traded with no confirmed trade of its own is never called a fill', async () => {
+    const h = await autoBot()
+    await reviewNewPools(h)
+    await h.tap('Confirm sniper')
+    const id = (await h.service.list(ALICE.id, ['sniper']))[0]?.id as string
+    await h.autoStore.addDetection({
+      strategyId: id,
+      sourceKey: 'pool:dcl:x.nearlytrade.near|wrap.testnet|2000',
+      side: 'buy',
+      token: 'x.nearlytrade.near',
+      tokenRaw: null,
+      nearRaw: null,
+      status: 'confirmed',
+      reason: null,
+    })
+    await h.press(`au:v:${id}`)
+    expect(h.text()).toContain('📨 sent: see Trades for the chain’s answer')
+    expect(h.text()).not.toContain('confirmed on chain')
+  })
+})
+
+describe('Confirm is idempotent on the server too (a request key per review)', () => {
+  /** A notify-only new-pools sniper with no expiry: its configuration is the same whenever it is confirmed. */
+  async function reviewTimeless(h: Bot) {
+    await h.say('/snipe')
+    await h.tap('New sniper')
+    await h.tap('New pools')
+    await h.tap('⬜ Nearly launches')
+    await h.tap('Continue')
+    await h.tap('1 NEAR')
+    await h.tap('0.5 NEAR')
+    await h.tap('1%')
+    await h.tap('10%')
+    await h.tap('No expiry')
+    await h.tap('Notify only')
+  }
+
+  it('the key is the review’s: tg-<its Confirm id>, within what the server accepts (anything else is hashed into it)', () => {
+    expect(requestKeyOf('AbC_12-xyz')).toBe('tg-AbC_12-xyz')
+    for (const odd of ['a.b:c', 'x'.repeat(90), '']) {
+      const key = requestKeyOf(odd)
+      expect(key).toMatch(REQUEST_KEY)
+      expect(key).toBe(requestKeyOf(odd))
+    }
+    expect(requestKeyOf('a.b:c')).not.toBe(requestKeyOf('a.b:d'))
+  })
+
+  it('two Confirms that both get the review (as if the one-time take let both through) reach the server with one key: one sniper', async () => {
+    const h = await autoBot()
+    await reviewTimeless(h)
+    const ok = h.button('Confirm sniper')
+    const id = ok.split(':').at(-1) as string
+    const create = vi.spyOn(h.service, 'create')
+    // The bot's own guard (Store.takeCallback) disabled: both taps get the reviewed setup.
+    const take = vi.spyOn(h.store, 'takeCallback').mockImplementation(((cid: string, uid: number) => h.store.getCallback(cid, uid)) as typeof h.store.takeCallback)
+    h.advance(10_000)
+    await Promise.all([h.pressNow(ok), h.pressNow(ok)])
+    take.mockRestore()
+    expect(create).toHaveBeenCalledTimes(2)
+    const keys = create.mock.calls.map((c) => c[1].requestKey)
+    expect(keys).toEqual([`tg-${id}`, `tg-${id}`])
+    expect(keys[0]).toMatch(REQUEST_KEY)
+    const list = await h.service.list(ALICE.id, ['sniper'])
+    expect(list).toHaveLength(1)
+    // With the guard back: the row the spy left is taken once more (the server answers with the same sniper), then it is gone.
+    await h.press(ok)
+    expect(h.text()).toContain('Already created')
+    expect(create).toHaveBeenCalledTimes(3)
+    await h.press(ok)
+    expect(h.text()).toContain('used already')
+    expect(create).toHaveBeenCalledTimes(3)
+    expect(await h.service.list(ALICE.id, ['sniper'])).toHaveLength(1)
+  })
+
+  it('a replay after the review’s record is gone, then with that record brought back (a restore): the server answers with the first sniper, nothing new', async () => {
+    const h = await autoBot()
+    await reviewTimeless(h)
+    const ok = h.button('Confirm sniper')
+    const id = ok.split(':').at(-1) as string
+    const saved = await h.store.getCallback(id, ALICE.id)
+    expect(saved).not.toBeNull()
+    await h.press(ok)
+    expect(h.text()).toContain('Sniper: new pools created')
+    // Replayed with the record gone: the bot stops it.
+    await h.press(ok)
+    expect(h.text()).toContain('used already')
+    // The record back (a restored backup, a replayed write) a minute later: the bot lets it through, the server's key doesn't.
+    h.advance(60_000)
+    await h.db.run('INSERT INTO callbacks (id, user_id, chat_id, payload, expires_at) VALUES (?, ?, ?, ?, ?)', [
+      id,
+      ALICE.id,
+      ALICE.id,
+      JSON.stringify(saved),
+      h.deps.now() + 60_000,
+    ])
+    const create = vi.spyOn(h.service, 'create')
+    await h.press(ok)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create.mock.calls[0]?.[1].requestKey).toBe(`tg-${id}`)
+    expect(h.text()).toContain('Already created')
+    expect(h.text()).toContain('Nothing new was made')
+    expect(await h.service.list(ALICE.id, ['sniper'])).toHaveLength(1)
+  })
+
+  it('the same review confirmed again at another moment (its expiry counts from then): the server refuses the key, nothing new', async () => {
+    const h = await autoBot()
+    await h.say('/snipe')
+    await h.tap('New sniper')
+    await h.tap('One token')
+    await h.say('USDT')
+    await h.tap('0.5 NEAR')
+    await h.tap('1%')
+    await h.tap('10%')
+    await h.tap('24 hours')
+    await h.tap('Notify only')
+    const ok = h.button('Confirm sniper')
+    const id = ok.split(':').at(-1) as string
+    const saved = await h.store.getCallback(id, ALICE.id)
+    await h.press(ok)
+    expect(h.text()).toContain('Sniper USDT created')
+    h.advance(60_000)
+    await h.db.run('INSERT INTO callbacks (id, user_id, chat_id, payload, expires_at) VALUES (?, ?, ?, ?, ?)', [
+      id,
+      ALICE.id,
+      ALICE.id,
+      JSON.stringify(saved),
+      h.deps.now() + 60_000,
+    ])
+    const create = vi.spyOn(h.service, 'create')
+    await h.press(ok)
+    // It reached the server, which refused the key (used for this review at another moment).
+    expect(create).toHaveBeenCalledTimes(1)
+    await expect(create.mock.results[0]?.value).rejects.toMatchObject({ code: 'request' })
+    expect(h.text()).toContain('used already')
+    expect(h.text()).not.toContain('different automation')
+    expect(await h.service.list(ALICE.id, ['sniper'])).toHaveLength(1)
+  })
+})
+
+describe('Copy Trade’s detail', () => {
+  it('each copied leg of a swap links its transaction on the explorer; seen is only seen, and a fill is claimed only once its trade is confirmed', async () => {
+    const h = await autoBot()
+    const [rule] = await h.service.create(ALICE.id, {
+      walletId: h.wallet.id,
+      config: {
+        kind: 'copy',
+        copy: {
+          target: 'bob.testnet',
+          copy: 'both',
+          sizing: { mode: 'fixed', amountNear: 1 },
+          maxTradeNear: 1,
+          minTradeNear: null,
+          maxExposureNear: 5,
+          slippagePct: 1,
+          minLiquidityUsd: null,
+          exclude: [],
+        },
+      },
+    })
+    const id = rule?.id as string
+    const H = '7Gk2rTswapOfBob9xyz'
+    // What the worker records for a token-for-token swap (runner.ts copyOne): the swap, then a sell leg and a buy leg.
+    await h.autoStore.addDetection({
+      strategyId: id,
+      sourceKey: H,
+      side: null,
+      token: USDT,
+      tokenRaw: '5000000',
+      nearRaw: null,
+      status: 'detected',
+      reason: 'A swap of a.testnet for USDT: copied as NEAR trades',
+    })
+    h.advance(1_000)
+    await h.autoStore.addDetection({
+      strategyId: id,
+      sourceKey: `${H}:sell`,
+      side: 'sell',
+      token: 'a.testnet',
+      tokenRaw: '10',
+      nearRaw: null,
+      status: 'skipped',
+      reason: 'Nothing this rule bought of A is left to sell',
+    })
+    h.advance(1_000)
+    await h.autoStore.addDetection({ strategyId: id, sourceKey: `${H}:buy`, side: 'buy', token: USDT, tokenRaw: '5000000', nearRaw: null, status: 'eligible', reason: null })
+    const e = await h.autoStore.addExecution({
+      strategyId: id,
+      userId: ALICE.id,
+      walletId: h.wallet.id,
+      idemKey: `copy:${id}:${H}:buy`,
+      side: 'buy',
+      token: USDT,
+      expectedOutRaw: '3980000',
+      source: `${H}:buy`,
+    })
+    await h.autoStore.updateDetection(id, `${H}:buy`, 'executing')
+    await h.autoStore.updateExecution(e?.id as string, ['executing'], 'submitted', { txHashes: ['5cOurCopyTx222'] })
+    await h.autoStore.updateDetection(id, `${H}:buy`, 'submitted', { executionId: e?.id as string })
+    const tx = `href="${h.config.network.explorerUrl}/txns/${H}"`
+    await h.press(`au:v:${id}`)
+    let t = h.text()
+    expect(t).toContain('Seen lately')
+    expect(t).toMatch(new RegExp(`↔️ Copied buy leg of <a ${tx}>[^<]+</a> · <code>${USDT}</code> · 📨 sent, not confirmed yet`))
+    expect(t).toMatch(new RegExp(`↔️ Copied sell leg of <a ${tx}>[^<]+</a> · <code>a.testnet</code> · ⏭ skipped: Nothing this rule bought of A is left to sell`))
+    expect(t).toMatch(new RegExp(`🧾 <a ${tx}>[^<]+</a> · <code>${USDT}</code> · 👀 seen: A swap of a.testnet for USDT`))
+    expect(t).not.toContain('confirmed on chain')
+    // The chain confirms the copied buy: now, and only now, it is called bought.
+    await h.autoStore.updateExecution(e?.id as string, ['submitted'], 'confirmed', { nearRaw: ONE.toString(), tokenRaw: '3975000', txHashes: ['5cOurCopyTx222'] })
+    await h.autoStore.updateDetection(id, `${H}:buy`, 'confirmed', { executionId: e?.id as string })
+    await h.press(`au:v:${id}`)
+    t = h.text()
+    expect(t).toMatch(new RegExp(`↔️ Copied buy leg of <a ${tx}>[^<]+</a> · <code>${USDT}</code> · ✅ bought, confirmed on chain`))
+    expect(t).toContain('✅ Buy · 1 NEAR → ')
   })
 })
 

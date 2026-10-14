@@ -57,7 +57,12 @@ export const BOT_COMMANDS: readonly BotCommandDoc[] = Object.freeze([
     scope: 'private',
   },
   { name: 'copy', description: 'Copy Trade: follow a NEAR account’s swaps within your limits', section: 'Trading', scope: 'private' },
-  { name: 'snipe', description: 'Sniper: be told (or buy) the moment a token starts trading', section: 'Trading', scope: 'private' },
+  {
+    name: 'snipe',
+    description: 'Sniper: be told (or buy) the moment a token starts trading, or when new pools appear (Nearly launches, meme.cooking graduations)',
+    section: 'Trading',
+    scope: 'private',
+  },
   { name: 'dca', description: 'DCA: buy a token with NEAR on a schedule', section: 'Trading', scope: 'private' },
   { name: 'auto', description: 'all your automations: status, pause, resume, stop, Pause all', section: 'Trading', scope: 'private' },
   { name: 'positions', description: 'holdings with cost basis and PnL from on-chain history', section: 'Portfolio', scope: 'private' },

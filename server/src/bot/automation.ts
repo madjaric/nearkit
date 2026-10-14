@@ -1,13 +1,18 @@
 import { NATIVE_TOKEN_ID, NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
-import type { AutomationFeatures, ExecutionView, StrategyDetail, StrategyPreview, StrategyView } from '@/lib/automation/api'
+import { REQUEST_KEY, type AutomationFeatures, type DetectionView, type ExecutionView, type StrategyDetail, type StrategyPreview, type StrategyView } from '@/lib/automation/api'
 import {
   AUTOMATION_MAX_SLIPPAGE,
   DCA_INTERVALS_SEC,
+  MAX_SNIPER_BUYS,
   MIN_AUTOMATION_NEAR,
+  SNIPER_SOURCES,
+  validateSniper,
   type CopyConfig,
   type LimitOrderType,
   type OrderAmount,
+  type SniperSettings,
+  type SniperSource,
   type StrategyConfig,
   type StrategyKind,
   type StrategyStatus,
@@ -17,8 +22,8 @@ import { accountIdError } from '@/lib/validation'
 import { AutomationError, type AutomationService } from '../automation/service'
 import { walletName } from '../custody/limits'
 import type { TradingWallet } from '../custody/store'
-import { randomToken } from '../ids'
-import { bold, code, esc, shortAccount } from '../telegram/html'
+import { randomToken, sha256Hex } from '../ids'
+import { bold, code, esc, shortAccount, truncate } from '../telegram/html'
 import { resolveToken } from '../trade/tokens'
 import { btn, documented, FLOW_TTL_MS, keyboard, urlBtn, type BotCtx, type BotModule } from './context'
 import { txLinks } from './intents'
@@ -36,7 +41,12 @@ import { friendlyError, nearText, UNKNOWN } from './ui'
  * an ID in the button alone), validates the configuration again and reads the token from chain. A
  * new automation is first previewed from a fresh executable quote from the chosen NEARKITS wallet,
  * then created only on Confirm, once: the reviewed setup is consumed atomically, so a second tap (or
- * a replayed button) creates nothing. A Sniper that buys needs a second, explicit yes.
+ * a replayed button) creates nothing, and the create carries a request key derived from that review,
+ * so the server makes nothing new for it either. A Sniper that buys needs a second, explicit yes.
+ *
+ * A Sniper watches one token, or new pools (Nearly launches, meme.cooking graduations, other new pools)
+ * as Ref DCL and Ref v2 create them: a new-pools sniper has nothing to quote until a pool appears, so
+ * its review is a summary of what it watches and checks, not a quote.
  *
  * Trigger fills, failures and risk-limit refusals reach the chat from the worker (runner.ts): this
  * module never claims a trade happened.
@@ -107,6 +117,15 @@ interface Draft {
   every?: number
   /** The most buys; 0: no limit. */
   runs?: number
+  /** Sniper: one token, or new pools as the exchanges create them. */
+  aim?: SniperSettings['target']
+  /** New pools: the sources ticked so far, and whether that choice is made (Continue). */
+  sources?: SniperSource[]
+  sourcesSet?: boolean
+  /** New pools: the least NEAR a new pool must hold on its NEAR side. */
+  minPool?: number
+  /** New pools, buying: how many different tokens it buys before it completes. */
+  buys?: number
 }
 
 type Step =
@@ -128,11 +147,15 @@ type Step =
   | 'mode'
   | 'every'
   | 'runs'
+  | 'aim'
+  | 'sources'
+  | 'minPool'
+  | 'buys'
 
 const STEPS: Record<StrategyKind, Step[]> = {
   limit: ['type', 'wallet', 'token', 'amount', 'price', 'sl', 'slip', 'expiry'],
   copy: ['wallet', 'target', 'side', 'sizing', 'maxTrade', 'maxExposure', 'slip'],
-  sniper: ['wallet', 'token', 'amountNear', 'slip', 'impact', 'expiry', 'mode'],
+  sniper: ['aim', 'wallet', 'token', 'sources', 'minPool', 'amountNear', 'slip', 'impact', 'expiry', 'mode', 'buys'],
   dca: ['wallet', 'token', 'amountNear', 'every', 'runs', 'slip'],
 }
 
@@ -143,7 +166,7 @@ function done(d: Draft, s: Step): boolean {
     case 'wallet':
       return d.walletId !== undefined
     case 'token':
-      return d.token !== undefined
+      return d.token !== undefined || newPools(d)
     case 'amount':
       return d.amount !== undefined
     case 'price':
@@ -174,8 +197,21 @@ function done(d: Draft, s: Step): boolean {
       return d.every !== undefined
     case 'runs':
       return d.runs !== undefined
+    case 'aim':
+      return d.kind !== 'sniper' || d.aim !== undefined
+    case 'sources':
+      return !newPools(d) || d.sourcesSet === true
+    case 'minPool':
+      return !newPools(d) || d.minPool !== undefined
+    case 'buys':
+      return !newPools(d) || d.mode !== 'execute' || d.buys !== undefined
   }
 }
+
+/** A sniper on new pools (not on one token). */
+const newPools = (d: Draft) => d.kind === 'sniper' && d.aim === 'new-pools'
+/** New-pool sources in their own order, whatever order they were ticked in. */
+const sourcesOf = (d: Draft): SniperSource[] => SNIPER_SOURCES.filter((x) => d.sources?.includes(x))
 
 const nextStep = (d: Draft): Step | null => STEPS[d.kind].find((s) => !done(d, s)) ?? null
 const isSell = (t: OrderChoice | undefined) => t !== undefined && t !== 'limit-buy'
@@ -211,7 +247,29 @@ function configsOf(d: Draft, now: number): { config: StrategyConfig; pair?: Stra
           },
         },
       }
-    case 'sniper':
+    case 'sniper': {
+      const mode = d.mode ?? 'notify'
+      if (newPools(d))
+        return {
+          config: {
+            kind: 'sniper',
+            sniper: {
+              target: 'new-pools',
+              token: null,
+              sources: sourcesOf(d),
+              minPoolNear: d.minPool ?? null,
+              // Notify-only buys nothing: its number of tokens is never reached.
+              maxBuys: mode === 'execute' ? (d.buys ?? 1) : 1,
+              amountNear: d.amountNear as number,
+              slippagePct,
+              maxImpactPct: d.impact as number,
+              minLiquidityUsd: null,
+              maxAttempts: DEFAULT_SNIPER_ATTEMPTS,
+              expiresAt,
+              mode,
+            },
+          },
+        }
       return {
         config: {
           kind: 'sniper',
@@ -227,10 +285,11 @@ function configsOf(d: Draft, now: number): { config: StrategyConfig; pair?: Stra
             minLiquidityUsd: null,
             maxAttempts: DEFAULT_SNIPER_ATTEMPTS,
             expiresAt,
-            mode: d.mode ?? 'notify',
+            mode,
           },
         },
       }
+    }
     case 'dca':
       return {
         config: {
@@ -260,6 +319,20 @@ function amountText(a: OrderAmount, symbol: string): string {
   return a.kind === 'near' ? `${a.value} NEAR` : a.kind === 'tokens' ? `${a.value} ${symbol}` : `${a.value}% of the ${symbol} held then`
 }
 
+/** A new-pools sniper's sources: in a sentence, on its toggle buttons, and in the one-line setup so far. */
+const SOURCE_LABEL: Record<SniperSource, string> = { nearly: 'Nearly launch pools', 'meme-cooking': 'meme.cooking graduation pools', other: 'other new pools' }
+const SOURCE_BUTTON: Record<SniperSource, string> = { nearly: 'Nearly launches', 'meme-cooking': 'meme.cooking graduations', other: 'Other new pools' }
+const SOURCE_SHORT: Record<SniperSource, string> = { nearly: 'Nearly', 'meme-cooking': 'meme.cooking', other: 'other pools' }
+/** "a", "a and b", "a, b and c". */
+function listText(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+/** A new-pools sniper's sources in words (plain text). */
+const sourcesText = (sources: readonly SniperSource[]) => listText(SNIPER_SOURCES.filter((x) => sources.includes(x)).map((x) => SOURCE_LABEL[x])) || UNKNOWN
+const tokensText = (n: number) => `${n} token${n === 1 ? '' : 's'}`
+/** A sniper on new pools (its configuration names no token). */
+const isNewPools = (c: StrategyConfig): boolean => c.kind === 'sniper' && (c.sniper.target === 'new-pools' || !c.sniper.token)
+
 /** A strategy's name: what it trades and how. Plain text (the caller escapes). */
 function titleOf(c: StrategyConfig): string {
   switch (c.kind) {
@@ -268,7 +341,7 @@ function titleOf(c: StrategyConfig): string {
     case 'copy':
       return `Copy ${shortAccount(c.copy.target, 32)}`
     case 'sniper':
-      return c.sniper.token ? `Sniper ${c.sniper.token.symbol}` : 'Sniper: new pools'
+      return isNewPools(c) || !c.sniper.token ? 'Sniper: new pools' : `Sniper ${c.sniper.token.symbol}`
     case 'dca':
       return `DCA ${c.dca.token.symbol}`
   }
@@ -291,7 +364,14 @@ function ruleText(c: StrategyConfig): string {
     }
     case 'sniper': {
       const s = c.sniper
-      return `Once ${s.token ? esc(s.token.symbol) : 'a new pool'} trades, ${s.mode === 'execute' ? 'buys' : 'tells you (and would buy)'} with ${bold(`${num(s.amountNear)} NEAR`)} at most ${num(s.maxImpactPct)}% price impact`
+      const amount = bold(`${num(s.amountNear)} NEAR`)
+      if (isNewPools(c) || !s.token) {
+        const pools = `Watches ${esc(sourcesText(s.sources))} holding at least ${bold(`${num(s.minPoolNear ?? 0)} NEAR`)}`
+        return s.mode === 'execute'
+          ? `${pools}: buys ${amount} of each new token that passes the checks, up to ${tokensText(s.maxBuys)}, at most ${num(s.maxImpactPct)}% price impact`
+          : `${pools}: tells you of each new token whose ${amount} buy passes the checks (at most ${num(s.maxImpactPct)}% price impact); nothing is bought`
+      }
+      return `Once ${esc(s.token.symbol)} trades, ${s.mode === 'execute' ? 'buys' : 'tells you (and would buy)'} with ${amount} at most ${num(s.maxImpactPct)}% price impact`
     }
     case 'dca': {
       const d = c.dca
@@ -314,8 +394,14 @@ function executionLine(deps: BotCtx['deps'], e: ExecutionView, token: TokenRef |
   const sym = token ? esc(token.symbol) : esc(shortAccount(e.token))
   const tokenAmt = (raw: string | null) => (token ? `${rawText(raw, token.decimals)} ${sym}` : `${sym}`)
   const nearAmt = (raw: string | null) => `${rawText(raw, NEAR_DECIMALS)} NEAR`
-  const moved =
-    e.status === 'confirmed'
+  const moved = !token
+    ? // Its token's decimals aren't in this view (Copy Trade, a new-pools sniper): the NEAR side only.
+      e.side === 'buy'
+      ? `${nearAmt(e.status === 'confirmed' ? e.nearRaw : e.amountInRaw)} → ${sym}`
+      : e.status === 'confirmed'
+        ? `${sym} → ${nearAmt(e.nearRaw)}`
+        : `${sym} → ≈ ${nearAmt(e.expectedOutRaw)} expected`
+    : e.status === 'confirmed'
       ? e.side === 'buy'
         ? `${nearAmt(e.nearRaw)} → ${tokenAmt(e.tokenRaw)}`
         : `${tokenAmt(e.tokenRaw)} → ${nearAmt(e.nearRaw)}`
@@ -329,6 +415,51 @@ function executionLine(deps: BotCtx['deps'], e: ExecutionView, token: TokenRef |
     ...(e.txHashes.length ? [txLinks(deps, e.txHashes)] : []),
     ...(e.status === 'failed' && e.message ? [esc(e.message)] : []),
   ].join(' · ')
+}
+
+const DETECTION_STATUS: Record<DetectionView['status'], string> = {
+  // Seen is only seen: never a trade.
+  detected: '👀 seen',
+  eligible: '☑️ passed the checks',
+  skipped: '⏭ skipped',
+  executing: '⚙️ trading, not confirmed yet',
+  submitted: '📨 sent, not confirmed yet',
+  confirmed: '📨 sent: see Trades for the chain’s answer',
+  failed: '❌ failed',
+}
+const EXECUTION_STATUS: Record<ExecutionView['status'], (side: 'buy' | 'sell') => string> = {
+  executing: () => '⚙️ trading, not confirmed yet',
+  submitted: () => '📨 sent, not confirmed yet',
+  confirmed: (side) => `✅ ${side === 'buy' ? 'bought' : 'sold'}, confirmed on chain`,
+  failed: () => '❌ failed on chain',
+  cancelled: () => '✖ not sent',
+}
+
+/**
+ * One thing Copy Trade or Sniper saw: what it was (a new pool, a copied leg with its transaction on the
+ * explorer, the followed account's transaction), its token and what became of it. A trade is called
+ * bought or sold only when its own record says the chain confirmed it.
+ */
+function detectionLine(deps: BotCtx['deps'], x: DetectionView, execs: readonly ExecutionView[]): string {
+  const pool = /^pool:(dcl|ref):(.+)$/.exec(x.sourceKey)
+  const leg = /^([^:]+):(buy|sell)$/.exec(x.sourceKey)
+  const route = x.sourceKey.startsWith('route:')
+  const tx = (hash: string) => (hash ? txLinks(deps, [hash]) : UNKNOWN)
+  const what = pool
+    ? `🆕 New pool ${code(pool[2] ?? '')} (${pool[1] === 'dcl' ? 'Ref DCL' : 'Ref v2'})`
+    : leg
+      ? `↔️ Copied ${leg[2]} leg of ${tx(leg[1] ?? '')}`
+      : route
+        ? '🔫 A route'
+        : !x.sourceKey.includes(':')
+          ? `🧾 ${x.side ? `A ${x.side}: ` : ''}${tx(x.sourceKey)}`
+          : esc(truncate(x.sourceKey, 40))
+  // Its own trade (by the source it was made for; a token sniper's one buy by its token), if there is one.
+  const mine = execs.filter((e) => e.source === x.sourceKey || (route && e.source === null && e.token === x.token && e.side === 'buy'))
+  const e = mine.find((m) => m.status === 'confirmed') ?? mine[0]
+  const traded = x.status === 'executing' || x.status === 'submitted' || x.status === 'confirmed' || x.status === 'failed'
+  const status = e && traded ? EXECUTION_STATUS[e.status](e.side) : DETECTION_STATUS[x.status]
+  return [`· ${when(x.at)} ${what}`, ...(x.token ? [code(x.token)] : []), `${status}${x.reason ? `: ${esc(truncate(x.reason, 200))}` : ''}`].join(' · ')
 }
 
 /** The strategy's card: what it does, its state, and why it waits. */
@@ -450,19 +581,13 @@ function detailText(ctx: BotCtx, d: StrategyDetail): string {
   const token = tokenOf(v.config)
   const execs = d.executions.slice(0, 5)
   const events = d.events.slice(0, 5)
-  const seen = v.kind === 'copy' || v.kind === 'sniper' ? d.detections.slice(0, 3) : []
+  const seen = v.kind === 'copy' || v.kind === 'sniper' ? d.detections.slice(0, isNewPools(v.config) ? 5 : 3) : []
   return [
     ...cardLines(ctx, v),
     '',
     bold('Trades'),
     ...(execs.length ? execs.map((e) => executionLine(ctx.deps, e, token)) : ['None yet.']),
-    ...(seen.length
-      ? [
-          '',
-          bold('Seen lately'),
-          ...seen.map((x) => `· ${when(x.at)} ${x.side ?? ''} ${x.token ? esc(shortAccount(x.token)) : ''} · ${esc(x.status)}${x.reason ? `: ${esc(x.reason)}` : ''}`),
-        ]
-      : []),
+    ...(seen.length ? ['', bold('Seen lately'), ...seen.map((x) => detectionLine(ctx.deps, x, d.executions))] : []),
     '',
     bold('Recent events'),
     ...events.map((e) => `· ${when(e.at)} ${esc(e.message)}`),
@@ -613,8 +738,15 @@ function soFar(d: Draft): string {
     d.kind === 'limit' ? (d.type ? (d.type === 'tpsl' ? 'Take profit + stop loss' : ORDER_LABEL[d.type]) : 'New order') : `New ${KIND_LABEL[d.kind]}`,
     d.token?.symbol,
     d.target,
+    newPools(d) ? 'New pools' : undefined,
+    newPools(d) && d.sourcesSet
+      ? sourcesOf(d)
+          .map((x) => SOURCE_SHORT[x])
+          .join(' + ')
+      : undefined,
+    newPools(d) && d.minPool !== undefined ? `pool ≥ ${num(d.minPool)} NEAR` : undefined,
     d.amount ? amountText(d.amount, d.token?.symbol ?? '') : undefined,
-    d.amountNear !== undefined ? `${num(d.amountNear)} NEAR` : undefined,
+    d.amountNear !== undefined ? `${num(d.amountNear)} NEAR${newPools(d) ? ' each' : ''}` : undefined,
     d.price ? `${d.type === 'tpsl' ? 'TP ' : 'at '}${d.price}` : undefined,
     d.sl ? `SL ${d.sl}` : undefined,
   ].filter((b): b is string => Boolean(b))
@@ -735,7 +867,10 @@ async function ask(ctx: BotCtx, d: Draft, step: Step): Promise<void> {
     }
     case 'amountNear':
       return show(
-        [bold(d.kind === 'dca' ? 'How much NEAR per buy?' : 'How much NEAR does it buy with?'), `At least ${MIN_AUTOMATION_NEAR} NEAR. Tap one or type it.`],
+        [
+          bold(d.kind === 'dca' ? 'How much NEAR per buy?' : newPools(d) ? 'How much NEAR does it buy each new token with?' : 'How much NEAR does it buy with?'),
+          `At least ${MIN_AUTOMATION_NEAR} NEAR. Tap one or type it.`,
+        ],
         ['0.5', '1', '2'].filter((v) => Number(v) <= maxTrade).map((v) => pick(d, `${v} NEAR`, 'an', v)),
       )
     case 'impact':
@@ -745,13 +880,59 @@ async function ask(ctx: BotCtx, d: Draft, step: Step): Promise<void> {
       )
     case 'mode':
       return show(
-        [
-          bold('Notify only, or buy?'),
-          'Notify only: you get a message the moment it trades, and buy yourself.',
-          'Buy automatically: NEARKITS buys from your NEARKITS wallet without asking again (you confirm that once more at the end).',
-        ],
+        newPools(d)
+          ? [
+              bold('Notify only, or buy?'),
+              'Notify only: you get a message for each new pool whose token passes the checks, and buy yourself.',
+              'Buy automatically: NEARKITS buys each new token that passes the checks from your NEARKITS wallet without asking again, up to the number of tokens you choose next (you confirm that once more at the end).',
+            ]
+          : [
+              bold('Notify only, or buy?'),
+              'Notify only: you get a message the moment it trades, and buy yourself.',
+              'Buy automatically: NEARKITS buys from your NEARKITS wallet without asking again (you confirm that once more at the end).',
+            ],
         [pick(d, '🔔 Notify only (recommended)', 'mode', 'notify')],
         [pick(d, '⚡ Buy automatically', 'mode', 'execute')],
+      )
+    case 'aim':
+      return show(
+        [
+          bold('What does the sniper watch?'),
+          '🎯 One token: a contract you name, until a route trades it.',
+          '🆕 New pools: new NEAR pools as Ref DCL and Ref v2 create them (Nearly launches, meme.cooking graduations, other new pools). Each is checked before you hear of it; pools made before the sniper are never reported.',
+        ],
+        [pick(d, '🎯 One token', 'aim', 'token')],
+        [pick(d, '🆕 New pools', 'aim', 'new-pools')],
+      )
+    case 'sources': {
+      const on = sourcesOf(d)
+      return show(
+        [
+          bold('Which new pools?'),
+          'Tap to tick one or more, then Continue.',
+          'Nearly launches: the Ref DCL pool a Nearly launch creates (counted once Nearly says the launch is done).',
+          'meme.cooking graduations: the Ref v2 pool a meme.cooking token gets when it graduates.',
+          'Other new pools: any other new pool paired with NEAR on Ref DCL or Ref v2.',
+        ],
+        ...SNIPER_SOURCES.map((x) => [pick(d, `${on.includes(x) ? '✅' : '⬜'} ${SOURCE_BUTTON[x]}`, 'src', x)]),
+        [pick(d, 'Continue »', 'src', 'ok')],
+      )
+    }
+    case 'minPool':
+      return show(
+        [
+          bold('The least NEAR a new pool must hold?'),
+          'Read on its NEAR side when the pool is found with liquidity: a thinner pool is skipped. Tap one or type it (0 to 100,000).',
+        ],
+        [1, 5, 20].map((v) => pick(d, `${v} NEAR`, 'mp', v)),
+      )
+    case 'buys':
+      return show(
+        [
+          bold('How many new tokens may it buy?'),
+          `Each one once, ${num(d.amountNear ?? 0)} NEAR each; it completes after that many. Tap one or type a number from 1 to ${MAX_SNIPER_BUYS}. NEARKITS’ per-trade and daily limits still apply.`,
+        ],
+        [1, 3, 5].map((v) => pick(d, tokensText(v), 'buys', v)),
       )
     case 'every':
       return show(
@@ -886,6 +1067,25 @@ async function apply(ctx: BotCtx, d: Draft, step: Step, raw: string): Promise<Dr
     }
     case 'token':
       return 'Send the token’s symbol or contract'
+    case 'aim':
+      return text === 'token' || text === 'new-pools' ? { ...d, aim: text } : 'Choose with the buttons'
+    case 'sources': {
+      if (text === 'ok')
+        return sourcesOf(d).length ? { ...d, sources: sourcesOf(d), sourcesSet: true } : 'Tick at least one: Nearly launches, meme.cooking graduations or other new pools'
+      if (!(SNIPER_SOURCES as readonly string[]).includes(text)) return 'Choose with the buttons'
+      const x = text as SniperSource
+      const ticked = sourcesOf(d)
+      return { ...d, sources: ticked.includes(x) ? ticked.filter((y) => y !== x) : [...ticked, x] }
+    }
+    case 'minPool': {
+      const t = text.replace(/near$/i, '').trim().replace(',', '.')
+      const v = /^\d{1,6}(\.\d{1,6})?$/.test(t) ? Number(t) : Number.NaN
+      return Number.isFinite(v) && v >= 0 && v <= 100_000 ? { ...d, minPool: v } : 'Send the least NEAR a new pool must hold, from 0 to 100,000'
+    }
+    case 'buys': {
+      const v = Number(text)
+      return Number.isInteger(v) && v >= 1 && v <= MAX_SNIPER_BUYS ? { ...d, buys: v } : `Send a whole number of tokens from 1 to ${MAX_SNIPER_BUYS}`
+    }
   }
 }
 
@@ -922,7 +1122,7 @@ async function onInput(ctx: BotCtx, text: string, data: Record<string, unknown>)
   const step = nextStep(d)
   if (!step) return
   if (step === 'token') return chooseToken(ctx, d, text)
-  if (step === 'type' || step === 'wallet' || step === 'side' || step === 'mode' || step === 'every') {
+  if (step === 'type' || step === 'wallet' || step === 'side' || step === 'mode' || step === 'every' || step === 'aim' || step === 'sources') {
     await ctx.reply('Choose with the buttons above, or send /cancel.')
     return
   }
@@ -957,6 +1157,10 @@ async function onPick(ctx: BotCtx, arg: string): Promise<void> {
     mode: 'mode',
     ev: 'every',
     runs: 'runs',
+    aim: 'aim',
+    src: 'sources',
+    mp: 'minPool',
+    buys: 'buys',
   }
   const step = STEP_OF[field]
   // Only the step the setup is at now: an older button of this setup can't change an answer behind the review.
@@ -975,14 +1179,14 @@ type Previewed = { p: StrategyPreview } | { note: string } | { limited: true }
  * because the user asked for too many (nothing can be confirmed until a fresh one), or a refusal (thrown).
  */
 async function previewOf(ctx: BotCtx, svc: AutomationService, walletId: string, config: StrategyConfig): Promise<Previewed> {
-  // Copy Trade has nothing to quote (the service only validates it): no quote is spent on it.
-  if (config.kind !== 'copy' && !quoteAllowed(ctx)) return { limited: true }
+  // Copy Trade and a new-pools sniper have nothing to quote (the service only validates them): no quote is spent on them.
+  if (tokenOf(config) !== null && !quoteAllowed(ctx)) return { limited: true }
   try {
     return { p: await svc.preview(ctx.user.id, walletId, config) }
   } catch (e) {
     // The setup itself is refused (its fields, the wallet, the token, NEARKITS' limits): shown, nothing is offered.
     if (e instanceof AutomationError && (e.code !== 'state' || e.issues.length)) throw e
-    // Valid, but nothing to quote right now (no balance yet; Copy Trade quotes only when the account trades).
+    // Valid, but nothing to quote right now (no balance yet; Copy Trade quotes only when the account trades, a new-pools sniper when a pool appears).
     if (e instanceof AutomationError) return { note: e.message }
     // No route or quote right now: the worker keeps looking.
     return { note: `No executable quote right now: ${friendlyError(e, { network: ctx.deps.config.network.id, log: ctx.deps.log, context: 'automation preview' })}` }
@@ -1015,6 +1219,21 @@ function previewLines(ctx: BotCtx, config: StrategyConfig, r: Previewed): string
   ]
 }
 
+/**
+ * A new-pools sniper's review: nothing is quoted until a pool appears (the service says so), so it says
+ * what the sniper watches and what every new pool must pass before it is reported or bought.
+ */
+function newPoolsLines(r: Previewed): string[] {
+  return [
+    `ℹ️ ${'note' in r ? esc(r.note) : 'Nothing to quote until a new pool appears.'} Each new pool is quoted from your NEARKITS wallet when it appears.`,
+    '',
+    bold('What it watches'),
+    'New pools as Ref DCL and Ref v2 create them, read from the exchanges’ own pool lists; only pools paired with NEAR count. A pool counts once it holds at least your NEAR minimum (a Nearly launch once Nearly says the launch is done).',
+    'Its token must then trade from your NEARKITS wallet within your price impact, and a round trip (buy, then sell straight back) may lose at most 25%: fees, a tax or a pool too thin to leave show there. A pool with no route yet is tried again for 5 minutes.',
+    'Pools made before the sniper are never reported.',
+  ]
+}
+
 async function review(ctx: BotCtx, d: Draft): Promise<void> {
   await ctx.deps.store.clearSession(ctx.chat.id, ctx.user.id)
   const s = await service(ctx)
@@ -1023,6 +1242,11 @@ async function review(ctx: BotCtx, d: Draft): Promise<void> {
   const walletId = d.walletId as string
   const { config, pair } = configsOf(d, ctx.deps.now())
   const again = keyboard([btn('« Start over', `au:new:${d.kind}`), btn('🤖 Automations', 'au:l:all')])
+  // The shared rules first (the service checks them again): a sniper the server would refuse isn't offered.
+  if (config.kind === 'sniper') {
+    const issues = validateSniper(config.sniper, ctx.deps.now())
+    if (issues.length) return void (await ctx.show(refusal(new AutomationError('state', 'Check this sniper’s settings: nothing was created.', issues)) ?? '', again))
+  }
   const previews = await attempt(ctx, async () => Promise.all([config, ...(pair ? [pair] : [])].map((c) => previewOf(ctx, svc, walletId, c))), again)
   if (!previews) return
   const wallet = await ctx.deps.custody?.store.ownedWallet(ctx.user.id, walletId)
@@ -1038,7 +1262,8 @@ async function review(ctx: BotCtx, d: Draft): Promise<void> {
   cfgs.forEach((c, i) => {
     if (pair) lines.push(bold(i === 0 ? 'Take profit' : 'Stop loss'))
     lines.push(ruleText(c))
-    if (c.kind !== 'copy') lines.push(...previewLines(ctx, c, previews[i] as Previewed))
+    if (isNewPools(c)) lines.push(...newPoolsLines(previews[i] as Previewed))
+    else if (c.kind !== 'copy') lines.push(...previewLines(ctx, c, previews[i] as Previewed))
     lines.push('')
   })
   if (pair) lines.push('🔗 The first of the two to trigger cancels the other.')
@@ -1053,7 +1278,9 @@ async function review(ctx: BotCtx, d: Draft): Promise<void> {
     lines.push(
       d.mode === 'execute'
         ? '⚡ It buys automatically from your NEARKITS wallet: you confirm that once more next.'
-        : '🔔 Notify only: you get a message the moment it trades; nothing is bought.',
+        : newPools(d)
+          ? '🔔 Notify only: you get a message for each new pool whose token passes the checks; nothing is bought.'
+          : '🔔 Notify only: you get a message the moment it trades; nothing is bought.',
     )
   if (s.f.paused && s.f.pausedReason) lines.push('', `⏸ ${esc(s.f.pausedReason)}: it waits until that’s lifted.`)
   // Without a live preview there is nothing to confirm yet: only Refresh (and the stored setup says so too).
@@ -1099,6 +1326,15 @@ async function take(ctx: BotCtx, id: string): Promise<Reviewed | null> {
 
 const USED = 'This confirmation was used already or has expired. Nothing new was created.'
 
+/**
+ * The server's key for creating a reviewed setup: one per review (its Confirm's id), the same for every
+ * tap or replay of that Confirm, so the server makes its strategies once, whatever reaches it twice.
+ */
+export function requestKeyOf(reviewId: string): string {
+  const key = `tg-${reviewId}`
+  return REQUEST_KEY.test(key) ? key : `tg-${sha256Hex(reviewId).slice(0, 40)}`
+}
+
 async function confirm(ctx: BotCtx, id: string, execute: boolean): Promise<void> {
   const s = await service(ctx)
   if (!s) return
@@ -1110,10 +1346,14 @@ async function confirm(ctx: BotCtx, id: string, execute: boolean): Promise<void>
   const buys = seen.kind === 'sniper' && seen.mode === 'execute'
   if (buys && !execute) {
     // A sniper that buys: one more explicit yes, on its own screen.
+    const amount = seen.amountNear ?? 0
+    const limits = `at most ${num(seen.impact ?? 0)}% price impact, ${seen.slip ?? DEFAULT_SLIPPAGE}% slippage`
     await ctx.show(
       [
         `⚡ ${bold('Buy automatically?')}`,
-        `Once ${esc(seen.token?.symbol ?? 'the token')} trades, NEARKITS buys with ${bold(`${num(seen.amountNear ?? 0)} NEAR`)} from your NEARKITS wallet without asking again (up to ${DEFAULT_SNIPER_ATTEMPTS} attempts, at most ${num(seen.impact ?? 0)}% price impact, ${seen.slip ?? DEFAULT_SLIPPAGE}% slippage).`,
+        newPools(seen)
+          ? `NEARKITS buys ${bold(`${num(amount)} NEAR`)} of each new token that passes the checks, up to ${tokensText(seen.buys ?? 1)}, from your NEARKITS wallet without asking again (${limits}; at most ${num(amount * (seen.buys ?? 1))} NEAR in all).`
+          : `Once ${esc(seen.token?.symbol ?? 'the token')} trades, NEARKITS buys with ${bold(`${num(amount)} NEAR`)} from your NEARKITS wallet without asking again (up to ${DEFAULT_SNIPER_ATTEMPTS} attempts, ${limits}).`,
         'New tokens are risky: a pool can be thin, taxed or pulled. Buy only what you can lose.',
       ].join('\n'),
       keyboard([btn('⚡ Yes, buy automatically', `au:okx:${id}`)], [btn('✖ Cancel', 'au:quit')]),
@@ -1124,28 +1364,52 @@ async function confirm(ctx: BotCtx, id: string, execute: boolean): Promise<void>
   const d = (await take(ctx, id))?.d
   if (!d) return void (await ctx.show(`⚠️ ${USED}`, keyboard([btn('🤖 Automations', 'au:l:all')])))
   const { config, pair } = configsOf(d, ctx.deps.now())
+  const startedAt = ctx.deps.now()
   const made = await attempt(
     ctx,
-    () => s.svc.create(ctx.user.id, { walletId: d.walletId as string, config, ...(pair ? { pair } : {}), ...(buys && execute ? { confirmExecute: true } : {}) }),
+    async () => {
+      try {
+        // This review's key: if the same Confirm reaches the server again (a replay, two taps at once), it makes nothing new.
+        return await s.svc.create(ctx.user.id, {
+          walletId: d.walletId as string,
+          config,
+          ...(pair ? { pair } : {}),
+          ...(buys && execute ? { confirmExecute: true } : {}),
+          requestKey: requestKeyOf(id),
+        })
+      } catch (e) {
+        // The key was used already (for this review, as of another moment): nothing new is made.
+        if (e instanceof AutomationError && e.code === 'request') return 'used' as const
+        throw e
+      }
+    },
     keyboard([btn('« Start over', `au:new:${d.kind}`), btn('🤖 Automations', 'au:l:all')]),
   )
+  if (made === 'used') return void (await ctx.show(`⚠️ ${USED}`, keyboard([btn('🤖 Automations', 'au:l:all')])))
   if (!made || !made.length) return
   const first = made[0] as StrategyView
-  const what =
-    d.kind === 'limit'
+  // The server answered with what this review's first Confirm made.
+  const replayed = made.every((v) => v.createdAt < startedAt)
+  const what = replayed
+    ? 'Nothing new was made: this is what this review’s first Confirm created.'
+    : d.kind === 'limit'
       ? made.length > 1
         ? 'Both orders are active. NEARKITS watches the executable price; the first to trigger cancels the other.'
         : 'It’s active. NEARKITS watches the executable price and trades when the condition holds.'
       : d.kind === 'copy'
         ? 'It’s active: swaps the account makes from now on are copied within your limits.'
         : d.kind === 'sniper'
-          ? d.mode === 'execute'
-            ? 'It’s active and buys once the token trades.'
-            : 'It’s active: you get a message once the token trades.'
+          ? newPools(d)
+            ? d.mode === 'execute'
+              ? `It’s active: it buys each new token that passes the checks, up to ${tokensText(d.buys ?? 1)}.`
+              : 'It’s active: you get a message for each new pool whose token passes the checks.'
+            : d.mode === 'execute'
+              ? 'It’s active and buys once the token trades.'
+              : 'It’s active: you get a message once the token trades.'
           : 'It’s active: the first buy runs shortly.'
   await ctx.show(
     [
-      `✅ ${bold(made.length > 1 ? 'Take profit + stop loss created' : `${titleOf(first.config)} created`)}`,
+      `✅ ${bold(replayed ? 'Already created' : made.length > 1 ? 'Take profit + stop loss created' : `${titleOf(first.config)} created`)}`,
       what,
       'You get a message when it triggers and when the chain confirms a trade.',
       '',
