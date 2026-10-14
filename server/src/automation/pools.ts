@@ -162,7 +162,7 @@ export const WATCH_MS = 4_000
 /** A new pool without NEAR liquidity after this long is dropped. */
 export const WATCH_MAX_MS = 30 * 60_000
 /** Cursors not moved for this long (the feed off, the server down): set to the counters again, the gap not reported as new. */
-export const IDLE_RESET_MS = 10 * 60_000
+export const IDLE_RESET_MS = 3 * 60_000
 const PAGE = 200
 const WATCH_PER_STEP = 12
 /** A cursor that hasn't moved is touched this often (so a running feed never looks idle). */

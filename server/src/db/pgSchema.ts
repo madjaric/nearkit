@@ -596,7 +596,14 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         execution_id TEXT,
         PRIMARY KEY (strategy_id, source_key)
       );
-      CREATE INDEX auto_detections_at ON auto_detections(strategy_id, at);
+      CREATE INDEX auto_detections_at ON auto_detections(strategy_id, at);`,
+  },
+  {
+    version: 10,
+    name: 'Trading automation: create request keys, a cancel requested while trading, Sniper’s new-pool feed',
+    sql: `
+      -- A cancel the owner asked for while the order was trading (its pair's): honoured once its trade settles.
+      ALTER TABLE auto_strategies ADD COLUMN cancel_requested_at BIGINT;
       -- A create request's key (the client's, per review): a retry, a double tap or a replay of the same
       -- request returns the strategies it made; the same key with another request is refused.
       CREATE TABLE auto_create_requests (

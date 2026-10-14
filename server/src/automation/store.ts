@@ -31,6 +31,8 @@ export interface Strategy {
   createdAt: number
   updatedAt: number
   closedAt: number | null
+  /** Its owner cancelled it while its trade was under way (its pair's cancel): honoured once that trade settles. */
+  cancelRequestedAt: number | null
 }
 
 export interface Execution {
@@ -97,6 +99,7 @@ type StrategyRow = {
   created_at: number
   updated_at: number
   closed_at: number | null
+  cancel_requested_at?: number | null
 }
 type ExecutionRow = {
   id: string
@@ -153,6 +156,7 @@ const toStrategy = (r: StrategyRow): Strategy => ({
   createdAt: Number(r.created_at),
   updatedAt: Number(r.updated_at),
   closedAt: n(r.closed_at),
+  cancelRequestedAt: r.cancel_requested_at === undefined || r.cancel_requested_at === null ? null : Number(r.cancel_requested_at),
 })
 const toExecution = (r: ExecutionRow): Execution => ({
   id: r.id,
@@ -245,6 +249,9 @@ export class AutomationStore {
     const t = this.now()
     try {
       await this.db.tx(async () => {
+        // One user's creates take turns on Postgres too (SQLite runs one transaction at a time): the live limit holds.
+        const users = [...new Set(rows.map((r) => r.userId))]
+        if (this.db.dialect === 'postgres') for (const u of users) await this.db.get(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`nearkit:auto-create:${u}`])
         if (request)
           await this.db.run('INSERT INTO auto_create_requests (user_id, request_key, fingerprint, strategy_ids, created_at) VALUES (?, ?, ?, ?, ?)', [
             request.userId,
@@ -301,6 +308,45 @@ export class AutomationStore {
     return { strategies: made.filter((s): s is Strategy => s !== null), replay: false }
   }
 
+  /**
+   * What an earlier request with this key made, looked up before anything else is checked (a resend whose
+   * first answer was lost gets its strategies back even if a check would fail now); null: not used yet.
+   */
+  async priorRequest(userId: number, key: string, fingerprint: string): Promise<Strategy[] | null> {
+    const prior = await this.db.get<{ fingerprint: string; strategy_ids: string }>(
+      'SELECT fingerprint, strategy_ids FROM auto_create_requests WHERE user_id = ? AND request_key = ?',
+      [userId, key],
+    )
+    if (!prior) return null
+    if (prior.fingerprint !== fingerprint) throw new RequestKeyReused()
+    const made = await Promise.all((JSON.parse(prior.strategy_ids) as string[]).map((id) => this.get(id)))
+    return made.filter((s): s is Strategy => s !== null && s.userId === userId)
+  }
+
+  /**
+   * The worker's memory of a strategy, whatever its status: what a trade settled (buys, runs, positions)
+   * is kept even when its owner paused it meanwhile. (setNext writes only while it is live.)
+   */
+  async saveState(id: string, state: Record<string, unknown>): Promise<void> {
+    await this.db.run('UPDATE auto_strategies SET state = ? WHERE id = ?', [JSON.stringify(state), id])
+  }
+
+  /** Its owner cancelled it while its trade was under way: honoured once that trade settles (not traded: cancelled, not watching again). */
+  async requestCancel(id: string): Promise<void> {
+    await this.db.run('UPDATE auto_strategies SET cancel_requested_at = ? WHERE id = ? AND cancel_requested_at IS NULL', [this.now(), id])
+  }
+
+  /**
+   * NEAR spent by automated buys is checked and a buy's record written under one lock: concurrent buys
+   * (steps run side by side, or two instances on Postgres) can't each pass a daily limit the others fill.
+   */
+  async underSpendLock<T>(fn: () => Promise<T>): Promise<T> {
+    return this.db.tx(async () => {
+      if (this.db.dialect === 'postgres') await this.db.get(`SELECT pg_advisory_xact_lock(hashtext('nearkit:auto-spend'))`)
+      return fn()
+    })
+  }
+
   /** Whether a live strategy of this kind and subject exists (a new-pools sniper: the pool feed runs). */
   async liveWithSubject(network: string, kind: StrategyKind, subject: string): Promise<boolean> {
     const r = await this.db.get<{ id: string }>(
@@ -319,7 +365,8 @@ export class AutomationStore {
   async lapsed(limit: number): Promise<Strategy[]> {
     return (
       await this.db.all<StrategyRow>(
-        `SELECT * FROM auto_strategies WHERE status IN ('draft', 'active', 'paused') AND expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?`,
+        `SELECT * FROM auto_strategies s WHERE status IN ('draft', 'active', 'paused') AND expires_at IS NOT NULL AND expires_at <= ?
+         AND NOT EXISTS (SELECT 1 FROM auto_executions e WHERE e.strategy_id = s.id AND e.status IN ('executing', 'submitted')) ORDER BY expires_at LIMIT ?`,
         [this.now(), limit],
       )
     ).map(toStrategy)
@@ -348,13 +395,13 @@ export class AutomationStore {
     ).map(toStrategy)
   }
 
-  /** Strategies the worker should look at now, whose lease is free. */
+  /** Strategies the worker should look at now, whose lease is free: limit orders (stop losses among them) first, then the longest waiting. */
   async due(limit: number): Promise<Strategy[]> {
     const t = this.now()
     return (
       await this.db.all<StrategyRow>(
         `SELECT * FROM auto_strategies WHERE status IN (${placeholders(LIVE_STATUSES)}) AND next_check_at IS NOT NULL AND next_check_at <= ?
-         AND (lease_until IS NULL OR lease_until < ?) ORDER BY next_check_at LIMIT ?`,
+         AND (lease_until IS NULL OR lease_until < ?) ORDER BY CASE WHEN kind = 'limit' THEN 0 ELSE 1 END, next_check_at LIMIT ?`,
         [...LIVE_STATUSES, t, t, limit],
       )
     ).map(toStrategy)

@@ -5,6 +5,7 @@ import storageDeposit from '@/services/near/fixtures/flows/storage-deposit.fastn
 import aggBuy from '@/services/near/fixtures/flows/aggregator-buy-with-rhea.fastnear.json'
 import directBuy from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.fastnear.json'
 import directBuyRpc from '@/services/near/fixtures/flows/direct-buy-wrap-dcl.rpc.json'
+import directSell from '@/services/near/fixtures/flows/direct-sell-dcl.fastnear.json'
 import { ALICE } from '../bot/testing'
 import { ONE, USDT, walletBot } from '../bot/walletTesting'
 import { SWAP_QUOTE_TTL_MS } from '../custody/swap'
@@ -337,6 +338,57 @@ describe('limit orders', () => {
     expect((await store.get(sl.id))?.status).toBe('cancelled')
   })
 
+  it('the other order of a pair cancelled while this one trades: if this one’s trade isn’t made, it ends cancelled (never watching again)', async () => {
+    const { h, store, order, service, tick } = await setup()
+    const [tp, sl] = await order({ type: 'take-profit', amount: { kind: 'percent', value: 50 }, triggerPriceNear: '0.27' }, { triggerPriceNear: '0.2' })
+    if (!tp || !sl) throw new Error('no pair')
+    // The take profit triggered; then its owner cancels the pair from the stop loss.
+    await store.transition(tp.id, ['active'], 'triggered', { attempts: 1 })
+    expect((await service.cancel(ALICE.id, sl.id)).status).toBe('cancelled')
+    expect((await store.get(tp.id))?.cancelRequestedAt).not.toBeNull()
+    // Its trade never happened (interrupted): recovered, it is cancelled, not back to watching.
+    h.market.usdtPerNear = 3_500_000n
+    await tick(130_000)
+    await tick(31_000)
+    expect((await store.get(tp.id))?.status).toBe('cancelled')
+    expect(await store.executionsOf(tp.id)).toEqual([])
+  })
+
+  it('a trade refused again and again (a frozen wallet) backs off and is announced once, not every 35 s', async () => {
+    const { h, w, store, order, tick, notices } = await setup()
+    const [o] = await order({})
+    if (!o) throw new Error('no order')
+    h.market.usdtPerNear = 4_200_000n
+    await tick() // armed
+    await h.custody.store.setFrozen(w.id, 'test')
+    for (let i = 0; i < 6; i++) {
+      await tick(16 * 60_000)
+      await tick(6_000)
+    }
+    expect(await store.executionsOf(o.id)).toEqual([])
+    expect(notices.filter((n) => /triggered at/.test(n))).toHaveLength(1)
+    expect(notices.filter((n) => /wasn’t traded/.test(n))).toHaveLength(1)
+    expect(Number((await store.get(o.id))?.state.skips)).toBeGreaterThan(1)
+  })
+
+  it('a resend whose first answer was lost gets its strategy back, even when a check would refuse it now (the kind switched off)', async () => {
+    const { h, w, store } = await setup()
+    const enabled = new Set<StrategyKind>(['limit'])
+    const service = createAutomationService({ store, custody: h.custody, near: h.deps.near, network: h.config.network, enabled, now: h.deps.now })
+    const input = {
+      walletId: w.id,
+      config: {
+        kind: 'limit' as const,
+        limit: { type: 'limit-buy' as const, token: TOKEN, amount: { kind: 'near' as const, value: '1' }, triggerPriceNear: '0.24', slippagePct: 1, expiresAt: null },
+      },
+      requestKey: 'review-lost-answer',
+    }
+    const [first] = await service.create(ALICE.id, input)
+    enabled.delete('limit')
+    expect((await service.create(ALICE.id, input)).map((s) => s.id)).toEqual([first?.id])
+    await expect(service.create(ALICE.id, { ...input, requestKey: 'review-new-one' })).rejects.toMatchObject({ code: 'off' })
+  })
+
   it('a pair is made both or neither: a second half over the live limit leaves no first half behind', async () => {
     const { store, order } = await setup()
     for (let i = 0; i < 19; i++) await order({ triggerPriceNear: '0.1' })
@@ -501,6 +553,100 @@ describe('DCA', () => {
     await tick(3_600_000)
     expect((await store.get(plan.id))?.status).toBe('completed')
     expect(await store.executionsOf(plan.id)).toHaveLength(2)
+  })
+})
+
+describe('NEARKITS’ daily limits under concurrency', () => {
+  it('two buys stepped at the same moment can’t together pass a user’s daily limit: the limit and the record are taken under one lock', async () => {
+    const { h, w, store, service, tick } = await setup({ limits: { maxTradeNear: 50, maxDailyNearPerUser: 1.5, maxDailyNearGlobal: 1_000 } })
+    // Two wallets of the same user (one wallet trades one at a time anyway).
+    const w2 = await h.funded(20n * ONE)
+    const plans = []
+    for (const wallet of [w, w2])
+      plans.push(
+        (
+          await service.create(ALICE.id, {
+            walletId: wallet.id,
+            config: { kind: 'dca', dca: { token: TOKEN, amountNear: 1, everySec: 3_600, startAt: h.deps.now(), endAt: null, slippagePct: 1, maxRuns: 1 } },
+          })
+        )[0] as { id: string },
+      )
+    await tick(1_000)
+    // One trade recorded at all: the other was stopped by the limit before anything was saved for it.
+    const all = (await Promise.all(plans.map((p) => store.executionsOf(p.id)))).flat()
+    expect(all).toHaveLength(1)
+    const events = (await Promise.all(plans.map((p) => store.events(p.id)))).flat().map((e) => e.message)
+    expect(events.some((m) => /24 hours/.test(m))).toBe(true)
+  })
+})
+
+describe('pausing while a trade is on its way', () => {
+  it('a DCA buy that settles while its plan is paused still counts; resumed, the next buy is the next run (no wedge, no repeat)', async () => {
+    const { h, w, store, service, tick } = await setup()
+    const [plan] = await service.create(ALICE.id, {
+      walletId: w.id,
+      config: { kind: 'dca', dca: { token: TOKEN, amountNear: 0.5, everySec: 3_600, startAt: h.deps.now(), endAt: null, slippagePct: 1, maxRuns: 3 } },
+    })
+    if (!plan) throw new Error('no plan')
+    h.chain.onSend((tx) => (tx.receiverId === 'wrap.testnet' ? 'hidden' : 'apply'))
+    await tick(1_000)
+    expect(await store.executionsOf(plan.id)).toMatchObject([{ status: 'submitted' }])
+    await service.pause(ALICE.id, plan.id)
+    h.chain.onSend(() => 'apply')
+    h.chain.reveal()
+    await h.custody.engine.resolvePending()
+    await tick(3_000)
+    expect((await store.get(plan.id))?.state).toMatchObject({ runs: 1 })
+    expect((await store.get(plan.id))?.status).toBe('paused')
+    await service.resume(ALICE.id, plan.id)
+    await tick(3_600_000)
+    const done = (await store.executionsOf(plan.id)).filter((e) => e.status === 'confirmed').map((e) => e.idemKey)
+    expect(done.sort()).toEqual([`dca:${plan.id}:1:0`, `dca:${plan.id}:2:0`])
+  })
+
+  it('a DCA try not sent never blocks its run: the next try is its own trade', async () => {
+    const { h, w, store, service, tick } = await setup()
+    const [plan] = await service.create(ALICE.id, {
+      walletId: w.id,
+      config: { kind: 'dca', dca: { token: TOKEN, amountNear: 0.5, everySec: 3_600, startAt: h.deps.now() + 3_600_000, endAt: null, slippagePct: 1, maxRuns: 1 } },
+    })
+    if (!plan) throw new Error('no plan')
+    // As if a first try of run 1 was saved and then not sent (before a restart).
+    const e = await store.addExecution({ strategyId: plan.id, userId: ALICE.id, walletId: w.id, idemKey: `dca:${plan.id}:1:0`, side: 'buy', token: USDT, nearInRaw: '1' })
+    if (!e) throw new Error('no execution')
+    await store.updateExecution(e.id, ['executing'], 'cancelled', { message: 'Not sent' })
+    await tick(3_600_000)
+    await tick(61_000)
+    expect((await store.executionsOf(plan.id)).find((x) => x.status === 'confirmed')?.idemKey).toBe(`dca:${plan.id}:1:1`)
+  })
+
+  it('a sniper whose buy confirms while it is paused ends completed: it never buys twice', async () => {
+    const { h, w, store, service, tick } = await setup()
+    const sniper = {
+      target: 'token' as const,
+      token: TOKEN,
+      sources: [],
+      minPoolNear: null,
+      maxBuys: 1,
+      amountNear: 1,
+      slippagePct: 2,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+      mode: 'execute' as const,
+    }
+    const [s] = await service.create(ALICE.id, { walletId: w.id, config: { kind: 'sniper', sniper }, confirmExecute: true })
+    if (!s) throw new Error('no sniper')
+    h.chain.onSend((tx) => (tx.receiverId === 'wrap.testnet' ? 'hidden' : 'apply'))
+    await tick(1_000)
+    await service.pause(ALICE.id, s.id)
+    h.chain.reveal()
+    await h.custody.engine.resolvePending()
+    await tick(3_000)
+    expect((await store.get(s.id))?.status).toBe('completed')
+    await tick(30_000)
+    expect(await store.executionsOf(s.id)).toHaveLength(1)
   })
 })
 
@@ -703,6 +849,27 @@ describe('Sniper on new pools', () => {
     await tick(60_000)
     await tick(5_000)
     expect((await store.detectionsOf(s.id))[0]).toMatchObject({ status: 'eligible', token: USDT })
+    expect(notices.filter((n) => /Notify-only/.test(n))).toHaveLength(1)
+  })
+
+  it('a pool that became ready while a sniper was paused is no longer new when it resumes: not acted on (another live sniper saw it in time)', async () => {
+    let pools: ReturnType<typeof newPools> | null = null
+    const { h, w, store, service, tick, notices } = await setup({ poolView: (c, m, a) => (pools as ReturnType<typeof newPools>).view(c, m, a) })
+    pools = newPools(h.config.network)
+    const [live] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools() })
+    const [paused] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools() })
+    if (!live || !paused) throw new Error('no snipers')
+    await tick(5_000)
+    await service.pause(ALICE.id, paused.id)
+    pools.add(USDT, 50n * ONE)
+    await tick(5_000)
+    await tick(5_000)
+    expect((await store.detectionsOf(live.id))[0]).toMatchObject({ status: 'eligible' })
+    h.advance(6 * 60_000)
+    await service.resume(ALICE.id, paused.id)
+    await tick(5_000)
+    await tick(5_000)
+    expect(await store.detectionsOf(paused.id)).toEqual([])
     expect(notices.filter((n) => /Notify-only/.test(n))).toHaveLength(1)
   })
 
@@ -915,11 +1082,43 @@ describe('Copy Trade', () => {
       throw new Error('UNKNOWN_TRANSACTION')
     }) as typeof rpc.txStatus
     await tick(1_000)
-    await tick(5_000)
+    for (let i = 0; i < 3; i++) await tick(10_000)
     expect(await store.detectionsOf(rule.id)).toEqual([])
-    await tick(5_000)
+    await tick(10_000)
+    await tick(10_000)
     expect((await store.detectionsOf(rule.id))[0]).toMatchObject({ sourceKey: swap.transaction.hash, status: 'skipped', reason: expect.stringMatching(/couldn’t be read/) })
     expect(await store.executionsOf(rule.id)).toEqual([])
+  })
+
+  it('a sell of the followed account while this rule’s own buy is still on its way waits for it, then sells: never left holding', async () => {
+    let clock = { now: () => 0 }
+    const idx = drivenIndex(() => clock.now())
+    const { h, w, store, service, tick } = await setup({ fetch: idx.fetch })
+    clock = { now: h.deps.now }
+    const [rule] = await service.create(ALICE.id, { walletId: w.id, config: copyRule('testone.near') })
+    if (!rule) throw new Error('no rule')
+    h.advance(30_000)
+    idx.add(toTestnet(swapUsdt), { ageMs: 25_000 })
+    h.chain.onSend((tx) => (tx.receiverId === 'wrap.testnet' ? 'hidden' : 'apply'))
+    await tick(1_000)
+    expect(await store.executionsOf(rule.id)).toMatchObject([{ side: 'buy', status: 'submitted' }])
+    // The account sells USDT (a real DCL sell, its token played by USDT) before our buy has settled.
+    const sell = JSON.parse(JSON.stringify(toTestnet(directSell, 'singularty.nearlytrade.near')).replaceAll('iwillwin.user.intear.near', 'testone.near')) as {
+      transaction: { hash: string }
+    }
+    idx.add(sell)
+    await tick(21_000)
+    expect((await store.detectionsOf(rule.id)).find((d) => d.sourceKey === sell.transaction.hash)).toMatchObject({
+      status: 'detected',
+      reason: expect.stringMatching(/still on its way/),
+    })
+    h.chain.reveal()
+    await h.custody.engine.resolvePending()
+    await tick(3_000)
+    await tick(16_000)
+    const trades = await store.executionsOf(rule.id)
+    expect(trades.find((e) => e.side === 'buy')).toMatchObject({ status: 'confirmed' })
+    expect(trades.find((e) => e.side === 'sell')).toMatchObject({ status: 'confirmed', source: sell.transaction.hash })
   })
 
   it('exposure counts buys still under way: a second copy that would pass the limit is skipped before anything is signed', async () => {

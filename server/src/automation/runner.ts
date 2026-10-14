@@ -55,7 +55,9 @@ import type { AutomationStore, Execution, Strategy } from './store'
 
 const TICK_MS = 3_000
 const LEASE_MS = 3 * 60_000
-const PER_TICK = 4
+const PER_TICK = 8
+/** The share of the quote budget only limit orders may use. */
+const QUOTE_RESERVE = 0.2
 const LIMIT_CHECK_MS = 30_000
 /** A trigger seen once is confirmed by a second reading this much later. */
 const CONFIRM_MS = 5_000
@@ -73,8 +75,11 @@ const COPY_MAX_LAG_SEC = 60
 /** Transactions listed per step (paged back to the rule's cursor), and read in full per step. */
 const COPY_LIST_MAX = 100
 const COPY_READ_PER_STEP = 10
-/** A transaction neither the index nor RPC can serve is tried this many steps, then recorded as skipped. */
-const COPY_MAX_READ_TRIES = 3
+/** A transaction neither the index nor RPC can serve is tried this many steps (COPY_UNREAD_RETRY_MS apart), then recorded as skipped. */
+const COPY_MAX_READ_TRIES = 5
+const COPY_UNREAD_RETRY_MS = 10_000
+/** A rule that owes a copied trade (tried again) looks this often. */
+const COPY_PENDING_RETRY_MS = 15_000
 const INDEX_STATUS_TTL_MS = 15_000
 /** The index down this long: the rule's owner is told (once per outage). */
 const INDEX_DOWN_NOTICE_MS = 10 * 60_000
@@ -89,6 +94,14 @@ const OWN_QUOTE_MAX_MS = 5 * 60_000
 /** How far past the target the reference price must be before an order skips its own quote (1%). */
 const REF_MARGIN_BPS = 100n
 const SWEEP_MS = 30_000
+/** An order whose trade is refused in a row waits up to this long between tries. */
+const SKIP_BACKOFF_MAX_MS = 15 * 60_000
+/** A ready pool older than this is no longer new: a sniper that was paused (or held) doesn't act on it. */
+const POOL_MAX_AGE_MS = 5 * 60_000
+/** A copied sell not made yet (a balance unreadable, the budget spent, the price moving, our own buy still under way) is tried again this long after the trade it copies. */
+const COPY_SELL_RETRY_MS = 15 * 60_000
+/** A copied buy at a price impact above this (measured when the router doesn't say) is not made. */
+const COPY_MAX_IMPACT_PCT = 10
 /** A new-pools sniper looks for ready pools this often (a database read; quotes only for a new pool). */
 const POOL_SNIPER_CHECK_MS = 4_000
 const POOLS_PER_STEP = 10
@@ -129,18 +142,23 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   const executor = createExecutor({ store, custody, network: deps.network, limits: deps.limits ?? DEFAULT_LIMITS, log, now })
   const budget = { tokens: deps.quotesPerMinute ?? 60, max: deps.quotesPerMinute ?? 60, at: now() }
 
-  /** Quotes from the shared per-minute budget (all or none); false when there aren't that many left (the strategy waits). */
-  function takeQuotes(wanted: number): boolean {
+  /**
+   * Quotes from the shared per-minute budget (all or none); false when there aren't that many left (the
+   * strategy waits). Limit orders (stop losses among them) may use all of it; the other kinds leave a
+   * reserve (QUOTE_RESERVE of the budget), so a flood of new pools or copies never starves an order.
+   */
+  function takeQuotes(wanted: number, priority = false): boolean {
     const t = now()
     budget.tokens = Math.min(budget.max, budget.tokens + ((t - budget.at) / 60_000) * budget.max)
     budget.at = t
     // Never more than the budget holds at most (a budget smaller than a step's needs still lets it run).
     const n = Math.min(wanted, budget.max)
-    if (budget.tokens < n) return false
+    const floor = priority ? 0 : Math.min(budget.max * QUOTE_RESERVE, budget.max - n)
+    if (budget.tokens - n < floor) return false
     budget.tokens -= n
     return true
   }
-  const takeQuote = () => takeQuotes(1)
+  const takeQuote = (priority = false) => takeQuotes(1, priority)
 
   async function notify(s: Strategy, text: string): Promise<void> {
     await deps.notify?.(s.userId, text).catch((e: unknown) => log.warn('automation notice failed', { strategy: s.id, error: e }))
@@ -181,7 +199,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     const hit = refs.get(t.id)
     // Orders stepped at the same moment share one quote, even while it is on its way.
     if (hit && now() - hit.at < REF_TTL_MS) return hit.price
-    if (!takeQuote()) return Promise.resolve(null)
+    if (!takeQuote(true)) return Promise.resolve(null)
     const price = custody.swaps
       .quote({ side: 'buy', token: t.id, symbol: t.symbol, decimals: t.decimals, amountIn: String(MIN_AUTOMATION_NEAR), slippagePct: AUTOMATION_MAX_SLIPPAGE }, wallet)
       .then((q) => {
@@ -284,8 +302,9 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       return
     }
     if (out.kind === 'duplicate') return
-    // Not traded: back to watching, or failed for good after its attempts.
-    const reason = out.kind === 'failed' ? out.reason : out.reason
+    // Not traded. Cancelled by its owner meanwhile (with its pair): it ends cancelled, not watching again.
+    const reason = out.reason
+    if (await cancelIfRequested(s, label)) return
     if (out.kind === 'failed' && s.attempts >= MAX_ORDER_ATTEMPTS) {
       if (await store.transition(s.id, ['triggered', 'executing', 'submitted'], 'failed', { reason })) {
         await store.event(s.id, 'failed', reason)
@@ -293,16 +312,35 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       }
       return
     }
-    if (await store.transition(s.id, ['triggered', 'executing', 'submitted'], 'active', { reason, nextCheckAt: now() + LIMIT_CHECK_MS, state: { ...s.state, armedAt: null } })) {
+    // Back to watching. A trade refused before signing (a limit, a frozen wallet, the price moving back) waits
+    // longer each time it is refused in a row (its owner is told once), so it doesn't re-trigger every 35 s.
+    const skips = out.kind === 'failed' ? 0 : (Number(s.state.skips) || 0) + 1
+    const delay = skips ? Math.min(LIMIT_CHECK_MS * 2 ** (skips - 1), SKIP_BACKOFF_MAX_MS) : LIMIT_CHECK_MS
+    if (await store.transition(s.id, ['triggered', 'executing', 'submitted'], 'active', { reason, nextCheckAt: now() + delay, state: { ...s.state, armedAt: null, skips } })) {
       await store.event(s.id, out.kind === 'failed' ? 'failed' : 'skip', `${out.kind === 'failed' ? 'The trade failed' : 'Not traded'}: ${reason}. Watching again.`)
       if (out.kind === 'failed')
         await notify(s, `⚠️ <b>${label}</b>: the trade failed (${esc(reason)}). The order keeps watching (attempt ${s.attempts} of ${MAX_ORDER_ATTEMPTS}).`)
+      else if (skips === 1) await notify(s, `⏳ <b>${label}</b> wasn’t traded: ${esc(reason)}. It keeps watching (and looks less often while this lasts).`)
     }
+  }
+
+  /** An order its owner cancelled (with its pair) while it traded, not traded in the end: cancelled now. */
+  async function cancelIfRequested(s: Strategy, label: string): Promise<boolean> {
+    const fresh = await store.get(s.id)
+    if (!fresh?.cancelRequestedAt) return false
+    if (
+      await store.transition(s.id, ['active', 'triggered', 'executing', 'submitted'], 'cancelled', { reason: 'Cancelled with the other order of its pair (its trade wasn’t made)' })
+    ) {
+      await store.event(s.id, 'cancelled', 'Cancelled with the other order of its pair: its trade wasn’t made')
+      await notify(s, `✖ <b>${label}</b> is cancelled with the other order of its pair: its trade wasn’t made.`)
+    }
+    return true
   }
 
   async function stepLimit(s: Strategy, c: LimitConfig): Promise<void> {
     const label = `${ORDER_LABEL[c.type]} ${esc(c.token.symbol)}`
     if (s.status !== 'active') return recoverStuck(s)
+    if (s.cancelRequestedAt && (await cancelIfRequested(s, label))) return
     if (s.expiresAt !== null && now() >= s.expiresAt) {
       if (await store.transition(s.id, ['active'], 'expired', { reason: 'Expired unfilled' })) {
         await store.event(s.id, 'expired', 'Expired unfilled')
@@ -329,7 +367,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       if (ref !== null && cannotTrigger(c.type, ref, target))
         return void (await store.setNext(s.id, now() + LIMIT_CHECK_MS, { ...s.state, refPriceYocto: ref.toString(), refAt: now(), waiting: null, armedAt: null }))
     }
-    if (!takeQuote()) return void (await store.setNext(s.id, now() + 15_000))
+    if (!takeQuote(true)) return void (await store.setNext(s.id, now() + 15_000))
     const side = sideOf(c.type)
     let q: Awaited<ReturnType<CustodyDeps['swaps']['quote']>>
     try {
@@ -351,7 +389,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       ownQuoteAt: now(),
       waiting: insufficient ? 'Not enough NEAR in the wallet for this order and its gas' : null,
     }
-    if (!meets || price === null) return void (await store.setNext(s.id, now() + LIMIT_CHECK_MS, { ...seen, armedAt: null }))
+    if (!meets || price === null) return void (await store.setNext(s.id, now() + LIMIT_CHECK_MS, { ...seen, armedAt: null, skips: 0 }))
     const armedAt = typeof s.state.armedAt === 'number' ? s.state.armedAt : null
     if (armedAt === null || now() - armedAt > CONFIRM_MAX_MS) {
       await store.event(s.id, 'trigger-seen', `Price ${formatPrice(price)} NEAR met the target ${c.triggerPriceNear}: confirming with a second reading`)
@@ -367,10 +405,12 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       return void (await store.setNext(s.id, now() + 10_000, { ...seen, waiting: 'The other order of its pair is trading: waiting for its result', armedAt: null }))
     if (triggered !== 'triggered') return
     await store.event(s.id, 'trigger', `Triggered at ${formatPrice(price)} NEAR per ${c.token.symbol} (target ${c.triggerPriceNear}); attempt ${attempt}`)
-    await notify(
-      s,
-      `🎯 <b>${label}</b> triggered at ${formatPrice(price)} NEAR. Trading now at market with ${c.slippagePct}% slippage; the result follows once the chain confirms it.`,
-    )
+    // Told once: a trigger again after refusals in a row isn't news.
+    if (!(Number(s.state.skips) > 0))
+      await notify(
+        s,
+        `🎯 <b>${label}</b> triggered at ${formatPrice(price)} NEAR. Trading now at market with ${c.slippagePct}% slippage; the result follows once the chain confirms it.`,
+      )
     const current = { ...s, attempts: attempt, status: 'triggered' as const }
     const out = await executor.trade({
       strategy: current,
@@ -404,6 +444,8 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         await settledOrder(s, (s.config as { limit: LimitConfig }).limit, { kind: 'confirmed', execution: key })
         return
       }
+      const lc = (s.config as { limit: LimitConfig }).limit
+      if (await cancelIfRequested(s, `${ORDER_LABEL[lc.type]} ${esc(lc.token.symbol)}`)) return
       if (await store.transition(s.id, ['triggered', 'executing', 'submitted'], 'active', { reason: 'Recovered after an interruption: watching again', nextCheckAt: now() }))
         await store.event(s.id, 'recovered', 'Interrupted before trading: watching again')
       return
@@ -413,8 +455,10 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
 
   // ─── DCA ──────────────────────────────────────────────────────────────────
 
+  type DcaState = { runs?: number; nextRunAt?: number; tries?: number }
+
   async function stepDca(s: Strategy, c: DcaConfig): Promise<void> {
-    const st = s.state as { runs?: number; nextRunAt?: number; tries?: number }
+    const st = s.state as DcaState
     const runs = st.runs ?? 0
     const nextRunAt = st.nextRunAt ?? c.startAt
     if ((c.endAt !== null && now() >= c.endAt) || (c.maxRuns !== null && runs >= c.maxRuns)) {
@@ -430,6 +474,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
     if (!takeQuote()) return void (await store.setNext(s.id, now() + 15_000))
     const run = runs + 1
+    const tries = st.tries ?? 0
     const out = await executor.trade({
       strategy: s,
       wallet,
@@ -437,20 +482,38 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       token: c.token,
       amountIn: c.amountNear.toFixed(6).replace(/\.?0+$/, ''),
       slippagePct: c.slippagePct,
-      idemKey: `dca:${s.id}:${run}`,
+      // Each try of a run is its own trade (a try not sent never blocks the next one).
+      idemKey: `dca:${s.id}:${run}:${tries}`,
       message: `DCA buy ${run}`,
       stillAllowed: allowedWhile(s, ['active']),
     })
     await settledDca(s, c, out, run)
   }
 
-  async function settledDca(s: Strategy, c: DcaConfig, out: TradeOutcome, run: number): Promise<void> {
-    const st = s.state as { runs?: number; nextRunAt?: number; tries?: number }
+  /** A run's outcome. The plan's memory is written whatever its status (a pause meanwhile keeps what the buy settled); its next look while it is live. */
+  async function settledDca(s: Strategy, c: DcaConfig, result: TradeOutcome, run: number): Promise<void> {
+    let out = result
+    // This try's trade exists already (settled before a restart, or by another worker): its own result decides.
+    if (out.kind === 'duplicate') {
+      const e = out.execution
+      if (e.status === 'confirmed') out = { kind: 'confirmed', execution: e }
+      else if (e.status === 'failed') out = { kind: 'failed', execution: e, reason: e.message ?? 'The trade failed on chain' }
+      else if (e.status === 'cancelled') out = { kind: 'not-sent', execution: e, reason: e.message ?? 'Not sent' }
+      else return void (await store.setNext(s.id, now() + 10_000))
+    }
+    const fresh = (await store.get(s.id)) ?? s
+    const st = fresh.state as DcaState
+    // Settled already (the step and a later settle both saw it): once.
+    if ((st.runs ?? 0) >= run) return
     const every = c.everySec * 1000
     let next = (st.nextRunAt ?? c.startAt) + every
     while (next <= now()) next += every
+    const keep = async (state: DcaState, at: number) => {
+      await store.saveState(s.id, state)
+      await store.setNext(s.id, at)
+    }
     if (out.kind === 'confirmed' || out.kind === 'failed') {
-      await store.setNext(s.id, next, { runs: run, nextRunAt: next, tries: 0 })
+      await keep({ runs: run, nextRunAt: next, tries: 0 }, next)
       const e = out.execution
       if (out.kind === 'confirmed') {
         await store.event(s.id, 'filled', `Buy ${run} confirmed: ${e.tokenRaw ? human(e.tokenRaw, c.token.decimals) : '?'} ${c.token.symbol}`)
@@ -461,15 +524,15 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       }
       return
     }
-    if (out.kind === 'submitted' || out.kind === 'duplicate') return void (await store.setNext(s.id, now() + 10_000))
+    if (out.kind === 'submitted') return void (await store.setNext(s.id, now() + 10_000))
     const tries = (st.tries ?? 0) + 1
     if (tries >= DCA_MAX_TRIES) {
       await store.event(s.id, 'skip', `Buy ${run} skipped after ${tries} tries: ${out.reason}`)
       await notify(s, `⚠️ DCA buy ${run} into <b>${esc(c.token.symbol)}</b> was skipped: ${esc(out.reason)}.`)
-      return void (await store.setNext(s.id, next, { runs: run, nextRunAt: next, tries: 0 }))
+      return keep({ runs: run, nextRunAt: next, tries: 0 }, next)
     }
     await store.event(s.id, 'skip', `Buy ${run} not traded yet: ${out.reason}`)
-    await store.setNext(s.id, now() + DCA_RETRY_MS, { ...st, tries })
+    await keep({ ...st, tries }, now() + DCA_RETRY_MS)
   }
 
   // ─── Sniper ───────────────────────────────────────────────────────────────
@@ -564,7 +627,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   }
 
   /** The price (yoctoNEAR per whole token) of a buy of 1% of the sniper's amount: the near-zero-impact reference. */
-  async function probePrice(token: TokenRef, c: SniperSettings, wallet: TradingWallet): Promise<bigint | null> {
+  async function probePrice(token: TokenRef, c: { amountNear: number; slippagePct: number }, wallet: TradingWallet): Promise<bigint | null> {
     const small = Math.max(c.amountNear / 100, 0.001)
       .toFixed(6)
       .replace(/\.?0+$/, '')
@@ -579,7 +642,8 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
 
   async function settledSniper(s: Strategy, c: SniperSettings, token: TokenRef, out: TradeOutcome): Promise<void> {
     if (out.kind === 'confirmed') {
-      if (await store.transition(s.id, ['active'], 'completed', { reason: 'Bought on chain' })) {
+      // Paused while its buy was on its way: bought all the same, so it ends (it never buys twice).
+      if (await store.transition(s.id, ['active', 'paused'], 'completed', { reason: 'Bought on chain' })) {
         const e = out.execution
         await store.updateDetection(s.id, `route:${token.id}`, 'confirmed', { executionId: e.id })
         await store.event(s.id, 'filled', `Bought ${e.tokenRaw ? human(e.tokenRaw, token.decimals) : '?'} ${token.symbol} on chain`)
@@ -637,9 +701,14 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       if (seen && seen.status !== 'detected') return 'next'
       return snipePool(s, c, wallet, st, p, key)
     }
-    // Pools still waiting for a route first, then the ones that became ready since the last one handled.
+    // Pools still waiting for a route first (gone ones forgotten), then the ones that became ready since the last one handled.
     let go = true
-    for (const p of (await Promise.all(Object.keys(st.retry ?? {}).map((k) => poolOfKey(k)))).filter((x): x is NewPool => x !== null)) {
+    for (const k of Object.keys(st.retry ?? {})) {
+      const p = await poolOfKey(k)
+      if (!p) {
+        if (st.retry) delete st.retry[k]
+        continue
+      }
       if ((await handle(p)) !== 'next') {
         go = false
         break
@@ -647,6 +716,11 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     }
     if (go) {
       for (const p of await deps.pools.store.readySince(deps.network.id, s.createdAt, st.readyAfter ?? { at: 0, id: 0 }, POOLS_PER_STEP)) {
+        // Ready too long ago (the sniper was paused, held by a switch, or short of quotes): no longer new.
+        if (p.readyAt !== null && now() - p.readyAt > POOL_MAX_AGE_MS) {
+          st.readyAfter = { at: p.readyAt, id: p.id }
+          continue
+        }
         const r = await handle(p)
         // Not looked at yet (the quote budget spent): the cursor stays before it.
         if (r === 'later') break
@@ -749,6 +823,14 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   async function settledPoolSnipe(s: Strategy, c: SniperSettings, token: TokenRef, key: string, out: TradeOutcome, st: PoolSniperState): Promise<void> {
     if (out.kind === 'duplicate') return
     if (out.kind === 'submitted') return void (await store.updateDetection(s.id, key, 'submitted', { executionId: out.execution.id }))
+    // Each pool's outcome counts once (the step and a later settle may both see it).
+    const seen = await store.detection(s.id, key)
+    if (seen && (seen.status === 'confirmed' || seen.status === 'failed' || seen.status === 'skipped')) return
+    // Counted whatever the status: a buy that confirms while its owner paused it still counts toward its tokens.
+    const keep = async () => {
+      await store.saveState(s.id, st)
+      await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS)
+    }
     if (out.kind === 'confirmed') {
       const e = out.execution
       await store.updateDetection(s.id, key, 'confirmed', { executionId: e.id })
@@ -758,9 +840,9 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         s,
         `✅ The new-pools sniper bought <b>${esc(token.symbol)}</b>, confirmed on chain: ${e.tokenRaw ? human(e.tokenRaw, token.decimals) : '?'} for ${e.nearRaw ? near(e.nearRaw) : '?'} NEAR (${st.buys} of ${c.maxBuys}).`,
       )
-      if (st.buys >= c.maxBuys && (await store.transition(s.id, ['active'], 'completed', { reason: `Bought ${st.buys} new tokens`, state: st })))
+      await keep()
+      if (st.buys >= c.maxBuys && (await store.transition(s.id, ['active', 'paused'], 'completed', { reason: `Bought ${st.buys} new tokens` })))
         await store.event(s.id, 'completed', `Bought ${st.buys} new tokens`)
-      else await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS, st)
       return
     }
     const reason = out.reason
@@ -768,9 +850,9 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     st.failures = (st.failures ?? 0) + 1
     await store.event(s.id, out.kind === 'failed' ? 'failed' : 'skip', `${token.symbol}: ${reason}`)
     if (out.kind === 'failed') await notify(s, `⚠️ The new-pools sniper’s buy of <b>${esc(token.symbol)}</b> failed: ${esc(reason)}`)
-    if (st.failures >= c.maxAttempts && (await store.transition(s.id, ['active'], 'failed', { reason: `${st.failures} buys not made: ${reason}`, state: st })))
+    await keep()
+    if (st.failures >= c.maxAttempts && (await store.transition(s.id, ['active', 'paused'], 'failed', { reason: `${st.failures} buys not made: ${reason}` })))
       await notify(s, `❌ The new-pools sniper stopped after ${st.failures} buys that weren’t made: ${esc(reason)}`)
-    else await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS, st)
   }
 
   /** Market quality for an automated buy: liquidity (fresh, known) and price impact within limits. */
@@ -789,6 +871,8 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   // ─── Copy Trade ───────────────────────────────────────────────────────────
 
   type Position = { nearIn: string; tokenRaw: string }
+  /** A copied trade not made yet that is tried again: what it copies, when that happened, its tries so far and why it waits. */
+  type PendingLeg = { side: 'buy' | 'sell'; token: string; tokenRaw: string; sourceNear: string | null; at: number; tries: number; reason: string }
   type CopyState = {
     since?: number
     /** Every transaction of the account up to this moment (ms) is handled: recorded, or not one it started. */
@@ -798,8 +882,10 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     /** Since when the transaction index hasn't answered (null: it answers). */
     indexDownSince?: number | null
     indexNoticeAt?: number
-    /** Transactions neither the index nor RPC could serve yet, with the tries so far. */
-    unread?: Record<string, number>
+    /** Transactions neither the index nor RPC could serve yet: the tries so far and when each happened. */
+    unread?: Record<string, { tries: number; at: number }>
+    /** Copied trades to try again (by their source key): a sell the rule owes is never dropped on a passing failure. */
+    pendingLegs?: Record<string, PendingLeg>
     waiting?: string | null
   }
 
@@ -823,6 +909,12 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     }
   }
 
+  /** The rule's memory, written whatever its status (a pause meanwhile keeps its positions and what it owes), then its next look while live. */
+  async function keepCopy(s: Strategy, st: CopyState, at: number): Promise<void> {
+    await store.saveState(s.id, st)
+    await store.setNext(s.id, at)
+  }
+
   /** The index doesn't answer: the rule waits (and says so); its owner is told once when that lasts. */
   async function indexDown(s: Strategy, c: CopyConfig, st: CopyState): Promise<void> {
     const since = st.indexDownSince ?? now()
@@ -836,25 +928,38 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         `⚠️ Copy of <b>${esc(c.target)}</b>: FastNEAR’s transaction index hasn’t answered for ${minutes} minutes. Copies wait; a trade seen more than ${COPY_MAX_DELAY_MS / 60_000} minutes after it happened is not copied.`,
       )
     }
-    await store.setNext(s.id, now() + 60_000, next)
+    await keepCopy(s, next, now() + 60_000)
   }
+
+  const unreadOf = (u: CopyState['unread'] | Record<string, unknown> | undefined): Record<string, { tries: number; at: number }> =>
+    Object.fromEntries(
+      Object.entries(u ?? {}).map(([h, v]) => [
+        h,
+        typeof v === 'number' ? { tries: v, at: now() } : { tries: Number((v as { tries?: number }).tries) || 0, at: Number((v as { at?: number }).at) || now() },
+      ]),
+    )
 
   /**
    * Reads the followed account's new transactions (FastNEAR's index, paged back to where the rule got
    * to; each transaction the account started read in full, from the index or else from NEAR RPC) and
-   * copies each once, in order. A trade seen too late (the index behind or down) is recorded, not copied.
+   * copies each once, in order: a transaction not readable yet stops the step there, so a later sell is
+   * never copied before the buy it follows. Copied trades owed from earlier (a sell that couldn't be made
+   * then) are tried first. A trade seen too late (the index behind or down) is recorded, not copied.
    */
   async function stepCopy(s: Strategy, c: CopyConfig): Promise<void> {
     const wallet = await walletOf(s)
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
     const st: CopyState = { ...(s.state as CopyState) }
     const since = st.since ?? s.createdAt
+    const positions = { ...(st.positions ?? {}) }
+    st.positions = positions
+    await retryPending(s, c, wallet, st, positions)
     const url = deps.network.discovery.fastnearTxUrl
     const lag = await indexLag()
     if (lag === 'down') return indexDown(s, c, st)
-    let refs: TxRef[]
+    let listed: { txs: TxRef[]; complete: boolean }
     try {
-      refs = (await fetchAccountTxs(fetchImpl, url, c.target, { max: COPY_LIST_MAX, pageSize: 25, pace: async () => undefined, until: st.cursorMs ?? since })).txs
+      listed = await fetchAccountTxs(fetchImpl, url, c.target, { max: COPY_LIST_MAX, pageSize: 25, pace: async () => undefined, until: st.cursorMs ?? since })
     } catch (e) {
       log.warn('copy trade: the transaction index failed', { strategy: s.id, error: e })
       return indexDown(s, c, st)
@@ -864,9 +969,27 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       st.indexDownSince = null
     }
     st.waiting = lag > COPY_MAX_LAG_SEC ? `FastNEAR’s index is ${Math.round(lag)} s behind the chain: trades seen late are not copied` : null
-    const floor = st.cursorMs ?? since
+    let floor = st.cursorMs ?? since
+    // More transactions since the last look than one listing holds: the ones before the oldest listed weren't read.
+    if (!listed.complete && listed.txs.length) {
+      const oldest = Math.min(...listed.txs.map((r) => r.timestampMs))
+      if (oldest > floor) {
+        await store.event(s.id, 'gap', `More than ${COPY_LIST_MAX} transactions since the last look: the older ones weren’t read (too late to copy by now)`)
+        floor = oldest
+      }
+    }
     // Final and after the rule was made; the same moment as the cursor again (one block holds several transactions).
-    const candidates = refs.filter((r) => r.timestampMs > since && r.timestampMs >= floor && now() - r.timestampMs > COPY_FINALITY_MS).sort((a, b) => a.timestampMs - b.timestampMs)
+    const candidates = listed.txs
+      .filter((r) => r.timestampMs > since && r.timestampMs >= floor && now() - r.timestampMs > COPY_FINALITY_MS)
+      .sort((a, b) => a.timestampMs - b.timestampMs)
+    const inView = new Set(candidates.map((r) => r.hash))
+    const unread = unreadOf(st.unread)
+    // Unread ones out of view now (the listing moved on, or the cursor passed them): recorded, not kept forever.
+    for (const [hash, u] of Object.entries(unread)) {
+      if (inView.has(hash)) continue
+      delete unread[hash]
+      await recordUnreadable(s, hash, u.at)
+    }
     const todo: TxRef[] = []
     for (const r of candidates) if (!(await store.detection(s.id, r.hash))) todo.push(r)
     // Only what the account started can be copied: the rest isn't read in full. A failed one is recorded without reading it.
@@ -883,64 +1006,63 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         status: 'skipped',
         reason: 'Failed on chain',
       })
-    const batch = started.filter((r) => r.success !== false).slice(0, COPY_READ_PER_STEP)
+    const readable = started.filter((r) => r.success !== false)
+    const batch = readable.slice(0, COPY_READ_PER_STEP)
     let full: NormalizedTx[] = []
     try {
       full = batch.length ? await fetchFullTxs(fetchImpl, url, batch, async () => undefined) : []
     } catch (e) {
       log.warn('copy trade: reading transactions from the index failed', { strategy: s.id, error: e })
     }
-    const got = new Set(full.map((t) => t.hash))
+    const byHash = new Map(full.map((t) => [t.hash, t]))
     for (const r of batch) {
-      if (got.has(r.hash) || !r.directSigner) continue
+      if (byHash.has(r.hash) || !r.directSigner) continue
       const tx = await rpcTx(r, c.target)
-      if (tx) {
-        full.push(tx)
-        got.add(r.hash)
-      }
+      if (tx) byHash.set(r.hash, tx)
     }
-    full.sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))
-    const positions = { ...(st.positions ?? {}) }
-    for (const tx of full) await copyOne(s, c, wallet, st, positions, tx)
-    // Readable nowhere yet: tried again on the next steps, then recorded as skipped.
-    const unread = { ...(st.unread ?? {}) }
-    for (const r of batch) {
-      if (got.has(r.hash)) {
+    // In order; the first one readable nowhere yet stops the step (tried again, then recorded as unreadable).
+    let stopped = -1
+    for (const [i, r] of batch.entries()) {
+      const tx = byHash.get(r.hash)
+      if (!tx) {
+        const u = unread[r.hash] ?? { tries: 0, at: r.timestampMs }
+        u.tries += 1
+        if (u.tries < COPY_MAX_READ_TRIES) {
+          unread[r.hash] = u
+          stopped = i
+          break
+        }
         delete unread[r.hash]
+        await recordUnreadable(s, r.hash, r.timestampMs)
         continue
       }
-      const tries = (unread[r.hash] ?? 0) + 1
-      if (tries < COPY_MAX_READ_TRIES) unread[r.hash] = tries
-      else {
-        delete unread[r.hash]
-        await store.addDetection({
-          strategyId: s.id,
-          sourceKey: r.hash,
-          at: r.timestampMs,
-          side: null,
-          token: null,
-          tokenRaw: null,
-          nearRaw: null,
-          status: 'skipped',
-          reason: 'Its details couldn’t be read (the index and NEAR RPC both failed)',
-        })
-      }
+      delete unread[r.hash]
+      await copyOne(s, c, wallet, st, positions, tx)
     }
-    for (const k of Object.keys(unread).slice(0, -50)) delete unread[k]
     // The cursor moves up to the first transaction still to do (unread, or beyond this step's batch).
-    const pending = new Set([
-      ...Object.keys(unread),
-      ...started
-        .filter((r) => r.success !== false)
-        .slice(COPY_READ_PER_STEP)
-        .map((r) => r.hash),
-    ])
+    const pending = new Set((stopped >= 0 ? batch.slice(stopped) : []).concat(readable.slice(COPY_READ_PER_STEP)).map((r) => r.hash))
     let cursor = st.cursorMs ?? since
     for (const r of candidates) {
       if (pending.has(r.hash)) break
       cursor = Math.max(cursor, r.timestampMs)
     }
-    await store.setNext(s.id, now() + (pending.size ? 3_000 : COPY_CHECK_MS), { ...st, since, cursorMs: cursor, positions, unread })
+    const owed = Object.keys(st.pendingLegs ?? {}).length > 0
+    const delay = stopped >= 0 ? COPY_UNREAD_RETRY_MS : pending.size ? 3_000 : owed ? COPY_PENDING_RETRY_MS : COPY_CHECK_MS
+    await keepCopy(s, { ...st, since, cursorMs: cursor, positions, unread }, now() + delay)
+  }
+
+  async function recordUnreadable(s: Strategy, hash: string, at: number): Promise<void> {
+    await store.addDetection({
+      strategyId: s.id,
+      sourceKey: hash,
+      at,
+      side: null,
+      token: null,
+      tokenRaw: null,
+      nearRaw: null,
+      status: 'skipped',
+      reason: 'Its details couldn’t be read (the index and NEAR RPC both failed)',
+    })
   }
 
   /** One transaction of the followed account: skipped with its reason, or copied (a token-for-token swap as two NEAR trades). */
@@ -978,6 +1100,29 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     await copyLeg(s, c, wallet, st, positions, { key: `${tx.hash}:buy`, side: 'buy', token: read.bought, tokenRaw: read.boughtRaw, sourceNear: value, at })
   }
 
+  /** Copied trades owed from earlier steps, tried again while their window lasts (a sell 15 minutes, a buy only while it is fresh). */
+  async function retryPending(s: Strategy, c: CopyConfig, wallet: TradingWallet, st: CopyState, positions: Record<string, Position>): Promise<void> {
+    for (const [key, p] of Object.entries(st.pendingLegs ?? {})) {
+      const window = p.side === 'sell' ? COPY_SELL_RETRY_MS : COPY_MAX_DELAY_MS
+      if (now() - p.at > window) {
+        if (st.pendingLegs) delete st.pendingLegs[key]
+        await store.updateDetection(s.id, key, 'skipped', { reason: `Not made within ${Math.round(window / 60_000)} minutes: ${p.reason}` })
+        await store.event(s.id, 'skip', `A copied ${p.side} of ${p.token} wasn’t made within ${Math.round(window / 60_000)} minutes: ${p.reason}`)
+        if (p.side === 'sell') await notify(s, `⚠️ Copy of <b>${esc(c.target)}</b>: a sell couldn’t be made in time (${esc(p.reason)}). The tokens stay in your NEARKITS wallet.`)
+        continue
+      }
+      await copyLeg(
+        s,
+        c,
+        wallet,
+        st,
+        positions,
+        { key, side: p.side, token: p.token, tokenRaw: BigInt(p.tokenRaw), sourceNear: p.sourceNear ? BigInt(p.sourceNear) : null, at: p.at },
+        p.tries,
+      )
+    }
+  }
+
   /** What `raw` of a token would sell for in NEAR now (an executable quote from the rule's wallet); null when unknown. */
   async function nearValueOf(token: string, raw: bigint, wallet: TradingWallet): Promise<bigint | null> {
     const meta = await deps.near.ctx.reader.metadata(token).catch(() => null)
@@ -993,20 +1138,38 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     }
   }
 
+  /** A copied trade that couldn't be made now and may be later: kept (its detection says why), tried on the next steps. */
+  async function owe(s: Strategy, st: CopyState, leg: CopyLeg, tries: number, reason: string): Promise<void> {
+    st.pendingLegs = {
+      ...(st.pendingLegs ?? {}),
+      [leg.key]: { side: leg.side, token: leg.token, tokenRaw: leg.tokenRaw.toString(), sourceNear: leg.sourceNear?.toString() ?? null, at: leg.at, tries: tries + 1, reason },
+    }
+    const waiting = `Waiting to try again: ${reason}`
+    const added = await store.addDetection({
+      strategyId: s.id,
+      sourceKey: leg.key,
+      at: leg.at,
+      side: leg.side,
+      token: leg.token,
+      tokenRaw: leg.tokenRaw.toString(),
+      nearRaw: leg.sourceNear?.toString() ?? null,
+      status: 'detected',
+      reason: waiting,
+    })
+    if (!added) await store.updateDetection(s.id, leg.key, 'detected', { reason: waiting })
+  }
+
+  type CopyLeg = { key: string; side: 'buy' | 'sell'; token: string; tokenRaw: bigint; sourceNear: bigint | null; at: number }
+
   /**
    * One copied trade, with everything checked again right before it: the side and exclusions, the
    * token from chain, the size within the rule's limits and its exposure (trades still under way
-   * included), what the wallet holds (a sell never sells more than this rule bought, nor than the wallet
-   * holds), the quote budget; then the custody path (fresh quote, slippage, NEARKITS' limits, the signer).
+   * included), price impact (a buy), what the wallet holds (a sell never sells more than this rule
+   * bought, nor than the wallet holds, and waits for this rule's own buy still on its way), the quote
+   * budget; then the custody path (fresh quote, slippage, NEARKITS' limits, the signer). A sell that
+   * can't be made now is owed (tried again); a buy is not chased (only while it is fresh).
    */
-  async function copyLeg(
-    s: Strategy,
-    c: CopyConfig,
-    wallet: TradingWallet,
-    st: CopyState,
-    positions: Record<string, Position>,
-    leg: { key: string; side: 'buy' | 'sell'; token: string; tokenRaw: bigint; sourceNear: bigint | null; at: number },
-  ): Promise<void> {
+  async function copyLeg(s: Strategy, c: CopyConfig, wallet: TradingWallet, st: CopyState, positions: Record<string, Position>, leg: CopyLeg, tries = 0): Promise<void> {
     const detected = {
       strategyId: s.id,
       sourceKey: leg.key,
@@ -1016,22 +1179,38 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       tokenRaw: leg.tokenRaw.toString(),
       nearRaw: leg.sourceNear?.toString() ?? null,
     }
-    const skip = async (reason: string) => void (await store.addDetection({ ...detected, status: 'skipped', reason }))
-    if (c.copy !== 'both' && c.copy !== leg.side) return skip(`Copying ${c.copy}s only`)
-    if (c.exclude.includes(leg.token)) return skip('The token is excluded')
+    const settled = () => {
+      if (st.pendingLegs) delete st.pendingLegs[leg.key]
+    }
+    // Recorded as skipped (added, or updated when it waited before): this leg is done.
+    const final = async (reason: string) => {
+      settled()
+      if (!(await store.addDetection({ ...detected, status: 'skipped', reason }))) await store.updateDetection(s.id, leg.key, 'skipped', { reason })
+    }
+    if (c.copy !== 'both' && c.copy !== leg.side) return final(`Copying ${c.copy}s only`)
+    if (c.exclude.includes(leg.token)) return final('The token is excluded')
+    // A sell of what this rule never bought (and isn't buying now): nothing to sell, nothing owed.
+    const buying = leg.side === 'sell' && (await store.openExecutionsOf(s.id)).some((e) => e.side === 'buy' && e.token === leg.token)
+    if (leg.side === 'sell' && !positions[leg.token] && !buying) return final(`Nothing this rule bought of ${leg.token} is left to sell`)
     const meta = await deps.near.ctx.reader.metadata(leg.token).catch(() => null)
-    if (!meta) return skip('The token’s metadata can’t be read from chain')
+    if (!meta)
+      return leg.side === 'sell' ? owe(s, st, leg, tries, 'The token’s metadata can’t be read from chain right now') : final('The token’s metadata can’t be read from chain')
     const token: TokenRef = { id: leg.token, symbol: meta.symbol, decimals: meta.decimals }
-    if (!(await store.addDetection({ ...detected, status: 'eligible', reason: null }))) return
-    const skipped = async (reason: string) => store.updateDetection(s.id, leg.key, 'skipped', { reason })
+    if (!(await store.addDetection({ ...detected, status: 'eligible', reason: null }))) {
+      // Seen before: go on only with a trade this rule still owes.
+      const seen = await store.detection(s.id, leg.key)
+      if (seen?.status !== 'detected' || !st.pendingLegs?.[leg.key]) return
+      await store.updateDetection(s.id, leg.key, 'eligible', { reason: null })
+    }
     let amountIn: string
+    let accept: ((q: SwapQuote) => string | null) | undefined
     if (leg.side === 'buy') {
-      if (c.sizing.mode === 'percent' && leg.sourceNear === null) return skipped('What the account spent is unknown in NEAR')
+      if (c.sizing.mode === 'percent' && leg.sourceNear === null) return final('What the account spent is unknown in NEAR')
       // Exposure: NEAR in copied buys not sold back, and in buys still under way.
       const exposure = Object.values(positions).reduce((sum, p) => sum + near(p.nearIn), 0) + near(await store.openBuyNear(s.id))
       const size = copyBuySize(c, leg.sourceNear === null ? 0 : near(leg.sourceNear), exposure)
       if ('skip' in size) {
-        await skipped(size.skip)
+        await final(size.skip)
         // A risk-limit refusal is worth a notice, once an hour per rule: every skip stays in the history.
         const lastNotice = typeof st.limitNoticeAt === 'number' ? st.limitNoticeAt : 0
         if (now() - lastNotice > 3_600_000) {
@@ -1041,16 +1220,29 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         return
       }
       const quality = await qualityProblem(token.id, c.minLiquidityUsd, null, null)
-      if (quality) return skipped(quality)
+      if (quality) return final(quality)
+      // The buy, and a probe of its price impact: both from the budget, while the trade is fresh.
+      if (!takeQuotes(2))
+        return now() - leg.at < COPY_MAX_DELAY_MS ? owe(s, st, leg, tries, 'NEARKITS’ quote budget was spent') : final('NEARKITS’ quote budget was spent; too late to copy')
       amountIn = size.near.toFixed(6).replace(/\.?0+$/, '')
+      // Price impact as the router reports it, or measured against a 1% probe: over the limit (or unknown), it isn't bought.
+      const impactOf = impactAgainst(token, await probePrice(token, { amountNear: size.near, slippagePct: c.slippagePct }, wallet))
+      accept = (q) => {
+        const i = impactOf(q)
+        return i === null || i > COPY_MAX_IMPACT_PCT ? `Price impact ${i === null ? 'unknown' : `${i.toFixed(2)}%`} is over the ${COPY_MAX_IMPACT_PCT}% copied buys accept` : null
+      }
     } else {
+      // This rule's own buy of it still on its way: the position isn't known yet, so the sell waits for it.
+      if (buying) return owe(s, st, leg, tries, `This rule’s buy of ${token.symbol} is still on its way`)
       const pos = positions[token.id]
+      if (!pos) return final(`Nothing this rule bought of ${token.symbol} is left to sell`)
       const held = await tokenBalance(token.id, wallet)
-      const sell = pos && held !== null ? (BigInt(pos.tokenRaw) < held ? BigInt(pos.tokenRaw) : held) : 0n
-      if (sell <= 0n) return skipped(`Nothing this rule bought of ${token.symbol} is left to sell`)
+      if (held === null) return owe(s, st, leg, tries, 'The wallet’s balance can’t be read right now')
+      const sell = BigInt(pos.tokenRaw) < held ? BigInt(pos.tokenRaw) : held
+      if (sell <= 0n) return final(`Nothing this rule bought of ${token.symbol} is left in the wallet`)
+      if (!takeQuote()) return owe(s, st, leg, tries, 'NEARKITS’ quote budget was spent')
       amountIn = formatUnits(sell, token.decimals)
     }
-    if (!takeQuote()) return skipped('NEARKITS’ quote budget was spent; too late to copy')
     await store.updateDetection(s.id, leg.key, 'executing')
     const out = await executor.trade({
       strategy: s,
@@ -1059,16 +1251,23 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       token,
       amountIn,
       slippagePct: c.slippagePct,
-      idemKey: `copy:${s.id}:${leg.key}`,
+      // Each try its own trade (a try not sent never blocks the next one); the source stays the leg's key.
+      idemKey: `copy:${s.id}:${leg.key}${tries ? `#${tries}` : ''}`,
       source: leg.key,
       message: `Copy of ${c.target}’s ${leg.side}`,
+      ...(accept ? { accept } : {}),
       stillAllowed: allowedWhile(s, ['active']),
     })
+    // A sell not made this time (refused before signing, the price moving, a skip) is owed, not dropped.
+    if (leg.side === 'sell' && (out.kind === 'skipped' || out.kind === 'not-sent')) return owe(s, st, leg, tries, out.reason)
+    settled()
     await settledCopy(s, c, token, leg.key, out, positions)
   }
 
   async function settledCopy(s: Strategy, c: CopyConfig, token: TokenRef, source: string, out: TradeOutcome, positions: Record<string, Position>): Promise<void> {
     if (out.kind === 'confirmed') {
+      // Each copied trade counts once (the step and a later settle may both see it).
+      if ((await store.detection(s.id, source))?.status === 'confirmed') return
       const e = out.execution
       await store.updateDetection(s.id, source, 'confirmed', { executionId: e.id })
       const pos = positions[token.id] ?? { nearIn: '0', tokenRaw: '0' }
@@ -1118,16 +1317,24 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     if (!s) return
     const c = s.config
     if (c.kind === 'limit') await settledOrder(s, c.limit, out)
-    else if (c.kind === 'dca') await settledDca(s, c.dca, out, Number(e.idemKey.split(':').at(-1)))
+    // dca:<strategy>:<run>:<try>
+    else if (c.kind === 'dca') await settledDca(s, c.dca, out, Number(e.idemKey.split(':')[2]))
     else if (c.kind === 'sniper' && c.sniper.target === 'new-pools' && e.source) {
       const meta = await deps.near.ctx.reader.metadata(e.token).catch(() => null)
       await settledPoolSnipe(s, c.sniper, { id: e.token, symbol: meta?.symbol ?? e.token, decimals: meta?.decimals ?? 18 }, e.source, out, { ...(s.state as PoolSniperState) })
     } else if (c.kind === 'sniper' && c.sniper.token) await settledSniper(s, c.sniper, c.sniper.token, out)
     else if (c.kind === 'copy' && e.source) {
       const meta = await deps.near.ctx.reader.metadata(e.token).catch(() => null)
-      const positions = { ...(((s.state as { positions?: Record<string, Position> }).positions ?? {}) as Record<string, Position>) }
-      await settledCopy(s, c.copy, { id: e.token, symbol: meta?.symbol ?? e.token, decimals: meta?.decimals ?? 18 }, e.source, out, positions)
-      await store.setNext(s.id, s.nextCheckAt ?? now(), { ...s.state, positions })
+      const st: CopyState = { ...(s.state as CopyState) }
+      const positions = { ...(st.positions ?? {}) }
+      const d = await store.detection(s.id, e.source)
+      if (e.side === 'sell' && out.kind === 'not-sent' && d?.token) {
+        // A copied sell not sent after all: owed (tried again), not dropped.
+        const leg: CopyLeg = { key: e.source, side: 'sell', token: d.token, tokenRaw: BigInt(d.tokenRaw ?? '0'), sourceNear: null, at: d.at }
+        await owe(s, st, leg, st.pendingLegs?.[e.source]?.tries ?? 0, out.reason)
+      } else await settledCopy(s, c.copy, { id: e.token, symbol: meta?.symbol ?? e.token, decimals: meta?.decimals ?? 18 }, e.source, out, positions)
+      // What it now holds (and owes) is kept whatever its status (paused meanwhile too).
+      await store.saveState(s.id, { ...st, positions })
     }
   }
 

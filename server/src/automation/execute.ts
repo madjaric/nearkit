@@ -164,43 +164,57 @@ export function createExecutor(deps: ExecuteDeps) {
     const accepted = r.accept?.(quote) ?? null
     if (accepted) return { kind: 'skipped', reason: accepted }
     const amounts = quoteAmounts(side, quote)
-    if (side === 'buy') {
-      const limit = await overLimit(strategy.userId, amounts.nearRaw)
-      if (limit) return { kind: 'skipped', reason: limit }
-    }
     const before = await r.stillAllowed()
     if (before) return { kind: 'skipped', reason: before }
 
-    const intent = await custody.store.createIntent({
-      walletId: wallet.id,
-      userId: strategy.userId,
-      chatId: WEB_CHAT,
-      kind: side,
-      params,
-      quote,
-      ttlMs: SWAP_QUOTE_TTL_MS,
-      groupId: `auto-${strategy.id}`,
+    // NEARKITS' daily limits and this trade's record under one lock: buys running side by side can't each
+    // pass a limit the others fill. The record exists before anything is signed.
+    const reserved = await store.underSpendLock(async (): Promise<{ limit: string } | { execution: Execution | null }> => {
+      if (side === 'buy') {
+        const limit = await overLimit(strategy.userId, amounts.nearRaw)
+        if (limit) return { limit }
+      }
+      return {
+        execution: await store.addExecution({
+          strategyId: strategy.id,
+          userId: strategy.userId,
+          walletId: wallet.id,
+          idemKey: r.idemKey,
+          side,
+          token: r.token.id,
+          nearInRaw: side === 'buy' ? amounts.nearRaw.toString() : null,
+          amountInRaw: quote.amountInRaw,
+          expectedOutRaw: quote.amountOut,
+          minOutRaw: quote.minOut,
+          priceYocto: priceYocto(amounts.nearRaw, amounts.tokenRaw, r.token.decimals)?.toString() ?? null,
+          source: r.source ?? null,
+          message: r.message ?? null,
+        }),
+      }
     })
-    const execution = await store.addExecution({
-      strategyId: strategy.id,
-      userId: strategy.userId,
-      walletId: wallet.id,
-      idemKey: r.idemKey,
-      side,
-      token: r.token.id,
-      nearInRaw: side === 'buy' ? amounts.nearRaw.toString() : null,
-      amountInRaw: quote.amountInRaw,
-      expectedOutRaw: quote.amountOut,
-      minOutRaw: quote.minOut,
-      priceYocto: priceYocto(amounts.nearRaw, amounts.tokenRaw, r.token.decimals)?.toString() ?? null,
-      source: r.source ?? null,
-      message: r.message ?? null,
-    })
+    if ('limit' in reserved) return { kind: 'skipped', reason: reserved.limit }
+    const execution = reserved.execution
     if (!execution) {
-      // Taken by another worker between the first look and now: this intent is never confirmed.
-      await custody.store.setStatus(intent.id, ['quoted'], 'cancelled')
+      // Taken by another worker between the first look and now.
       const other = (await store.executionByKey(r.idemKey)) as Execution
       return { kind: 'duplicate', execution: other }
+    }
+    let intent: Intent
+    try {
+      intent = await custody.store.createIntent({
+        walletId: wallet.id,
+        userId: strategy.userId,
+        chatId: WEB_CHAT,
+        kind: side,
+        params,
+        quote,
+        ttlMs: SWAP_QUOTE_TTL_MS,
+        groupId: `auto-${strategy.id}`,
+      })
+    } catch (e) {
+      log.warn('automation intent failed', { strategy: strategy.id, error: e })
+      await store.updateExecution(execution.id, ['executing'], 'cancelled', { message: 'Not sent: the trade couldn’t be prepared' })
+      return { kind: 'not-sent', reason: 'Not sent: the trade couldn’t be prepared', execution: (await store.execution(execution.id)) as Execution }
     }
     await store.updateExecution(execution.id, ['executing'], 'executing', { intentId: intent.id })
     await store.event(strategy.id, 'sign', `${side === 'buy' ? 'Buying' : 'Selling'} ${r.token.symbol}: asking the signer`)

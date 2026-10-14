@@ -81,6 +81,17 @@ async function setup(opts: { nearly?: string | null } = {}) {
   return { db, store, ex, clock, feed, pools, ready, advance: (ms: number) => void (clock.t += ms) }
 }
 
+describe('the round-2 migration', () => {
+  it('a database migrated before it (SQLite 18 / Postgres 9) gains the request keys, the cancel request and the pool feed', async () => {
+    const engine = (process.env.NEARKIT_TEST_BOT_DB as TestEngine | undefined) ?? 'sqlite'
+    const db = await openTestDatabase(engine, { migrateTo: engine === 'sqlite' ? 18 : 9 })
+    await expect(db.get('SELECT COUNT(*) AS c FROM auto_pools')).rejects.toThrow()
+    await migrate(db)
+    for (const table of ['auto_pools', 'auto_feed_cursors', 'auto_create_requests']) expect(await db.get(`SELECT COUNT(*) AS c FROM ${table}`)).toBeTruthy()
+    expect(await db.get('SELECT cancel_requested_at FROM auto_strategies LIMIT 1')).toBeFalsy()
+  })
+})
+
 describe('the pool feed', () => {
   it('starts at the counters: pools made before it ran are never reported as new; pools made after are, each once', async () => {
     const { ex, feed, pools, advance } = await setup()

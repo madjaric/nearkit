@@ -69,6 +69,13 @@ describe('which transactions Copy Trade copies', () => {
     expect(readCopyTrade(fromRpc(directSellRpc as never), 'iwillwin.user.intear.near', NETWORKS.mainnet)).toEqual(read(directSell, 'iwillwin.user.intear.near'))
   })
 
+  it('tokens arriving for a NEAR dust amount (a 1 yocto security deposit beside a withdrawal) are not a buy', () => {
+    // The real DCL buy with its NEAR side made 1 yocto.
+    const dust = JSON.parse(JSON.stringify(directBuy).replaceAll('1000000000000000000000000', '1')) as typeof directBuy
+    expect(read(directBuy, 'mort1705.tg')).toMatchObject({ ok: true, side: 'buy' })
+    expect(read(dust, 'mort1705.tg')).toMatchObject({ ok: false, reason: expect.stringMatching(/no NEAR given up/) })
+  })
+
   it('only the account that started the transaction is copied: an account merely touched by it is not', () => {
     expect(read(directBuy, 'someone-else.near')).toEqual({ ok: false, reason: 'Not started by the followed account' })
   })

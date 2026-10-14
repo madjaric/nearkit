@@ -24,6 +24,8 @@ export type CopyRead =
 
 /** NEAR moving in a token-for-token swap that is still no NEAR trade: storage registrations, the 1 yocto deposits. */
 const SWAP_NEAR_DUST = 20_000_000_000_000_000_000_000n // 0.02 NEAR
+/** The least NEAR a buy or a sell must move to be a trade (a 1 yocto security deposit next to a withdrawal from an exchange is not one). */
+const NEAR_LEG_MIN = 1_000_000_000_000_000_000_000n // 0.001 NEAR
 
 /** The exchanges a copied trade must have gone through, on this network. */
 export function exchangesOf(network: NetworkConfig): Set<string> {
@@ -55,8 +57,8 @@ export function readCopyTrade(tx: NormalizedTx, account: string, network: Networ
   }
   if (tokens.length > 2) return { ok: false, reason: 'More than two tokens moved: not a swap NEARKITS copies' }
   const [token, delta] = tokens[0] as [string, bigint]
-  if (delta > 0n && near >= 0n) return { ok: false, reason: 'Tokens arrived with no NEAR given up (a transfer, a refund or a liquidity withdrawal)' }
-  if (delta < 0n && near <= 0n) return { ok: false, reason: 'Tokens left with no NEAR received (a transfer or a liquidity deposit)' }
+  if (delta > 0n && -near < NEAR_LEG_MIN) return { ok: false, reason: 'Tokens arrived with no NEAR given up (a transfer, a refund or a withdrawal)' }
+  if (delta < 0n && near < NEAR_LEG_MIN) return { ok: false, reason: 'Tokens left with no NEAR received (a transfer or a liquidity deposit)' }
   if (!through([token, network.wrapContract])) return { ok: false, reason: 'Not through an exchange NEARKITS routes through' }
   return delta > 0n ? { ok: true, side: 'buy', token, tokenRaw: delta, nearRaw: -near } : { ok: true, side: 'sell', token, tokenRaw: -delta, nearRaw: near }
 }

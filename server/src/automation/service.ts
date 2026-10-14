@@ -189,6 +189,21 @@ export function createAutomationService(deps: AutomationServiceDeps) {
    */
   async function create(userId: number, input: CreateStrategyInput): Promise<StrategyView[]> {
     if (input.requestKey !== undefined && !REQUEST_KEY.test(input.requestKey)) throw new AutomationError('request', 'The request key is malformed: reload the page and try again.')
+    // What was asked, as the client sent it: the same key with anything else is another request.
+    const fingerprint = createHash('sha256')
+      .update(stableJson({ walletId: input.walletId, config: input.config, pair: input.pair ?? null, confirmExecute: input.confirmExecute === true }))
+      .digest('hex')
+    if (input.requestKey) {
+      // A resend (its first answer lost) gets what the first request made, before any check that could fail now.
+      let prior: Strategy[] | null
+      try {
+        prior = await store.priorRequest(userId, input.requestKey, fingerprint)
+      } catch (e) {
+        if (e instanceof RequestKeyReused) throw new AutomationError('request', 'This request was already used for a different automation: review it again.')
+        throw e
+      }
+      if (prior) return Promise.all(prior.map((s) => view(s)))
+    }
     const wallet = await ownWallet(userId, input.walletId)
     const config = await prepared(input.config)
     if (config.kind === 'sniper' && config.sniper.mode === 'execute' && input.confirmExecute !== true)
@@ -215,16 +230,7 @@ export function createAutomationService(deps: AutomationServiceDeps) {
       expiresAt: expiryOf(c),
       state: c.kind === 'copy' ? { since: now(), positions: {} } : c.kind === 'dca' ? { runs: 0, nextRunAt: c.dca.startAt, tries: 0 } : {},
     }))
-    const request = input.requestKey
-      ? {
-          userId,
-          key: input.requestKey,
-          // What was asked, as the client sent it: the same key with anything else is another request.
-          fingerprint: createHash('sha256')
-            .update(stableJson({ walletId: input.walletId, config: input.config, pair: input.pair ?? null, confirmExecute: input.confirmExecute === true }))
-            .digest('hex'),
-        }
-      : null
+    const request = input.requestKey ? { userId, key: input.requestKey, fingerprint } : null
     let made: Strategy[]
     try {
       made = (await store.createAll(rows, request)).strategies
@@ -323,9 +329,16 @@ export function createAutomationService(deps: AutomationServiceDeps) {
     await store.event(s.id, to, s.kind === 'limit' ? 'Cancelled by its owner' : 'Stopped by its owner')
     // Its trade not signed yet (if any) is never signed: the engine finds the intent cancelled.
     await cancelUnsigned(s.id)
-    // A take profit and its stop loss end together: cancelling either cancels the other, unless it is
-    // trading already (then it triggered first, and this one was cancelled by it, not by this click).
-    if (s.ocoGroup) for (const sibling of await store.cancelOcoSiblings(s.ocoGroup, s.id, 'Cancelled with the other order of its pair')) await cancelUnsigned(sibling)
+    // A take profit and its stop loss end together: cancelling either cancels the other. One that is
+    // trading already is followed to its result; if it doesn't trade, it is cancelled then (not watching again).
+    if (s.ocoGroup) {
+      for (const sibling of await store.cancelOcoSiblings(s.ocoGroup, s.id, 'Cancelled with the other order of its pair')) await cancelUnsigned(sibling)
+      for (const other of (await store.forUser(userId, network.id, { kinds: ['limit'] })).filter((x) => x.ocoGroup === s.ocoGroup && x.id !== s.id)) {
+        if (!['triggered', 'executing', 'submitted'].includes(other.status)) continue
+        await store.requestCancel(other.id)
+        await store.event(other.id, 'cancel-requested', 'Cancelled with the other order of its pair: its trade under way is followed to its result; not traded, it ends cancelled')
+      }
+    }
     return view((await store.get(s.id)) as Strategy)
   }
 
