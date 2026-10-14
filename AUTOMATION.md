@@ -51,7 +51,7 @@ Buys a fixed NEAR amount every 1 h, 4 h, 12 h, day or week from its start; up to
 
 ### Sniper
 
-Two kinds, both **notify-only by default**; buying needs the owner's explicit confirmation (`confirmExecute`; on Telegram a second, separate yes).
+Two kinds, both **notify-only by default**; buying needs the owner's explicit confirmation (`confirmExecute`; on Telegram a second, separate yes) **and NEARKITS' switch** `NEARKIT_AUTOMATION_SNIPER_BUY=on` (off by default: a sniper set to buy is refused at its review and at create, and one that exists is held by the worker, nothing bought; `features.sniperBuy` says which).
 
 - **One token** (`target: 'token'`): watches one token contract until a route from the NEARKITS wallet trades it within the limits: price impact (the router's, or measured against a 1% probe on the same route) and optional minimum market liquidity. Notify-only tells its owner and ends; buying buys once (bounded attempts), fails closed when impact is unknown, and ends — a buy that confirms while it is paused ends it too (it never buys twice). The token contract must exist on chain (its metadata is read when it is made). When the pool feed sees a pool of that token become ready, the sniper looks again at once.
 - **New pools** (`target: 'new-pools'`): acts on new liquidity pools as NEARKITS' exchanges create them, from the sources chosen:
@@ -92,7 +92,7 @@ Trigger, fill (only once confirmed on chain), failure, expiry (also while paused
 1. Merge to `main` (PR, CI green). The web stays Coming Soon (server reports no kind) and the worker doesn't run.
 2. Deploy the app on the VPS: backup, `bin/deploy <sha> app`, in-flight check, `docker compose up -d --no-deps --wait app`. The migration (new tables) runs at start. Signer, buy bot, OpenBao, databases untouched.
 3. Staging first where possible (testnet app with `NEARKIT_AUTOMATION=limit`), then on mainnet switch one kind on behind the kill switch: pause automation, set `NEARKIT_AUTOMATION=limit` in `app.env`, recreate the app, check `/health`, make one small order from the owner's own wallet, resume automation. Watch `auto_events`, the watchdog, and the first orders end to end with small amounts.
-4. Then `limit,dca`, then `sniper` (notify-only first), then `copy`, one at a time.
+4. Then `limit,dca`, then `sniper` (notify-only: `NEARKIT_AUTOMATION_SNIPER_BUY` stays off until its owner switches buying on), then `copy`, one at a time.
 
 ## Rollback
 

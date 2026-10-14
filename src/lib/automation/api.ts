@@ -13,6 +13,8 @@ export interface AutomationFeatures {
   paused: boolean
   pausedReason: string | null
   limits: { maxTradeNear: number; maxDailyNearPerUser: number; maxSlippagePct: number }
+  /** Snipers may buy (NEARKITS switched it on); false: snipers only notify. Absent from older servers. */
+  sniperBuy?: boolean
 }
 
 export interface StrategyView {

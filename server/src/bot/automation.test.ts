@@ -27,6 +27,8 @@ async function autoBot(options: { enabled?: StrategyKind[]; service?: boolean } 
     near: h.deps.near,
     network: h.config.network,
     enabled: new Set(options.enabled ?? ALL),
+    // These tests go through buying snipers too (production starts with them off: NEARKIT_AUTOMATION_SNIPER_BUY).
+    sniperBuy: true,
     now: h.deps.now,
   })
   if (options.service !== false) h.deps.automation = service

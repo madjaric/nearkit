@@ -68,6 +68,8 @@ export interface AutomationServiceDeps {
   network: NetworkConfig
   enabled: ReadonlySet<StrategyKind>
   limits?: AutomationLimits
+  /** Snipers that buy are allowed (NEARKIT_AUTOMATION_SNIPER_BUY=on); off: snipers only notify. */
+  sniperBuy?: boolean
   now: () => number
 }
 
@@ -89,6 +91,7 @@ export function createAutomationService(deps: AutomationServiceDeps) {
             ? 'Trading is paused by NEARKITS'
             : null,
       limits: { maxTradeNear: limits.maxTradeNear, maxDailyNearPerUser: limits.maxDailyNearPerUser, maxSlippagePct: AUTOMATION_MAX_SLIPPAGE },
+      sniperBuy: deps.sniperBuy === true,
     }
   }
 
@@ -144,6 +147,9 @@ export function createAutomationService(deps: AutomationServiceDeps) {
     if (!parsed.ok) throw new AutomationError('state', 'Check the highlighted fields.', parsed.issues)
     const c = parsed.config
     if (!deps.enabled.has(c.kind)) throw new AutomationError('off', 'This automation isn’t switched on by NEARKITS yet.')
+    // Snipers notify only until NEARKITS switches buying on (NEARKIT_AUTOMATION_SNIPER_BUY).
+    if (c.kind === 'sniper' && c.sniper.mode === 'execute' && deps.sniperBuy !== true)
+      throw new AutomationError('off', 'Snipers that buy aren’t switched on by NEARKITS yet: choose Notify only.', [{ field: 'mode', message: 'Notify only, for now' }])
     const token = tokenOfStrategy(c)
     const real = token ? await realToken(token) : null
     if (real && token && real.decimals !== token.decimals) throw new AutomationError('token', 'The token’s decimals differ from the chain’s: reload it and try again.')

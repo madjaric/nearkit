@@ -50,7 +50,9 @@ describe('server config', () => {
   })
 
   it('trading automation: off by default, the kinds and limits as set, the worker’s quote budget bounded', () => {
-    expect(loadConfig({}).config.automation).toEqual({ enabled: [], maxTradeNear: 50, maxDailyNearPerUser: 200, maxDailyNearGlobal: 2_000, quotesPerMinute: 60 })
+    expect(loadConfig({}).config.automation).toEqual({ enabled: [], maxTradeNear: 50, maxDailyNearPerUser: 200, maxDailyNearGlobal: 2_000, quotesPerMinute: 60, sniperBuy: false })
+    expect(loadConfig({ NEARKIT_AUTOMATION_SNIPER_BUY: 'on' }).config.automation.sniperBuy).toBe(true)
+    expect(loadConfig({ NEARKIT_AUTOMATION_SNIPER_BUY: 'yes' }).issues.map((i) => i.key)).toEqual(['NEARKIT_AUTOMATION_SNIPER_BUY'])
     const { config, issues } = loadConfig({ NEARKIT_AUTOMATION: 'limit, sniper', NEARKIT_AUTOMATION_QUOTES_PER_MINUTE: '120' })
     expect(issues).toEqual([])
     expect(config.automation).toMatchObject({ enabled: ['limit', 'sniper'], quotesPerMinute: 120 })

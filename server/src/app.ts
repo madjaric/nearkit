@@ -318,7 +318,16 @@ export async function startServer(options: { env: Record<string, string | undefi
   }
   const automation =
     custody && automationStore
-      ? createAutomationService({ store: automationStore, custody, near, network: config.network, enabled: automationEnabled, limits: automationLimits, now })
+      ? createAutomationService({
+          store: automationStore,
+          custody,
+          near,
+          network: config.network,
+          enabled: automationEnabled,
+          limits: automationLimits,
+          sniperBuy: config.automation.sniperBuy,
+          now,
+        })
       : null
   // Bridge & Buy $KITS: NEAR Intents' 1Click API brings SOL, ETH or BNB to NEAR, then $KITS is bought (mainnet only).
   const bridgeStore = config.bridge.enabled ? new BridgeStore(db, now) : null
@@ -575,6 +584,7 @@ export async function startServer(options: { env: Record<string, string | undefi
           enabled: automationEnabled,
           limits: automationLimits,
           quotesPerMinute: config.automation.quotesPerMinute,
+          sniperBuy: config.automation.sniperBuy,
           fetch: fetchImpl,
           now,
           notify: async (userId, html) => void (bot ? await bot.notify(userId, html) : undefined),

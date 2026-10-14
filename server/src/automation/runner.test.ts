@@ -31,6 +31,7 @@ async function setup(
     fetch?: typeof fetch
     poolView?: (contract: string, method: string, args: Record<string, unknown>) => Promise<unknown>
     quotesPerMinute?: number
+    sniperBuy?: boolean
   } = {},
 ) {
   const h = await walletBot()
@@ -64,10 +65,20 @@ async function setup(
       now: h.deps.now,
       notify: async (_user, html) => void notices.push(html),
       pools: { store: poolStore, feed },
+      sniperBuy: opts.sniperBuy ?? true,
       ...(opts.quotesPerMinute ? { quotesPerMinute: opts.quotesPerMinute } : {}),
     })
   const runner = make('a')
-  const service = createAutomationService({ store, custody: h.custody, near: h.deps.near, network: h.config.network, enabled, limits: opts.limits, now: h.deps.now })
+  const service = createAutomationService({
+    store,
+    custody: h.custody,
+    near: h.deps.near,
+    network: h.config.network,
+    enabled,
+    limits: opts.limits,
+    sniperBuy: opts.sniperBuy ?? true,
+    now: h.deps.now,
+  })
   const order = (limit: Partial<LimitConfig>, pair?: Partial<LimitConfig>) =>
     service.create(ALICE.id, {
       walletId: w.id,
@@ -704,6 +715,51 @@ describe('Sniper', () => {
     expect(await store.executionsOf(s.id)).toMatchObject([{ side: 'buy', status: 'confirmed' }])
     await tick(30_000)
     expect(await store.executionsOf(s.id)).toHaveLength(1)
+  })
+})
+
+describe('buying snipers switched off by NEARKITS (NEARKIT_AUTOMATION_SNIPER_BUY off: production’s start)', () => {
+  it('a sniper that buys is refused (at the review and at create); one notify-only is made; one set to buy before the switch went off is held, nothing bought', async () => {
+    const off = await setup({ sniperBuy: false })
+    const sniper = {
+      target: 'token' as const,
+      token: TOKEN,
+      sources: [],
+      minPoolNear: null,
+      maxBuys: 1,
+      amountNear: 1,
+      slippagePct: 2,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+    }
+    expect((await off.service.features()).sniperBuy).toBe(false)
+    await expect(off.service.preview(ALICE.id, off.w.id, { kind: 'sniper', sniper: { ...sniper, mode: 'execute' } })).rejects.toMatchObject({ code: 'off' })
+    await expect(
+      off.service.create(ALICE.id, { walletId: off.w.id, config: { kind: 'sniper', sniper: { ...sniper, mode: 'execute' } }, confirmExecute: true }),
+    ).rejects.toMatchObject({
+      code: 'off',
+    })
+    const [notify] = await off.service.create(ALICE.id, { walletId: off.w.id, config: { kind: 'sniper', sniper: { ...sniper, mode: 'notify' } } })
+    expect(notify?.status).toBe('active')
+    // A buying sniper made while buying was on, then the switch went off: the worker holds it.
+    const on = createAutomationService({
+      store: off.store,
+      custody: off.h.custody,
+      near: off.h.deps.near,
+      network: off.h.config.network,
+      enabled: new Set(ALL),
+      sniperBuy: true,
+      now: off.h.deps.now,
+    })
+    await off.service.cancel(ALICE.id, notify?.id as string)
+    const [buyer] = await on.create(ALICE.id, { walletId: off.w.id, config: { kind: 'sniper', sniper: { ...sniper, mode: 'execute' } }, confirmExecute: true })
+    if (!buyer) throw new Error('no sniper')
+    await off.tick(1_000)
+    await off.tick(61_000)
+    expect(await off.store.executionsOf(buyer.id)).toEqual([])
+    expect((await off.store.get(buyer.id))?.state.waiting).toMatch(/hasn’t switched buying snipers on/)
   })
 })
 

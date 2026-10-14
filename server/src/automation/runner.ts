@@ -126,6 +126,8 @@ export interface AutomationRunnerDeps {
   notify?: (userId: number, html: string) => Promise<void>
   /** New pools (Sniper's discovery): their records, and the feed that reads them (stepped while a new-pools sniper is live). */
   pools?: { store: PoolStore; feed: PoolFeed | null }
+  /** Snipers that buy are allowed (NEARKIT_AUTOMATION_SNIPER_BUY=on); off: a sniper set to buy is held, nothing is bought. */
+  sniperBuy?: boolean
   fetch?: typeof fetch
   now?: () => number
 }
@@ -548,6 +550,9 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     if ((await store.openExecutionsOf(s.id)).length) return void (await store.setNext(s.id, now() + 10_000))
     const wallet = await walletOf(s)
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
+    // Buying snipers switched off by NEARKITS: one set to buy is held (nothing bought); it notifies nothing either.
+    if (c.mode === 'execute' && deps.sniperBuy !== true)
+      return void (await store.setNext(s.id, now() + 60_000, { ...s.state, waiting: 'NEARKITS hasn’t switched buying snipers on: nothing is bought' }))
     if (c.target === 'new-pools' || !c.token) return stepSniperPools(s, c, wallet)
     return stepSniperToken(s, c, c.token, wallet)
   }
