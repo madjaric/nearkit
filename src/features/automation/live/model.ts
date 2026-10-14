@@ -125,7 +125,7 @@ export function describeStrategy(s: Pick<StrategyView, 'config'>): string {
       return `Copies ${k.copy === 'both' ? 'buys and sells' : `${k.copy}s`} · ${size} · max ${n(k.maxTradeNear)} NEAR`
     }
     case 'sniper':
-      return `${c.sniper.mode === 'execute' ? 'Buys' : 'Notify only:'} ${n(c.sniper.amountNear)} NEAR of ${c.sniper.token.symbol} · max impact ${n(c.sniper.maxImpactPct)}%`
+      return `${c.sniper.mode === 'execute' ? 'Buys' : 'Notify only:'} ${n(c.sniper.amountNear)} NEAR of ${c.sniper.token ? c.sniper.token.symbol : 'new pools'} · max impact ${n(c.sniper.maxImpactPct)}%`
     case 'dca':
       return `${n(c.dca.amountNear)} NEAR of ${c.dca.token.symbol} every ${intervalLabel(c.dca.everySec)}${c.dca.maxRuns ? ` · ${c.dca.maxRuns} buys` : ''}`
   }
@@ -278,7 +278,11 @@ export interface SniperDraft {
 
 export function buildSniper(d: SniperDraft, now: number): Built<SniperSettings> {
   const config: SniperSettings = {
+    target: 'token',
     token: d.token ?? placeholder,
+    sources: [],
+    minPoolNear: null,
+    maxBuys: 1,
     amountNear: numberOf(d.amountText),
     slippagePct: d.slippagePct,
     maxImpactPct: numberOf(d.maxImpactText),

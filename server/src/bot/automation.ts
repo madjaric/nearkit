@@ -216,7 +216,11 @@ function configsOf(d: Draft, now: number): { config: StrategyConfig; pair?: Stra
         config: {
           kind: 'sniper',
           sniper: {
+            target: 'token',
             token,
+            sources: [],
+            minPoolNear: null,
+            maxBuys: 1,
             amountNear: d.amountNear as number,
             slippagePct,
             maxImpactPct: d.impact as number,
@@ -264,7 +268,7 @@ function titleOf(c: StrategyConfig): string {
     case 'copy':
       return `Copy ${shortAccount(c.copy.target, 32)}`
     case 'sniper':
-      return `Sniper ${c.sniper.token.symbol}`
+      return c.sniper.token ? `Sniper ${c.sniper.token.symbol}` : 'Sniper: new pools'
     case 'dca':
       return `DCA ${c.dca.token.symbol}`
   }
@@ -287,7 +291,7 @@ function ruleText(c: StrategyConfig): string {
     }
     case 'sniper': {
       const s = c.sniper
-      return `Once ${esc(s.token.symbol)} trades, ${s.mode === 'execute' ? 'buys' : 'tells you (and would buy)'} with ${bold(`${num(s.amountNear)} NEAR`)} at most ${num(s.maxImpactPct)}% price impact`
+      return `Once ${s.token ? esc(s.token.symbol) : 'a new pool'} trades, ${s.mode === 'execute' ? 'buys' : 'tells you (and would buy)'} with ${bold(`${num(s.amountNear)} NEAR`)} at most ${num(s.maxImpactPct)}% price impact`
     }
     case 'dca': {
       const d = c.dca
@@ -503,12 +507,15 @@ async function act(ctx: BotCtx, action: 'p' | 'r' | 'xx' | 'xb', id: string): Pr
     if (v) await showDetail(ctx, v.id, '▶️ Resumed: it watches again.')
     return
   }
+  // Cancelling either order of a take profit / stop loss pair cancels the other (the server does both; 'xb' is an older button for the same).
   const v = await attempt(ctx, () => svc.cancel(ctx.user.id, id))
   if (!v) return
   let note = v.kind === 'limit' ? '✖ Cancelled. Nothing new is sent for it.' : '⏹ Stopped. Nothing new is sent for it.'
-  if (action === 'xb' && v.ocoGroup) {
-    const sibling = (await svc.list(ctx.user.id, ['limit'])).find((x) => x.ocoGroup === v.ocoGroup && x.id !== v.id && OPEN.includes(x.status))
-    if (sibling && (await attempt(ctx, () => svc.cancel(ctx.user.id, sibling.id)))) note = '✖ Both orders of the pair are cancelled. Nothing new is sent for them.'
+  if (v.ocoGroup) {
+    const sibling = (await svc.list(ctx.user.id, ['limit'])).find((x) => x.ocoGroup === v.ocoGroup && x.id !== v.id)
+    if (sibling?.status === 'cancelled') note = '✖ Both orders of the pair are cancelled. Nothing new is sent for them.'
+    else if (sibling && ['triggered', 'executing', 'submitted'].includes(sibling.status))
+      note = '✖ Cancelled. The other order of its pair is trading already: its result is followed to the end.'
   }
   await showDetail(ctx, v.id, note)
 }
@@ -533,11 +540,9 @@ async function askCancel(ctx: BotCtx, id: string): Promise<void> {
       ruleText(v.config),
       '',
       'It ends for good: nothing new is sent for it. A trade already sent is followed to the end and recorded.',
-      ...(v.ocoGroup ? ['', 'It is one of a take profit and stop loss pair: cancel just this one, or both.'] : []),
+      ...(v.ocoGroup ? ['', 'It is one of a take profit and stop loss pair: cancelling it cancels the other order too.'] : []),
     ].join('\n'),
-    keyboard([btn(order ? '✖ Yes, cancel it' : '⏹ Yes, stop it', `au:xx:${v.id}`)], v.ocoGroup ? [btn('✖ Cancel both orders', `au:xb:${v.id}`)] : [], [
-      btn('« Keep it', `au:v:${v.id}`),
-    ]),
+    keyboard([btn(order ? (v.ocoGroup ? '✖ Yes, cancel both orders' : '✖ Yes, cancel it') : '⏹ Yes, stop it', `au:xx:${v.id}`)], [btn('« Keep it', `au:v:${v.id}`)]),
   )
 }
 

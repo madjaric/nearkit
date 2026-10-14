@@ -775,6 +775,35 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
         strategy_ids TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         PRIMARY KEY (user_id, request_key)
+      );
+      -- New liquidity pools (Sniper's discovery), read from the exchanges' own pool counters (Ref DCL's
+      -- pool list, Ref v2's pool ids): each once (unique per source and pool id). token: the token paired
+      -- with wNEAR, null for a pool without wNEAR (status 'unpaired'). A pool is watched until it holds
+      -- NEAR liquidity ('ready'), or dropped after a while.
+      CREATE TABLE auto_pools (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        network TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('dcl', 'ref')),
+        pool_id TEXT NOT NULL,
+        token TEXT,
+        launchpad TEXT,
+        status TEXT NOT NULL CHECK (status IN ('watching', 'ready', 'dropped', 'unpaired')),
+        near_raw TEXT,
+        first_seen_at INTEGER NOT NULL,
+        checked_at INTEGER,
+        ready_at INTEGER,
+        detail TEXT,
+        UNIQUE (network, source, pool_id)
+      );
+      CREATE INDEX auto_pools_status ON auto_pools(network, status, ready_at);
+      -- Where each pool counter was read to: a restart goes on from here (one batch replayed at most).
+      CREATE TABLE auto_feed_cursors (
+        network TEXT NOT NULL,
+        source TEXT NOT NULL,
+        next_index INTEGER NOT NULL,
+        guard TEXT,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (network, source)
       );`,
   },
 ]

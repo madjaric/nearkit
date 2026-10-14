@@ -4,11 +4,13 @@ import { formatUnits, tryParseUnits } from '@/lib/amounts'
 import {
   AUTOMATION_MAX_SLIPPAGE,
   MIN_AUTOMATION_NEAR,
+  NEW_POOLS_SUBJECT as NEW_POOLS,
   sideOf,
   type CopyConfig,
   type DcaConfig,
   type LimitConfig,
   type SniperSettings,
+  type SniperSource,
   type StrategyKind,
   type TokenRef,
 } from '@/lib/automation/config'
@@ -18,12 +20,14 @@ import { fromRpc, type NormalizedTx } from '@/services/near/flows'
 import { fetchAccountTxs, fetchFullTxs, fetchIndexLag, type TxRef } from '@/services/near/history'
 import { walletErrorText } from '../bot/ui'
 import type { TradingWallet } from '../custody/store'
+import type { SwapQuote } from '../custody/swap'
 import type { CustodyDeps } from '../custody/wallets'
 import type { Logger } from '../log'
 import type { ServerNear } from '../near'
 import { esc } from '../telegram/html'
 import { copyBuySize, readCopyTrade } from './copy'
 import { createExecutor, DEFAULT_LIMITS, quoteAmounts, type AutomationLimits, type TradeOutcome } from './execute'
+import type { NewPool, PoolFeed, PoolStore } from './pools'
 import type { AutomationStore, Execution, Strategy } from './store'
 
 /**
@@ -85,6 +89,13 @@ const OWN_QUOTE_MAX_MS = 5 * 60_000
 /** How far past the target the reference price must be before an order skips its own quote (1%). */
 const REF_MARGIN_BPS = 100n
 const SWEEP_MS = 30_000
+/** A new-pools sniper looks for ready pools this often (a database read; quotes only for a new pool). */
+const POOL_SNIPER_CHECK_MS = 4_000
+const POOLS_PER_STEP = 10
+/** A new pool without a route from a NEARKITS wallet is tried again for this long. */
+const POOL_ROUTE_WAIT_MS = 5 * 60_000
+/** A new pool whose round trip (buy, then sell back) loses more than this is not bought: fees, a tax, a pool too thin to leave. */
+const ROUND_TRIP_MAX_LOSS_PCT = 25
 
 export interface AutomationRunnerDeps {
   store: AutomationStore
@@ -100,6 +111,8 @@ export interface AutomationRunnerDeps {
   quotesPerMinute?: number
   /** A message to the strategy's owner in Telegram (HTML). */
   notify?: (userId: number, html: string) => Promise<void>
+  /** New pools (Sniper's discovery): their records, and the feed that reads them (stepped while a new-pools sniper is live). */
+  pools?: { store: PoolStore; feed: PoolFeed | null }
   fetch?: typeof fetch
   now?: () => number
 }
@@ -208,7 +221,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
         c.kind === 'limit'
           ? `<b>${ORDER_LABEL[c.limit.type]} ${esc(c.limit.token.symbol)}</b> expired unfilled`
           : c.kind === 'sniper'
-            ? `Sniper on <b>${esc(c.sniper.token.symbol)}</b> expired`
+            ? `${sniperName(c.sniper)} expired`
             : c.kind === 'dca'
               ? `DCA into <b>${esc(c.dca.token.symbol)}</b> completed after ${runs} buys (its end date passed)`
               : 'An automation ended'
@@ -461,53 +474,63 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   async function stepSniper(s: Strategy, c: SniperSettings): Promise<void> {
     if (c.expiresAt !== null && now() >= c.expiresAt) {
       if (await store.transition(s.id, ['active'], 'expired', { reason: 'Expired' })) {
-        await store.event(s.id, 'expired', 'Expired before it bought')
-        await notify(s, `⌛ Sniper on <b>${esc(c.token.symbol)}</b> expired.`)
+        await store.event(s.id, 'expired', c.target === 'token' ? 'Expired before it bought' : 'Expired')
+        await notify(s, `⌛ ${sniperName(c)} expired.`)
       }
       return
     }
     if ((await store.openExecutionsOf(s.id)).length) return void (await store.setNext(s.id, now() + 10_000))
     const wallet = await walletOf(s)
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
+    if (c.target === 'new-pools' || !c.token) return stepSniperPools(s, c, wallet)
+    return stepSniperToken(s, c, c.token, wallet)
+  }
+
+  const sniperName = (c: SniperSettings) => (c.target === 'token' && c.token ? `Sniper on <b>${esc(c.token.symbol)}</b>` : 'The new-pools sniper')
+
+  /** Price impact as the router reports it; where it can't (no price feed), measured against a probe of 1% of the amount on the same route. Unknown stays unknown. */
+  function impactAgainst(token: TokenRef, probe: bigint | null) {
+    return (q: SwapQuote): number | null => {
+      if (q.priceImpactPct !== null) return q.priceImpactPct
+      const f = quoteAmounts('buy', q)
+      const full = priceYocto(f.nearRaw, f.tokenRaw, token.decimals)
+      if (probe === null || full === null || probe <= 0n) return null
+      return full <= probe ? 0 : Number(((full - probe) * 10_000n) / probe) / 100
+    }
+  }
+
+  async function stepSniperToken(s: Strategy, c: SniperSettings, token: TokenRef, wallet: TradingWallet): Promise<void> {
     if (!takeQuote()) return void (await store.setNext(s.id, now() + 15_000))
     const amountIn = c.amountNear.toFixed(6).replace(/\.?0+$/, '')
-    let q: Awaited<ReturnType<CustodyDeps['swaps']['quote']>>
+    let q: SwapQuote
     try {
-      q = await custody.swaps.quote({ side: 'buy', token: c.token.id, symbol: c.token.symbol, decimals: c.token.decimals, amountIn, slippagePct: c.slippagePct }, wallet)
+      q = await custody.swaps.quote({ side: 'buy', token: token.id, symbol: token.symbol, decimals: token.decimals, amountIn, slippagePct: c.slippagePct }, wallet)
     } catch {
       return void (await store.setNext(s.id, now() + SNIPER_CHECK_MS, { ...s.state, waiting: 'No route trades it yet' }))
     }
     const a = quoteAmounts('buy', q)
-    // Price impact as the router reports it; where it can't (no price feed), measured: the full buy's price
-    // against a probe of 1% of it on the same route. Unknown stays unknown: buying then fails closed.
-    const probe = q.priceImpactPct === null && takeQuote() ? await probePrice(c, wallet) : null
-    const impactOf = (fresh: typeof q): number | null => {
-      if (fresh.priceImpactPct !== null) return fresh.priceImpactPct
-      const f = quoteAmounts('buy', fresh)
-      const full = priceYocto(f.nearRaw, f.tokenRaw, c.token.decimals)
-      if (probe === null || full === null || probe <= 0n) return null
-      return full <= probe ? 0 : Number(((full - probe) * 10_000n) / probe) / 100
-    }
+    // Unknown impact stays unknown: buying then fails closed.
+    const impactOf = impactAgainst(token, q.priceImpactPct === null && takeQuote() ? await probePrice(token, c, wallet) : null)
     const impact = impactOf(q)
-    const marketCheck = await qualityProblem(c.token.id, c.minLiquidityUsd, c.mode === 'execute' ? impact : null, c.mode === 'execute' ? c.maxImpactPct : null)
+    const marketCheck = await qualityProblem(token.id, c.minLiquidityUsd, c.mode === 'execute' ? impact : null, c.mode === 'execute' ? c.maxImpactPct : null)
     if (marketCheck) return void (await store.setNext(s.id, now() + SNIPER_CHECK_MS, { ...s.state, waiting: marketCheck }))
     const first = await store.addDetection({
       strategyId: s.id,
-      sourceKey: `route:${c.token.id}`,
+      sourceKey: `route:${token.id}`,
       side: 'buy',
-      token: c.token.id,
+      token: token.id,
       tokenRaw: a.tokenRaw.toString(),
       nearRaw: a.nearRaw.toString(),
       status: 'eligible',
       reason: null,
     })
-    const price = priceYocto(a.nearRaw, a.tokenRaw, c.token.decimals)
+    const price = priceYocto(a.nearRaw, a.tokenRaw, token.decimals)
     if (c.mode === 'notify') {
       if (first && (await store.transition(s.id, ['active'], 'completed', { reason: 'Tradable: you were told' }))) {
-        await store.event(s.id, 'detected', `Tradable: ${amountIn} NEAR buys ${human(a.tokenRaw, c.token.decimals)} ${c.token.symbol}`)
+        await store.event(s.id, 'detected', `Tradable: ${amountIn} NEAR buys ${human(a.tokenRaw, token.decimals)} ${token.symbol}`)
         await notify(
           s,
-          `🔔 <b>${esc(c.token.symbol)}</b> is tradable now: ${amountIn} NEAR buys about ${human(a.tokenRaw, c.token.decimals)} (${price ? formatPrice(price) : '?'} NEAR each, impact ${impact === null ? 'unknown' : `${impact.toFixed(2)}%`}). Notify-only: nothing was bought.`,
+          `🔔 <b>${esc(token.symbol)}</b> is tradable now: ${amountIn} NEAR buys about ${human(a.tokenRaw, token.decimals)} (${price ? formatPrice(price) : '?'} NEAR each, impact ${impact === null ? 'unknown' : `${impact.toFixed(2)}%`}). Notify-only: nothing was bought.`,
         )
       }
       return
@@ -517,7 +540,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       strategy: { ...s, attempts: attempt },
       wallet,
       side: 'buy',
-      token: c.token,
+      token,
       amountIn,
       slippagePct: c.slippagePct,
       idemKey: `sniper:${s.id}:${attempt}`,
@@ -534,50 +557,205 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       return void (await store.setNext(s.id, now() + SNIPER_CHECK_MS, { ...s.state, waiting: out.reason }))
     }
     await store.setAttempts(s.id, attempt)
-    await settledSniper({ ...s, attempts: attempt }, c, out)
+    await settledSniper({ ...s, attempts: attempt }, c, token, out)
   }
 
   /** The price (yoctoNEAR per whole token) of a buy of 1% of the sniper's amount: the near-zero-impact reference. */
-  async function probePrice(c: SniperSettings, wallet: TradingWallet): Promise<bigint | null> {
+  async function probePrice(token: TokenRef, c: SniperSettings, wallet: TradingWallet): Promise<bigint | null> {
     const small = Math.max(c.amountNear / 100, 0.001)
       .toFixed(6)
       .replace(/\.?0+$/, '')
     try {
-      const p = await custody.swaps.quote(
-        { side: 'buy', token: c.token.id, symbol: c.token.symbol, decimals: c.token.decimals, amountIn: small, slippagePct: c.slippagePct },
-        wallet,
-      )
+      const p = await custody.swaps.quote({ side: 'buy', token: token.id, symbol: token.symbol, decimals: token.decimals, amountIn: small, slippagePct: c.slippagePct }, wallet)
       const pa = quoteAmounts('buy', p)
-      return priceYocto(pa.nearRaw, pa.tokenRaw, c.token.decimals)
+      return priceYocto(pa.nearRaw, pa.tokenRaw, token.decimals)
     } catch {
       return null
     }
   }
 
-  async function settledSniper(s: Strategy, c: SniperSettings, out: TradeOutcome): Promise<void> {
+  async function settledSniper(s: Strategy, c: SniperSettings, token: TokenRef, out: TradeOutcome): Promise<void> {
     if (out.kind === 'confirmed') {
       if (await store.transition(s.id, ['active'], 'completed', { reason: 'Bought on chain' })) {
         const e = out.execution
-        await store.updateDetection(s.id, `route:${c.token.id}`, 'confirmed', { executionId: e.id })
-        await store.event(s.id, 'filled', `Bought ${e.tokenRaw ? human(e.tokenRaw, c.token.decimals) : '?'} ${c.token.symbol} on chain`)
+        await store.updateDetection(s.id, `route:${token.id}`, 'confirmed', { executionId: e.id })
+        await store.event(s.id, 'filled', `Bought ${e.tokenRaw ? human(e.tokenRaw, token.decimals) : '?'} ${token.symbol} on chain`)
         await notify(
           s,
-          `✅ Sniper bought <b>${esc(c.token.symbol)}</b>, confirmed on chain: ${e.tokenRaw ? human(e.tokenRaw, c.token.decimals) : '?'} for ${e.nearRaw ? near(e.nearRaw) : '?'} NEAR.`,
+          `✅ Sniper bought <b>${esc(token.symbol)}</b>, confirmed on chain: ${e.tokenRaw ? human(e.tokenRaw, token.decimals) : '?'} for ${e.nearRaw ? near(e.nearRaw) : '?'} NEAR.`,
         )
       }
       return
     }
     if (out.kind === 'submitted' || out.kind === 'duplicate') return void (await store.setNext(s.id, now() + 10_000))
-    const reason = out.kind === 'failed' ? out.reason : out.reason
+    const reason = out.reason
     await store.event(s.id, out.kind === 'failed' ? 'failed' : 'skip', `Attempt ${s.attempts}: ${reason}`)
     if (out.kind === 'failed' || out.kind === 'not-sent') {
       if (s.attempts >= c.maxAttempts) {
         if (await store.transition(s.id, ['active'], 'failed', { reason: `No buy after ${s.attempts} attempts: ${reason}` }))
-          await notify(s, `❌ Sniper on <b>${esc(c.token.symbol)}</b> stopped after ${s.attempts} attempts: ${esc(reason)}`)
+          await notify(s, `❌ Sniper on <b>${esc(token.symbol)}</b> stopped after ${s.attempts} attempts: ${esc(reason)}`)
         return
       }
     }
     await store.setNext(s.id, now() + SNIPER_CHECK_MS)
+  }
+
+  // ─── Sniper: new pools ────────────────────────────────────────────────────
+
+  type PoolSniperState = {
+    /** Ready pools from this moment on are still to look at (each once: its detection). */
+    readyFrom?: number
+    buys?: number
+    failures?: number
+    /** Pools without an executable route yet, with when they were first tried. */
+    retry?: Record<string, number>
+    waiting?: string | null
+  }
+
+  const poolKey = (p: Pick<NewPool, 'source' | 'poolId'>) => `pool:${p.source}:${p.poolId}`
+  const sourceOfPool = (p: NewPool): SniperSource => p.launchpad ?? 'other'
+  const poolWhat = (p: NewPool) =>
+    p.launchpad === 'nearly' ? 'a new Nearly launch' : p.launchpad === 'meme-cooking' ? 'a meme.cooking graduation' : `a new ${p.source === 'dcl' ? 'Ref DCL' : 'Ref'} pool`
+
+  /**
+   * New pools the feed found ready (NEAR liquidity in them) after this sniper was made, each once: from
+   * the sources it watches, holding at least its NEAR minimum, with an executable route from its wallet
+   * within its price impact, and a round trip (buy then sell back) losing at most ROUND_TRIP_MAX_LOSS_PCT.
+   * Notify-only tells its owner of each; buying buys each once, up to its number of tokens.
+   */
+  async function stepSniperPools(s: Strategy, c: SniperSettings, wallet: TradingWallet): Promise<void> {
+    const st: PoolSniperState = { ...(s.state as PoolSniperState) }
+    if (!deps.pools) return void (await store.setNext(s.id, now() + 60_000, { ...st, waiting: 'This server doesn’t read new pools' }))
+    st.waiting = null
+    const fresh = await deps.pools.store.readySince(deps.network.id, s.createdAt, st.readyFrom ?? 0, POOLS_PER_STEP)
+    const again = (await Promise.all(Object.keys(st.retry ?? {}).map((k) => poolOfKey(k)))).filter((p): p is NewPool => p !== null)
+    for (const p of [...again, ...fresh]) {
+      if (p.readyAt !== null && fresh.includes(p)) st.readyFrom = Math.max(st.readyFrom ?? 0, p.readyAt)
+      if (!p.token || !c.sources.includes(sourceOfPool(p))) continue
+      const key = poolKey(p)
+      const seen = await store.detection(s.id, key)
+      if (seen && seen.status !== 'detected') continue
+      const done = await snipePool(s, c, wallet, st, p, key)
+      if (done === 'stop') break
+    }
+    const current = await store.get(s.id)
+    if (current?.status === 'active') await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS, st)
+  }
+
+  async function poolOfKey(key: string): Promise<NewPool | null> {
+    const [, source, ...rest] = key.split(':')
+    if ((source !== 'dcl' && source !== 'ref') || !deps.pools) return null
+    return deps.pools.store.get(deps.network.id, source, rest.join(':'))
+  }
+
+  async function snipePool(s: Strategy, c: SniperSettings, wallet: TradingWallet, st: PoolSniperState, p: NewPool, key: string): Promise<'next' | 'stop'> {
+    const tokenId = p.token as string
+    const base = { strategyId: s.id, sourceKey: key, side: 'buy' as const, token: tokenId, tokenRaw: null, nearRaw: p.nearRaw }
+    const record = async (status: 'detected' | 'skipped', reason: string) => {
+      if (!(await store.addDetection({ ...base, status, reason }))) await store.updateDetection(s.id, key, status, { reason })
+    }
+    const settle = async (reason: string) => {
+      if (st.retry) delete st.retry[key]
+      await record('skipped', reason)
+      return 'next' as const
+    }
+    const poolNear = p.nearRaw && /^\d+$/.test(p.nearRaw) ? near(p.nearRaw) : 0
+    if (c.minPoolNear !== null && poolNear < c.minPoolNear) return settle(`The pool holds ${poolNear} NEAR, below this sniper’s ${c.minPoolNear} NEAR`)
+    const meta = await deps.near.ctx.reader.metadata(tokenId).catch(() => null)
+    if (!meta) return settle('The token’s metadata can’t be read from chain')
+    const token: TokenRef = { id: tokenId, symbol: meta.symbol, decimals: meta.decimals }
+    if (!takeQuote()) return 'stop'
+    const amountIn = c.amountNear.toFixed(6).replace(/\.?0+$/, '')
+    let q: SwapQuote
+    try {
+      q = await custody.swaps.quote({ side: 'buy', token: token.id, symbol: token.symbol, decimals: token.decimals, amountIn, slippagePct: c.slippagePct }, wallet)
+    } catch {
+      // A new pool may not be routed yet (an aggregator indexes it later): looked at again for a while.
+      const first = st.retry?.[key] ?? now()
+      if (now() - first > POOL_ROUTE_WAIT_MS) return settle('No route traded it from a NEARKITS wallet within 5 minutes')
+      st.retry = { ...(st.retry ?? {}), [key]: first }
+      await record('detected', 'Waiting for a route from a NEARKITS wallet')
+      return 'next'
+    }
+    if (st.retry) delete st.retry[key]
+    const a = quoteAmounts('buy', q)
+    const impactOf = impactAgainst(token, q.priceImpactPct === null && takeQuote() ? await probePrice(token, c, wallet) : null)
+    const impact = impactOf(q)
+    if (impact === null || impact > c.maxImpactPct) return settle(`Price impact ${impact === null ? 'unknown' : `${impact.toFixed(2)}%`} is over ${c.maxImpactPct}%`)
+    // A round trip (this buy, then selling what it gets) shows fees, a tax and a pool too thin to leave.
+    let loss: number | null = null
+    if (takeQuote()) {
+      try {
+        const back = await custody.swaps.quote(
+          { side: 'sell', token: token.id, symbol: token.symbol, decimals: token.decimals, amountIn: formatUnits(a.tokenRaw, token.decimals), slippagePct: c.slippagePct },
+          wallet,
+        )
+        const nearBack = quoteAmounts('sell', back).nearRaw
+        loss = a.nearRaw > 0n ? Number(((a.nearRaw - (nearBack < a.nearRaw ? nearBack : a.nearRaw)) * 10_000n) / a.nearRaw) / 100 : null
+      } catch {
+        loss = null
+      }
+    }
+    if (loss === null) return settle('Selling it back can’t be quoted: not bought')
+    if (loss > ROUND_TRIP_MAX_LOSS_PCT) return settle(`A round trip loses ${loss.toFixed(2)}% (fees, a tax or a thin pool): over ${ROUND_TRIP_MAX_LOSS_PCT}%`)
+    const facts = `${amountIn} NEAR buys about ${human(a.tokenRaw, token.decimals)} ${token.symbol} (impact ${impact.toFixed(2)}%, a round trip loses ${loss.toFixed(2)}%); the pool holds ${poolNear} NEAR`
+    if (!(await store.addDetection({ ...base, tokenRaw: a.tokenRaw.toString(), nearRaw: a.nearRaw.toString(), status: 'eligible', reason: facts })))
+      await store.updateDetection(s.id, key, 'eligible', { reason: facts })
+    if (c.mode === 'notify') {
+      await store.event(s.id, 'detected', `${token.symbol} (${poolWhat(p)}): ${facts}`)
+      await notify(s, `🆕 <b>${esc(token.symbol)}</b> (<code>${esc(token.id)}</code>), ${poolWhat(p)}: ${esc(facts)}. Notify-only: nothing was bought.`)
+      return 'next'
+    }
+    if ((st.buys ?? 0) >= c.maxBuys) return 'stop'
+    const out = await executor.trade({
+      strategy: s,
+      wallet,
+      side: 'buy',
+      token,
+      amountIn,
+      slippagePct: c.slippagePct,
+      idemKey: `sniper:${s.id}:${key}`,
+      source: key,
+      message: `Sniper buy of ${token.symbol} (${poolWhat(p)})`,
+      accept: (fresh) => {
+        const i = impactOf(fresh)
+        return i === null || i > c.maxImpactPct ? `Price impact ${i === null ? 'unknown' : `${i.toFixed(2)}%`} is over the ${c.maxImpactPct}% limit` : null
+      },
+      stillAllowed: allowedWhile(s, ['active']),
+    })
+    if (out.kind === 'skipped') {
+      await store.updateDetection(s.id, key, 'skipped', { reason: out.reason })
+      return 'next'
+    }
+    await settledPoolSnipe(s, c, token, key, out, st)
+    return out.kind === 'confirmed' && (st.buys ?? 0) < c.maxBuys ? 'next' : 'stop'
+  }
+
+  async function settledPoolSnipe(s: Strategy, c: SniperSettings, token: TokenRef, key: string, out: TradeOutcome, st: PoolSniperState): Promise<void> {
+    if (out.kind === 'duplicate') return
+    if (out.kind === 'submitted') return void (await store.updateDetection(s.id, key, 'submitted', { executionId: out.execution.id }))
+    if (out.kind === 'confirmed') {
+      const e = out.execution
+      await store.updateDetection(s.id, key, 'confirmed', { executionId: e.id })
+      st.buys = (st.buys ?? 0) + 1
+      await store.event(s.id, 'filled', `Bought ${e.tokenRaw ? human(e.tokenRaw, token.decimals) : '?'} ${token.symbol} on chain (${st.buys} of ${c.maxBuys})`)
+      await notify(
+        s,
+        `✅ The new-pools sniper bought <b>${esc(token.symbol)}</b>, confirmed on chain: ${e.tokenRaw ? human(e.tokenRaw, token.decimals) : '?'} for ${e.nearRaw ? near(e.nearRaw) : '?'} NEAR (${st.buys} of ${c.maxBuys}).`,
+      )
+      if (st.buys >= c.maxBuys && (await store.transition(s.id, ['active'], 'completed', { reason: `Bought ${st.buys} new tokens`, state: st })))
+        await store.event(s.id, 'completed', `Bought ${st.buys} new tokens`)
+      else await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS, st)
+      return
+    }
+    const reason = out.reason
+    await store.updateDetection(s.id, key, out.kind === 'failed' ? 'failed' : 'skipped', { reason, ...('execution' in out ? { executionId: out.execution.id } : {}) })
+    st.failures = (st.failures ?? 0) + 1
+    await store.event(s.id, out.kind === 'failed' ? 'failed' : 'skip', `${token.symbol}: ${reason}`)
+    if (out.kind === 'failed') await notify(s, `⚠️ The new-pools sniper’s buy of <b>${esc(token.symbol)}</b> failed: ${esc(reason)}`)
+    if (st.failures >= c.maxAttempts && (await store.transition(s.id, ['active'], 'failed', { reason: `${st.failures} buys not made: ${reason}`, state: st })))
+      await notify(s, `❌ The new-pools sniper stopped after ${st.failures} buys that weren’t made: ${esc(reason)}`)
+    else await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS, st)
   }
 
   /** Market quality for an automated buy: liquidity (fresh, known) and price impact within limits. */
@@ -926,7 +1104,10 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     const c = s.config
     if (c.kind === 'limit') await settledOrder(s, c.limit, out)
     else if (c.kind === 'dca') await settledDca(s, c.dca, out, Number(e.idemKey.split(':').at(-1)))
-    else if (c.kind === 'sniper') await settledSniper(s, c.sniper, out)
+    else if (c.kind === 'sniper' && c.sniper.target === 'new-pools' && e.source) {
+      const meta = await deps.near.ctx.reader.metadata(e.token).catch(() => null)
+      await settledPoolSnipe(s, c.sniper, { id: e.token, symbol: meta?.symbol ?? e.token, decimals: meta?.decimals ?? 18 }, e.source, out, { ...(s.state as PoolSniperState) })
+    } else if (c.kind === 'sniper' && c.sniper.token) await settledSniper(s, c.sniper, c.sniper.token, out)
     else if (c.kind === 'copy' && e.source) {
       const meta = await deps.near.ctx.reader.metadata(e.token).catch(() => null)
       const positions = { ...(((s.state as { positions?: Record<string, Position> }).positions ?? {}) as Record<string, Position>) }
@@ -970,6 +1151,9 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   async function tick(): Promise<void> {
     for (const e of await store.openExecutions(SETTLE_PER_TICK)) await settleOne(e).catch((err: unknown) => log.warn('automation settle failed', { execution: e.id, error: err }))
     await sweepLapsed().catch((err: unknown) => log.warn('automation expiry sweep failed', { error: err }))
+    // New pools are read only while a new-pools sniper needs them.
+    if (deps.pools?.feed && deps.enabled.has('sniper') && (await store.liveWithSubject(deps.network.id, 'sniper', NEW_POOLS)))
+      await deps.pools.feed.step().catch((err: unknown) => log.warn('pool feed failed', { error: err }))
     const claimed: Strategy[] = []
     for (const s of await store.due(PER_TICK)) if (await store.claim(s.id, deps.instanceId, LEASE_MS)) claimed.push(s)
     await Promise.all(claimed.map((s) => leased(s)))

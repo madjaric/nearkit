@@ -10,6 +10,7 @@ import { ONE, USDT, walletBot } from '../bot/walletTesting'
 import { SWAP_QUOTE_TTL_MS } from '../custody/swap'
 import { silentLogger } from '../log'
 import type { AutomationLimits } from './execute'
+import { createPoolFeed, PoolStore } from './pools'
 import { createAutomationRunner } from './runner'
 import { createAutomationService } from './service'
 import { AutomationStore } from './store'
@@ -22,12 +23,31 @@ import { AutomationStore } from './store'
 const TOKEN = { id: USDT, symbol: 'USDT', decimals: 6 }
 const ALL: StrategyKind[] = ['limit', 'copy', 'sniper', 'dca']
 
-async function setup(opts: { enabled?: StrategyKind[]; limits?: AutomationLimits; fetch?: typeof fetch } = {}) {
+async function setup(
+  opts: {
+    enabled?: StrategyKind[]
+    limits?: AutomationLimits
+    fetch?: typeof fetch
+    poolView?: (contract: string, method: string, args: Record<string, unknown>) => Promise<unknown>
+  } = {},
+) {
   const h = await walletBot()
   const w = await h.funded(20n * ONE, 40_000_000n) // 20 NEAR and 40 USDT
   const store = new AutomationStore(h.db, h.deps.now)
   const enabled = new Set(opts.enabled ?? ALL)
   const notices: string[] = []
+  const poolStore = new PoolStore(h.db, h.deps.now)
+  const feed = opts.poolView
+    ? createPoolFeed({
+        store: poolStore,
+        view: opts.poolView,
+        network: h.config.network,
+        nearly: null,
+        log: silentLogger,
+        now: h.deps.now,
+        onReady: (token) => store.wake(h.config.network.id, 'sniper', token),
+      })
+    : null
   const make = (instanceId: string) =>
     createAutomationRunner({
       store,
@@ -41,6 +61,7 @@ async function setup(opts: { enabled?: StrategyKind[]; limits?: AutomationLimits
       fetch: opts.fetch,
       now: h.deps.now,
       notify: async (_user, html) => void notices.push(html),
+      pools: { store: poolStore, feed },
     })
   const runner = make('a')
   const service = createAutomationService({ store, custody: h.custody, near: h.deps.near, network: h.config.network, enabled, limits: opts.limits, now: h.deps.now })
@@ -486,7 +507,23 @@ describe('Sniper', () => {
     const { w, store, service, tick, notices } = await setup()
     const [s] = await service.create(ALICE.id, {
       walletId: w.id,
-      config: { kind: 'sniper', sniper: { token: TOKEN, amountNear: 1, slippagePct: 2, maxImpactPct: 10, minLiquidityUsd: null, maxAttempts: 3, expiresAt: null, mode: 'notify' } },
+      config: {
+        kind: 'sniper',
+        sniper: {
+          target: 'token',
+          token: TOKEN,
+          sources: [],
+          minPoolNear: null,
+          maxBuys: 1,
+          amountNear: 1,
+          slippagePct: 2,
+          maxImpactPct: 10,
+          minLiquidityUsd: null,
+          maxAttempts: 3,
+          expiresAt: null,
+          mode: 'notify',
+        },
+      },
     })
     if (!s) throw new Error('no sniper')
     await tick(1_000)
@@ -497,7 +534,20 @@ describe('Sniper', () => {
 
   it('buying needs the owner’s explicit yes; then it buys once, confirmed on chain', async () => {
     const { w, store, service, tick } = await setup()
-    const sniper = { token: TOKEN, amountNear: 1, slippagePct: 2, maxImpactPct: 10, minLiquidityUsd: null, maxAttempts: 3, expiresAt: null, mode: 'execute' as const }
+    const sniper = {
+      target: 'token' as const,
+      token: TOKEN,
+      sources: [],
+      minPoolNear: null,
+      maxBuys: 1,
+      amountNear: 1,
+      slippagePct: 2,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+      mode: 'execute' as const,
+    }
     await expect(service.create(ALICE.id, { walletId: w.id, config: { kind: 'sniper', sniper } })).rejects.toMatchObject({ code: 'confirm' })
     const [s] = await service.create(ALICE.id, { walletId: w.id, config: { kind: 'sniper', sniper }, confirmExecute: true })
     if (!s) throw new Error('no sniper')
@@ -506,6 +556,135 @@ describe('Sniper', () => {
     expect(await store.executionsOf(s.id)).toMatchObject([{ side: 'buy', status: 'confirmed' }])
     await tick(30_000)
     expect(await store.executionsOf(s.id)).toHaveLength(1)
+  })
+})
+
+describe('Sniper on new pools', () => {
+  /** Ref DCL and Ref v2 as the fake chain names them, with pools the test adds (empty) and funds. */
+  function newPools(network: { wrapContract: string; dex: { dcl: { contract: string } }; rhea: { classic: { exchange: string } } }) {
+    const wrap = network.wrapContract
+    const dcl: Record<string, unknown>[] = []
+    const view = async (contract: string, method: string, args: Record<string, unknown>): Promise<unknown> => {
+      if (contract === network.dex.dcl.contract && method === 'get_metadata') return { pool_count: String(dcl.length) }
+      if (contract === network.dex.dcl.contract && method === 'list_pools') return dcl.slice(Number(args.from_index), Number(args.from_index) + Number(args.limit))
+      if (contract === network.dex.dcl.contract && method === 'get_pool') return dcl.find((p) => p.pool_id === args.pool_id) ?? null
+      if (contract === network.rhea.classic.exchange && method === 'get_number_of_pools') return 0
+      throw new Error(`unexpected view ${contract}.${method}`)
+    }
+    return {
+      view,
+      /** A new DCL pool of `token` and wNEAR, holding `near` NEAR (0: empty, as created). */
+      add(token: string, near = 0n) {
+        const [x, y] = token < wrap ? [token, wrap] : [wrap, token]
+        const pool = { pool_id: `${x}|${y}|10000`, token_x: x, token_y: y, fee: 10000, liquidity: near ? '1000' : '0', total_x: '0', total_y: '0', state: 'Running' }
+        if (y === wrap) pool.total_y = near.toString()
+        else pool.total_x = near.toString()
+        dcl.push(pool)
+        return pool
+      },
+      fund(pool: Record<string, unknown>, near: bigint) {
+        pool.liquidity = '1000'
+        if (pool.token_y === wrap) pool.total_y = near.toString()
+        else pool.total_x = near.toString()
+      },
+    }
+  }
+
+  const sniperOnPools = (patch: Record<string, unknown> = {}) => ({
+    kind: 'sniper' as const,
+    sniper: {
+      target: 'new-pools' as const,
+      token: null,
+      sources: ['other' as const],
+      minPoolNear: 1,
+      maxBuys: 1,
+      amountNear: 1,
+      slippagePct: 2,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+      mode: 'notify' as const,
+      ...patch,
+    },
+  })
+
+  it('notify-only: tells its owner of each new pool once it holds NEAR (each once), checked on an executable quote and a round trip; nothing bought', async () => {
+    let pools: ReturnType<typeof newPools> | null = null
+    const { h, w, store, service, tick, notices } = await setup({ poolView: (c, m, a) => (pools as ReturnType<typeof newPools>).view(c, m, a) })
+    pools = newPools(h.config.network)
+    const [s] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools() })
+    if (!s) throw new Error('no sniper')
+    expect(s.subject).toBe('new-pools')
+    await tick(5_000) // the feed starts at the counters
+    const pool = pools.add(USDT)
+    await tick(5_000)
+    expect(notices).toEqual([])
+    pools.fund(pool, 50n * ONE)
+    await tick(5_000) // ready
+    await tick(5_000) // the sniper's look
+    expect(notices.filter((n) => /Notify-only/.test(n))).toHaveLength(1)
+    expect(notices.at(-1)).toMatch(/USDT/)
+    expect((await store.detectionsOf(s.id))[0]).toMatchObject({ status: 'eligible', token: USDT, side: 'buy' })
+    await tick(5_000)
+    await tick(30_000)
+    expect(notices.filter((n) => /Notify-only/.test(n))).toHaveLength(1)
+    expect(await store.executionsOf(s.id)).toEqual([])
+    expect((await store.get(s.id))?.status).toBe('active')
+  })
+
+  it('a pool below the sniper’s NEAR minimum, or from a source it doesn’t watch, is not acted on', async () => {
+    let pools: ReturnType<typeof newPools> | null = null
+    const { h, w, store, service, tick, notices } = await setup({ poolView: (c, m, a) => (pools as ReturnType<typeof newPools>).view(c, m, a) })
+    pools = newPools(h.config.network)
+    const [thin] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools({ minPoolNear: 100 }) })
+    const [nearlyOnly] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools({ sources: ['nearly'] }) })
+    if (!thin || !nearlyOnly) throw new Error('no snipers')
+    await tick(5_000)
+    pools.add(USDT, 50n * ONE)
+    for (let i = 0; i < 4; i++) await tick(5_000)
+    expect((await store.detectionsOf(thin.id))[0]).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/below this sniper’s 100 NEAR/) })
+    expect(await store.detectionsOf(nearlyOnly.id)).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('buying needs the explicit yes; then it buys a new pool’s token once, confirmed on chain, and completes after its number of tokens', async () => {
+    let pools: ReturnType<typeof newPools> | null = null
+    const { h, w, store, service, tick, notices } = await setup({ poolView: (c, m, a) => (pools as ReturnType<typeof newPools>).view(c, m, a) })
+    pools = newPools(h.config.network)
+    await expect(service.create(ALICE.id, { walletId: w.id, config: sniperOnPools({ mode: 'execute' }) })).rejects.toMatchObject({ code: 'confirm' })
+    const [s] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools({ mode: 'execute' }), confirmExecute: true })
+    if (!s) throw new Error('no sniper')
+    await tick(5_000)
+    pools.add(USDT, 50n * ONE)
+    await tick(5_000)
+    await tick(5_000)
+    expect(await store.executionsOf(s.id)).toMatchObject([{ side: 'buy', status: 'confirmed', nearRaw: ONE.toString(), source: expect.stringMatching(/^pool:dcl:/) }])
+    expect((await store.get(s.id))?.status).toBe('completed')
+    expect(notices.at(-1)).toMatch(/new-pools sniper bought/)
+    await tick(30_000)
+    expect(await store.executionsOf(s.id)).toHaveLength(1)
+  })
+
+  it('the pool feed runs only while a new-pools sniper is live', async () => {
+    const seen: string[] = []
+    const { h, w, service, tick } = await setup({
+      poolView: async (_contract, method) => {
+        seen.push(method)
+        return method === 'get_metadata' ? { pool_count: '0' } : 0
+      },
+    })
+    await tick(5_000)
+    expect(seen).toEqual([])
+    const [s] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools() })
+    await tick(5_000)
+    expect(seen.length).toBeGreaterThan(0)
+    if (!s) throw new Error('no sniper')
+    await service.cancel(ALICE.id, s.id)
+    seen.length = 0
+    await tick(5_000)
+    expect(seen).toEqual([])
+    void h
   })
 })
 

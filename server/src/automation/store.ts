@@ -301,6 +301,20 @@ export class AutomationStore {
     return { strategies: made.filter((s): s is Strategy => s !== null), replay: false }
   }
 
+  /** Whether a live strategy of this kind and subject exists (a new-pools sniper: the pool feed runs). */
+  async liveWithSubject(network: string, kind: StrategyKind, subject: string): Promise<boolean> {
+    const r = await this.db.get<{ id: string }>(
+      `SELECT id FROM auto_strategies WHERE network = ? AND kind = ? AND subject = ? AND status IN (${placeholders(LIVE_STATUSES)}) LIMIT 1`,
+      [network, kind, subject, ...LIVE_STATUSES],
+    )
+    return Boolean(r)
+  }
+
+  /** Active strategies of this kind and subject look again now (a sniper on a token whose pool just became ready). */
+  async wake(network: string, kind: StrategyKind, subject: string): Promise<void> {
+    await this.db.run(`UPDATE auto_strategies SET next_check_at = ? WHERE network = ? AND kind = ? AND subject = ? AND status = 'active'`, [this.now(), network, kind, subject])
+  }
+
   /** Live, paused or draft strategies whose end (an expiry, a DCA's end) has passed: ended by the worker. */
   async lapsed(limit: number): Promise<Strategy[]> {
     return (

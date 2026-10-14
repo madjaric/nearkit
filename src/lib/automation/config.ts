@@ -85,13 +85,33 @@ export interface CopyConfig {
   exclude: string[]
 }
 
+/**
+ * What a sniper watches: one token contract until a route trades it ('token'), or new liquidity pools
+ * of NEAR pairs as the exchanges create them ('new-pools': read from Ref DCL's and Ref v2's own pool
+ * counters, each pool once).
+ */
+export type SniperTarget = 'token' | 'new-pools'
+/** Where new pools come from: Nearly launches (their DCL pool), meme.cooking graduations (their Ref v2 pool), any other new pool. */
+export type SniperSource = 'nearly' | 'meme-cooking' | 'other'
+export const SNIPER_SOURCES: readonly SniperSource[] = ['nearly', 'meme-cooking', 'other']
+/** A new-pools sniper's subject (its records name no token). */
+export const NEW_POOLS_SUBJECT = 'new-pools'
+
 export interface SniperSettings {
-  /** The token contract to buy once it trades. */
-  token: TokenRef
+  target: SniperTarget
+  /** 'token': the contract to buy once it trades. 'new-pools': null (each new pool names its token). */
+  token: TokenRef | null
+  /** 'new-pools': which new pools count. Empty for 'token'. */
+  sources: SniperSource[]
+  /** 'new-pools': the least NEAR a new pool must hold on its NEAR side. Null for 'token'. */
+  minPoolNear: number | null
+  /** How many different tokens it buys before it completes ('token': 1). */
+  maxBuys: number
   amountNear: number
   slippagePct: number
   /** The most price impact accepted on the buy. */
   maxImpactPct: number
+  /** 'token' only: the token's market liquidity (USD) at least this (new pools have no market data yet). */
   minLiquidityUsd: number | null
   maxAttempts: number
   expiresAt: number | null
@@ -124,6 +144,8 @@ export const AUTOMATION_MAX_SLIPPAGE = CUSTODY_MAX_SLIPPAGE
 export const MAX_LIVE_PER_USER: Record<StrategyKind, number> = { limit: 20, copy: 5, sniper: 5, dca: 5 }
 export const DCA_INTERVALS_SEC: readonly number[] = [3_600, 4 * 3_600, 12 * 3_600, 86_400, 7 * 86_400]
 export const MAX_SNIPER_ATTEMPTS = 10
+/** A new-pools sniper buys at most this many different tokens. */
+export const MAX_SNIPER_BUYS = 10
 export const MAX_COPY_EXCLUDES = 50
 /** A trade below this isn't worth its fee and gas. */
 export const MIN_AUTOMATION_NEAR = 0.05
@@ -188,7 +210,21 @@ export function validateCopy(c: CopyConfig): ConfigIssue[] {
 }
 
 export function validateSniper(c: SniperSettings, now: number): ConfigIssue[] {
-  const issues = tokenIssues(c.token, 'token')
+  const issues: ConfigIssue[] = []
+  if (c.target === 'token') {
+    issues.push(...(c.token ? tokenIssues(c.token, 'token') : [{ field: 'token', message: 'Choose a token contract' }]))
+    if (c.sources.length) issues.push({ field: 'sources', message: 'A sniper on one token has no pool sources' })
+    if (c.minPoolNear !== null) issues.push({ field: 'minPoolNear', message: 'A sniper on one token has no pool minimum' })
+    if (c.maxBuys !== 1) issues.push({ field: 'maxBuys', message: 'A sniper on one token buys it once' })
+  } else if (c.target === 'new-pools') {
+    if (c.token !== null) issues.push({ field: 'token', message: 'A new-pools sniper names no token: each new pool does' })
+    if (!Array.isArray(c.sources) || !c.sources.length || c.sources.some((x) => !SNIPER_SOURCES.includes(x)) || new Set(c.sources).size !== c.sources.length)
+      issues.push({ field: 'sources', message: 'Choose where new pools come from: Nearly launches, meme.cooking graduations, other new pools' })
+    if (c.minPoolNear === null || !(typeof c.minPoolNear === 'number' && Number.isFinite(c.minPoolNear) && c.minPoolNear >= 0 && c.minPoolNear <= 100_000))
+      issues.push({ field: 'minPoolNear', message: 'The least NEAR a new pool must hold, 0 or more' })
+    if (!(Number.isInteger(c.maxBuys) && c.maxBuys >= 1 && c.maxBuys <= MAX_SNIPER_BUYS)) issues.push({ field: 'maxBuys', message: `From 1 to ${MAX_SNIPER_BUYS} tokens` })
+    if (c.minLiquidityUsd !== null) issues.push({ field: 'minLiquidityUsd', message: 'New pools have no market data yet: use the pool’s NEAR minimum' })
+  } else issues.push({ field: 'target', message: 'Watch one token, or new pools' })
   if (!finitePositive(c.amountNear) || c.amountNear < MIN_AUTOMATION_NEAR) issues.push({ field: 'amountNear', message: `Buy at least ${MIN_AUTOMATION_NEAR} NEAR` })
   if (!slippageOk(c.slippagePct)) issues.push({ field: 'slippagePct', message: `Slippage is above 0 and at most ${AUTOMATION_MAX_SLIPPAGE}%, with at most two decimals` })
   if (!(finitePositive(c.maxImpactPct) && c.maxImpactPct <= 50)) issues.push({ field: 'maxImpactPct', message: 'A maximum price impact above 0 and at most 50%' })
@@ -291,12 +327,19 @@ export function parseStrategy(input: unknown, now: number): { ok: true; config: 
       },
     }
   } else if (kind === 'sniper') {
+    // A sniper without a target is one on a token (as every sniper was before new pools).
+    const target = body.target === undefined ? 'token' : (body.target as SniperTarget)
     const t = token(body.token)
-    if (!t) return { ok: false, issues: [{ field: 'token', message: 'Choose a token' }] }
+    if (target === 'token' && !t) return { ok: false, issues: [{ field: 'token', message: 'Choose a token' }] }
     config = {
       kind,
       sniper: {
-        token: t,
+        target,
+        // A new-pools sniper that names a token anyway is refused by validation, not quietly changed.
+        token: target === 'token' || (body.token !== null && body.token !== undefined) ? t : null,
+        sources: Array.isArray(body.sources) ? body.sources.map((x) => (typeof x === 'string' ? (x as SniperSource) : ('' as SniperSource))) : [],
+        minPoolNear: body.minPoolNear === undefined ? null : numOrNull(body.minPoolNear),
+        maxBuys: body.maxBuys === undefined ? 1 : num(body.maxBuys),
         amountNear: num(body.amountNear),
         slippagePct: num(body.slippagePct),
         maxImpactPct: num(body.maxImpactPct),
@@ -326,7 +369,7 @@ export function parseStrategy(input: unknown, now: number): { ok: true; config: 
   return issues.length ? { ok: false, issues } : { ok: true, config }
 }
 
-/** The token a strategy trades, or null (Copy Trade follows an account, not a token). */
+/** The token a strategy trades, or null (Copy Trade follows an account, a new-pools sniper new pools). */
 export function tokenOfStrategy(s: StrategyConfig): TokenRef | null {
-  return s.kind === 'limit' ? s.limit.token : s.kind === 'sniper' ? s.sniper.token : s.kind === 'dca' ? s.dca.token : null
+  return s.kind === 'limit' ? s.limit.token : s.kind === 'sniper' ? (s.sniper.target === 'token' ? s.sniper.token : null) : s.kind === 'dca' ? s.dca.token : null
 }

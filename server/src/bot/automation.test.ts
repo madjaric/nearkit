@@ -152,7 +152,7 @@ describe('limit orders in Telegram (/orders)', () => {
     expect(h.buttons().map((b) => b.text)).not.toContain('⏸ Pause')
   })
 
-  it('take profit + stop loss: one review previews both, one Confirm creates the pair, and Cancel offers both', async () => {
+  it('take profit + stop loss: one review previews both, one Confirm creates the pair, and cancelling either cancels both', async () => {
     const h = await autoBot()
     await h.say('/orders')
     await h.tap('New order')
@@ -188,7 +188,8 @@ describe('limit orders in Telegram (/orders)', () => {
     expect(h.text()).toContain('Paired')
     expect(h.buttons().some((b) => b.text.includes('Its pair: Stop loss USDT'))).toBe(true)
     await h.tap('Cancel order')
-    await h.tap('Cancel both orders')
+    expect(h.text()).toContain('cancelling it cancels the other order too')
+    await h.tap('Yes, cancel both orders')
     expect(h.text()).toContain('Both orders of the pair are cancelled')
     expect((await h.service.list(ALICE.id, ['limit'])).map((v) => v.status)).toEqual(['cancelled', 'cancelled'])
   })

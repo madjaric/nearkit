@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { AUTOMATION_MAX_SLIPPAGE, parseStrategy, validateCopy, validateDca, validateLimit, validateSniper, type CopyConfig, type LimitConfig } from './config'
+import {
+  AUTOMATION_MAX_SLIPPAGE,
+  parseStrategy,
+  tokenOfStrategy,
+  validateCopy,
+  validateDca,
+  validateLimit,
+  validateSniper,
+  type CopyConfig,
+  type LimitConfig,
+  type StrategyConfig,
+} from './config'
 import { formatPrice, meetsTrigger, priceYocto, targetYocto } from './price'
 
 const NOW = 1_800_000_000_000
@@ -106,10 +117,79 @@ describe('Copy Trade, Sniper and DCA configurations', () => {
   })
 
   it('a sniper buys a real token within limits; attempts are bounded', () => {
-    const s = { token: KITS, amountNear: 1, slippagePct: 3, maxImpactPct: 10, minLiquidityUsd: null, maxAttempts: 3, expiresAt: null, mode: 'notify' as const }
+    const s = {
+      target: 'token' as const,
+      token: KITS,
+      sources: [],
+      minPoolNear: null,
+      maxBuys: 1,
+      amountNear: 1,
+      slippagePct: 3,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+      mode: 'notify' as const,
+    }
     expect(validateSniper(s, NOW)).toEqual([])
     expect(validateSniper({ ...s, maxAttempts: 11 }, NOW).map((i) => i.field)).toContain('maxAttempts')
     expect(validateSniper({ ...s, token: { ...KITS, id: 'near' } }, NOW).map((i) => i.field)).toContain('token.id')
+  })
+
+  it('a new-pools sniper names no token, watches chosen sources, has a pool NEAR minimum and a bounded number of buys', () => {
+    const s = {
+      target: 'new-pools' as const,
+      token: null,
+      sources: ['nearly' as const, 'other' as const],
+      minPoolNear: 5,
+      maxBuys: 2,
+      amountNear: 1,
+      slippagePct: 3,
+      maxImpactPct: 10,
+      minLiquidityUsd: null,
+      maxAttempts: 3,
+      expiresAt: null,
+      mode: 'notify' as const,
+    }
+    expect(validateSniper(s, NOW)).toEqual([])
+    const fields = (patch: Record<string, unknown>) => validateSniper({ ...s, ...patch } as typeof s, NOW).map((i) => i.field)
+    expect(fields({ sources: [] })).toContain('sources')
+    expect(fields({ sources: ['nearly', 'nearly'] })).toContain('sources')
+    expect(fields({ sources: ['pumpfun'] })).toContain('sources')
+    expect(fields({ minPoolNear: null })).toContain('minPoolNear')
+    expect(fields({ maxBuys: 11 })).toContain('maxBuys')
+    expect(fields({ token: KITS })).toContain('token')
+    expect(fields({ minLiquidityUsd: 1000 })).toContain('minLiquidityUsd')
+  })
+
+  it('a sniper sent without a target (an older client) is a sniper on its token; a new-pools one keeps its fields', () => {
+    const old = parseStrategy(
+      { kind: 'sniper', sniper: { token: KITS, amountNear: 1, slippagePct: 3, maxImpactPct: 10, minLiquidityUsd: null, maxAttempts: 3, expiresAt: null, mode: 'notify' } },
+      NOW,
+    )
+    expect(old).toMatchObject({ ok: true, config: { sniper: { target: 'token', token: { id: KITS.id }, sources: [], minPoolNear: null, maxBuys: 1 } } })
+    const pools = parseStrategy(
+      {
+        kind: 'sniper',
+        sniper: {
+          target: 'new-pools',
+          token: null,
+          sources: ['meme-cooking'],
+          minPoolNear: 2,
+          maxBuys: 1,
+          amountNear: 1,
+          slippagePct: 3,
+          maxImpactPct: 10,
+          minLiquidityUsd: null,
+          maxAttempts: 3,
+          expiresAt: null,
+          mode: 'notify',
+        },
+      },
+      NOW,
+    )
+    expect(pools).toMatchObject({ ok: true, config: { sniper: { target: 'new-pools', token: null, sources: ['meme-cooking'], minPoolNear: 2 } } })
+    expect(tokenOfStrategy((pools as { config: StrategyConfig }).config)).toBeNull()
   })
 
   it('DCA runs on the listed intervals, from now on', () => {

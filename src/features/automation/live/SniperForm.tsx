@@ -216,7 +216,7 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
             ? {
                 pending: preview.isPending,
                 error: preview.isError ? refusalOf(preview.error).message : null,
-                body: preview.data ? <PreviewLines preview={preview.data as StrategyPreview} token={review.token} /> : null,
+                body: preview.data && review.token ? <PreviewLines preview={preview.data as StrategyPreview} token={review.token} /> : null,
               }
             : null
         }
@@ -225,7 +225,7 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
             <Checkbox
               checked={understood}
               onChange={(e) => setUnderstood(e.target.checked)}
-              label={`I confirm: buy ${review.amountNear} NEAR of ${review.token.symbol} from my NEARKITS wallet when it trades within these limits, without asking me again.`}
+              label={`I confirm: buy ${review.amountNear} NEAR of ${review.token ? review.token.symbol : 'each new token'} from my NEARKITS wallet when it trades within these limits, without asking me again.`}
             />
           )
         }

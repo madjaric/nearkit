@@ -14,6 +14,7 @@ import {
 import {
   AUTOMATION_MAX_SLIPPAGE,
   FINAL_STATUSES,
+  NEW_POOLS_SUBJECT,
   parseStrategy,
   sideOf,
   tokenOfStrategy,
@@ -175,7 +176,8 @@ export function createAutomationService(deps: AutomationServiceDeps) {
     return withToken
   }
 
-  const subjectOf = (c: StrategyConfig) => (c.kind === 'copy' ? c.copy.target : (tokenOfStrategy(c) as TokenRef).id)
+  const subjectOf = (c: StrategyConfig) =>
+    c.kind === 'copy' ? c.copy.target : c.kind === 'sniper' && c.sniper.target === 'new-pools' ? NEW_POOLS_SUBJECT : (tokenOfStrategy(c) as TokenRef).id
   const firstCheck = (c: StrategyConfig) => (c.kind === 'dca' ? Math.max(now(), c.dca.startAt) : now())
   const expiryOf = (c: StrategyConfig) => (c.kind === 'limit' ? c.limit.expiresAt : c.kind === 'sniper' ? c.sniper.expiresAt : c.kind === 'dca' ? c.dca.endAt : null)
 
@@ -348,7 +350,12 @@ export function createAutomationService(deps: AutomationServiceDeps) {
     const wallet = await ownWallet(userId, walletId)
     const c = await prepared(input)
     const token = tokenOfStrategy(c)
-    if (!token) throw new AutomationError('state', 'Copy Trade has nothing to quote until the followed account trades.')
+    // No issues with it: the configuration is valid, there is just nothing to quote yet.
+    if (!token)
+      throw new AutomationError(
+        'state',
+        c.kind === 'copy' ? 'Copy Trade has nothing to quote until the followed account trades.' : 'A new-pools sniper has nothing to quote until a new pool appears.',
+      )
     const side = c.kind === 'limit' ? sideOf(c.limit.type) : 'buy'
     const [nearState, held] = await Promise.all([
       near.ctx.balances.get(wallet.accountId).catch(() => null),

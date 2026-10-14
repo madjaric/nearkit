@@ -1,6 +1,8 @@
 import { volumeModule } from './bot/volume'
 import { automationModule } from './bot/automation'
 import { botRoutes } from './volumebot/routes'
+import { KIT_LAUNCHPAD } from '@/config/kit'
+import { createPoolFeed, PoolStore } from './automation/pools'
 import { automationRoutes } from './automation/routes'
 import { createAutomationRunner } from './automation/runner'
 import { createAutomationService } from './automation/service'
@@ -546,6 +548,20 @@ export async function startServer(options: { env: Record<string, string | undefi
         })
       : null
   volumeRunner?.start()
+  // Sniper's new pools: read from Ref DCL's and Ref v2's own pool counters while a new-pools sniper is live.
+  const poolStore = automationStore ? new PoolStore(db, now) : null
+  const poolFeed =
+    poolStore && automationStore && automationEnabled.has('sniper')
+      ? createPoolFeed({
+          store: poolStore,
+          view: (contract, method, args) => near.ctx.rpc.viewFunction<unknown>(contract, method, args, 'final'),
+          network: config.network,
+          nearly: config.network.id === 'mainnet' ? KIT_LAUNCHPAD : null,
+          log,
+          now,
+          onReady: (token) => automationStore.wake(config.network.id, 'sniper', token),
+        })
+      : null
   // Trading automation's worker: each strategy stepped under its own lease; nothing trades for a kind that is off.
   const automationRunner =
     custody && automationStore && automationEnabled.size > 0
@@ -562,6 +578,7 @@ export async function startServer(options: { env: Record<string, string | undefi
           fetch: fetchImpl,
           now,
           notify: async (userId, html) => void (bot ? await bot.notify(userId, html) : undefined),
+          ...(poolStore ? { pools: { store: poolStore, feed: poolFeed } } : {}),
         })
       : null
   automationRunner?.start()
@@ -619,6 +636,7 @@ export async function startServer(options: { env: Record<string, string | undefi
         await buybot?.store.prune(7 * 86_400_000)
         await volumeBots?.prune()
         await automationStore?.prune()
+        await poolStore?.prune()
         // Keys of wallets closed lately that the signer couldn't erase yet (the chain wasn't sure).
         if (custody) {
           const c = custody
