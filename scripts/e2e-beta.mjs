@@ -83,14 +83,15 @@ const LIVE = ['/swap', '/multi-trade', '/split', '/consolidate', '/batch-send', 
  */
 const SIDEBAR = [
   // $KITS sits under the Dashboard, MAINNET on this testnet build: it isn't coming soon, it trades on mainnet.
-  ['Main', ['Dashboard', '$KITS MAINNET']],
+  // The two bridge products follow it; they are mainnet only, held back on the testnet beta.
+  ['Main', ['Dashboard', '$KITS MAINNET', 'Bridge SOON', 'Bridge & Buy SOON']],
   ['Trade', ['Swap', 'Quick Trade', 'Multi Trade', 'Limit Orders SOON']],
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
   ['Automation', ['Volume Bot SOON', 'DCA SOON', 'Copy Trade SOON', 'Sniper SOON']],
   ['Portfolio', ['Positions', 'PnL']],
   ['Intelligence', ['Scanner']],
-  // The two bridge products are mainnet only: held back on the testnet beta, as is the bot.
-  ['Other', ['Bridge SOON', 'Bridge & Buy SOON', 'Settings', 'Documentation', 'Telegram SOON']],
+  // The bot is held back on the testnet beta too.
+  ['Other', ['Settings', 'Documentation', 'Telegram SOON']],
 ]
 /** Group names and entries of a navigation body, as rendered (tags read in capitals, as they print). */
 const navGroups = (nav) =>

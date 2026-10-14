@@ -110,6 +110,16 @@ await step('sidebar: MAIN, Trade, Tools, Automation, Portfolio, Intelligence and
   await nav.getByRole('group', { name: 'Other' }).waitFor()
   const groups = await nav.getByRole('group').evaluateAll((gs) => gs.map((g) => g.getAttribute('aria-label')))
   if (groups.join() !== 'Main,Trade,Tools,Automation,Portfolio,Intelligence,Other') throw new Error(`sidebar groups: ${groups.join(', ')}`)
+  // MAIN: the Dashboard, $KITS, then Bridge and Bridge & Buy; Other keeps the rest, no bridge.
+  const hrefsOf = (group) =>
+    nav
+      .getByRole('group', { name: group })
+      .getByRole('link')
+      .evaluateAll((as) => as.map((a) => a.getAttribute('href')))
+  const main = await hrefsOf('Main')
+  if (main.join() !== '/,/kit,/bridge-near,/bridge') throw new Error(`MAIN: ${main.join(', ')}`)
+  const other = await hrefsOf('Other')
+  if (other.some((h) => h.startsWith('/bridge')) || !['/settings', '/docs', '/telegram'].every((h) => other.includes(h))) throw new Error(`Other: ${other.join(', ')}`)
   const links = await nav.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href')))
   for (const href of links) {
     await nav.locator(`a[href="${href}"]`).click()
@@ -145,6 +155,17 @@ await step('All Tools: every tool by group; search by name, task or group; a gro
     .getByRole('link', { name: /^Copy Trade/ })
     .click()
   await page.waitForURL(/\/copy-trade$/)
+  // Main lists the two bridges, first, as the sidebar does; each opens its own page.
+  await page.goto(BASE + '/tools?group=main', { waitUntil: 'networkidle' })
+  await page.getByRole('status').getByText('2 of 20 tools').waitFor()
+  const mainRows = await page
+    .getByRole('main')
+    .locator('section a')
+    .evaluateAll((as) => as.map((a) => a.getAttribute('href')))
+  if (mainRows.join() !== '/bridge-near,/bridge') throw new Error(`All Tools, Main: ${mainRows.join(', ')}`)
+  await page.getByRole('main').locator('section a[href="/bridge"]').click()
+  await page.waitForURL(/\/bridge$/)
+  await page.getByRole('heading', { level: 1, name: 'Bridge & Buy' }).waitFor()
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
 })
 

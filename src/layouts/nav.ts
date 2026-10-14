@@ -74,11 +74,40 @@ export const NAV_ALL_TOOLS: NavItem = {
 }
 
 /**
- * The sidebar's groups, in order, under MAIN (the Dashboard and $KITS). An entry this build
- * doesn't run yet stays in its group with a SOON tag. The All Tools directory lists the same
- * groups, so a tool is found in one place under one name.
+ * MAIN: the sidebar draws the Dashboard and $KITS at its top itself; these follow them. In the All
+ * Tools directory, Main lists these alone (the Dashboard and $KITS are pages, not tools).
+ */
+export const NAV_MAIN: NavGroup = {
+  label: 'Main',
+  items: [
+    // SOL, ETH or BNB → NEAR (NEAR Intents), to fund NEARKITS wallets; nothing is bought. NEAR mainnet with NEARKITS' server; the demo previews it.
+    {
+      to: '/bridge-near',
+      label: 'Bridge',
+      icon: ArrowDownToLine,
+      description: 'Move assets from other chains into NEAR.',
+      soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
+      keywords: ['bridge', 'deposit', 'fund', 'top up', 'gas', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents'],
+    },
+    // SOL, ETH or BNB → NEAR (NEAR Intents) → $KITS. NEAR mainnet with NEARKITS' server; the demo previews it.
+    {
+      to: '/bridge',
+      label: 'Bridge & Buy',
+      icon: Route,
+      description: 'Bridge your assets and automatically buy $KITS.',
+      soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
+      keywords: ['bridge', 'buy kits', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents', 'deposit'],
+    },
+  ],
+}
+
+/**
+ * The sidebar's groups, in order, MAIN first. An entry this build doesn't run yet stays in its
+ * group with a SOON tag. The All Tools directory lists the same groups, so a tool is found in one
+ * place under one name.
  */
 export const NAV_GROUPS: NavGroup[] = [
+  NAV_MAIN,
   {
     label: 'Trade',
     items: [
@@ -173,24 +202,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Other',
     items: [
-      // SOL, ETH or BNB → NEAR (NEAR Intents), to fund NEARKITS wallets; nothing is bought. NEAR mainnet with NEARKITS' server; the demo previews it.
-      {
-        to: '/bridge-near',
-        label: 'Bridge',
-        icon: ArrowDownToLine,
-        description: 'Move assets from other chains into NEAR.',
-        soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
-        keywords: ['bridge', 'deposit', 'fund', 'top up', 'gas', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents'],
-      },
-      // SOL, ETH or BNB → NEAR (NEAR Intents) → $KITS. NEAR mainnet with NEARKITS' server; the demo previews it.
-      {
-        to: '/bridge',
-        label: 'Bridge & Buy',
-        icon: Route,
-        description: 'Bridge your assets and automatically buy $KITS.',
-        soon: ENV.services === 'near' && (ENV.network !== 'mainnet' || !ENV.apiUrl),
-        keywords: ['bridge', 'buy kits', 'solana', 'sol', 'ethereum', 'eth', 'bnb', 'cross-chain', 'near intents', 'deposit'],
-      },
       { to: '/settings', label: 'Settings', icon: Settings, description: 'Slippage, confirmations and other preferences.', keywords: ['preferences', 'slippage'] },
       {
         to: '/docs',

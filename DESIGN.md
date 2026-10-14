@@ -269,11 +269,13 @@ components:
 >   bar (40px search, ticker, network chip, wallet chip), 64px phone tab bar. On a phone the Connect key is
 >   36px, the account chip truncates rather than widening the page, and the strip under the bar prints the
 >   ticker and the network flat. Nothing overflows at 360px.
-> - **Navigation (2026-10-14):** fixed groups, in order: MAIN (Dashboard, $KITS), Trade, Tools, Automation,
->   Portfolio, Intelligence, Other. An entry the build doesn't run yet keeps its place with a SOON tag (nothing
->   moves when it goes live). Every entry has one plain description (`src/layouts/nav.ts`): the sidebar's
->   tooltip, the search box and the All Tools directory (`/tools`) print it. The directory lists the same
->   groups, searchable by name, task or group, with group keys; both live in the address (`?q=`, `?group=`).
+> - **Navigation (2026-10-14):** fixed groups, in order: MAIN (Dashboard, $KITS, Bridge, Bridge & Buy), Trade,
+>   Tools, Automation, Portfolio, Intelligence, Other (Settings, Documentation, Telegram, Recover). An entry the
+>   build doesn't run yet keeps its place with a SOON tag (nothing moves when it goes live). Every entry has one
+>   plain description (`src/layouts/nav.ts`): the sidebar's tooltip, the search box and the All Tools directory
+>   (`/tools`) print it. The directory lists the same groups (its Main: the two bridges; the Dashboard and $KITS
+>   are pages, not tools), searchable by name, task or group, with group keys; both live in the address
+>   (`?q=`, `?group=`).
 > - **Page head:** title, status tag, one line of context, and the page's actions at right; the Dashboard's are
 >   BUY, SELL, SEND and MULTI BUY.
 > - **Dashboard (2026-10-14):** "Your trading terminal on NEAR." under the title; five stat cards (portfolio
@@ -443,7 +445,7 @@ Fixed-slot measurement strip. The strip ground is `line-soft` and slots sit on i
 
 ### Navigation
 - **Sidebar:** 224px on `well`. Group legends open with the corner bracket. Items are 32px with a 16px line icon: active is `raised` with `fg` text, a lime icon and a lit LED at right; inactive is `fg-2`. Unshipped entries carry a SOON tag.
-  - **Order (2026-10-14):** MAIN, Trade, Tools, Automation, Portfolio, Intelligence, Other, each with all of its entries; an entry that is not live in the build keeps its place with a SOON tag. All Tools is pinned under the list. (Before 2026-10-14 held-back entries moved to a COMING SOON group at the end.)
+  - **Order (2026-10-14):** MAIN (Dashboard, $KITS, Bridge, Bridge & Buy), Trade, Tools, Automation, Portfolio, Intelligence, Other, each with all of its entries; an entry that is not live in the build keeps its place with a SOON tag. All Tools is pinned under the list. (Before 2026-10-14 held-back entries moved to a COMING SOON group at the end.)
   - **Quick Trade:** it has no page of its own. Its entry opens the Quick Trade ticket over the current page, on the default trade token.
   - **Phone:** the drawer mirrors the sidebar, and a held-back tab moves after the live tabs in the tab bar.
 - **Top bar:** 48px on `canvas` (see Layout).

@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn'
 import { useNetworkWording } from '@/lib/modeCopy'
 import { useCapabilities } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
-import { isNavAction, NAV_ALL_TOOLS, NAV_GROUPS, NAV_HOME, type NavAction, type NavItem } from './nav'
+import { isNavAction, NAV_ALL_TOOLS, NAV_GROUPS, NAV_HOME, NAV_MAIN, type NavAction, type NavItem } from './nav'
 import { useIsSoon } from './navState'
 
 /** What this build runs on, short enough for the sidebar's footer row; the network chip says the rest. */
@@ -131,25 +131,25 @@ function AllToolsEntry({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 /**
- * Navigation body shared by the desktop sidebar and the phone drawer: MAIN, then every group in
- * its fixed order with all of its entries (one this build doesn't run yet carries a SOON tag in
- * place, so nothing moves when it goes live), and All Tools pinned below the scrolling list.
+ * Navigation body shared by the desktop sidebar and the phone drawer: every group in its fixed
+ * order with all of its entries (one this build doesn't run yet carries a SOON tag in place, so
+ * nothing moves when it goes live), MAIN first with the Dashboard and $KITS ahead of its own
+ * entries, and All Tools pinned below the scrolling list.
  */
 export function NavBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
       <nav aria-label="Main" className="flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
-        <div role="group" aria-label="Main">
-          <GroupLegend label="Main" />
-          <ul className="flex flex-col gap-px">
-            <NavEntry item={NAV_HOME} onNavigate={onNavigate} />
-            <KitEntry onNavigate={onNavigate} />
-          </ul>
-        </div>
         {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="mt-3" role="group" aria-label={group.label}>
+          <div key={group.label} className={group === NAV_MAIN ? undefined : 'mt-3'} role="group" aria-label={group.label}>
             <GroupLegend label={group.label} />
             <ul className="flex flex-col gap-px">
+              {group === NAV_MAIN && (
+                <>
+                  <NavEntry item={NAV_HOME} onNavigate={onNavigate} />
+                  <KitEntry onNavigate={onNavigate} />
+                </>
+              )}
               {group.items.map((item) =>
                 isNavAction(item) ? <QuickTradeEntry key={item.action} entry={item} onNavigate={onNavigate} /> : <NavEntry key={item.to} item={item} onNavigate={onNavigate} />,
               )}

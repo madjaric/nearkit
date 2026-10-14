@@ -49,9 +49,11 @@ describe('each public page’s title and description', () => {
 
   it('All Tools lists every tool by group for a reader without JavaScript, as the page does', () => {
     const facts = pageSeo('/tools')?.facts ?? []
-    expect(facts[0]).toBe('Trade: Swap, Quick Trade, Multi Trade, Limit Orders.')
-    expect(facts.map((f) => f.split(':')[0])).toEqual(['Trade', 'Tools', 'Automation', 'Portfolio', 'Intelligence', 'Other'])
+    expect(facts.map((f) => f.split(':')[0])).toEqual(['Main', 'Trade', 'Tools', 'Automation', 'Portfolio', 'Intelligence', 'Other'])
+    expect(facts[0]).toBe('Main: Bridge, Bridge & Buy.')
+    expect(facts[1]).toBe('Trade: Swap, Quick Trade, Multi Trade, Limit Orders.')
     expect(facts.join(' ')).toMatch(/Automation: Volume Bot, DCA, Copy Trade, Sniper\./)
+    expect(facts[6]).toBe('Other: Settings, Documentation, Telegram.')
   })
 
   it('Bridge & Buy says what it does: SOL, ETH or BNB through NEAR Intents to $KITS, two steps, non-custodial, its fees apart', () => {

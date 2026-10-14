@@ -781,31 +781,44 @@ await step('Activity: a “Bridge” row, distinct from Bridge & Buy, linked to 
   await context.close()
 })
 
-await step('navigation: the sidebar has Bridge and Bridge & Buy, each saying what it does; search for “bridge” offers both; /bridge stays Bridge & Buy', async () => {
-  const { context, page } = await openPage()
-  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
-  const nav = page.getByRole('navigation', { name: 'Main' }).first()
-  const bridge = nav.getByRole('link', { name: 'Bridge', exact: true })
-  const buy = nav.getByRole('link', { name: 'Bridge & Buy', exact: true })
-  await bridge.waitFor()
-  await buy.waitFor()
-  if ((await bridge.getAttribute('href')) !== '/bridge-near' || (await buy.getAttribute('href')) !== '/bridge') throw new Error('the entries point elsewhere')
-  // What tells them apart, on hover and to assistive tech (the All Tools directory prints it too).
-  if (
-    (await bridge.getAttribute('title')) !== 'Move assets from other chains into NEAR.' ||
-    (await buy.getAttribute('title')) !== 'Bridge your assets and automatically buy $KITS.'
-  )
-    throw new Error('the entries no longer say what tells them apart')
-  await bridge.click()
-  await page.waitForURL(/\/bridge-near$/)
-  await page.getByRole('heading', { level: 1, name: 'Bridge' }).waitFor()
-  await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().click()
-  await page.keyboard.type('bridge')
-  const results = page.getByRole('listbox', { name: 'Search results' })
-  await results.getByRole('option', { name: /Move assets from other chains into NEAR/ }).waitFor()
-  await results.getByRole('option', { name: /automatically buy \$KITS/ }).waitFor()
-  await context.close()
-})
+await step(
+  'navigation: the sidebar has Bridge and Bridge & Buy in MAIN, right under $KITS, each saying what it does; search for “bridge” offers both; /bridge stays Bridge & Buy',
+  async () => {
+    const { context, page } = await openPage()
+    await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
+    const nav = page.getByRole('navigation', { name: 'Main' }).first()
+    const main = nav.getByRole('group', { name: 'Main' })
+    const bridge = main.getByRole('link', { name: 'Bridge', exact: true })
+    const buy = main.getByRole('link', { name: 'Bridge & Buy', exact: true })
+    await bridge.waitFor()
+    await buy.waitFor()
+    if ((await bridge.getAttribute('href')) !== '/bridge-near' || (await buy.getAttribute('href')) !== '/bridge') throw new Error('the entries point elsewhere')
+    const order = await main.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href')))
+    if (order.join() !== '/,/kit,/bridge-near,/bridge') throw new Error(`MAIN reads ${order.join(', ')}`)
+    if (
+      await nav
+        .getByRole('group', { name: 'Other' })
+        .getByRole('link', { name: /^Bridge/ })
+        .count()
+    )
+      throw new Error('a bridge is still listed under Other')
+    // What tells them apart, on hover and to assistive tech (the All Tools directory prints it too).
+    if (
+      (await bridge.getAttribute('title')) !== 'Move assets from other chains into NEAR.' ||
+      (await buy.getAttribute('title')) !== 'Bridge your assets and automatically buy $KITS.'
+    )
+      throw new Error('the entries no longer say what tells them apart')
+    await bridge.click()
+    await page.waitForURL(/\/bridge-near$/)
+    await page.getByRole('heading', { level: 1, name: 'Bridge' }).waitFor()
+    await page.getByRole('combobox', { name: 'Search token, contract or command' }).first().click()
+    await page.keyboard.type('bridge')
+    const results = page.getByRole('listbox', { name: 'Search results' })
+    await results.getByRole('option', { name: /Move assets from other chains into NEAR/ }).waitFor()
+    await results.getByRole('option', { name: /automatically buy \$KITS/ }).waitFor()
+    await context.close()
+  },
+)
 
 for (const width of [1920, 1440, 1280, 1024, 820, 768, 430, 390, 375, 360]) {
   await step(`Bridge layout at ${width}px: the form with a quote, the review and a finished order fit, no horizontal scroll, no page error`, async () => {
