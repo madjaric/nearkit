@@ -25,6 +25,9 @@ import { useDefaultTradeToken } from '@/features/trade/useDefaultToken'
 import { useAutomationMutations, useBalance, useDcaPlans, useSession, useTokens, useWallets } from '@/services/queries'
 import { useInComingSoon } from '@/state/contexts'
 import type { DcaFrequency } from '@/types/domain'
+import { DcaForm } from '@/features/automation/live/DcaForm'
+import { LiveAutomation } from '@/features/automation/live/LiveAutomation'
+import { useAutomationLive } from '@/features/automation/live/queries'
 
 function Dca() {
   const toast = useToast()
@@ -251,6 +254,19 @@ function Dca() {
 }
 
 export default function DcaPage() {
+  // NEARKITS' server runs DCA for this user (real services, a NEARKITS session, switched on).
+  const live = useAutomationLive('dca')
+  if (live)
+    return (
+      <Page>
+        <PageHeader
+          title="DCA"
+          status={<Tag tone="accent">Live · NEARKITS wallets</Tag>}
+          description="Buy a fixed amount of NEAR’s worth of a token on a schedule, server-side from your NEARKITS wallets."
+        />
+        <LiveAutomation kind="dca" title="Your DCA plans" form={(onCreated) => <DcaForm onCreated={onCreated} />} />
+      </Page>
+    )
   return (
     <Page>
       <PageHeader title="DCA" status={<Tag tone="neutral">Scheduler not live</Tag>} description="Buy a fixed amount on a fixed schedule instead of all at once." />

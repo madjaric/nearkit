@@ -22,6 +22,12 @@ export interface TxRef {
   hash: string
   blockHeight: number
   timestampMs: number
+  /** The account signed it (or a delegate action it signed was relayed): absent when the index didn't say. */
+  signer?: boolean
+  /** The account is the transaction's signer itself (not a delegate's sender): its status can be read from RPC with it. */
+  directSigner?: boolean
+  /** The transaction succeeded: absent when the index didn't say. */
+  success?: boolean
 }
 
 export interface LedgerOptions {
@@ -39,12 +45,24 @@ async function postJson<T>(fetchImpl: typeof fetch, url: string, body: unknown):
 
 const defaultPace = () => new Promise<void>((r) => setTimeout(r, 300))
 
-/** The account's transactions, newest first, up to `max`. `complete` is false when there were more. */
+type IndexTx = {
+  transaction_hash?: string
+  tx_block_height?: number
+  tx_block_timestamp?: string
+  is_signer?: boolean
+  is_real_signer?: boolean
+  is_success?: boolean
+}
+
+/**
+ * The account's transactions, newest first, up to `max`. `complete` is false when there were more.
+ * With `until` (ms), paging stops once a page reaches transactions at or before it (they were seen already).
+ */
 export async function fetchAccountTxs(
   fetchImpl: typeof fetch,
   txUrl: string,
   accountId: string,
-  options: { max?: number; pageSize?: number; pace?: () => Promise<void> } = {},
+  options: { max?: number; pageSize?: number; pace?: () => Promise<void>; until?: number } = {},
 ): Promise<{ txs: TxRef[]; complete: boolean }> {
   const max = options.max ?? 600
   const pageSize = options.pageSize ?? 200
@@ -52,22 +70,38 @@ export async function fetchAccountTxs(
   const txs: TxRef[] = []
   let resume: string | undefined
   for (;;) {
-    const page = await postJson<{ account_txs?: { transaction_hash?: string; tx_block_height?: number; tx_block_timestamp?: string }[]; resume_token?: unknown }>(
-      fetchImpl,
-      `${txUrl}/v0/account`,
-      { account_id: accountId, limit: Math.min(pageSize, max - txs.length), ...(resume ? { resume_token: resume } : {}) },
-    )
+    const page = await postJson<{ account_txs?: IndexTx[]; resume_token?: unknown }>(fetchImpl, `${txUrl}/v0/account`, {
+      account_id: accountId,
+      limit: Math.min(pageSize, max - txs.length),
+      ...(resume ? { resume_token: resume } : {}),
+    })
     for (const t of page.account_txs ?? []) {
       if (typeof t.transaction_hash !== 'string' || typeof t.tx_block_height !== 'number') continue
       const ts = typeof t.tx_block_timestamp === 'string' && /^\d+$/.test(t.tx_block_timestamp) ? Number(BigInt(t.tx_block_timestamp) / 1_000_000n) : 0
-      txs.push({ hash: t.transaction_hash, blockHeight: t.tx_block_height, timestampMs: ts })
+      txs.push({
+        hash: t.transaction_hash,
+        blockHeight: t.tx_block_height,
+        timestampMs: ts,
+        ...(typeof t.is_signer === 'boolean' || typeof t.is_real_signer === 'boolean' ? { signer: t.is_signer === true || t.is_real_signer === true } : {}),
+        ...(typeof t.is_signer === 'boolean' ? { directSigner: t.is_signer } : {}),
+        ...(typeof t.is_success === 'boolean' ? { success: t.is_success } : {}),
+      })
     }
     const next = typeof page.resume_token === 'string' || typeof page.resume_token === 'number' ? String(page.resume_token) : undefined
     if (!next || !(page.account_txs ?? []).length) return { txs, complete: true }
     if (txs.length >= max) return { txs, complete: false }
+    if (options.until !== undefined && txs.some((t) => t.timestampMs <= (options.until as number))) return { txs, complete: true }
     resume = next
     await pace()
   }
+}
+
+/** How far FastNEAR's transaction index is behind the chain (its /status), in seconds; null when it doesn't say. Throws when it doesn't answer. */
+export async function fetchIndexLag(fetchImpl: typeof fetch, txUrl: string): Promise<number | null> {
+  const res = await fetchImpl(`${txUrl}/status`, { method: 'GET' })
+  if (!res.ok) throw new Error(`The transaction index answered ${res.status}`)
+  const body = (await res.json()) as { lag_seconds?: unknown }
+  return typeof body.lag_seconds === 'number' && Number.isFinite(body.lag_seconds) ? body.lag_seconds : null
 }
 
 /** Full transactions for these refs, in batches of 20; ones the index can't serve are skipped. */

@@ -19,6 +19,10 @@ import { parseAuthKey } from './signer/auth'
  * names or defaults it.
  */
 
+/** The trading automation kinds the server can switch on (NEARKIT_AUTOMATION). */
+export const AUTOMATION_KINDS = ['limit', 'copy', 'sniper', 'dca'] as const
+export type AutomationKind = (typeof AUTOMATION_KINDS)[number]
+
 export interface ServerConfig {
   /** Secret. Null runs the API without the bot. Never logged. */
   telegramToken: string | null
@@ -57,6 +61,13 @@ export interface ServerConfig {
   }
   /** The Volume Bot's worker: 'app' runs it in this process (with NEARKITS wallets on); 'off' runs no bot here. */
   volumeBot: { runner: 'app' | 'off' }
+  /**
+   * Trading automation (limit orders, Copy Trade, Sniper, DCA): the kinds switched on (NEARKIT_AUTOMATION,
+   * comma-separated; empty or 'off' = none, so a deploy changes nothing until it is set), and NEARKITS' limits
+   * on automated buys (NEARKIT_AUTOMATION_MAX_TRADE_NEAR, _MAX_DAILY_NEAR per user, _MAX_DAILY_NEAR_GLOBAL),
+   * and the quotes the worker may ask the router for per minute, all strategies together (_QUOTES_PER_MINUTE).
+   */
+  automation: { enabled: AutomationKind[]; maxTradeNear: number; maxDailyNearPerUser: number; maxDailyNearGlobal: number; quotesPerMinute: number; sniperBuy: boolean }
   /**
    * NearKit trading wallets. Their keys live with NearKit's signer: in this process on
    * testnet (a KEK in the environment), or the separate signer service (NEARKIT_SIGNER_URL).
@@ -165,6 +176,39 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
   if (!blank(runnerRaw) && runnerRaw !== 'app' && runnerRaw !== 'separate') issue('BUYBOT_RUNNER', 'Expected "app" or "separate"')
   const volumeRunnerRaw = raw.NEARKIT_VOLUMEBOT_RUNNER?.trim()
   if (!blank(volumeRunnerRaw) && volumeRunnerRaw !== 'app' && volumeRunnerRaw !== 'off') issue('NEARKIT_VOLUMEBOT_RUNNER', 'Expected "app" or "off"')
+  const automationRaw = (raw.NEARKIT_AUTOMATION ?? '').trim().toLowerCase()
+  const automationKinds: AutomationKind[] = []
+  for (const k of automationRaw === '' || automationRaw === 'off' ? [] : automationRaw.split(',').map((x) => x.trim())) {
+    if ((AUTOMATION_KINDS as readonly string[]).includes(k)) automationKinds.push(k as AutomationKind)
+    else issue('NEARKIT_AUTOMATION', `Unknown kind "${k}": use limit, copy, sniper, dca (comma-separated), or off`)
+  }
+  const positiveNear = (key: string, fallback: number): number => {
+    const v = raw[key]?.trim()
+    if (blank(v)) return fallback
+    const n = Number(v)
+    if (!Number.isFinite(n) || n <= 0 || n > 100_000) issue(key, 'Expected a NEAR amount above 0')
+    return n
+  }
+  const automation = {
+    enabled: [...new Set(automationKinds)],
+    maxTradeNear: positiveNear('NEARKIT_AUTOMATION_MAX_TRADE_NEAR', 50),
+    maxDailyNearPerUser: positiveNear('NEARKIT_AUTOMATION_MAX_DAILY_NEAR', 200),
+    maxDailyNearGlobal: positiveNear('NEARKIT_AUTOMATION_MAX_DAILY_NEAR_GLOBAL', 2_000),
+    quotesPerMinute: (() => {
+      const v = raw.NEARKIT_AUTOMATION_QUOTES_PER_MINUTE?.trim()
+      if (blank(v)) return 60
+      const n = Number(v)
+      if (!Number.isInteger(n) || n < 1 || n > 600) issue('NEARKIT_AUTOMATION_QUOTES_PER_MINUTE', 'Expected a whole number from 1 to 600')
+      return n
+    })(),
+    // Snipers that buy: off unless switched on ("on"); off, snipers only notify.
+    sniperBuy: (() => {
+      const v = raw.NEARKIT_AUTOMATION_SNIPER_BUY?.trim().toLowerCase()
+      if (blank(v) || v === 'off') return false
+      if (v !== 'on') issue('NEARKIT_AUTOMATION_SNIPER_BUY', 'Expected "on" or "off"')
+      return v === 'on'
+    })(),
+  }
   const buybotRaw = raw.BUYBOT_ENABLED?.trim()
   if (!blank(buybotRaw) && buybotRaw !== 'true' && buybotRaw !== 'false') issue('BUYBOT_ENABLED', 'Expected "true" or "false"')
   const bbNetRaw = raw.BUYBOT_NETWORK?.trim()
@@ -310,6 +354,7 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         runner: runnerRaw === 'separate' ? 'separate' : 'app',
       },
       volumeBot: { runner: volumeRunnerRaw === 'off' ? 'off' : 'app' },
+      automation,
       custody,
       bridge: {
         enabled: bridgeReason === null,

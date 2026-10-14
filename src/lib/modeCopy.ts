@@ -1,10 +1,16 @@
 import { useLocation } from 'react-router'
-import { isComingSoon } from '@/config/release'
-import { useCapabilities } from '@/services/queries'
+import { isComingSoonFor } from '@/config/release'
+import { useAutomationEnabled, useCapabilities } from '@/services/queries'
 
-/** The current page is COMING SOON in this build (the public beta). */
+/** The current page is COMING SOON in this build (the public beta), unless NEARKITS switched its automation on for this user. */
 export function useComingSoonPage(): boolean {
-  return isComingSoon(useLocation().pathname)
+  return useIsComingSoon()(useLocation().pathname)
+}
+
+/** `isComingSoon` for this user: an automation route the server switched on (with a NEARKITS session) is live. */
+export function useIsComingSoon(): (path: string) => boolean {
+  const enabled = useAutomationEnabled()
+  return (path: string) => isComingSoonFor(path, enabled)
 }
 
 /**

@@ -4,6 +4,7 @@ import { help, noWalletYet, SAFETY, welcome } from './texts'
 import { newWalletButton, showWalletHome, telegramApprovalsOn, tradingWallet } from './tradingWallet'
 import { linkedAccount, nearAvailable, showWallet } from './wallet'
 import { referralStart } from './referrals'
+import { automationOn } from './automation'
 
 /**
  * /start, /help, /cancel and the main menu. `commandList` is resolved lazily so
@@ -29,10 +30,12 @@ export async function mainMenu(ctx: BotCtx, known?: { create: boolean }) {
   const wallet = (await tradingWallet(ctx.deps, ctx.user.id)) !== null
   const linked = (await linkedAccount(ctx)) !== null
   const create = !wallet && (known?.create ?? (await canCreateWallet(ctx, linked)))
+  const automation = has('auto') && (await automationOn(ctx.deps))
   return keyboard(
     create ? [newWalletButton('💼 Create wallet')] : [],
     linked || wallet ? [] : [btn('🔗 Link wallet', 'acct:link')],
     [has('buy') ? btn('🟢 Buy', 'tr:buy') : null, has('sell') ? btn('🔴 Sell', 'tr:sell') : null],
+    automation ? [btn('🤖 Automation', 'au:l:all')] : [],
     [has('positions') ? btn('📊 Positions', 'pf:positions') : null, has('pnl') ? btn('📈 PnL', 'pf:pnl') : null],
     [has('balance') ? btn('👛 Wallet', 'menu:wallet') : null, has('bridge') && ctx.deps.bridge ? btn('🌉 Bridge to NEAR', 'brg:home') : null],
     [has('kits') ? btn('🪙 $KITS', 'kit:show') : null, has('community') ? btn('👥 Community', 'kit:community') : null],

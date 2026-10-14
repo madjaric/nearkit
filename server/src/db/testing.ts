@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { afterAll } from 'vitest'
+import { afterAll, onTestFinished } from 'vitest'
 import type { Database } from './database'
 import { PgliteDatabase, PostgresDatabase } from './postgres'
 import { migrate } from './schema'
@@ -37,6 +37,24 @@ const open: Database[] = []
 afterAll(async () => {
   await Promise.all(open.splice(0).map((db) => db.close().catch(() => undefined)))
 })
+
+/**
+ * Closes a database when the test that opened it finishes (each PGlite clone holds over a hundred MB:
+ * kept until the end of a file of many tests, they ran CI's runner out of memory); one opened outside
+ * a test (beforeAll) is closed when its file ends.
+ */
+function keep(db: Database): void {
+  try {
+    onTestFinished(async () => {
+      const i = open.indexOf(db)
+      if (i >= 0) open.splice(i, 1)
+      await db.close().catch(() => undefined)
+    })
+  } catch {
+    // Not inside a test (beforeAll, module scope): closed in afterAll.
+  }
+  open.push(db)
+}
 
 interface PgliteInstance {
   clone(): Promise<PgliteInstance>
@@ -78,7 +96,7 @@ export async function openTestDatabase(engine: TestEngine = 'sqlite', options: {
   } else {
     db = await SqliteDatabase.open(null)
   }
-  open.push(db)
+  keep(db)
   if (engine !== 'pglite' || options.migrateTo !== undefined) await migrate(db, options.migrateTo)
   return db
 }
@@ -87,6 +105,6 @@ export async function openTestDatabase(engine: TestEngine = 'sqlite', options: {
 export function anotherInstance(db: Database): Database {
   if (!(db instanceof PostgresDatabase)) throw new Error('Only a Postgres server has separate instances')
   const other = db.sibling()
-  open.push(other)
+  keep(other)
   return other
 }

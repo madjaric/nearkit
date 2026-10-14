@@ -1,5 +1,12 @@
 import { volumeModule } from './bot/volume'
+import { automationModule } from './bot/automation'
 import { botRoutes } from './volumebot/routes'
+import { KIT_LAUNCHPAD } from '@/config/kit'
+import { createPoolFeed, PoolStore } from './automation/pools'
+import { automationRoutes } from './automation/routes'
+import { createAutomationRunner } from './automation/runner'
+import { createAutomationService } from './automation/service'
+import { AutomationStore } from './automation/store'
 import { createVolumeBotRunner } from './volumebot/runner'
 import { VolumeBotStore } from './volumebot/store'
 import { readFile } from 'node:fs/promises'
@@ -116,6 +123,7 @@ export function botModules(_deps: BotDeps, list: () => { name: string; command: 
     volumeModule(),
     bridgeModule(),
     kitsModule(),
+    automationModule(),
   ]
 }
 
@@ -127,7 +135,7 @@ export function menuCommands(bot: BotApp, scope: 'private' | 'group') {
   const rank = (name: string) => (MENU_FIRST.includes(name) ? MENU_FIRST.indexOf(name) : MENU_FIRST.length)
   return bot
     .commands()
-    .filter((c) => c.command.description && (c.command.scope === 'any' || c.command.scope === scope))
+    .filter((c) => c.command.description && c.command.menu !== false && (c.command.scope === 'any' || c.command.scope === scope))
     .map((c, i) => ({ c, i }))
     .sort((a, b) => rank(a.c.name) - rank(b.c.name) || a.i - b.i)
     .map(({ c }) => ({ command: c.name, description: (c.command.description as string).slice(0, 256) }))
@@ -300,6 +308,27 @@ export async function startServer(options: { env: Record<string, string | undefi
   const web = custody ? new WebSessions(db, now) : null
   // Volume Bots: configured on the web, stepped by the worker below, trading only through custody.
   const volumeBots = custody && web ? new VolumeBotStore(db, now) : null
+  // Trading automation (limit orders, Copy Trade, Sniper, DCA): records always; trading only for the kinds NEARKIT_AUTOMATION switches on.
+  const automationStore = custody && web ? new AutomationStore(db, now) : null
+  const automationEnabled = new Set(config.automation.enabled)
+  const automationLimits = {
+    maxTradeNear: config.automation.maxTradeNear,
+    maxDailyNearPerUser: config.automation.maxDailyNearPerUser,
+    maxDailyNearGlobal: config.automation.maxDailyNearGlobal,
+  }
+  const automation =
+    custody && automationStore
+      ? createAutomationService({
+          store: automationStore,
+          custody,
+          near,
+          network: config.network,
+          enabled: automationEnabled,
+          limits: automationLimits,
+          sniperBuy: config.automation.sniperBuy,
+          now,
+        })
+      : null
   // Bridge & Buy $KITS: NEAR Intents' 1Click API brings SOL, ETH or BNB to NEAR, then $KITS is bought (mainnet only).
   const bridgeStore = config.bridge.enabled ? new BridgeStore(db, now) : null
   const bridge =
@@ -355,6 +384,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       referrals,
       web,
       volumeBots,
+      automation,
       kits: kitsBurns ? { burns: kitsBurns, rewards: kitsRewards } : null,
       // The bot's Bridge to NEAR (Send manually, My bridge orders, notices) runs on this very service and its orders,
       // there before the bot handles its first update.
@@ -406,7 +436,7 @@ export async function startServer(options: { env: Record<string, string | undefi
     const switches = new OpsSwitches(db, new CustodyStore(db, now), now, config.ops.hostPaused)
     health.pauses = await switches
       .state()
-      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused, volumebot: s.volumebot.paused, bridge: s.bridge.paused }))
+      .then((s) => ({ trading: s.trading.paused, withdrawals: s.withdrawals.paused, volumebot: s.volumebot.paused, bridge: s.bridge.paused, automation: s.automation.paused }))
       .catch(() => 'unknown' as const)
     if (custody) {
       const h = await custody.signer.health().catch(() => null)
@@ -483,6 +513,7 @@ export async function startServer(options: { env: Record<string, string | undefi
             log,
           })
         : {}),
+      ...(web && automation ? automationRoutes({ sessions: web, service: automation }) : {}),
       ...(custody
         ? telegramRoutes({
             approvals: custody.telegram,
@@ -501,6 +532,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       buybot: buybotRunner ? 'running' : !config.buybot.enabled ? 'off' : config.buybot.runner === 'separate' ? 'separate process' : 'needs the bot token',
       wallets: custody ? 'on' : 'off',
       volumebot: volumeRunner ? 'running' : 'off',
+      automation: automationRunner ? [...automationEnabled].join(',') || 'off' : 'off',
       bridge: bridge ? 'on' : 'off',
       pauses: health.pauses,
       signer: health.signer,
@@ -525,6 +557,42 @@ export async function startServer(options: { env: Record<string, string | undefi
         })
       : null
   volumeRunner?.start()
+  // Sniper's new pools: read from Ref DCL's and Ref v2's own pool counters while a new-pools sniper is live.
+  const poolStore = automationStore ? new PoolStore(db, now) : null
+  const poolFeed =
+    poolStore && automationStore && automationEnabled.has('sniper')
+      ? createPoolFeed({
+          store: poolStore,
+          view: (contract, method, args) => near.ctx.rpc.viewFunction<unknown>(contract, method, args, 'final'),
+          network: config.network,
+          nearly: config.network.id === 'mainnet' ? KIT_LAUNCHPAD : null,
+          log,
+          now,
+          onReady: (token) => automationStore.wake(config.network.id, 'sniper', token),
+        })
+      : null
+  // Trading automation's worker: each strategy stepped under its own lease; nothing trades for a kind that is off.
+  const automationRunner =
+    custody && automationStore && automationEnabled.size > 0
+      ? createAutomationRunner({
+          store: automationStore,
+          custody,
+          near,
+          network: config.network,
+          log,
+          instanceId: instance,
+          enabled: automationEnabled,
+          limits: automationLimits,
+          quotesPerMinute: config.automation.quotesPerMinute,
+          sniperBuy: config.automation.sniperBuy,
+          fetch: fetchImpl,
+          now,
+          notify: async (userId, html) => void (bot ? await bot.notify(userId, html) : undefined),
+          ...(poolStore ? { pools: { store: poolStore, feed: poolFeed } } : {}),
+        })
+      : null
+  automationRunner?.start()
+  if (automationRunner) log.info('trading automation worker running', { kinds: [...automationEnabled] })
   // Bridge & Buy orders, each stepped under its own lease (NEAR Intents' status, then the $KITS purchase).
   // A Bridge to a NEARKITS wallet tells its Telegram user what the worker saw (deposit, delivery, unwrap, refund), each once.
   const bridgeWorker =
@@ -577,6 +645,8 @@ export async function startServer(options: { env: Record<string, string | undefi
         await web?.prune()
         await buybot?.store.prune(7 * 86_400_000)
         await volumeBots?.prune()
+        await automationStore?.prune()
+        await poolStore?.prune()
         // Keys of wallets closed lately that the signer couldn't erase yet (the chain wasn't sure).
         if (custody) {
           const c = custody
@@ -604,6 +674,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       if (rewardsWarm) clearInterval(rewardsWarm)
       // No bot starts a new step; the one under way finishes (its trade is settled from its intent after a restart anyway).
       await volumeRunner?.stop()
+      await automationRunner?.stop()
       await bridgeWorker?.stop()
       await buybotRunner?.stop()
       await poller?.stop()

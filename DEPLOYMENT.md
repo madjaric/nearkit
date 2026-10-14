@@ -175,6 +175,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 | Trading | `npm run ops -- pause trading <reason>` | New quotes and Confirms of Buy/Sell from NearKit wallets | Withdrawals, deposits, unwrap, backup key, export, revoke |
 | Withdrawals | `npm run ops -- pause withdrawals <reason>` | Every withdrawal from NearKit wallets | Trading, backup key, owner-signed export (web) |
 | Volume Bots | `npm run ops -- pause volumebot <reason>` | Every Volume Bot: each pauses with the reason "Paused by NEARKITS", nothing new is sent; Start and Resume are refused | Manual trading, withdrawals, everything else |
+| Trading automation | `npm run ops -- pause automation <reason>` | Every limit order, take profit, stop loss, Copy Trade, Sniper and DCA trade; their trades not signed yet are cancelled and the engine refuses `auto-` intents (AUTOMATION.md) | Manual trading, withdrawals, the Volume Bot; trades already sent are followed to the end |
 | Bridge & Buy | `npm run ops -- pause bridge <reason>` | New Bridge & Buy deposit addresses | Orders already under way are followed to the end; their $KITS purchase follows the trading switch |
 | One wallet | `npm run ops -- freeze <wallet or account> <reason>` | That wallet's trades and withdrawals | Its backup key, revoke, unwrap, export |
 | Signer (from the app) | `npm run ops -- signer-pause <reason>` | Every signature, export, approval and erasure | Everything read-only. Only the signer's operator resumes |

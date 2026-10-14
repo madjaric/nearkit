@@ -104,6 +104,15 @@ function fakeNearKit(list: NearKitWebWallet[]): NearKitWeb {
     resumeBot: unused,
     stopBot: unused,
     deleteBot: unused,
+    autoFeatures: unused,
+    autoList: unused,
+    autoDetail: unused,
+    autoPreview: unused,
+    autoCreate: unused,
+    autoPause: unused,
+    autoResume: unused,
+    autoCancel: unused,
+    autoPauseAll: unused,
     subscribe: () => () => undefined,
   }
 }
