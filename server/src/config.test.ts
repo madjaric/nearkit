@@ -49,6 +49,17 @@ describe('server config', () => {
     expect(loadConfig({ BUYBOT_NETWORK: 'testnet' }).config.buybot.dataUrl).toBe('https://tx.test.fastnear.com')
   })
 
+  it('trading automation: off by default, the kinds and limits as set, the worker’s quote budget bounded', () => {
+    expect(loadConfig({}).config.automation).toEqual({ enabled: [], maxTradeNear: 50, maxDailyNearPerUser: 200, maxDailyNearGlobal: 2_000, quotesPerMinute: 60 })
+    const { config, issues } = loadConfig({ NEARKIT_AUTOMATION: 'limit, sniper', NEARKIT_AUTOMATION_QUOTES_PER_MINUTE: '120' })
+    expect(issues).toEqual([])
+    expect(config.automation).toMatchObject({ enabled: ['limit', 'sniper'], quotesPerMinute: 120 })
+    expect(loadConfig({ NEARKIT_AUTOMATION: 'off' }).config.automation.enabled).toEqual([])
+    expect(loadConfig({ NEARKIT_AUTOMATION: 'limit,moon' }).issues.map((i) => i.key)).toEqual(['NEARKIT_AUTOMATION'])
+    for (const bad of ['0', '601', '1.5', 'many'])
+      expect(loadConfig({ NEARKIT_AUTOMATION_QUOTES_PER_MINUTE: bad }).issues.map((i) => i.key)).toEqual(['NEARKIT_AUTOMATION_QUOTES_PER_MINUTE'])
+  })
+
   it('accepts a self-hosted Bot API server, https or local', () => {
     expect(loadConfig({ TELEGRAM_API_URL: 'http://localhost:8081/' }).config.telegramApiUrl).toBe('http://localhost:8081')
     expect(loadConfig({ TELEGRAM_API_URL: 'http://bots.example' }).issues.map((i) => i.key)).toEqual(['TELEGRAM_API_URL'])
