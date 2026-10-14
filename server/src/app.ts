@@ -558,6 +558,7 @@ export async function startServer(options: { env: Record<string, string | undefi
           instanceId: instance,
           enabled: automationEnabled,
           limits: automationLimits,
+          quotesPerMinute: config.automation.quotesPerMinute,
           fetch: fetchImpl,
           now,
           notify: async (userId, html) => void (bot ? await bot.notify(userId, html) : undefined),

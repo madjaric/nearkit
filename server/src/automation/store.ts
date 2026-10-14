@@ -200,6 +200,26 @@ export class LiveLimitError extends Error {
   }
 }
 
+/** A create request's key used again for a different request. */
+export class RequestKeyReused extends Error {
+  constructor() {
+    super('This request key was used for a different request')
+  }
+}
+
+export interface NewStrategy {
+  userId: number
+  network: string
+  walletId: string
+  config: StrategyConfig
+  subject: string
+  status: 'draft' | 'active'
+  ocoGroup?: string | null
+  nextCheckAt: number | null
+  expiresAt: number | null
+  state?: Record<string, unknown>
+}
+
 export class AutomationStore {
   constructor(
     private readonly db: Database,
@@ -208,53 +228,87 @@ export class AutomationStore {
 
   // ─── strategies ───────────────────────────────────────────────────────────
 
+  /** A new strategy (createAll with one). */
+  async create(s: NewStrategy): Promise<Strategy> {
+    return (await this.createAll([s], null)).strategies[0] as Strategy
+  }
+
   /**
-   * A new strategy, checked against the per-user live limit in the same transaction. A second live
-   * Copy Trade rule on the same account is refused by the database (one per followed account).
+   * New strategies, all or none, in one transaction: each checked against the per-user live limit (a
+   * second live Copy Trade rule on the same account is refused by the database), a take profit and its
+   * stop loss together. With a request key the request is recorded in the same transaction: the same
+   * key again returns what the first request made (`replay`), whatever ran at the same time (the
+   * database lets one of two concurrent requests in); the same key with another request is refused.
    */
-  async create(s: {
-    userId: number
-    network: string
-    walletId: string
-    config: StrategyConfig
-    subject: string
-    status: 'draft' | 'active'
-    ocoGroup?: string | null
-    nextCheckAt: number | null
-    expiresAt: number | null
-    state?: Record<string, unknown>
-  }): Promise<Strategy> {
-    const id = randomToken(12)
+  async createAll(rows: readonly NewStrategy[], request: { userId: number; key: string; fingerprint: string } | null): Promise<{ strategies: Strategy[]; replay: boolean }> {
+    const ids = rows.map(() => randomToken(12))
     const t = this.now()
-    await this.db.tx(async () => {
-      const live = await this.db.get<{ c: number }>(
-        `SELECT COUNT(*) AS c FROM auto_strategies WHERE user_id = ? AND network = ? AND kind = ? AND status NOT IN (${placeholders(FINAL_STATUSES)})`,
-        [s.userId, s.network, s.config.kind, ...FINAL_STATUSES],
+    try {
+      await this.db.tx(async () => {
+        if (request)
+          await this.db.run('INSERT INTO auto_create_requests (user_id, request_key, fingerprint, strategy_ids, created_at) VALUES (?, ?, ?, ?, ?)', [
+            request.userId,
+            request.key,
+            request.fingerprint,
+            JSON.stringify(ids),
+            t,
+          ])
+        for (const [i, s] of rows.entries()) {
+          const id = ids[i] as string
+          const live = await this.db.get<{ c: number }>(
+            `SELECT COUNT(*) AS c FROM auto_strategies WHERE user_id = ? AND network = ? AND kind = ? AND status NOT IN (${placeholders(FINAL_STATUSES)})`,
+            [s.userId, s.network, s.config.kind, ...FINAL_STATUSES],
+          )
+          if (Number(live?.c ?? 0) >= MAX_LIVE_PER_USER[s.config.kind]) throw new LiveLimitError(s.config.kind)
+          await this.db.run(
+            `INSERT INTO auto_strategies (id, user_id, network, kind, wallet_id, subject, status, config, state, oco_group, next_check_at, expires_at, attempts, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+            [
+              id,
+              s.userId,
+              s.network,
+              s.config.kind,
+              s.walletId,
+              s.subject,
+              s.status,
+              JSON.stringify(s.config),
+              JSON.stringify(s.state ?? {}),
+              s.ocoGroup ?? null,
+              s.nextCheckAt,
+              s.expiresAt,
+              t,
+              t,
+            ],
+          )
+          await this.event(id, 'created', `Created ${s.status === 'active' ? 'and active' : 'as a draft'}`)
+        }
+      })
+    } catch (err) {
+      if (request && isUniqueViolation(err)) {
+        const prior = await this.db.get<{ fingerprint: string; strategy_ids: string }>(
+          'SELECT fingerprint, strategy_ids FROM auto_create_requests WHERE user_id = ? AND request_key = ?',
+          [request.userId, request.key],
+        )
+        if (prior) {
+          if (prior.fingerprint !== request.fingerprint) throw new RequestKeyReused()
+          const made = await Promise.all((JSON.parse(prior.strategy_ids) as string[]).map((id) => this.get(id)))
+          return { strategies: made.filter((s): s is Strategy => s !== null), replay: true }
+        }
+      }
+      throw err
+    }
+    const made = await Promise.all(ids.map((id) => this.get(id)))
+    return { strategies: made.filter((s): s is Strategy => s !== null), replay: false }
+  }
+
+  /** Live, paused or draft strategies whose end (an expiry, a DCA's end) has passed: ended by the worker. */
+  async lapsed(limit: number): Promise<Strategy[]> {
+    return (
+      await this.db.all<StrategyRow>(
+        `SELECT * FROM auto_strategies WHERE status IN ('draft', 'active', 'paused') AND expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?`,
+        [this.now(), limit],
       )
-      if (Number(live?.c ?? 0) >= MAX_LIVE_PER_USER[s.config.kind]) throw new LiveLimitError(s.config.kind)
-      await this.db.run(
-        `INSERT INTO auto_strategies (id, user_id, network, kind, wallet_id, subject, status, config, state, oco_group, next_check_at, expires_at, attempts, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        [
-          id,
-          s.userId,
-          s.network,
-          s.config.kind,
-          s.walletId,
-          s.subject,
-          s.status,
-          JSON.stringify(s.config),
-          JSON.stringify(s.state ?? {}),
-          s.ocoGroup ?? null,
-          s.nextCheckAt,
-          s.expiresAt,
-          t,
-          t,
-        ],
-      )
-      await this.event(id, 'created', `Created ${s.status === 'active' ? 'and active' : 'as a draft'}`)
-    })
-    return (await this.get(id)) as Strategy
+    ).map(toStrategy)
   }
 
   async get(id: string): Promise<Strategy | null> {
@@ -363,7 +417,35 @@ export class AutomationStore {
     await this.db.run('UPDATE auto_strategies SET attempts = ?, updated_at = ? WHERE id = ?', [attempts, this.now(), id])
   }
 
-  /** The other half of a take profit / stop loss pair is cancelled when one of them triggers. */
+  /**
+   * An order of a take profit / stop loss pair triggers only while no other order of its pair is
+   * trading (triggered, executing or submitted), checked and set in one transaction with the pair's
+   * rows locked: the two never trade at once. Without a pair, a plain transition.
+   */
+  async triggerOrder(
+    s: Pick<Strategy, 'id' | 'ocoGroup'>,
+    patch: { attempts: number; state: Record<string, unknown>; reason: string | null },
+  ): Promise<'triggered' | 'pair-busy' | 'moved'> {
+    if (!s.ocoGroup) return (await this.transition(s.id, ['active'], 'triggered', patch)) ? 'triggered' : 'moved'
+    const group = s.ocoGroup
+    return this.db.tx(async () => {
+      const lock = this.db.dialect === 'postgres' ? ' FOR UPDATE' : ''
+      const rows = await this.db.all<{ id: string; status: string }>(`SELECT id, status FROM auto_strategies WHERE oco_group = ? ORDER BY id${lock}`, [group])
+      if (rows.some((r) => r.id !== s.id && ['triggered', 'executing', 'submitted'].includes(r.status))) return 'pair-busy'
+      return (await this.transition(s.id, ['active'], 'triggered', patch)) ? 'triggered' : 'moved'
+    })
+  }
+
+  /** Whether another order of this pair is trading now (its result decides this one). */
+  async pairTrading(group: string, exceptId: string): Promise<boolean> {
+    const r = await this.db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM auto_strategies WHERE oco_group = ? AND id <> ? AND status IN ('triggered', 'executing', 'submitted')`, [
+      group,
+      exceptId,
+    ])
+    return Number(r?.c ?? 0) > 0
+  }
+
+  /** The other orders of a take profit / stop loss pair, cancelled (once one of them filled, or was cancelled by its owner). */
   async cancelOcoSiblings(group: string, exceptId: string, reason: string): Promise<string[]> {
     const rows = await this.db.all<{ id: string }>(`SELECT id FROM auto_strategies WHERE oco_group = ? AND id <> ? AND status IN ('draft', 'active', 'paused')`, [group, exceptId])
     const cancelled: string[] = []
@@ -471,6 +553,11 @@ export class AutomationStore {
     return (await this.db.all<ExecutionRow>(`SELECT * FROM auto_executions WHERE strategy_id = ? AND status IN ('executing', 'submitted')`, [strategyId])).map(toExecution)
   }
 
+  /** NEAR in this strategy's buys under way (saved or sent, not settled): exposure they will add once confirmed. */
+  async openBuyNear(strategyId: string): Promise<bigint> {
+    return (await this.openExecutionsOf(strategyId)).filter((e) => e.side === 'buy').reduce((s, e) => s + (e.nearInRaw && /^\d+$/.test(e.nearInRaw) ? BigInt(e.nearInRaw) : 0n), 0n)
+  }
+
   /** Moves a trade on, only from one of `from` (compare-and-set). */
   async updateExecution(
     id: string,
@@ -571,5 +658,7 @@ export class AutomationStore {
     const t = this.now()
     await this.db.run(`DELETE FROM auto_detections WHERE status = 'skipped' AND at < ?`, [t - 30 * 86_400_000])
     await this.db.run(`DELETE FROM auto_events WHERE strategy_id IN (SELECT id FROM auto_strategies WHERE closed_at IS NOT NULL AND closed_at < ?)`, [t - 90 * 86_400_000])
+    // A request key protects its retries for a week.
+    await this.db.run('DELETE FROM auto_create_requests WHERE created_at < ?', [t - 7 * 86_400_000])
   }
 }

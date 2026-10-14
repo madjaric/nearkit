@@ -1,6 +1,16 @@
+import { createHash, randomBytes } from 'node:crypto'
 import type { NetworkConfig } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
-import type { AutomationFeatures, CreateStrategyInput, DetectionView, ExecutionView, StrategyDetail, StrategyPreview, StrategyView } from '@/lib/automation/api'
+import {
+  REQUEST_KEY,
+  type AutomationFeatures,
+  type CreateStrategyInput,
+  type DetectionView,
+  type ExecutionView,
+  type StrategyDetail,
+  type StrategyPreview,
+  type StrategyView,
+} from '@/lib/automation/api'
 import {
   AUTOMATION_MAX_SLIPPAGE,
   FINAL_STATUSES,
@@ -16,9 +26,21 @@ import { formatPrice, meetsTrigger, priceYocto, targetYocto } from '@/lib/automa
 import { walletName } from '../custody/limits'
 import type { TradingWallet } from '../custody/store'
 import type { CustodyDeps } from '../custody/wallets'
+import { isUniqueViolation } from '../db/database'
 import type { ServerNear } from '../near'
 import { DEFAULT_LIMITS, quoteAmounts, type AutomationLimits } from './execute'
-import { LiveLimitError, type AutomationStore, type Strategy } from './store'
+import { LiveLimitError, RequestKeyReused, type AutomationStore, type Strategy } from './store'
+
+/** JSON with every object's keys sorted: the same request reads the same, whatever order its fields came in. */
+export function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`
+  if (v && typeof v === 'object')
+    return `{${Object.keys(v as Record<string, unknown>)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableJson((v as Record<string, unknown>)[k])}`)
+      .join(',')}}`
+  return JSON.stringify(v) ?? 'null'
+}
 
 /**
  * Trading automation's operations, the same for NEARKITS web and the Telegram bot: both call these
@@ -30,7 +52,7 @@ import { LiveLimitError, type AutomationStore, type Strategy } from './store'
 
 export class AutomationError extends Error {
   constructor(
-    readonly code: 'off' | 'not-found' | 'wallet' | 'token' | 'limit' | 'busy' | 'confirm' | 'target' | 'pair' | 'state',
+    readonly code: 'off' | 'not-found' | 'wallet' | 'token' | 'limit' | 'busy' | 'confirm' | 'target' | 'pair' | 'state' | 'request',
     message: string,
     readonly issues: ConfigIssue[] = [],
   ) {
@@ -157,7 +179,14 @@ export function createAutomationService(deps: AutomationServiceDeps) {
   const firstCheck = (c: StrategyConfig) => (c.kind === 'dca' ? Math.max(now(), c.dca.startAt) : now())
   const expiryOf = (c: StrategyConfig) => (c.kind === 'limit' ? c.limit.expiresAt : c.kind === 'sniper' ? c.sniper.expiresAt : c.kind === 'dca' ? c.dca.endAt : null)
 
+  /**
+   * Makes the strategy (or the take profit + stop loss pair, both or neither). With a request key (one
+   * per review, kept across retries) a retry, a double tap or a replay makes nothing new: it answers
+   * with what the first request made. The key belongs to that exact request: reused for another, it is
+   * refused.
+   */
   async function create(userId: number, input: CreateStrategyInput): Promise<StrategyView[]> {
+    if (input.requestKey !== undefined && !REQUEST_KEY.test(input.requestKey)) throw new AutomationError('request', 'The request key is malformed: reload the page and try again.')
     const wallet = await ownWallet(userId, input.walletId)
     const config = await prepared(input.config)
     if (config.kind === 'sniper' && config.sniper.mode === 'execute' && input.confirmExecute !== true)
@@ -171,30 +200,36 @@ export function createAutomationService(deps: AutomationServiceDeps) {
       if (!a || !b || a.token.id !== b.token.id || !types.has('take-profit') || !types.has('stop-loss'))
         throw new AutomationError('pair', 'A pair is a take profit and a stop loss on the same token.')
     }
-    const oco = pair ? `oco-${Math.random().toString(36).slice(2, 12)}` : null
-    const made: Strategy[] = []
+    const oco = pair ? `oco-${randomBytes(6).toString('hex')}` : null
+    const rows = (pair ? [config, pair] : [config]).map((c) => ({
+      userId,
+      network: network.id,
+      walletId: wallet.id,
+      config: c,
+      subject: subjectOf(c),
+      status: 'active' as const,
+      ocoGroup: oco,
+      nextCheckAt: firstCheck(c),
+      expiresAt: expiryOf(c),
+      state: c.kind === 'copy' ? { since: now(), positions: {} } : c.kind === 'dca' ? { runs: 0, nextRunAt: c.dca.startAt, tries: 0 } : {},
+    }))
+    const request = input.requestKey
+      ? {
+          userId,
+          key: input.requestKey,
+          // What was asked, as the client sent it: the same key with anything else is another request.
+          fingerprint: createHash('sha256')
+            .update(stableJson({ walletId: input.walletId, config: input.config, pair: input.pair ?? null, confirmExecute: input.confirmExecute === true }))
+            .digest('hex'),
+        }
+      : null
+    let made: Strategy[]
     try {
-      for (const c of pair ? [config, pair] : [config]) {
-        made.push(
-          await store.create({
-            userId,
-            network: network.id,
-            walletId: wallet.id,
-            config: c,
-            subject: subjectOf(c),
-            status: 'active',
-            ocoGroup: oco,
-            nextCheckAt: firstCheck(c),
-            expiresAt: expiryOf(c),
-            state: c.kind === 'copy' ? { since: now(), positions: {} } : c.kind === 'dca' ? { runs: 0, nextRunAt: c.dca.startAt, tries: 0 } : {},
-          }),
-        )
-      }
+      made = (await store.createAll(rows, request)).strategies
     } catch (e) {
-      // The pair's first half is undone when the second can't be made.
-      for (const s of made) await store.transition(s.id, ['active'], 'cancelled', { reason: 'Its pair couldn’t be created' })
+      if (e instanceof RequestKeyReused) throw new AutomationError('request', 'This request was already used for a different automation: review it again.')
       if (e instanceof LiveLimitError) throw new AutomationError('limit', e.message)
-      if (e instanceof Error && /unique|duplicate/i.test(e.message)) throw new AutomationError('target', 'You already copy this account: pause or stop that rule first.')
+      if (isUniqueViolation(e)) throw new AutomationError('target', 'You already copy this account: pause or stop that rule first.')
       throw e
     }
     const wallets = new Map([[wallet.id, wallet]])
@@ -279,13 +314,21 @@ export function createAutomationService(deps: AutomationServiceDeps) {
     const s = await own(userId, id)
     const to = s.kind === 'limit' ? 'cancelled' : 'stopped'
     if (!(await store.transition(s.id, ['draft', 'active', 'paused'], to, { reason: s.kind === 'limit' ? 'Cancelled by you' : 'Stopped by you' }))) {
-      if (FINAL_STATUSES.includes(s.status)) return view(s)
+      const current = (await store.get(s.id)) as Strategy
+      if (FINAL_STATUSES.includes(current.status)) return view(current)
       throw new AutomationError('busy', 'A trade is under way: it is followed to the end first. Try again once it settles.')
     }
     await store.event(s.id, to, s.kind === 'limit' ? 'Cancelled by its owner' : 'Stopped by its owner')
     // Its trade not signed yet (if any) is never signed: the engine finds the intent cancelled.
-    for (const e of await store.openExecutionsOf(s.id)) if (e.intentId) await custody.store.setStatus(e.intentId, ['quoted'], 'cancelled')
+    await cancelUnsigned(s.id)
+    // A take profit and its stop loss end together: cancelling either cancels the other, unless it is
+    // trading already (then it triggered first, and this one was cancelled by it, not by this click).
+    if (s.ocoGroup) for (const sibling of await store.cancelOcoSiblings(s.ocoGroup, s.id, 'Cancelled with the other order of its pair')) await cancelUnsigned(sibling)
     return view((await store.get(s.id)) as Strategy)
+  }
+
+  async function cancelUnsigned(strategyId: string): Promise<void> {
+    for (const e of await store.openExecutionsOf(strategyId)) if (e.intentId) await custody.store.setStatus(e.intentId, ['quoted'], 'cancelled')
   }
 
   /** The user's own pause of everything: every live automation of theirs pauses now. */

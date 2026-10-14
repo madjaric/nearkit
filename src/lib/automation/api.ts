@@ -105,6 +105,14 @@ export interface CreateStrategyInput {
   pair?: StrategyConfig
   /** A sniper that buys (not only notifies) needs this explicit yes. */
   confirmExecute?: boolean
+  /**
+   * The client's key for this request (one per review, kept across retries): the server makes the
+   * strategies once, and the same key again answers with them. 8 to 80 of A–Z, a–z, 0–9, _ and -.
+   */
+  requestKey?: string
 }
+
+/** A create request's key: what the server accepts. */
+export const REQUEST_KEY = /^[A-Za-z0-9_-]{8,80}$/
 
 export type CreateStrategyResult = { ok: true; strategies: StrategyView[] } | { ok: false; issues: ConfigIssue[] }

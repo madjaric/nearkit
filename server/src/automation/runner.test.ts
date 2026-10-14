@@ -243,6 +243,170 @@ describe('limit orders', () => {
     expect((await store.execution(e.id))?.status).toBe('confirmed')
     expect((await store.get(o.id))?.status).toBe('filled')
   })
+
+  it('cancelling either order of a take profit / stop loss pair cancels the other; nothing of the pair trades afterwards', async () => {
+    const { h, store, order, tick, service } = await setup()
+    const [tp, sl] = await order({ type: 'take-profit', amount: { kind: 'percent', value: 50 }, triggerPriceNear: '0.27' }, { triggerPriceNear: '0.2' })
+    if (!tp || !sl) throw new Error('no pair')
+    expect((await service.cancel(ALICE.id, sl.id)).status).toBe('cancelled')
+    expect((await store.get(tp.id))?.status).toBe('cancelled')
+    expect((await store.events(tp.id))[0]?.message).toMatch(/other order of its pair/)
+    // Cancelling either again changes nothing.
+    expect((await service.cancel(ALICE.id, tp.id)).status).toBe('cancelled')
+    h.market.usdtPerNear = 3_500_000n // past the take profit
+    await tick()
+    await tick(6_000)
+    expect([...(await store.executionsOf(tp.id)), ...(await store.executionsOf(sl.id))]).toEqual([])
+  })
+
+  it('a pair whose other order is trading already: cancelling this one leaves that trade alone', async () => {
+    const { store, order, service } = await setup()
+    const [tp, sl] = await order({ type: 'take-profit', amount: { kind: 'percent', value: 50 }, triggerPriceNear: '0.27' }, { triggerPriceNear: '0.2' })
+    if (!tp || !sl) throw new Error('no pair')
+    // The take profit triggered (the worker's compare-and-set) a moment before the click on the stop loss.
+    await store.transition(tp.id, ['active'], 'triggered', { attempts: 1 })
+    expect((await service.cancel(ALICE.id, sl.id)).status).toBe('cancelled')
+    expect((await store.get(tp.id))?.status).toBe('triggered')
+    // And the triggered one itself can't be cancelled while it trades.
+    await expect(service.cancel(ALICE.id, tp.id)).rejects.toMatchObject({ code: 'busy' })
+  })
+
+  it('a take profit whose trade isn’t sent keeps its stop loss (the protection stays); the stop loss is cancelled only once a trade fills', async () => {
+    const { h, w, store, order, tick } = await setup()
+    const [tp, sl] = await order({ type: 'take-profit', amount: { kind: 'percent', value: 50 }, triggerPriceNear: '0.27' }, { triggerPriceNear: '0.2' })
+    if (!tp || !sl) throw new Error('no pair')
+    h.market.usdtPerNear = 3_500_000n
+    await tick() // armed
+    await h.custody.store.setFrozen(w.id, 'test') // the trade is refused before anything is signed
+    await tick(6_000)
+    expect(await store.executionsOf(tp.id)).toEqual([])
+    expect((await store.get(tp.id))?.status).toBe('active')
+    expect((await store.get(sl.id))?.status).toBe('active')
+    await h.custody.store.setFrozen(w.id, null)
+    await tick()
+    await tick(6_000)
+    expect((await store.get(tp.id))?.status).toBe('filled')
+    expect((await store.get(sl.id))?.status).toBe('cancelled')
+  })
+
+  it('while one order of a pair trades (its outcome still unknown), the other waits even past its own trigger', async () => {
+    const { h, store, order, tick } = await setup()
+    const [tp, sl] = await order({ type: 'take-profit', amount: { kind: 'percent', value: 50 }, triggerPriceNear: '0.27' }, { triggerPriceNear: '0.2' })
+    if (!tp || !sl) throw new Error('no pair')
+    h.market.usdtPerNear = 3_500_000n
+    await tick() // armed
+    h.chain.onSend((tx) => (tx.receiverId === USDT ? 'hidden' : 'apply'))
+    await tick(6_000)
+    expect((await store.get(tp.id))?.status).toBe('submitted')
+    h.market.usdtPerNear = 6_000_000n // 0.1667 NEAR each: past the stop loss too
+    await tick()
+    await tick(6_000)
+    await tick(31_000)
+    expect(await store.executionsOf(sl.id)).toEqual([])
+    expect((await store.get(sl.id))?.state.waiting).toMatch(/other order of its pair is trading/)
+    h.chain.reveal()
+    await h.custody.engine.resolvePending()
+    await tick(3_000)
+    expect((await store.get(tp.id))?.status).toBe('filled')
+    expect((await store.get(sl.id))?.status).toBe('cancelled')
+  })
+
+  it('a pair is made both or neither: a second half over the live limit leaves no first half behind', async () => {
+    const { store, order } = await setup()
+    for (let i = 0; i < 19; i++) await order({ triggerPriceNear: '0.1' })
+    await expect(order({ type: 'take-profit', amount: { kind: 'percent', value: 50 }, triggerPriceNear: '0.27' }, { triggerPriceNear: '0.2' })).rejects.toMatchObject({
+      code: 'limit',
+    })
+    const mine = await store.forUser(ALICE.id, 'testnet')
+    expect(mine).toHaveLength(19)
+    expect(mine.some((s) => s.ocoGroup !== null)).toBe(false)
+  })
+
+  it('a request key makes the strategy once: a retry, concurrent repeats and a replay answer with it; the key with another request is refused', async () => {
+    const { w, service } = await setup()
+    const config = {
+      kind: 'limit' as const,
+      limit: { type: 'limit-buy' as const, token: TOKEN, amount: { kind: 'near' as const, value: '1' }, triggerPriceNear: '0.24', slippagePct: 1, expiresAt: null },
+    }
+    const first = await service.create(ALICE.id, { walletId: w.id, config, requestKey: 'review-0001' })
+    const repeats = await Promise.all([1, 2, 3].map(() => service.create(ALICE.id, { walletId: w.id, config, requestKey: 'review-0001' })))
+    for (const r of repeats) expect(r.map((s) => s.id)).toEqual(first.map((s) => s.id))
+    // Two first requests at once (a double tap): one strategy, both answered with it.
+    const [a, b] = await Promise.all([1, 2].map(() => service.create(ALICE.id, { walletId: w.id, config, requestKey: 'review-0002' })))
+    expect(a?.[0]?.id).toBe(b?.[0]?.id)
+    expect(await service.list(ALICE.id)).toHaveLength(2)
+    // The same key for a different request.
+    await expect(
+      service.create(ALICE.id, { walletId: w.id, config: { ...config, limit: { ...config.limit, triggerPriceNear: '0.2' } }, requestKey: 'review-0001' }),
+    ).rejects.toMatchObject({ code: 'request' })
+    await expect(service.create(ALICE.id, { walletId: w.id, config, requestKey: 'bad key!' })).rejects.toMatchObject({ code: 'request' })
+    expect(await service.list(ALICE.id)).toHaveLength(2)
+  })
+
+  it('an order whose expiry passes while paused expires; a DCA whose end passes while paused completes', async () => {
+    const { h, w, store, order, service, tick, notices } = await setup()
+    const [o] = await order({ expiresAt: h.deps.now() + 60_000 })
+    const [plan] = await service.create(ALICE.id, {
+      walletId: w.id,
+      config: {
+        kind: 'dca',
+        dca: { token: TOKEN, amountNear: 0.5, everySec: 3_600, startAt: h.deps.now() + 600_000, endAt: h.deps.now() + 7_200_000, slippagePct: 1, maxRuns: null },
+      },
+    })
+    if (!o || !plan) throw new Error('no strategies')
+    await service.pause(ALICE.id, o.id)
+    await service.pause(ALICE.id, plan.id)
+    await tick(61_000)
+    expect((await store.get(o.id))?.status).toBe('expired')
+    expect(notices.at(-1)).toMatch(/expired unfilled while paused/)
+    await tick(7_200_000)
+    expect((await store.get(plan.id))?.status).toBe('completed')
+    expect(notices.at(-1)).toMatch(/completed after 0 buys/)
+    expect(await store.executionsOf(plan.id)).toEqual([])
+  })
+
+  it('orders far from their trigger share one reference quote per token instead of each quoting; near the trigger they read their own price and trade', async () => {
+    const { h, store, order, tick } = await setup()
+    const ids: string[] = []
+    for (const t of ['0.3', '0.31', '0.32', '0.33'])
+      ids.push(((await order({ type: 'take-profit', amount: { kind: 'percent', value: 10 }, triggerPriceNear: t }))[0] as { id: string }).id)
+    const real = h.custody.swaps.quote
+    let calls = 0
+    h.custody.swaps.quote = async (...a) => {
+      calls++
+      return real(...a)
+    }
+    await tick() // the first look: each reads its own price
+    expect(calls).toBe(4)
+    calls = 0
+    await tick()
+    await tick()
+    await tick()
+    expect(calls).toBe(3) // one reference quote per look, for the four orders
+    for (const id of ids) expect((await store.get(id))?.status).toBe('active')
+    h.market.usdtPerNear = 3_200_000n // 0.3125 NEAR per USDT: past 0.3 and 0.31
+    await tick()
+    await tick(6_000)
+    // One wallet trades one at a time: the order that found it busy trades on its next look.
+    await tick()
+    await tick(6_000)
+    expect((await store.get(ids[0] as string))?.status).toBe('filled')
+    expect((await store.get(ids[1] as string))?.status).toBe('filled')
+    expect((await store.get(ids[2] as string))?.status).toBe('active')
+    expect((await store.get(ids[3] as string))?.status).toBe('active')
+  })
+
+  it('a frozen wallet trades nothing: the order keeps watching', async () => {
+    const { h, w, store, order, tick } = await setup()
+    const [o] = await order({})
+    if (!o) throw new Error('no order')
+    h.market.usdtPerNear = 4_200_000n
+    await tick() // armed
+    await h.custody.store.setFrozen(w.id, 'test')
+    await tick(6_000)
+    expect(await store.executionsOf(o.id)).toEqual([])
+    expect((await store.get(o.id))?.status).toBe('active')
+  })
 })
 
 describe('the kill switch and feature flags', () => {

@@ -596,6 +596,16 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         execution_id TEXT,
         PRIMARY KEY (strategy_id, source_key)
       );
-      CREATE INDEX auto_detections_at ON auto_detections(strategy_id, at);    `,
+      CREATE INDEX auto_detections_at ON auto_detections(strategy_id, at);
+      -- A create request's key (the client's, per review): a retry, a double tap or a replay of the same
+      -- request returns the strategies it made; the same key with another request is refused.
+      CREATE TABLE auto_create_requests (
+        user_id BIGINT NOT NULL,
+        request_key TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        strategy_ids TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, request_key)
+      );`,
   },
 ]

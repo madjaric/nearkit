@@ -1,7 +1,17 @@
 import type { NetworkConfig } from '@/config/networks'
 import { NEAR_DECIMALS } from '@/config/networks'
 import { formatUnits, tryParseUnits } from '@/lib/amounts'
-import { sideOf, type CopyConfig, type DcaConfig, type LimitConfig, type SniperSettings, type StrategyKind, type TokenRef } from '@/lib/automation/config'
+import {
+  AUTOMATION_MAX_SLIPPAGE,
+  MIN_AUTOMATION_NEAR,
+  sideOf,
+  type CopyConfig,
+  type DcaConfig,
+  type LimitConfig,
+  type SniperSettings,
+  type StrategyKind,
+  type TokenRef,
+} from '@/lib/automation/config'
 import { formatPrice, meetsTrigger, priceYocto, targetYocto } from '@/lib/automation/price'
 import { liquidityOf } from '@/lib/volumeBot/risk'
 import { fetchAccountTxs, fetchFullTxs } from '@/services/near/history'
@@ -55,6 +65,13 @@ const DCA_RETRY_MS = 60_000
 const DCA_MAX_TRIES = 5
 const LIQUIDITY_MAX_AGE_SEC = 300
 const SETTLE_PER_TICK = 20
+/** A token's reference price is shared this long. */
+const REF_TTL_MS = 25_000
+/** An order far from its trigger by the reference price still reads its own price at least this often. */
+const OWN_QUOTE_MAX_MS = 5 * 60_000
+/** How far past the target the reference price must be before an order skips its own quote (1%). */
+const REF_MARGIN_BPS = 100n
+const SWEEP_MS = 30_000
 
 export interface AutomationRunnerDeps {
   store: AutomationStore
@@ -109,13 +126,81 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     return null
   }
 
-  /** Asked before the intent and before signing: still the same strategy state, its lease, the switches. */
+  /** Asked before the intent and before signing: still the same strategy state, its wallet, its lease, the switches. */
   const allowedWhile = (s: Strategy, statuses: readonly Strategy['status'][]) => async (): Promise<string | null> => {
     const cur = await store.get(s.id)
     if (!cur || !statuses.includes(cur.status)) return 'Stopped, paused or cancelled before the trade was sent'
     if (!deps.enabled.has(s.kind)) return 'This automation is switched off by NEARKITS'
+    const w = await custody.store.ownedWallet(s.userId, s.walletId)
+    if (!w || w.status !== 'active') return 'Its NEARKITS wallet is no longer active'
+    if (w.frozenAt) return 'Its NEARKITS wallet is frozen by NEARKITS'
     if (!(await store.claim(s.id, deps.instanceId, LEASE_MS))) return 'Another worker took this strategy over'
     return switchesOpen()
+  }
+
+  // ─── reference prices ─────────────────────────────────────────────────────
+
+  /**
+   * One small buy quote per token, shared by every order on it for a while: the price (yoctoNEAR per
+   * whole token) of MIN_AUTOMATION_NEAR's worth. An order's own trade is larger and pays fees both
+   * ways, so its executable price is never better than this: a limit buy can't trigger while this is
+   * above its target, and a sell (limit sell, take profit) can't while this is below. Such orders skip
+   * their own quote (the quote budget goes to orders near their trigger). Null: unknown.
+   */
+  const refs = new Map<string, { at: number; price: Promise<bigint | null> }>()
+  function referencePrice(t: TokenRef, wallet: TradingWallet): Promise<bigint | null> {
+    const hit = refs.get(t.id)
+    // Orders stepped at the same moment share one quote, even while it is on its way.
+    if (hit && now() - hit.at < REF_TTL_MS) return hit.price
+    if (!takeQuote()) return Promise.resolve(null)
+    const price = custody.swaps
+      .quote({ side: 'buy', token: t.id, symbol: t.symbol, decimals: t.decimals, amountIn: String(MIN_AUTOMATION_NEAR), slippagePct: AUTOMATION_MAX_SLIPPAGE }, wallet)
+      .then((q) => {
+        const a = quoteAmounts('buy', q)
+        return priceYocto(a.nearRaw, a.tokenRaw, t.decimals)
+      })
+      .catch(() => null)
+    if (refs.size > 500) refs.clear()
+    refs.set(t.id, { at: now(), price })
+    return price
+  }
+
+  /** Whether an order can't trigger at a reference price (with a margin for a router that splits a larger trade better). */
+  function cannotTrigger(type: LimitConfig['type'], ref: bigint, target: bigint): boolean {
+    if (type === 'limit-buy') return ref * 10_000n > target * (10_000n + REF_MARGIN_BPS)
+    if (type === 'limit-sell' || type === 'take-profit') return ref * 10_000n < target * (10_000n - REF_MARGIN_BPS)
+    // A stop loss always reads its own price: its executable price can be far below a small buy's.
+    return false
+  }
+
+  // ─── ends that passed ─────────────────────────────────────────────────────
+
+  let sweptAt = Number.NEGATIVE_INFINITY
+  /**
+   * Strategies whose expiry (or DCA end) passed, even while paused (the worker doesn't look at paused
+   * ones): an order or sniper expires, a DCA completes. One with a trade under way is left until it settles.
+   */
+  async function sweepLapsed(): Promise<void> {
+    if (now() - sweptAt < SWEEP_MS) return
+    sweptAt = now()
+    for (const s of await store.lapsed(50)) {
+      if ((await store.openExecutionsOf(s.id)).length) continue
+      const c = s.config
+      const dca = c.kind === 'dca'
+      const runs = dca ? Number((s.state as { runs?: number }).runs ?? 0) : 0
+      const reason = dca ? `Completed after ${runs} buys: its end date passed` : s.kind === 'limit' ? 'Expired unfilled' : 'Expired'
+      if (!(await store.transition(s.id, ['draft', 'active', 'paused'], dca ? 'completed' : 'expired', { reason }))) continue
+      await store.event(s.id, dca ? 'completed' : 'expired', s.status === 'paused' ? `${reason} (while paused)` : reason)
+      const what =
+        c.kind === 'limit'
+          ? `<b>${ORDER_LABEL[c.limit.type]} ${esc(c.limit.token.symbol)}</b> expired unfilled`
+          : c.kind === 'sniper'
+            ? `Sniper on <b>${esc(c.sniper.token.symbol)}</b> expired`
+            : c.kind === 'dca'
+              ? `DCA into <b>${esc(c.dca.token.symbol)}</b> completed after ${runs} buys (its end date passed)`
+              : 'An automation ended'
+      await notify(s, `${dca ? '🏁' : '⌛'} ${what}${s.status === 'paused' ? ' while paused' : ''}.`)
+    }
   }
 
   async function walletOf(s: Strategy): Promise<TradingWallet | null> {
@@ -157,7 +242,11 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
             ? `${e.tokenRaw ? tokens(e.tokenRaw, c.token.decimals) : '?'} ${esc(c.token.symbol)} for ${e.nearRaw ? near(e.nearRaw) : '?'} NEAR`
             : `${e.tokenRaw ? tokens(e.tokenRaw, c.token.decimals) : '?'} ${esc(c.token.symbol)} for ${e.nearRaw ? near(e.nearRaw) : '?'} NEAR`
         await store.event(s.id, 'filled', `Filled on chain: ${e.side === 'buy' ? 'bought' : 'sold'} ${got.replace(/<[^>]+>/g, '')}`)
-        await notify(s, `✅ <b>${label}</b> filled on chain: ${e.side === 'buy' ? 'bought' : 'sold'} ${got}.`)
+        const cancelled = s.ocoGroup ? await store.cancelOcoSiblings(s.ocoGroup, s.id, 'The other order of its pair filled') : []
+        await notify(
+          s,
+          `✅ <b>${label}</b> filled on chain: ${e.side === 'buy' ? 'bought' : 'sold'} ${got}.${cancelled.length ? ' The other order of its pair was cancelled.' : ''}`,
+        )
       }
       return
     }
@@ -196,10 +285,20 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     if (!wallet) return pauseFor(s, 'Its NEARKITS wallet is no longer active')
     const target = targetYocto(c.triggerPriceNear)
     if (target === null) return failFor(s, 'Its trigger price is unreadable')
+    // The other order of its pair is trading: its result decides (filled: this one is cancelled; not traded: this one watches on).
+    if (s.ocoGroup && (await store.pairTrading(s.ocoGroup, s.id)))
+      return void (await store.setNext(s.id, now() + 10_000, { ...s.state, waiting: 'The other order of its pair is trading: waiting for its result', armedAt: null }))
     const amount = await orderAmount(c, wallet)
     if ('wait' in amount) {
       await store.setNext(s.id, now() + 60_000, { ...s.state, waiting: amount.wait, armedAt: null })
       return
+    }
+    // Far from its trigger by the token's shared reference price: no quote of its own this time.
+    const ownAt = typeof s.state.ownQuoteAt === 'number' ? s.state.ownQuoteAt : 0
+    if (typeof s.state.armedAt !== 'number' && now() - ownAt < OWN_QUOTE_MAX_MS && c.type !== 'stop-loss') {
+      const ref = await referencePrice(c.token, wallet)
+      if (ref !== null && cannotTrigger(c.type, ref, target))
+        return void (await store.setNext(s.id, now() + LIMIT_CHECK_MS, { ...s.state, refPriceYocto: ref.toString(), refAt: now(), waiting: null, armedAt: null }))
     }
     if (!takeQuote()) return void (await store.setNext(s.id, now() + 15_000))
     const side = sideOf(c.type)
@@ -220,6 +319,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
       ...s.state,
       lastPriceYocto: price?.toString() ?? null,
       lastQuoteAt: q.quotedAt,
+      ownQuoteAt: now(),
       waiting: insufficient ? 'Not enough NEAR in the wallet for this order and its gas' : null,
     }
     if (!meets || price === null) return void (await store.setNext(s.id, now() + LIMIT_CHECK_MS, { ...seen, armedAt: null }))
@@ -230,11 +330,14 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     }
     if (now() - armedAt < CONFIRM_MS) return void (await store.setNext(s.id, armedAt + CONFIRM_MS, seen))
     if (insufficient) return void (await store.setNext(s.id, now() + 60_000, { ...seen, armedAt: null }))
-    // Confirmed: triggered (compare-and-set; a Cancel that won the race leaves it cancelled).
+    // Confirmed: triggered (compare-and-set; a Cancel that won the race leaves it cancelled, and of a
+    // pair only one order trades at a time). The other order of a pair is cancelled once this one fills.
     const attempt = s.attempts + 1
-    if (!(await store.transition(s.id, ['active'], 'triggered', { attempts: attempt, state: { ...seen, armedAt: null }, reason: null }))) return
+    const triggered = await store.triggerOrder(s, { attempts: attempt, state: { ...seen, armedAt: null }, reason: null })
+    if (triggered === 'pair-busy')
+      return void (await store.setNext(s.id, now() + 10_000, { ...seen, waiting: 'The other order of its pair is trading: waiting for its result', armedAt: null }))
+    if (triggered !== 'triggered') return
     await store.event(s.id, 'trigger', `Triggered at ${formatPrice(price)} NEAR per ${c.token.symbol} (target ${c.triggerPriceNear}); attempt ${attempt}`)
-    if (s.ocoGroup) await store.cancelOcoSiblings(s.ocoGroup, s.id, `The other order of this pair triggered`)
     await notify(
       s,
       `🎯 <b>${label}</b> triggered at ${formatPrice(price)} NEAR. Trading now at market with ${c.slippagePct}% slippage; the result follows once the chain confirms it.`,
@@ -679,6 +782,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
 
   async function tick(): Promise<void> {
     for (const e of await store.openExecutions(SETTLE_PER_TICK)) await settleOne(e).catch((err: unknown) => log.warn('automation settle failed', { execution: e.id, error: err }))
+    await sweepLapsed().catch((err: unknown) => log.warn('automation expiry sweep failed', { error: err }))
     const claimed: Strategy[] = []
     for (const s of await store.due(PER_TICK)) if (await store.claim(s.id, deps.instanceId, LEASE_MS)) claimed.push(s)
     await Promise.all(claimed.map((s) => leased(s)))

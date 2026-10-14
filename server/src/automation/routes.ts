@@ -22,6 +22,7 @@ const STATUS: Record<AutomationError['code'], number> = {
   target: 409,
   pair: 400,
   state: 400,
+  request: 409,
 }
 
 const KINDS: readonly StrategyKind[] = ['limit', 'copy', 'sniper', 'dca']
@@ -75,6 +76,7 @@ export function automationRoutes(deps: { sessions: WebSessions; service: Automat
         config: b.config as CreateStrategyInput['config'],
         ...(b.pair !== undefined && b.pair !== null ? { pair: b.pair as CreateStrategyInput['config'] } : {}),
         confirmExecute: b.confirmExecute === true,
+        ...(typeof b.requestKey === 'string' ? { requestKey: b.requestKey } : {}),
       }
       return { strategies: await run(() => service.create(userId, input)) }
     },
