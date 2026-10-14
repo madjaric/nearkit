@@ -134,15 +134,13 @@ export class PoolStore {
     return (await this.db.run(`UPDATE auto_pools SET ${sets.join(', ')} WHERE id = ? AND status = 'watching'`, [...args, id])) === 1
   }
 
-  /** Ready pools first seen at or after `seenSince`, ready at or after `readyFrom`, oldest ready first. */
-  async readySince(network: string, seenSince: number, readyFrom: number, limit: number): Promise<NewPool[]> {
+  /** Ready pools first seen at or after `seenSince`, after the cursor `after` (ready time, then id), oldest ready first. */
+  async readySince(network: string, seenSince: number, after: { at: number; id: number }, limit: number): Promise<NewPool[]> {
     return (
-      await this.db.all<PoolRow>(`SELECT * FROM auto_pools WHERE network = ? AND status = 'ready' AND first_seen_at >= ? AND ready_at >= ? ORDER BY ready_at, id LIMIT ?`, [
-        network,
-        seenSince,
-        readyFrom,
-        limit,
-      ])
+      await this.db.all<PoolRow>(
+        `SELECT * FROM auto_pools WHERE network = ? AND status = 'ready' AND first_seen_at >= ? AND (ready_at > ? OR (ready_at = ? AND id > ?)) ORDER BY ready_at, id LIMIT ?`,
+        [network, seenSince, after.at, after.at, after.id, limit],
+      )
     ).map(toPool)
   }
 

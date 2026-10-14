@@ -29,6 +29,7 @@ async function setup(
     limits?: AutomationLimits
     fetch?: typeof fetch
     poolView?: (contract: string, method: string, args: Record<string, unknown>) => Promise<unknown>
+    quotesPerMinute?: number
   } = {},
 ) {
   const h = await walletBot()
@@ -62,6 +63,7 @@ async function setup(
       now: h.deps.now,
       notify: async (_user, html) => void notices.push(html),
       pools: { store: poolStore, feed },
+      ...(opts.quotesPerMinute ? { quotesPerMinute: opts.quotesPerMinute } : {}),
     })
   const runner = make('a')
   const service = createAutomationService({ store, custody: h.custody, near: h.deps.near, network: h.config.network, enabled, limits: opts.limits, now: h.deps.now })
@@ -664,6 +666,44 @@ describe('Sniper on new pools', () => {
     expect(notices.at(-1)).toMatch(/new-pools sniper bought/)
     await tick(30_000)
     expect(await store.executionsOf(s.id)).toHaveLength(1)
+  })
+
+  it('more pools ready at the same moment than one look takes are all reached (the cursor is the ready time and the pool)', async () => {
+    let pools: ReturnType<typeof newPools> | null = null
+    const { h, w, store, service, tick, notices } = await setup({ poolView: (c, m, a) => (pools as ReturnType<typeof newPools>).view(c, m, a) })
+    pools = newPools(h.config.network)
+    const [s] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools() })
+    if (!s) throw new Error('no sniper')
+    await tick(5_000)
+    // Eleven tokens nobody can read, then USDT: all funded in one go (the same ready time).
+    for (let i = 0; i < 11; i++) pools.add(`tok${String(i).padStart(2, '0')}.testnet`, 50n * ONE)
+    pools.add(USDT, 50n * ONE)
+    for (let i = 0; i < 6; i++) await tick(5_000)
+    expect(await store.detectionsOf(s.id)).toHaveLength(12)
+    expect(notices.filter((n) => /Notify-only/.test(n) && /USDT/.test(n))).toHaveLength(1)
+  })
+
+  it('a pool not looked at for lack of quote budget is looked at once the budget refills (never passed over)', async () => {
+    let pools: ReturnType<typeof newPools> | null = null
+    const { h, w, store, service, tick, notices, order } = await setup({ poolView: (c, m, a) => (pools as ReturnType<typeof newPools>).view(c, m, a), quotesPerMinute: 3 })
+    pools = newPools(h.config.network)
+    // An order spends one of the three quotes a minute, then rests (paused).
+    const [o] = await order({ triggerPriceNear: '0.1' })
+    if (!o) throw new Error('no order')
+    await tick(5_000)
+    await service.pause(ALICE.id, o.id)
+    const [s] = await service.create(ALICE.id, { walletId: w.id, config: sniperOnPools() })
+    if (!s) throw new Error('no sniper')
+    await tick(5_000)
+    pools.add(USDT, 50n * ONE)
+    await tick(5_000)
+    await tick(5_000)
+    // The three quotes it needs (buy, probe, round trip) aren't all there yet: nothing is decided about the pool.
+    expect(await store.detectionsOf(s.id)).toEqual([])
+    await tick(60_000)
+    await tick(5_000)
+    expect((await store.detectionsOf(s.id))[0]).toMatchObject({ status: 'eligible', token: USDT })
+    expect(notices.filter((n) => /Notify-only/.test(n))).toHaveLength(1)
   })
 
   it('the pool feed runs only while a new-pools sniper is live', async () => {

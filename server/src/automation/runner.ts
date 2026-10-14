@@ -129,15 +129,18 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   const executor = createExecutor({ store, custody, network: deps.network, limits: deps.limits ?? DEFAULT_LIMITS, log, now })
   const budget = { tokens: deps.quotesPerMinute ?? 60, max: deps.quotesPerMinute ?? 60, at: now() }
 
-  /** One quote from the shared per-minute budget; false when it is spent (the strategy waits). */
-  function takeQuote(): boolean {
+  /** Quotes from the shared per-minute budget (all or none); false when there aren't that many left (the strategy waits). */
+  function takeQuotes(wanted: number): boolean {
     const t = now()
     budget.tokens = Math.min(budget.max, budget.tokens + ((t - budget.at) / 60_000) * budget.max)
     budget.at = t
-    if (budget.tokens < 1) return false
-    budget.tokens -= 1
+    // Never more than the budget holds at most (a budget smaller than a step's needs still lets it run).
+    const n = Math.min(wanted, budget.max)
+    if (budget.tokens < n) return false
+    budget.tokens -= n
     return true
   }
+  const takeQuote = () => takeQuotes(1)
 
   async function notify(s: Strategy, text: string): Promise<void> {
     await deps.notify?.(s.userId, text).catch((e: unknown) => log.warn('automation notice failed', { strategy: s.id, error: e }))
@@ -603,8 +606,8 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
   // ─── Sniper: new pools ────────────────────────────────────────────────────
 
   type PoolSniperState = {
-    /** Ready pools from this moment on are still to look at (each once: its detection). */
-    readyFrom?: number
+    /** The last ready pool handled (its ready time and id): the ones after it are still to look at. */
+    readyAfter?: { at: number; id: number }
     buys?: number
     failures?: number
     /** Pools without an executable route yet, with when they were first tried. */
@@ -627,16 +630,29 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     const st: PoolSniperState = { ...(s.state as PoolSniperState) }
     if (!deps.pools) return void (await store.setNext(s.id, now() + 60_000, { ...st, waiting: 'This server doesn’t read new pools' }))
     st.waiting = null
-    const fresh = await deps.pools.store.readySince(deps.network.id, s.createdAt, st.readyFrom ?? 0, POOLS_PER_STEP)
-    const again = (await Promise.all(Object.keys(st.retry ?? {}).map((k) => poolOfKey(k)))).filter((p): p is NewPool => p !== null)
-    for (const p of [...again, ...fresh]) {
-      if (p.readyAt !== null && fresh.includes(p)) st.readyFrom = Math.max(st.readyFrom ?? 0, p.readyAt)
-      if (!p.token || !c.sources.includes(sourceOfPool(p))) continue
+    const handle = async (p: NewPool): Promise<'next' | 'stop' | 'later'> => {
+      if (!p.token || !c.sources.includes(sourceOfPool(p))) return 'next'
       const key = poolKey(p)
       const seen = await store.detection(s.id, key)
-      if (seen && seen.status !== 'detected') continue
-      const done = await snipePool(s, c, wallet, st, p, key)
-      if (done === 'stop') break
+      if (seen && seen.status !== 'detected') return 'next'
+      return snipePool(s, c, wallet, st, p, key)
+    }
+    // Pools still waiting for a route first, then the ones that became ready since the last one handled.
+    let go = true
+    for (const p of (await Promise.all(Object.keys(st.retry ?? {}).map((k) => poolOfKey(k)))).filter((x): x is NewPool => x !== null)) {
+      if ((await handle(p)) !== 'next') {
+        go = false
+        break
+      }
+    }
+    if (go) {
+      for (const p of await deps.pools.store.readySince(deps.network.id, s.createdAt, st.readyAfter ?? { at: 0, id: 0 }, POOLS_PER_STEP)) {
+        const r = await handle(p)
+        // Not looked at yet (the quote budget spent): the cursor stays before it.
+        if (r === 'later') break
+        st.readyAfter = { at: p.readyAt ?? 0, id: p.id }
+        if (r === 'stop') break
+      }
     }
     const current = await store.get(s.id)
     if (current?.status === 'active') await store.setNext(s.id, now() + POOL_SNIPER_CHECK_MS, st)
@@ -648,7 +664,7 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     return deps.pools.store.get(deps.network.id, source, rest.join(':'))
   }
 
-  async function snipePool(s: Strategy, c: SniperSettings, wallet: TradingWallet, st: PoolSniperState, p: NewPool, key: string): Promise<'next' | 'stop'> {
+  async function snipePool(s: Strategy, c: SniperSettings, wallet: TradingWallet, st: PoolSniperState, p: NewPool, key: string): Promise<'next' | 'stop' | 'later'> {
     const tokenId = p.token as string
     const base = { strategyId: s.id, sourceKey: key, side: 'buy' as const, token: tokenId, tokenRaw: null, nearRaw: p.nearRaw }
     const record = async (status: 'detected' | 'skipped', reason: string) => {
@@ -664,7 +680,8 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     const meta = await deps.near.ctx.reader.metadata(tokenId).catch(() => null)
     if (!meta) return settle('The token’s metadata can’t be read from chain')
     const token: TokenRef = { id: tokenId, symbol: meta.symbol, decimals: meta.decimals }
-    if (!takeQuote()) return 'stop'
+    // The buy, a probe of its impact and the round trip: all three from the budget, or later.
+    if (!takeQuotes(3)) return 'later'
     const amountIn = c.amountNear.toFixed(6).replace(/\.?0+$/, '')
     let q: SwapQuote
     try {
@@ -679,22 +696,20 @@ export function createAutomationRunner(deps: AutomationRunnerDeps) {
     }
     if (st.retry) delete st.retry[key]
     const a = quoteAmounts('buy', q)
-    const impactOf = impactAgainst(token, q.priceImpactPct === null && takeQuote() ? await probePrice(token, c, wallet) : null)
+    const impactOf = impactAgainst(token, q.priceImpactPct === null ? await probePrice(token, c, wallet) : null)
     const impact = impactOf(q)
     if (impact === null || impact > c.maxImpactPct) return settle(`Price impact ${impact === null ? 'unknown' : `${impact.toFixed(2)}%`} is over ${c.maxImpactPct}%`)
     // A round trip (this buy, then selling what it gets) shows fees, a tax and a pool too thin to leave.
     let loss: number | null = null
-    if (takeQuote()) {
-      try {
-        const back = await custody.swaps.quote(
-          { side: 'sell', token: token.id, symbol: token.symbol, decimals: token.decimals, amountIn: formatUnits(a.tokenRaw, token.decimals), slippagePct: c.slippagePct },
-          wallet,
-        )
-        const nearBack = quoteAmounts('sell', back).nearRaw
-        loss = a.nearRaw > 0n ? Number(((a.nearRaw - (nearBack < a.nearRaw ? nearBack : a.nearRaw)) * 10_000n) / a.nearRaw) / 100 : null
-      } catch {
-        loss = null
-      }
+    try {
+      const back = await custody.swaps.quote(
+        { side: 'sell', token: token.id, symbol: token.symbol, decimals: token.decimals, amountIn: formatUnits(a.tokenRaw, token.decimals), slippagePct: c.slippagePct },
+        wallet,
+      )
+      const nearBack = quoteAmounts('sell', back).nearRaw
+      loss = a.nearRaw > 0n ? Number(((a.nearRaw - (nearBack < a.nearRaw ? nearBack : a.nearRaw)) * 10_000n) / a.nearRaw) / 100 : null
+    } catch {
+      loss = null
     }
     if (loss === null) return settle('Selling it back can’t be quoted: not bought')
     if (loss > ROUND_TRIP_MAX_LOSS_PCT) return settle(`A round trip loses ${loss.toFixed(2)}% (fees, a tax or a thin pool): over ${ROUND_TRIP_MAX_LOSS_PCT}%`)
