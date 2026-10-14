@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { loadConfig } from '../config'
+import { loadConfig, type ServerConfig } from '../config'
 import { createSignerClient } from '../custody/signer'
 import { CustodyStore } from '../custody/store'
 import { openDatabase } from '../db/open'
@@ -9,6 +9,7 @@ import { httpSignerTransport } from '../signer/client'
 import { migrateSigner } from '../signer/schema'
 import { SignerStore } from '../signer/store'
 import { pinnedFetch, type TlsPin } from '../signer/tls'
+import { createTelegramApi } from '../telegram/api'
 import { OpsSwitches, SWITCHES, type SwitchName } from './switches'
 
 /**
@@ -21,7 +22,44 @@ import { OpsSwitches, SWITCHES, type SwitchName } from './switches'
  *   unfreeze <wallet id or account> <reason>
  *   signer-pause <reason>                    stop every signature, export and approval (resume on the signer's host)
  *   events [count]                           the latest security events (no secrets are ever recorded)
+ *   bot-commands [command …]                 the menus Telegram holds for the bot (getMyCommands); with names,
+ *                                            fails unless each is in the menu private chats show
  */
+
+const MENU_SCOPES = ['default', 'all_private_chats', 'all_group_chats'] as const
+
+/** Reads the bot's menus from Telegram (never the database), printing only command names: never the token. */
+async function botCommands(config: ServerConfig, names: string[], out: (line: string) => void, f?: typeof fetch): Promise<number> {
+  if (!config.telegramToken) {
+    out('the Telegram bot is off on this server (no TELEGRAM_BOT_TOKEN)')
+    return 1
+  }
+  const tg = createTelegramApi({ token: config.telegramToken, fetch: f, baseUrl: config.telegramApiUrl })
+  const menus: Partial<Record<(typeof MENU_SCOPES)[number], string[]>> = {}
+  try {
+    for (const scope of MENU_SCOPES) {
+      const list = (await tg.getMyCommands(scope === 'default' ? undefined : { type: scope })).map((c) => c.command)
+      menus[scope] = list
+      out(list.length ? `${scope} (${list.length}): ${list.join(' ')}` : `${scope}: (none)`)
+    }
+  } catch (e) {
+    // The client keeps the token out of its errors.
+    out(e instanceof Error ? e.message : 'Telegram did not answer')
+    return 1
+  }
+  // Telegram shows a private chat the all_private_chats menu when there is one, else the default one.
+  const own = menus.all_private_chats ?? []
+  out(own.length ? 'private chats show all_private_chats (set), not the default scope' : 'private chats show the default scope (no all_private_chats menu)')
+  if (!names.length) return 0
+  const shown = own.length ? own : (menus.default ?? [])
+  const missing = names.map((n) => n.replace(/^\//, '')).filter((n) => !shown.includes(n))
+  if (missing.length) {
+    out(`missing from the private menu: ${missing.map((n) => `/${n}`).join(' ')}`)
+    return 1
+  }
+  out(`all ${names.length} named commands are in the private menu`)
+  return 0
+}
 
 /** The signer's own certificate when one is pinned; otherwise the given (or global) fetch. */
 const signerFetch = (signer: { tlsPin: TlsPin | null }, f?: typeof fetch) => (signer.tlsPin ? pinnedFetch(signer.tlsPin) : f)
@@ -37,6 +75,7 @@ export async function runOpsAdmin(
     for (const i of issues) out(`configuration problem: ${i.key}: ${i.message}`)
     return 2
   }
+  if (argv[0] === 'bot-commands') return botCommands(config, argv.slice(1), out, o.fetch)
   const db = await openDatabase(config.database)
   try {
     await migrate(db)
@@ -138,7 +177,7 @@ export async function runOpsAdmin(
         return 0
       }
       default:
-        out(`usage: status | pause|resume <${SWITCHES.join('|')}> <reason> | freeze|unfreeze <wallet> <reason> | signer-pause <reason> | events [count]`)
+        out(`usage: status | pause|resume <${SWITCHES.join('|')}> <reason> | freeze|unfreeze <wallet> <reason> | signer-pause <reason> | events [count] | bot-commands [command …]`)
         return 2
     }
   } finally {

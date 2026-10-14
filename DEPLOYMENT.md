@@ -83,6 +83,8 @@ Every server process fails closed on its configuration: a missing or doubtful cr
 | `ONECLICK_API_URL` | unset | NEAR Intents' 1Click API, `https://1click.chaindefuser.com` |
 | `ONECLICK_API_KEY` | secret, optional | A 1Click partner JWT. Never logged; sent only to 1Click |
 | `SOLANA_RPC_URL` | unset, or a private Solana RPC | Blockhash and balance reads for the page's SOL transfer |
+| `NEARKIT_AUTOMATION` | `limit,dca,sniper,copy` (unset: off) | The trading automation kinds the worker runs (AUTOMATION.md). Limits stay at their defaults: 50 NEAR a trade, 200 NEAR per user and 2,000 NEAR in all per 24 h |
+| `NEARKIT_AUTOMATION_SNIPER_BUY` | `on` (unset: off) | Snipers may buy; each still needs its owner's explicit yes. Off: snipers only notify. `/health` `sniperBuy` shows it |
 
 ### 3.2 Signer (`server/.env.signer.example`)
 
@@ -121,7 +123,7 @@ It must **not** have `TELEGRAM_BOT_TOKEN`, `NEARKIT_DATABASE_URL` or `NEARKIT_WA
 
 | Service | Check | Healthy when |
 |---|---|---|
-| App | `GET /health` (public, secret-free) | `ok: true`; `wallets: "on"` (when custody is on); `signer: "ok"`; `pauses` as intended; `bot: true`; `buybot` as configured; `ops: "ok"` (the host watchdog's last verdict, §13; `degraded` or `unknown` otherwise); `version` = the commit the app was built from |
+| App | `GET /health` (public, secret-free) | `ok: true`; `wallets: "on"` (when custody is on); `signer: "ok"`; `pauses` as intended; `bot: true`; `buybot` as configured; `ops: "ok"` (the host watchdog's last verdict, §13; `degraded` or `unknown` otherwise); `automation` = the kinds running (`off` otherwise) and `sniperBuy` `on`/`off`; `version` = the commit the app was built from |
 | Signer | `GET /livez` | Process alive (no details) |
 | Signer | `npm run signer:admin -- status` on its host, or the app's `/health` `signer` field | KEK `ok` (a KMS round trip), database `ok`, `paused false`, network `mainnet` |
 | Buy bot | `GET /health` on `BUYBOT_HEALTH_PORT` | `ok: true` (followed within 2 minutes); `posting: true` on exactly one instance |
@@ -237,7 +239,7 @@ internet ──443──► caddy ──► app ──(signer-link)──► sig
   - entered by the owner, unseen: the bot token, through `bin/set-secret`;
   - written by `openbao-init`: OpenBao's signer and backup tokens.
 - **Operations**, with the server's shell:
-  - `docker compose exec app node dist-server/ops-admin.js <command>`: kill switches, freeze, events.
+  - `docker compose exec app node dist-server/ops-admin.js <command>`: kill switches, freeze, events; `bot-commands [command …]` reads the bot's Telegram menus (getMyCommands, per scope; never the token) and fails unless each named command is in the menu private chats show. The app sets the menus at every start.
   - `docker compose exec signer node dist-server/signer-admin.js status`: the signer's health.
   - `touch control/signer.paused`: stops all signing.
   - `docker compose stop openbao`: the emergency brake. Nothing can be unwrapped until the owner restarts and unseals it.

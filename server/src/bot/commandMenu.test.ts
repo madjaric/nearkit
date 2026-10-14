@@ -12,8 +12,29 @@ import { ALICE, botHarness } from './testing'
 /** What a new or returning user should see first, in this order. */
 const FIRST = ['start', 'bridge', 'kits', 'community', 'help', 'accounts', 'link', 'unlink', 'cancel']
 
-/** Every command the private menu had on 2026-10-12 (none may be dropped), plus /start. */
-const PRIVATE = [...FIRST, 'settings', 'buy', 'sell', 'quote', 'token', 'balance', 'positions', 'pnl', 'buybot', 'wallet', 'deposit', 'withdraw', 'referral', 'web', 'volume']
+/** The trading automation commands, in the menu since 2026-10-14 (before that only in /help). */
+const AUTOMATION = ['orders', 'copy', 'snipe', 'dca', 'auto']
+
+/** Every command the private menu had on 2026-10-12 (none may be dropped), plus /start, then automation's. */
+const PRIVATE = [
+  ...FIRST,
+  'settings',
+  'buy',
+  'sell',
+  'quote',
+  'token',
+  'balance',
+  'positions',
+  'pnl',
+  'buybot',
+  'wallet',
+  'deposit',
+  'withdraw',
+  'referral',
+  'web',
+  'volume',
+  ...AUTOMATION,
+]
 
 async function fullBot() {
   const h: Awaited<ReturnType<typeof botHarness>> = await botHarness({ custody: true, modules: (deps) => botModules(deps, () => h.app.commands()) })
@@ -21,7 +42,7 @@ async function fullBot() {
 }
 
 describe('the command menu Telegram shows', () => {
-  it('private chats: /start first, then /bridge, /kits, /community, /help, /accounts, /link, /unlink, /cancel, then every other command as before', async () => {
+  it('private chats: /start first, then /bridge, /kits, /community, /help, /accounts, /link, /unlink, /cancel, then every other command as before, then /orders, /copy, /snipe, /dca and /auto', async () => {
     const h = await fullBot()
     const menu = menuCommands(h.app, 'private').map((c) => c.command)
     expect(menu.slice(0, FIRST.length)).toEqual(FIRST)
@@ -46,6 +67,22 @@ describe('the command menu Telegram shows', () => {
       expect(new Set(menu.map((c) => c.command)).size).toBe(menu.length)
     }
     expect(menuCommands(h.app, 'private').find((c) => c.command === 'start')?.description).toMatch(/menu/i)
+  })
+
+  it('every command in the private menu answers in a private chat: none is unknown, none fails', async () => {
+    const h = await fullBot()
+    for (const { command } of menuCommands(h.app, 'private')) {
+      // A minute apart, as a person would: the flood limit stays out of it. Each command drops the last one's step.
+      h.advance(60_000)
+      const before = h.fake.messages().length
+      await h.say(`/${command}`)
+      const replies = h.fake.messages().slice(before)
+      expect(replies.length, `/${command} answered`).toBeGreaterThan(0)
+      for (const r of replies) {
+        expect(r.text, `/${command}`).not.toContain('I don’t know')
+        expect(r.text, `/${command}`).not.toContain('Something went wrong')
+      }
+    }
   })
 
   it('/start still opens the home screen in a private chat, and still points a group to /buybot and a private chat', async () => {
