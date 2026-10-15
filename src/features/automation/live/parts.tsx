@@ -266,6 +266,16 @@ export function StrategiesPanel({ kind, selected, onSelect, title }: { kind: Str
   const of = (t: ListTab) => all.filter((s) => tabOf(s.status) === t)
   const shown = of(tab)
   const idBase = `auto-${kind}`
+  // None of this kind at all: one compact line instead of three empty tabs.
+  if (list.data && all.length === 0)
+    return (
+      <Panel>
+        <PanelHeader title={title} meta={0} />
+        <EmptyState title="Nothing active" graphic={false} compact>
+          {EMPTY.active}
+        </EmptyState>
+      </Panel>
+    )
   return (
     <Panel>
       <PanelHeader title={title} meta={list.data ? all.length : undefined} />
@@ -285,12 +295,12 @@ export function StrategiesPanel({ kind, selected, onSelect, title }: { kind: Str
       <div {...tabPanelProps(idBase, tab)} className="outline-none">
         {list.isPending ? (
           <div className="p-4">
-            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-20 w-full" />
           </div>
         ) : list.isError ? (
           <LoadFailed title="Your automations couldn’t be read" error={list.error} onRetry={() => void list.refetch()} />
         ) : shown.length === 0 ? (
-          <EmptyState title={tab === 'active' ? 'Nothing active' : tab === 'paused' ? 'Nothing paused' : 'No history yet'} graphic={false}>
+          <EmptyState title={tab === 'active' ? 'Nothing active' : tab === 'paused' ? 'Nothing paused' : 'No history yet'} graphic={false} compact>
             {EMPTY[tab]}
           </EmptyState>
         ) : (

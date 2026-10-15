@@ -25,7 +25,7 @@ export function Field({ label, aside, hint, error, warning, children, className,
   const message = error ?? warning ?? hint
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      <div className={cn('flex min-h-4 items-center justify-between gap-3', labelHidden && 'sr-only')}>
+      <div className={cn('flex min-h-4 flex-wrap items-center justify-between gap-x-3 gap-y-0.5', labelHidden && 'sr-only')}>
         <label htmlFor={id} className="legend">
           {label}
         </label>

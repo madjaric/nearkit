@@ -3,14 +3,13 @@ import { Button } from '@/components/ui/Button'
 import { Figures } from '@/components/ui/Figures'
 import { AmountInput, Field, Segmented, Switch } from '@/components/ui/Form'
 import { InfoTip } from '@/components/ui/Help'
-import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { useToast } from '@/components/ui/toast-context'
 import type { StrategyPreview } from '@/lib/automation/api'
 import type { ConfigIssue, LimitConfig, LimitOrderType } from '@/lib/automation/config'
 import { formatNumber } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { DEFAULT_SLIPPAGE } from '@/lib/fees'
-import { ExpiryField, NumberField, SlippageField, TokenField } from './formParts'
+import { AutomationFormPanel, ExpiryField, NumberField, ReviewFooter, SlippageField, Stack, TokenField, Wide } from './formParts'
 import { useTokenChoice, useWalletChoice } from './hooks'
 import { buildLimit, buildStopLossPair, conditionOf, createRefusalOf, issuesByField, ORDER_TYPE_LABEL, refusalOf, reviewOf, type ExpiryChoice, type Reviewed } from './model'
 import { NearKitWalletField, PreviewLines, ReviewModal } from './parts'
@@ -129,9 +128,43 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
     : null
 
   return (
-    <Panel>
-      <PanelHeader title="New order" actions={<InfoTip term={type === 'take-profit' ? 'takeProfit' : type === 'stop-loss' ? 'stopLoss' : 'limitOrder'} />} />
-      <div className="flex flex-col gap-4 p-4">
+    <AutomationFormPanel
+      title="New order"
+      actions={<InfoTip term={type === 'take-profit' ? 'takeProfit' : type === 'stop-loss' ? 'stopLoss' : 'limitOrder'} />}
+      footer={
+        <ReviewFooter
+          action={
+            <Button size="lg" block variant={side === 'buy' ? 'primary' : 'sell'} onClick={openReview}>
+              Review {ORDER_TYPE_LABEL[type].toLowerCase()}
+            </Button>
+          }
+          failure={failure && !review ? failure : null}
+          issues={attempted ? issues : null}
+          terms={LIMIT_TERMS}
+        />
+      }
+      dialog={
+        <ReviewModal
+          open={review !== null}
+          onClose={() => setReview(null)}
+          title={`Review ${review ? ORDER_TYPE_LABEL[review.config.order.type].toLowerCase() : 'order'}`}
+          summary={
+            review && (
+              <Figures>
+                {`${ORDER_TYPE_LABEL[review.config.order.type]} ${review.config.order.token.symbol} when the price is ${conditionOf(review.config.order.type)} ${review.config.order.triggerPriceNear} NEAR${review.config.pair ? `, with a stop loss at ≤ ${review.config.pair.triggerPriceNear} NEAR (the first to trigger cancels the other; cancelling either cancels both)` : ''}. Slippage ${review.config.order.slippagePct}%.`}
+              </Figures>
+            )
+          }
+          preview={previewState}
+          terms={`${LIMIT_TERMS} It runs server-side from your NEARKITS wallet without asking again; pause or cancel it any time before it triggers.`}
+          error={failure}
+          confirmLabel={review?.config.pair ? 'Create both orders' : 'Create order'}
+          confirming={create.isPending}
+          onConfirm={confirm}
+        />
+      }
+    >
+      <Wide>
         <Segmented
           label="Order side"
           block
@@ -163,54 +196,60 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
             />
           </div>
         )}
+      </Wide>
 
-        <TokenField
-          tokenId={tokenId}
-          onChange={(id) => {
-            changed()
-            setTokenId(id)
-          }}
-          error={errors['token.id'] ?? errors['token.decimals'] ?? errors['token.symbol'] ?? errors.token}
-        />
-
-        <Field
-          label={`Trigger price · ${conditionOf(type)}`}
-          aside={listedNear !== null && listedNear > 0 ? <span className="num">Listed ≈ {formatNumber(listedNear, 0, 8)} NEAR</span> : undefined}
-          error={errors.triggerPriceNear}
-          hint={`${ORDER_TYPE_LABEL[type]} triggers when NEARKITS’ executable price is ${conditionOf(type) === '≤' ? 'at or below' : 'at or above'} this, in NEAR per ${token?.symbol ?? 'token'}.`}
-        >
-          {({ id, describedBy, invalid }) => (
-            <AmountInput
-              id={id}
-              value={triggerText}
-              onValueChange={(v) => {
-                changed()
-                setTriggerText(v)
-              }}
-              unit="NEAR"
-              placeholder="0"
-              aria-describedby={describedBy}
-              aria-invalid={invalid}
-            />
-          )}
-        </Field>
-
-        {side === 'sell' && (
-          <Segmented
-            label="Sell amount as"
-            block
-            size="sm"
-            value={sellBy}
-            onChange={(v) => {
+      <TokenField
+        tokenId={tokenId}
+        onChange={(id) => {
+          changed()
+          setTokenId(id)
+        }}
+        error={errors['token.id'] ?? errors['token.decimals'] ?? errors['token.symbol'] ?? errors.token}
+      />
+      <Field
+        label={`Trigger price · ${conditionOf(type)}`}
+        aside={listedNear !== null && listedNear > 0 ? <span className="num">Listed ≈ {formatNumber(listedNear, 0, 8)} NEAR</span> : undefined}
+        error={errors.triggerPriceNear}
+        hint={`${ORDER_TYPE_LABEL[type]} triggers when NEARKITS’ executable price is ${conditionOf(type) === '≤' ? 'at or below' : 'at or above'} this, in NEAR per ${token?.symbol ?? 'token'}.`}
+      >
+        {({ id, describedBy, invalid }) => (
+          <AmountInput
+            id={id}
+            value={triggerText}
+            onValueChange={(v) => {
               changed()
-              setSellBy(v)
-              setAmountText('')
+              setTriggerText(v)
             }}
-            options={[
-              { value: 'tokens', label: 'Token amount' },
-              { value: 'percent', label: '% of balance' },
-            ]}
+            unit="NEAR"
+            placeholder="0"
+            aria-describedby={describedBy}
+            aria-invalid={invalid}
           />
+        )}
+      </Field>
+
+      <Stack>
+        {side === 'sell' && (
+          <div className="flex flex-col gap-1.5">
+            <span className="legend" aria-hidden="true">
+              Sell amount as
+            </span>
+            <Segmented
+              label="Sell amount as"
+              block
+              size="sm"
+              value={sellBy}
+              onChange={(v) => {
+                changed()
+                setSellBy(v)
+                setAmountText('')
+              }}
+              options={[
+                { value: 'tokens', label: 'Token amount' },
+                { value: 'percent', label: '% of balance' },
+              ]}
+            />
+          </div>
         )}
         <NumberField
           label={side === 'buy' ? 'Spend' : sellBy === 'percent' ? 'Sell share' : 'Sell amount'}
@@ -224,8 +263,18 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
           placeholder={sellBy === 'percent' && side === 'sell' ? '100' : '0'}
           hint={side === 'sell' && sellBy === 'percent' ? 'A whole percentage of what the wallet holds when the order triggers, read from chain then.' : undefined}
         />
+      </Stack>
+      <ExpiryField
+        value={expiry}
+        onChange={(v) => {
+          changed()
+          setExpiry(v)
+        }}
+        error={errors.expiresAt}
+      />
 
-        {type === 'take-profit' && (
+      {type === 'take-profit' && (
+        <Wide>
           <div className="flex flex-col gap-3 rounded-md border border-line-soft p-3">
             <Switch
               checked={withStop}
@@ -237,83 +286,39 @@ export function LimitOrderForm({ onCreated }: { onCreated: (id: string) => void 
               description="The pair shares the amount: the first to trigger cancels the other, and cancelling either cancels both."
             />
             {withStop && (
-              <NumberField
-                label="Stop loss trigger · ≤"
-                value={stopText}
-                onChange={(v) => {
-                  changed()
-                  setStopText(v)
-                }}
-                unit="NEAR"
-                error={errors['pair.triggerPriceNear']}
-              />
+              <div className="@xl:max-w-[calc(50%-0.625rem)]">
+                <NumberField
+                  label="Stop loss trigger · ≤"
+                  value={stopText}
+                  onChange={(v) => {
+                    changed()
+                    setStopText(v)
+                  }}
+                  unit="NEAR"
+                  error={errors['pair.triggerPriceNear']}
+                />
+              </div>
             )}
           </div>
-        )}
+        </Wide>
+      )}
 
-        <NearKitWalletField
-          value={walletId}
-          onChange={(id) => {
-            changed()
-            setWalletId(id)
-          }}
-          error={errors.walletId}
-        />
-        <SlippageField
-          value={slippagePct}
-          onChange={(v) => {
-            changed()
-            setSlippage(v)
-          }}
-          error={errors.slippagePct}
-        />
-        <ExpiryField
-          value={expiry}
-          onChange={(v) => {
-            changed()
-            setExpiry(v)
-          }}
-          error={errors.expiresAt}
-        />
-
-        <div className="flex flex-col gap-2 border-t border-line-soft pt-3">
-          <Button size="lg" block variant={side === 'buy' ? 'primary' : 'sell'} onClick={openReview}>
-            Review {ORDER_TYPE_LABEL[type].toLowerCase()}
-          </Button>
-          {failure && !review && (
-            <p className="text-xs text-neg" role="alert">
-              <Figures>{failure}</Figures>
-            </p>
-          )}
-          {attempted && issues.length > 0 && (
-            <p className="text-xs text-neg">
-              <Figures>{`${issues.length} field${issues.length === 1 ? ' needs' : 's need'} a look: ${issues[0]?.message}`}</Figures>
-            </p>
-          )}
-          <p className="text-xs leading-5 text-fg-3">
-            <Figures>{LIMIT_TERMS}</Figures>
-          </p>
-        </div>
-      </div>
-
-      <ReviewModal
-        open={review !== null}
-        onClose={() => setReview(null)}
-        title={`Review ${review ? ORDER_TYPE_LABEL[review.config.order.type].toLowerCase() : 'order'}`}
-        summary={
-          review && (
-            <Figures>
-              {`${ORDER_TYPE_LABEL[review.config.order.type]} ${review.config.order.token.symbol} when the price is ${conditionOf(review.config.order.type)} ${review.config.order.triggerPriceNear} NEAR${review.config.pair ? `, with a stop loss at ≤ ${review.config.pair.triggerPriceNear} NEAR (the first to trigger cancels the other; cancelling either cancels both)` : ''}. Slippage ${review.config.order.slippagePct}%.`}
-            </Figures>
-          )
-        }
-        preview={previewState}
-        terms={`${LIMIT_TERMS} It runs server-side from your NEARKITS wallet without asking again; pause or cancel it any time before it triggers.`}
-        error={failure}
-        confirmLabel={review?.config.pair ? 'Create both orders' : 'Create order'}
-        confirming={create.isPending}
-        onConfirm={confirm}
+      <NearKitWalletField
+        value={walletId}
+        onChange={(id) => {
+          changed()
+          setWalletId(id)
+        }}
+        error={errors.walletId}
       />
-    </Panel>
+      <SlippageField
+        value={slippagePct}
+        onChange={(v) => {
+          changed()
+          setSlippage(v)
+        }}
+        error={errors.slippagePct}
+      />
+    </AutomationFormPanel>
   )
 }

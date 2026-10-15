@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Page, PageGrid, PageHeader, SessionEnded } from '@/components/page/Page'
+import { Page, PageHeader, SessionEnded } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
@@ -9,6 +9,20 @@ import { BOT_NAME, WEB_SIGN_IN_URL } from '@/lib/telegramLinks'
 import { useIdentity } from '@/services/queries'
 import { AutomationNotice, PauseAllButton, StrategiesPanel, StrategyDetailPanel } from './parts'
 import type { AutomationAccess } from './queries'
+
+/**
+ * The automation pages' one layout: the form leads, about two thirds of the width from 1280px, and the
+ * user's list of that kind (with the detail of the one picked) sits beside it as the secondary column,
+ * as tall as its content. Narrower, they stack, the form first: the same order for reading and for focus.
+ */
+function AutomationColumns({ form, side }: { form: ReactNode; side: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]">
+      <div className="min-w-0">{form}</div>
+      <div className="flex min-w-0 flex-col gap-4">{side}</div>
+    </div>
+  )
+}
 
 /**
  * A server-backed automation page's body: NEARKITS' switch and limits, the form that creates one,
@@ -24,10 +38,15 @@ export function LiveAutomation({ kind, title, form }: { kind: StrategyKind; titl
         </div>
         <PauseAllButton />
       </div>
-      <PageGrid aside={form(setSelected)} asideWidth={400} asideFirst>
-        <StrategiesPanel kind={kind} title={title} selected={selected} onSelect={setSelected} />
-        {selected && <StrategyDetailPanel key={selected} id={selected} onClose={() => setSelected(null)} />}
-      </PageGrid>
+      <AutomationColumns
+        form={form(setSelected)}
+        side={
+          <>
+            <StrategiesPanel kind={kind} title={title} selected={selected} onSelect={setSelected} />
+            {selected && <StrategyDetailPanel key={selected} id={selected} onClose={() => setSelected(null)} />}
+          </>
+        }
+      />
     </>
   )
 }
@@ -90,7 +109,9 @@ export function LiveAutomationPage({
         <div aria-busy="true" aria-label={`Loading ${feature}`} className="flex flex-col gap-3">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-full max-w-md" />
-          <Skeleton className="mt-2 h-64 w-full" />
+          <div className="mt-2">
+            <AutomationColumns form={<Skeleton className="h-96 w-full" />} side={<Skeleton className="h-28 w-full" />} />
+          </div>
         </div>
       </Page>
     )
