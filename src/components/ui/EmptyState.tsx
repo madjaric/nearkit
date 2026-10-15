@@ -25,13 +25,15 @@ interface EmptyStateProps {
   children?: ReactNode
   action?: ReactNode
   graphic?: boolean
+  /** Tighter, for a secondary column: the same words in less height. */
+  compact?: boolean
   className?: string
 }
 
 /** Empty states teach the next step instead of saying "nothing here". */
-export function EmptyState({ title, children, action, graphic = true, className }: EmptyStateProps) {
+export function EmptyState({ title, children, action, graphic = true, compact = false, className }: EmptyStateProps) {
   return (
-    <div className={cn('flex flex-col items-center gap-3 px-6 py-10 text-center', className)}>
+    <div className={cn('flex flex-col items-center text-center', compact ? 'gap-2 px-4 py-5' : 'gap-3 px-6 py-10', className)}>
       {graphic && <Flatline />}
       <div className="max-w-sm">
         <p className="text-sm font-medium text-fg">{title}</p>

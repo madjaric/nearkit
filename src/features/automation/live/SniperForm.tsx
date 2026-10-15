@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Figures } from '@/components/ui/Figures'
 import { Checkbox, Field, Input, Segmented } from '@/components/ui/Form'
-import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { useToast } from '@/components/ui/toast-context'
 import type { StrategyPreview } from '@/lib/automation/api'
 import { MAX_SNIPER_ATTEMPTS, MAX_SNIPER_BUYS, SNIPER_SOURCES, type ConfigIssue, type SniperSettings, type SniperSource, type TokenRef } from '@/lib/automation/config'
@@ -11,7 +10,7 @@ import { useNow } from '@/lib/hooks'
 import { isValidAccountId } from '@/lib/validation'
 import { describeError } from '@/services/errors'
 import { useTokenLookup, useTokens } from '@/services/queries'
-import { ExpiryField, NumberField, SlippageField } from './formParts'
+import { AutomationFormPanel, ExpiryField, NumberField, Pair, ReviewFooter, SlippageField, Stack, Wide } from './formParts'
 import { useWalletChoice } from './hooks'
 import {
   buildSniper,
@@ -141,9 +140,58 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
   const tokenError = errors['token.id'] ?? errors['token.decimals'] ?? errors['token.symbol'] ?? errors.token
   const reviewed = review?.config ?? null
   return (
-    <Panel>
-      <PanelHeader title="New sniper" />
-      <div className="flex flex-col gap-4 p-4">
+    <AutomationFormPanel
+      title="New sniper"
+      footer={
+        <ReviewFooter
+          action={
+            <Button size="lg" block variant="primary" onClick={openReview}>
+              Review sniper
+            </Button>
+          }
+          failure={failure && !review ? failure : null}
+          issues={attempted ? built.issues : null}
+          terms={pools ? NEW_POOLS_TERMS : SNIPER_TERMS}
+        />
+      }
+      dialog={
+        <ReviewModal
+          open={review !== null}
+          onClose={() => setReview(null)}
+          title={
+            reviewed?.target === 'new-pools'
+              ? reviewed.mode === 'execute'
+                ? 'Confirm a new-pools sniper that buys'
+                : 'Review new-pools sniper (notify only)'
+              : reviewed?.mode === 'execute'
+                ? 'Confirm a sniper that buys'
+                : 'Review sniper (notify only)'
+          }
+          summary={reviewed && <Figures>{sniperSummary(reviewed)}</Figures>}
+          preview={
+            reviewed?.target === 'token'
+              ? {
+                  pending: preview.isPending,
+                  error: preview.isError ? refusalOf(preview.error).message : null,
+                  body: preview.data && reviewed.token ? <PreviewLines preview={preview.data as StrategyPreview} token={reviewed.token} /> : null,
+                }
+              : null
+          }
+          extra={reviewed?.mode === 'execute' && <Checkbox checked={understood} onChange={(e) => setUnderstood(e.target.checked)} label={buyConfirmation(reviewed)} />}
+          terms={
+            reviewed?.target === 'new-pools'
+              ? `${NEW_POOLS_TERMS} Nothing is quoted until a new pool appears: each pool is checked on its own fresh quote then.`
+              : `${SNIPER_TERMS} A quote error here can simply mean the token doesn’t trade yet.`
+          }
+          error={failure}
+          confirmLabel={reviewed?.mode === 'execute' ? 'Arm sniper to buy' : 'Create sniper'}
+          confirmDisabled={reviewed?.mode === 'execute' && !understood}
+          confirming={create.isPending}
+          onConfirm={confirm}
+        />
+      }
+    >
+      <Wide>
         <Field label="Watch" error={errors.target}>
           {() => (
             <Segmented
@@ -158,10 +206,9 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
             />
           )}
         </Field>
-
         {pools ? (
           <>
-            <p className="text-xs leading-5 text-fg-3">
+            <p className="max-w-[86ch] text-xs leading-5 text-fg-3">
               <Figures>{NEW_POOLS_WATCH}</Figures>
             </p>
             <fieldset className="flex min-w-0 flex-col gap-2">
@@ -188,14 +235,6 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
                 </p>
               )}
             </fieldset>
-            <NumberField
-              label="Pool holds at least"
-              value={d.minPoolText}
-              onChange={(minPoolText) => set({ minPoolText })}
-              unit="NEAR"
-              error={errors.minPoolNear}
-              hint={`The least NEAR a new pool must hold on its NEAR side (${DEFAULT_MIN_POOL_NEAR} is a start).`}
-            />
           </>
         ) : (
           <Field
@@ -227,34 +266,45 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
             )}
           </Field>
         )}
+      </Wide>
+      <NumberField
+        label={pools ? 'Each buy' : 'Buy amount'}
+        value={d.amountText}
+        onChange={(amountText) => set({ amountText })}
+        unit="NEAR"
+        error={errors.amountNear ?? errors.amount}
+        hint={pools ? 'Spent on each new token it buys (in buy mode).' : undefined}
+      />
+      {pools ? (
         <NumberField
-          label={pools ? 'Each buy' : 'Buy amount'}
-          value={d.amountText}
-          onChange={(amountText) => set({ amountText })}
+          label="Pool holds at least"
+          value={d.minPoolText}
+          onChange={(minPoolText) => set({ minPoolText })}
           unit="NEAR"
-          error={errors.amountNear ?? errors.amount}
-          hint={pools ? 'Spent on each new token it buys (in buy mode).' : undefined}
+          error={errors.minPoolNear}
+          hint={`The least NEAR a new pool must hold on its NEAR side (${DEFAULT_MIN_POOL_NEAR} is a start).`}
         />
-        <div className="grid grid-cols-2 gap-3">
-          <NumberField label="Max impact" value={d.maxImpactText} onChange={(maxImpactText) => set({ maxImpactText })} unit="%" error={errors.maxImpactPct} />
-          <NumberField
-            label="Max attempts"
-            value={d.maxAttemptsText}
-            onChange={(maxAttemptsText) => set({ maxAttemptsText })}
-            error={errors.maxAttempts}
-            hint={pools ? `1 to ${MAX_SNIPER_ATTEMPTS} buys not made, then it stops` : `1 to ${MAX_SNIPER_ATTEMPTS}`}
-          />
-        </div>
-        {!pools && (
-          <NumberField
-            label="Min liquidity"
-            value={d.minLiquidityText}
-            onChange={(minLiquidityText) => set({ minLiquidityText })}
-            unit="USD"
-            placeholder="No check"
-            error={errors.minLiquidityUsd}
-          />
-        )}
+      ) : (
+        <NumberField
+          label="Min liquidity"
+          value={d.minLiquidityText}
+          onChange={(minLiquidityText) => set({ minLiquidityText })}
+          unit="USD"
+          placeholder="No check"
+          error={errors.minLiquidityUsd}
+        />
+      )}
+      <Pair>
+        <NumberField label="Max impact" value={d.maxImpactText} onChange={(maxImpactText) => set({ maxImpactText })} unit="%" error={errors.maxImpactPct} />
+        <NumberField
+          label="Max attempts"
+          value={d.maxAttemptsText}
+          onChange={(maxAttemptsText) => set({ maxAttemptsText })}
+          error={errors.maxAttempts}
+          hint={pools ? `1 to ${MAX_SNIPER_ATTEMPTS} buys not made, then it stops` : `1 to ${MAX_SNIPER_ATTEMPTS}`}
+        />
+      </Pair>
+      <Stack>
         <Field label="Mode" error={errors.mode}>
           {() => (
             <Segmented
@@ -278,66 +328,15 @@ export function SniperForm({ onCreated }: { onCreated: (id: string) => void }) {
             hint={`1 to ${MAX_SNIPER_BUYS}: it completes after buying this many different new tokens.`}
           />
         )}
-        {d.mode === 'execute' && (
+      </Stack>
+      <ExpiryField value={d.expiry} onChange={(expiry) => set({ expiry })} error={errors.expiresAt} />
+      {d.mode === 'execute' && (
+        <Wide>
           <p className="text-xs leading-5 text-warn">Buy mode trades from your NEARKITS wallet without asking again. You confirm it explicitly on the next step.</p>
-        )}
-        <NearKitWalletField value={walletId} onChange={setWalletId} />
-        <SlippageField value={d.slippagePct} onChange={(slippagePct) => set({ slippagePct })} error={errors.slippagePct} />
-        <ExpiryField value={d.expiry} onChange={(expiry) => set({ expiry })} error={errors.expiresAt} />
-
-        <div className="flex flex-col gap-2 border-t border-line-soft pt-3">
-          <Button size="lg" block variant="primary" onClick={openReview}>
-            Review sniper
-          </Button>
-          {failure && !review && (
-            <p className="text-xs text-neg" role="alert">
-              <Figures>{failure}</Figures>
-            </p>
-          )}
-          {attempted && built.issues.length > 0 && (
-            <p className="text-xs text-neg">
-              <Figures>{`${built.issues.length} field${built.issues.length === 1 ? ' needs' : 's need'} a look: ${built.issues[0]?.message}`}</Figures>
-            </p>
-          )}
-          <p className="text-xs leading-5 text-fg-3">
-            <Figures>{pools ? NEW_POOLS_TERMS : SNIPER_TERMS}</Figures>
-          </p>
-        </div>
-      </div>
-      <ReviewModal
-        open={review !== null}
-        onClose={() => setReview(null)}
-        title={
-          reviewed?.target === 'new-pools'
-            ? reviewed.mode === 'execute'
-              ? 'Confirm a new-pools sniper that buys'
-              : 'Review new-pools sniper (notify only)'
-            : reviewed?.mode === 'execute'
-              ? 'Confirm a sniper that buys'
-              : 'Review sniper (notify only)'
-        }
-        summary={reviewed && <Figures>{sniperSummary(reviewed)}</Figures>}
-        preview={
-          reviewed?.target === 'token'
-            ? {
-                pending: preview.isPending,
-                error: preview.isError ? refusalOf(preview.error).message : null,
-                body: preview.data && reviewed.token ? <PreviewLines preview={preview.data as StrategyPreview} token={reviewed.token} /> : null,
-              }
-            : null
-        }
-        extra={reviewed?.mode === 'execute' && <Checkbox checked={understood} onChange={(e) => setUnderstood(e.target.checked)} label={buyConfirmation(reviewed)} />}
-        terms={
-          reviewed?.target === 'new-pools'
-            ? `${NEW_POOLS_TERMS} Nothing is quoted until a new pool appears: each pool is checked on its own fresh quote then.`
-            : `${SNIPER_TERMS} A quote error here can simply mean the token doesn’t trade yet.`
-        }
-        error={failure}
-        confirmLabel={reviewed?.mode === 'execute' ? 'Arm sniper to buy' : 'Create sniper'}
-        confirmDisabled={reviewed?.mode === 'execute' && !understood}
-        confirming={create.isPending}
-        onConfirm={confirm}
-      />
-    </Panel>
+        </Wide>
+      )}
+      <NearKitWalletField value={walletId} onChange={setWalletId} />
+      <SlippageField value={d.slippagePct} onChange={(slippagePct) => set({ slippagePct })} error={errors.slippagePct} />
+    </AutomationFormPanel>
   )
 }

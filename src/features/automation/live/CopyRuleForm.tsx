@@ -3,12 +3,11 @@ import { Button } from '@/components/ui/Button'
 import { ChipInput } from '@/components/ui/ChipInput'
 import { Figures } from '@/components/ui/Figures'
 import { Field, Input, Segmented } from '@/components/ui/Form'
-import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { useToast } from '@/components/ui/toast-context'
 import { MAX_COPY_EXCLUDES, type ConfigIssue, type CopyConfig } from '@/lib/automation/config'
 import { DEFAULT_SLIPPAGE } from '@/lib/fees'
 import { isValidAccountId } from '@/lib/validation'
-import { NumberField, SlippageField } from './formParts'
+import { AutomationFormPanel, NumberField, Pair, ReviewFooter, SlippageField, Wide } from './formParts'
 import { useWalletChoice } from './hooks'
 import { buildCopy, createRefusalOf, describeStrategy, issuesByField, reviewOf, type CopyDraft, type Reviewed } from './model'
 import { NearKitWalletField, ReviewModal } from './parts'
@@ -91,9 +90,40 @@ export function CopyRuleForm({ onCreated }: { onCreated: (id: string) => void })
   }
 
   return (
-    <Panel>
-      <PanelHeader title="New Copy Trade rule" />
-      <div className="flex flex-col gap-4 p-4">
+    <AutomationFormPanel
+      title="New Copy Trade rule"
+      footer={
+        <ReviewFooter
+          action={
+            <Button size="lg" block variant="primary" onClick={openReview}>
+              Review rule
+            </Button>
+          }
+          failure={failure && !review ? failure : null}
+          issues={attempted ? built.issues : null}
+          terms={COPY_TERMS}
+        />
+      }
+      dialog={
+        <ReviewModal
+          open={review !== null}
+          onClose={() => setReview(null)}
+          title="Review Copy Trade rule"
+          summary={
+            review && (
+              <Figures>{`Follow ${review.config.target}. ${describeStrategy({ config: { kind: 'copy', copy: review.config } })}; at most ${review.config.maxExposureNear} NEAR held in copied buys; slippage ${review.config.slippagePct}%.`}</Figures>
+            )
+          }
+          preview={null}
+          terms={`${COPY_TERMS} Nothing is quoted until the account trades.`}
+          error={failure}
+          confirmLabel="Create rule"
+          confirming={create.isPending}
+          onConfirm={confirm}
+        />
+      }
+    >
+      <Wide>
         <Field label="Account to follow" error={errors.target} hint="A NEAR account. NEARKITS wallets can’t be followed.">
           {({ id, describedBy, invalid }) => (
             <Input
@@ -109,112 +139,76 @@ export function CopyRuleForm({ onCreated }: { onCreated: (id: string) => void })
             />
           )}
         </Field>
-        <Field label="Copy" error={errors.copy}>
-          {() => (
-            <Segmented
-              label="Copy"
-              block
-              value={d.copy}
-              onChange={(copy) => set({ copy })}
-              options={[
-                { value: 'buy', label: 'Buys' },
-                { value: 'sell', label: 'Sells' },
-                { value: 'both', label: 'Both' },
-              ]}
-            />
-          )}
-        </Field>
-        <Field label="Buy size" error={errors.sizing}>
-          {() => (
-            <Segmented
-              label="Buy size"
-              block
-              size="sm"
-              value={d.sizing}
-              onChange={(sizing) => set({ sizing })}
-              options={[
-                { value: 'fixed', label: 'Fixed NEAR' },
-                { value: 'percent', label: '% of their size' },
-              ]}
-            />
-          )}
-        </Field>
-        {d.sizing === 'fixed' ? (
-          <NumberField label="Each copied buy" value={d.fixedText} onChange={(fixedText) => set({ fixedText })} unit="NEAR" />
-        ) : (
-          <NumberField label="Share of what they spent" value={d.pctText} onChange={(pctText) => set({ pctText })} unit="%" />
+      </Wide>
+      <Field label="Copy" error={errors.copy}>
+        {() => (
+          <Segmented
+            label="Copy"
+            block
+            value={d.copy}
+            onChange={(copy) => set({ copy })}
+            options={[
+              { value: 'buy', label: 'Buys' },
+              { value: 'sell', label: 'Sells' },
+              { value: 'both', label: 'Both' },
+            ]}
+          />
         )}
-        <div className="grid grid-cols-2 gap-3">
-          <NumberField label="Max trade" value={d.maxTradeText} onChange={(maxTradeText) => set({ maxTradeText })} unit="NEAR" error={errors.maxTradeNear ?? errors.amount} />
-          <NumberField label="Min trade" value={d.minTradeText} onChange={(minTradeText) => set({ minTradeText })} unit="NEAR" placeholder="None" error={errors.minTradeNear} />
-        </div>
-        <NumberField
-          label="Max exposure"
-          value={d.maxExposureText}
-          onChange={(maxExposureText) => set({ maxExposureText })}
-          unit="NEAR"
-          error={errors.maxExposureNear}
-          hint="The most NEAR this rule may have in copied buys not yet sold back."
-        />
-        <NumberField
-          label="Min liquidity"
-          value={d.minLiquidityText}
-          onChange={(minLiquidityText) => set({ minLiquidityText })}
-          unit="USD"
-          placeholder="No check"
-          error={errors.minLiquidityUsd}
-          hint="Skip tokens with less market liquidity, or none known."
-        />
-        <Field label="Never copy these tokens" error={errors.exclude} hint={`Token contracts, up to ${MAX_COPY_EXCLUDES}.`}>
-          {({ id }) => (
-            <ChipInput
-              id={id}
-              label="Excluded token contracts"
-              value={d.exclude}
-              onChange={(exclude) => set({ exclude })}
-              placeholder="token.example.near"
-              normalize={normalizeContract}
-            />
-          )}
-        </Field>
-        <NearKitWalletField value={walletId} onChange={setWalletId} />
-        <SlippageField value={d.slippagePct} onChange={(slippagePct) => set({ slippagePct })} error={errors.slippagePct} />
-
-        <div className="flex flex-col gap-2 border-t border-line-soft pt-3">
-          <Button size="lg" block variant="primary" onClick={openReview}>
-            Review rule
-          </Button>
-          {failure && !review && (
-            <p className="text-xs text-neg" role="alert">
-              <Figures>{failure}</Figures>
-            </p>
-          )}
-          {attempted && built.issues.length > 0 && (
-            <p className="text-xs text-neg">
-              <Figures>{`${built.issues.length} field${built.issues.length === 1 ? ' needs' : 's need'} a look: ${built.issues[0]?.message}`}</Figures>
-            </p>
-          )}
-          <p className="text-xs leading-5 text-fg-3">
-            <Figures>{COPY_TERMS}</Figures>
-          </p>
-        </div>
-      </div>
-      <ReviewModal
-        open={review !== null}
-        onClose={() => setReview(null)}
-        title="Review Copy Trade rule"
-        summary={
-          review && (
-            <Figures>{`Follow ${review.config.target}. ${describeStrategy({ config: { kind: 'copy', copy: review.config } })}; at most ${review.config.maxExposureNear} NEAR held in copied buys; slippage ${review.config.slippagePct}%.`}</Figures>
-          )
-        }
-        preview={null}
-        terms={`${COPY_TERMS} Nothing is quoted until the account trades.`}
-        error={failure}
-        confirmLabel="Create rule"
-        confirming={create.isPending}
-        onConfirm={confirm}
+      </Field>
+      <Field label="Buy size" error={errors.sizing}>
+        {() => (
+          <Segmented
+            label="Buy size"
+            block
+            value={d.sizing}
+            onChange={(sizing) => set({ sizing })}
+            options={[
+              { value: 'fixed', label: 'Fixed NEAR' },
+              { value: 'percent', label: '% of their size' },
+            ]}
+          />
+        )}
+      </Field>
+      {d.sizing === 'fixed' ? (
+        <NumberField label="Each copied buy" value={d.fixedText} onChange={(fixedText) => set({ fixedText })} unit="NEAR" />
+      ) : (
+        <NumberField label="Share of what they spent" value={d.pctText} onChange={(pctText) => set({ pctText })} unit="%" />
+      )}
+      <NumberField
+        label="Max exposure"
+        value={d.maxExposureText}
+        onChange={(maxExposureText) => set({ maxExposureText })}
+        unit="NEAR"
+        error={errors.maxExposureNear}
+        hint="The most NEAR this rule may have in copied buys not yet sold back."
       />
-    </Panel>
+      <Pair>
+        <NumberField label="Max trade" value={d.maxTradeText} onChange={(maxTradeText) => set({ maxTradeText })} unit="NEAR" error={errors.maxTradeNear ?? errors.amount} />
+        <NumberField label="Min trade" value={d.minTradeText} onChange={(minTradeText) => set({ minTradeText })} unit="NEAR" placeholder="None" error={errors.minTradeNear} />
+      </Pair>
+      <NumberField
+        label="Min liquidity"
+        value={d.minLiquidityText}
+        onChange={(minLiquidityText) => set({ minLiquidityText })}
+        unit="USD"
+        placeholder="No check"
+        error={errors.minLiquidityUsd}
+        hint="Skip tokens with less market liquidity, or none known."
+      />
+      <Field label="Never copy these tokens" error={errors.exclude} hint={`Token contracts, up to ${MAX_COPY_EXCLUDES}.`}>
+        {({ id }) => (
+          <ChipInput
+            id={id}
+            label="Excluded token contracts"
+            value={d.exclude}
+            onChange={(exclude) => set({ exclude })}
+            placeholder="token.example.near"
+            normalize={normalizeContract}
+          />
+        )}
+      </Field>
+      <NearKitWalletField value={walletId} onChange={setWalletId} />
+      <SlippageField value={d.slippagePct} onChange={(slippagePct) => set({ slippagePct })} error={errors.slippagePct} />
+    </AutomationFormPanel>
   )
 }

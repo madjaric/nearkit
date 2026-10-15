@@ -165,6 +165,29 @@ describe('Limit Orders, server-backed when NEARKITS switched it on', RENDERS, ()
     expect(text).toContain('Nothing active')
   })
 
+  it('the form leads (first in reading and focus order, the wide column); with nothing yet the list is one compact line, no empty tabs', async () => {
+    const pages: [ReactNode, string, StrategyKind, RegExp, RegExp][] = [
+      [h(LimitOrdersPage), '/limit-orders', 'limit', /New order/, /Your orders/],
+      [h(DcaPage), '/dca', 'dca', /New DCA plan/, /Your DCA plans/],
+      [h(CopyTradePage), '/copy-trade', 'copy', /New Copy Trade rule/, /Your Copy Trade rules/],
+      [h(SniperPage), '/sniper', 'sniper', /New sniper/, /Your snipers/],
+    ]
+    for (const [el, path, kind, form, mine] of pages) {
+      const html = await render(el, path, { data: [on([kind]), list(kind, [])] })
+      const text = read(html)
+      expect(text.search(form), path).toBeGreaterThan(-1)
+      expect(text.search(form), path).toBeLessThan(text.search(mine))
+      // The shared frame: a field grid that turns two-column by the form's own width.
+      expect(html, path).toContain('data-form-grid')
+      expect(html, path).toContain('xl:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]')
+      expect(text, path).toContain('Nothing active Nothing running. Create one with the form.')
+      expect(html, path).not.toMatch(/role="tab"/)
+    }
+    // With strategies, the tabs are back.
+    const html = await render(h(LimitOrdersPage), '/limit-orders', { data: [on(['limit']), list('limit', [strategy({})])] })
+    expect(html).toMatch(/role="tab"/)
+  })
+
   it('lists orders with their state, last price seen, what they wait for, and only the controls the state allows', async () => {
     const html = await render(h(LimitOrdersPage), '/limit-orders', {
       data: [

@@ -2,14 +2,13 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Figures } from '@/components/ui/Figures'
 import { Field, Input, Segmented, Select } from '@/components/ui/Form'
-import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { useToast } from '@/components/ui/toast-context'
 import type { StrategyPreview } from '@/lib/automation/api'
 import type { ConfigIssue, DcaConfig } from '@/lib/automation/config'
 import { DEFAULT_SLIPPAGE } from '@/lib/fees'
 import { formatDateTime } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
-import { NumberField, SlippageField, TokenField } from './formParts'
+import { AutomationFormPanel, NumberField, ReviewFooter, SlippageField, Stack, TokenField, Wide } from './formParts'
 import { useTokenChoice, useWalletChoice } from './hooks'
 import { buildDca, createRefusalOf, DCA_INTERVALS, describeStrategy, issuesByField, refusalOf, reviewOf, type DcaDraft, type Reviewed } from './model'
 import { NearKitWalletField, PreviewLines, ReviewModal } from './parts'
@@ -90,9 +89,48 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
   }
 
   return (
-    <Panel>
-      <PanelHeader title="New DCA plan" />
-      <div className="flex flex-col gap-4 p-4">
+    <AutomationFormPanel
+      title="New DCA plan"
+      footer={
+        <ReviewFooter
+          action={
+            <Button size="lg" block variant="primary" onClick={openReview}>
+              Review plan
+            </Button>
+          }
+          failure={failure && !review ? failure : null}
+          issues={attempted ? built.issues : null}
+          terms={DCA_TERMS}
+        />
+      }
+      dialog={
+        <ReviewModal
+          open={review !== null}
+          onClose={() => setReview(null)}
+          title="Review DCA plan"
+          summary={
+            review && (
+              <Figures>{`${describeStrategy({ config: { kind: 'dca', dca: review.config } })}, starting ${formatDateTime(review.config.startAt)}${review.config.endAt ? `, until ${formatDateTime(review.config.endAt)}` : ''}. Slippage ${review.config.slippagePct}%.`}</Figures>
+            )
+          }
+          preview={
+            review
+              ? {
+                  pending: preview.isPending,
+                  error: preview.isError ? refusalOf(preview.error).message : null,
+                  body: preview.data ? <PreviewLines preview={preview.data as StrategyPreview} token={review.config.token} /> : null,
+                }
+              : null
+          }
+          terms={DCA_TERMS}
+          error={failure}
+          confirmLabel="Create plan"
+          confirming={create.isPending}
+          onConfirm={confirm}
+        />
+      }
+    >
+      <Wide>
         <TokenField
           tokenId={tokenId}
           onChange={(id) => {
@@ -101,23 +139,25 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
           }}
           error={errors['token.id'] ?? errors['token.decimals'] ?? errors['token.symbol'] ?? errors.token}
         />
-        <NumberField label="Each buy" value={d.amountText} onChange={(amountText) => set({ amountText })} unit="NEAR" error={errors.amountNear ?? errors.amount} />
-        <Field label="Interval" error={errors.everySec}>
-          {({ id }) => (
-            <Select id={id} value={String(d.everySec)} onChange={(e) => set({ everySec: Number(e.target.value) })}>
-              {DCA_INTERVALS.map((i) => (
-                <option key={i.value} value={i.value}>
-                  {i.label}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label="Start" error={errors.startAt} hint="Empty: the first buy at the next check. Your browser’s time zone.">
-          {({ id, describedBy, invalid }) => (
-            <Input id={id} type="datetime-local" value={d.startText} onChange={(e) => set({ startText: e.target.value })} aria-describedby={describedBy} aria-invalid={invalid} />
-          )}
-        </Field>
+      </Wide>
+      <NumberField label="Each buy" value={d.amountText} onChange={(amountText) => set({ amountText })} unit="NEAR" error={errors.amountNear ?? errors.amount} />
+      <Field label="Interval" error={errors.everySec}>
+        {({ id }) => (
+          <Select id={id} value={String(d.everySec)} onChange={(e) => set({ everySec: Number(e.target.value) })}>
+            {DCA_INTERVALS.map((i) => (
+              <option key={i.value} value={i.value}>
+                {i.label}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label="Start" error={errors.startAt} hint="Empty: the first buy at the next check. Your browser’s time zone.">
+        {({ id, describedBy, invalid }) => (
+          <Input id={id} type="datetime-local" value={d.startText} onChange={(e) => set({ startText: e.target.value })} aria-describedby={describedBy} aria-invalid={invalid} />
+        )}
+      </Field>
+      <Stack>
         <Field label="Ends" error={errors.endAt ?? errors.maxRuns}>
           {() => (
             <Segmented
@@ -142,52 +182,9 @@ export function DcaForm({ onCreated }: { onCreated: (id: string) => void }) {
             )}
           </Field>
         )}
-        <NearKitWalletField value={walletId} onChange={setWalletId} />
-        <SlippageField value={d.slippagePct} onChange={(slippagePct) => set({ slippagePct })} error={errors.slippagePct} />
-
-        <div className="flex flex-col gap-2 border-t border-line-soft pt-3">
-          <Button size="lg" block variant="primary" onClick={openReview}>
-            Review plan
-          </Button>
-          {failure && !review && (
-            <p className="text-xs text-neg" role="alert">
-              <Figures>{failure}</Figures>
-            </p>
-          )}
-          {attempted && built.issues.length > 0 && (
-            <p className="text-xs text-neg">
-              <Figures>{`${built.issues.length} field${built.issues.length === 1 ? ' needs' : 's need'} a look: ${built.issues[0]?.message}`}</Figures>
-            </p>
-          )}
-          <p className="text-xs leading-5 text-fg-3">
-            <Figures>{DCA_TERMS}</Figures>
-          </p>
-        </div>
-      </div>
-      <ReviewModal
-        open={review !== null}
-        onClose={() => setReview(null)}
-        title="Review DCA plan"
-        summary={
-          review && (
-            <Figures>{`${describeStrategy({ config: { kind: 'dca', dca: review.config } })}, starting ${formatDateTime(review.config.startAt)}${review.config.endAt ? `, until ${formatDateTime(review.config.endAt)}` : ''}. Slippage ${review.config.slippagePct}%.`}</Figures>
-          )
-        }
-        preview={
-          review
-            ? {
-                pending: preview.isPending,
-                error: preview.isError ? refusalOf(preview.error).message : null,
-                body: preview.data ? <PreviewLines preview={preview.data as StrategyPreview} token={review.config.token} /> : null,
-              }
-            : null
-        }
-        terms={DCA_TERMS}
-        error={failure}
-        confirmLabel="Create plan"
-        confirming={create.isPending}
-        onConfirm={confirm}
-      />
-    </Panel>
+      </Stack>
+      <NearKitWalletField value={walletId} onChange={setWalletId} />
+      <SlippageField value={d.slippagePct} onChange={(slippagePct) => set({ slippagePct })} error={errors.slippagePct} />
+    </AutomationFormPanel>
   )
 }
