@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { ENV } from '@/config/env'
+import { TOP_WALLETS_PAUSED } from '@/config/paused'
 import type { FollowView, LaunchPeriod, WalletCategory, WalletMetric, WalletWindowKey } from '@/lib/discovery/api'
 import { useServices } from '@/services/context'
 import { createDiscoveryClient, type DiscoveryClient } from '@/services/discoveryApi'
@@ -88,7 +89,7 @@ export function useFollowedSignals(since: number) {
   return useQuery({
     queryKey: dk.signals(list),
     queryFn: () => (client as DiscoveryClient).signals(list, since),
-    enabled: client !== null && list.length > 0,
+    enabled: client !== null && list.length > 0 && !TOP_WALLETS_PAUSED,
     refetchInterval: 60_000,
     retry: 1,
   })
@@ -107,7 +108,7 @@ export function useFollowed() {
   const server = useQuery({
     queryKey: dk.follows(session?.token ?? null),
     queryFn: () => s.nearkit.discoveryFollows(),
-    enabled: signedIn,
+    enabled: signedIn && !TOP_WALLETS_PAUSED,
     staleTime: 60_000,
     retry: 1,
   })

@@ -2,6 +2,7 @@ import { FAQ, VOLUME_BOT_DESCRIPTION, VOLUME_BOT_PATH, VOLUME_BOT_TITLE, VOLUME_
 import { NAV_GROUPS } from '@/layouts/nav'
 import { BRIDGE_FEE_LABEL, NEARKIT_FEE_LABEL } from '@/lib/fees'
 import { KIT, KIT_LAUNCH, KITS_CONTRACT } from './kit'
+import { isPaused, TOP_WALLETS_PAUSED } from './paused'
 import { ENV, type AppEnv } from './env'
 import { BETA_COMING_SOON } from './release'
 import { SOCIAL, SOCIAL_ACCOUNTS } from './social'
@@ -68,7 +69,8 @@ export const nearBridgeFacts = (): string[] => [
 
 /** Every page the sitemap lists, in its order. */
 /** The directory's groups as plain lines, for readers without JavaScript (the page lists the same tools). */
-export const toolFacts = (): string[] => NAV_GROUPS.map((g) => `${g.label}: ${g.items.map((i) => i.label).join(', ')}.`)
+export const toolFacts = (): string[] =>
+  NAV_GROUPS.map((g) => `${g.label}: ${g.items.map((i) => ('to' in i && isPaused(i.to) ? `${i.label} (coming soon)` : i.label)).join(', ')}.`)
 
 export function publicPages(): PageSeo[] {
   const pages: Record<string, Omit<PageSeo, 'path'>> = {
@@ -117,7 +119,9 @@ export function publicPages(): PageSeo[] {
     },
     '/launch-radar': {
       title: 'Launch Radar: new NEAR tokens as they launch · NEARKITS',
-      description: 'New NEAR tokens as they launch: launchpad, market, liquidity, holders and risk evidence, and which tracked wallets traded them. Refreshed every minute.',
+      description: TOP_WALLETS_PAUSED
+        ? 'New NEAR tokens as they launch: launchpad, market, liquidity, holders and risk evidence, each with its source. Refreshed every minute.'
+        : 'New NEAR tokens as they launch: launchpad, market, liquidity, holders and risk evidence, and which tracked wallets traded them. Refreshed every minute.',
       name: 'Launch Radar',
     },
     '/top-wallets': {
@@ -151,12 +155,12 @@ export function publicPages(): PageSeo[] {
   })
 }
 
-/** Pages that are personal, a tool's inside, or not shipped yet: never indexed (also sent as X-Robots-Tag, vercel.json). */
+/** Pages that are personal, a tool's inside, not shipped yet or paused (paused.ts): never indexed (also sent as X-Robots-Tag, vercel.json). */
 export const PRIVATE_PATHS: readonly string[] = ['/wallets', '/positions', '/pnl', '/settings', '/recover', '/tg', '/volume-bot/console']
 
 export function isNoindexPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, '') || '/'
-  return PRIVATE_PATHS.includes(path) || BETA_COMING_SOON.includes(path)
+  return PRIVATE_PATHS.includes(path) || BETA_COMING_SOON.includes(path) || isPaused(path)
 }
 
 export function pageSeo(pathname: string): PageSeo | null {

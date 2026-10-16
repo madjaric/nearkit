@@ -33,6 +33,7 @@ import {
 } from '@/features/discovery/model'
 import { useDiscoveryOn, useFollowedSignals, useLaunches, useLaunchExtras } from '@/features/discovery/queries'
 import { LAUNCH_PERIODS, PERIOD_MS, type LaunchPeriod, type LaunchRow } from '@/lib/discovery/api'
+import { TOP_WALLETS_PAUSED } from '@/config/paused'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatCompact, formatDuration } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
@@ -62,6 +63,8 @@ const WEIGHT_KEYS: { key: keyof ScoreWeights; label: string }[] = [
   { key: 'reputation', label: 'Reputation' },
 ]
 const WEIGHTS_KEY = 'nearkit:discovery:weights'
+/** Tracked wallets are Top Wallets' qualified wallets: not shown while Top Wallets is paused (config/paused.ts). */
+const TRACKED = !TOP_WALLETS_PAUSED
 
 type SortKey = 'age' | 'price' | 'change' | 'volume' | 'liquidity' | 'holders' | 'tracked' | 'score'
 
@@ -249,7 +252,7 @@ export default function LaunchRadarPage() {
     <PageHeader
       title="Launch Radar"
       status={<DataTag />}
-      description="New NEAR tokens as they launch: where they come from, their market, holders and risk evidence, and which tracked wallets traded them."
+      description={`New NEAR tokens as they launch: where they come from, their market, holders and risk evidence${TRACKED ? ', and which tracked wallets traded them' : ''}.`}
       actions={
         <Button size="sm" variant="secondary" onClick={() => void launches.refetch()} loading={launches.isFetching && !launches.isPending}>
           <RefreshCw size={14} aria-hidden="true" /> Refresh
@@ -424,9 +427,11 @@ export default function LaunchRadarPage() {
                     </Th>
                     <Th className="hidden @[90rem]:table-cell">Top 10</Th>
                     <Th>Risk</Th>
-                    <Th align="right" sort={th('tracked')} className="hidden @[70rem]:table-cell">
-                      Tracked
-                    </Th>
+                    {TRACKED && (
+                      <Th align="right" sort={th('tracked')} className="hidden @[70rem]:table-cell">
+                        Tracked
+                      </Th>
+                    )}
                     {tab === 'best' && (
                       <Th align="right" sort={th('score')}>
                         Score
@@ -486,12 +491,14 @@ export default function LaunchRadarPage() {
                         <Td>
                           <RiskKey row={r} />
                         </Td>
-                        <Td align="right" className="hidden @[70rem]:table-cell">
-                          <span className="num text-xs text-fg-2" title="Distinct tracked wallets (qualified over 30 days) that traded it in the period; yours after the plus">
-                            {r.tracked || '—'}
-                            {followedHere > 0 && <span className="text-accent"> +{followedHere}</span>}
-                          </span>
-                        </Td>
+                        {TRACKED && (
+                          <Td align="right" className="hidden @[70rem]:table-cell">
+                            <span className="num text-xs text-fg-2" title="Distinct tracked wallets (qualified over 30 days) that traded it in the period; yours after the plus">
+                              {r.tracked || '—'}
+                              {followedHere > 0 && <span className="text-accent"> +{followedHere}</span>}
+                            </span>
+                          </Td>
+                        )}
                         {tab === 'best' && (
                           <Td align="right" mono className="text-fg">
                             {i.score === null ? '—' : i.score.toFixed(0)}
@@ -554,7 +561,7 @@ export default function LaunchRadarPage() {
                     </dl>
                     <p className="text-[11px] text-fg-3">
                       {sourceLabel(r.source)} · {r.venue ?? 'no pool yet'}
-                      {r.tracked > 0 && ` · ${r.tracked} tracked wallet${r.tracked === 1 ? '' : 's'}`}
+                      {TRACKED && r.tracked > 0 && ` · ${r.tracked} tracked wallet${r.tracked === 1 ? '' : 's'}`}
                       {tab === 'best' && i.score !== null && ` · score ${i.score.toFixed(0)}`}
                     </p>
                   </li>
@@ -603,10 +610,12 @@ export default function LaunchRadarPage() {
           </li>
           <li>The first block is Intear’s, not yet checked on chain: for a few older tokens it is a later contract update, so an established token can show up as a launch.</li>
           <li>Risk flags each name their evidence; pools, the launchpad and the token contract are left out of holder concentration. No flag is not “safe”.</li>
-          <li>
-            Tracked: distinct wallets qualified over 30 days on Top Wallets that traded the token in the period, each with its transaction on the token’s page; yours (followed
-            wallets) after the plus.
-          </li>
+          {TRACKED && (
+            <li>
+              Tracked: distinct wallets qualified over 30 days on Top Wallets that traded the token in the period, each with its transaction on the token’s page; yours (followed
+              wallets) after the plus.
+            </li>
+          )}
         </ul>
         <p className="text-xs text-fg-3">Data: Intear (api.intea.rs). Nothing here is advice or a prediction.</p>
       </Methodology>

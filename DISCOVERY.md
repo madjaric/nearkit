@@ -4,6 +4,14 @@ Two analytics tools: **Launch Radar** (new NEAR tokens and their markets) and **
 (wallets ranked by verifiable trading performance). Discovery only: nothing here trades. A Trade
 action opens the existing token page, where the user reviews and confirms as anywhere else.
 
+> **Status, 2026-10-16: Top Wallets is paused on the web** (product decision; `src/config/paused.ts`).
+> `/top-wallets` and every wallet page under it open a Coming Soon screen. Every listing marks it
+> Coming soon, and it is left out of the sitemap, llms.txt and the index. Launch Radar runs as before,
+> without what comes from the rankings: the Tracked column, the Tracked wallets panel, followed-wallet
+> signals and links to wallet pages. NEARKITS' server keeps indexing, and its API, tables and data are
+> unchanged. To bring it back, set `TOP_WALLETS_PAUSED` to false and restore its two `vercel.json`
+> rules (see `paused.ts`).
+
 This file is the methodology of record. The formulas below are implemented as pure functions in
 `server/src/discovery/accounting.ts` and `src/features/discovery/model.ts` and tested there; the
 pages print the same rules.

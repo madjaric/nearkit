@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { createBrowserRouter } from 'react-router'
+import { loadTopWallets, loadWalletDetail } from '@/features/discovery/gate'
 import { AppShell } from '@/layouts/AppShell'
 import NotFoundPage, { BootScreen, RouteError } from '@/pages/system'
 
@@ -38,8 +39,9 @@ export const router = createBrowserRouter([
           { path: 'scanner', lazy: page(() => import('@/pages/ScannerPage')) },
           { path: 'launch-radar', lazy: page(() => import('@/pages/LaunchRadarPage')) },
           { path: 'launch-radar/:id', lazy: page(() => import('@/pages/LaunchDetailPage')) },
-          { path: 'top-wallets', lazy: page(() => import('@/pages/TopWalletsPage')) },
-          { path: 'top-wallets/:id', lazy: page(() => import('@/pages/WalletDetailPage')) },
+          // Top Wallets is paused (config/paused.ts): both open its Coming Soon screen.
+          { path: 'top-wallets', lazy: page(loadTopWallets) },
+          { path: 'top-wallets/:id', lazy: page(loadWalletDetail) },
           { path: 'kit', lazy: page(() => import('@/pages/KitPage')) },
           { path: 'telegram', lazy: page(() => import('@/pages/TelegramPage')) },
           { path: 'recover', lazy: page(() => import('@/pages/RecoverPage')) },

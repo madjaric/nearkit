@@ -1,9 +1,11 @@
 import type { CSSProperties, ReactNode } from 'react'
+import { useLocation } from 'react-router'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Figures } from '@/components/ui/Figures'
 import { ComingSoon, Skeleton } from '@/components/ui/Indicators'
 import { Panel } from '@/components/ui/Panel'
+import { isPaused } from '@/config/paused'
 import { cn } from '@/lib/cn'
 import { usePageTitle } from '@/lib/hooks'
 import { useComingSoonPage } from '@/lib/modeCopy'
@@ -25,11 +27,13 @@ interface PageHeaderProps {
 
 /**
  * Title set wide like a panel name, one line of purpose, actions on the right.
- * On a page the public beta marks COMING SOON, the status says so and a notice follows.
+ * On a page the public beta marks COMING SOON, the status says so and a notice follows (a paused tool
+ * says so on its own Coming Soon screen instead).
  */
 export function PageHeader({ title, description, actions, status }: PageHeaderProps) {
   usePageTitle(title)
   const soon = useComingSoonPage()
+  const paused = isPaused(useLocation().pathname)
   return (
     <>
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
@@ -48,7 +52,7 @@ export function PageHeader({ title, description, actions, status }: PageHeaderPr
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>
-      {soon && (
+      {soon && !paused && (
         <p className="rounded-lg border border-dashed border-line-strong px-4 py-3 text-sm text-fg-2">
           {title} is not part of the public beta yet. You can look around, but nothing on this page can be signed, sent or saved.
         </p>

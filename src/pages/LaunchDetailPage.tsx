@@ -13,6 +13,7 @@ import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { AccountRef, IndexNote, ShareBar, TradeRows, TxRef, WatchStar } from '@/features/discovery/parts'
 import { riskFlags, sourceLabel } from '@/features/discovery/model'
+import { TOP_WALLETS_PAUSED } from '@/config/paused'
 import { useFollowedSignals, useLaunch } from '@/features/discovery/queries'
 import type { LaunchDetail } from '@/lib/discovery/api'
 import { cn } from '@/lib/cn'
@@ -249,65 +250,68 @@ export default function LaunchDetailPage() {
           <Chart d={d} now={now} />
         </Panel>
 
-        <Panel>
-          <PanelHeader title="Tracked wallets" meta={d.signals.length || undefined} />
-          {d.signals.length === 0 && mine.length === 0 ? (
-            <EmptyState title="No tracked wallet traded it yet" graphic={false} compact>
-              Tracked wallets are the ones qualified over 30 days on Top Wallets, and the ones you follow.
-            </EmptyState>
-          ) : (
-            <ul className="divide-y divide-line-soft">
-              {d.signals.map((s) => (
-                <li key={s.trader} className="flex flex-col gap-2 px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Link to={`/top-wallets/${encodeURIComponent(s.trader)}`} className="num truncate text-sm text-fg hover:underline" title={s.trader}>
-                        {s.trader}
-                      </Link>
-                      {s.smart && <Tag tone="accent">Smart Money</Tag>}
-                      {s.qualified && !s.smart && <Tag tone="neutral">Qualified</Tag>}
-                    </span>
-                    {s.stats30d && (
-                      <span className="flex flex-wrap items-center gap-3 text-xs text-fg-3">
-                        <span>
-                          30D <Usd value={s.stats30d.realized} signed colored compact />
-                        </span>
-                        <span>win {s.stats30d.winRate === null ? '—' : `${Math.round(s.stats30d.winRate * 100)}%`}</span>
-                        <span>{s.stats30d.closed} closed</span>
-                        <span>coverage {s.stats30d.coverage === null ? '—' : `${Math.round(s.stats30d.coverage * 100)}%`}</span>
+        {/* Tracked wallets are Top Wallets' qualified wallets: not shown while Top Wallets is paused (config/paused.ts). */}
+        {!TOP_WALLETS_PAUSED && (
+          <Panel>
+            <PanelHeader title="Tracked wallets" meta={d.signals.length || undefined} />
+            {d.signals.length === 0 && mine.length === 0 ? (
+              <EmptyState title="No tracked wallet traded it yet" graphic={false} compact>
+                Tracked wallets are the ones qualified over 30 days on Top Wallets, and the ones you follow.
+              </EmptyState>
+            ) : (
+              <ul className="divide-y divide-line-soft">
+                {d.signals.map((s) => (
+                  <li key={s.trader} className="flex flex-col gap-2 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Link to={`/top-wallets/${encodeURIComponent(s.trader)}`} className="num truncate text-sm text-fg hover:underline" title={s.trader}>
+                          {s.trader}
+                        </Link>
+                        {s.smart && <Tag tone="accent">Smart Money</Tag>}
+                        {s.qualified && !s.smart && <Tag tone="neutral">Qualified</Tag>}
                       </span>
-                    )}
-                  </div>
-                  <ul className="flex flex-wrap gap-x-4 gap-y-1">
-                    {s.trades.map((t) => (
-                      <li key={t.tx + t.side} className="flex items-center gap-2 text-xs">
-                        <Tag tone={t.side === 'buy' ? 'accent' : 'neg'}>{t.side}</Tag>
-                        <Usd value={t.usd} />
-                        <span className="num text-fg-3">{formatDateTime(t.ts)}</span>
-                        <TxRef hash={t.tx} />
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-              {mine.map((t) => (
-                <li key={t.tx + t.trader} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-xs">
-                  <Tag tone="neutral">You follow</Tag>
-                  <Link to={`/top-wallets/${encodeURIComponent(t.trader)}`} className="num text-fg hover:underline">
-                    {t.trader}
-                  </Link>
-                  <Tag tone={t.side === 'buy' ? 'accent' : 'neg'}>{t.side}</Tag>
-                  <Usd value={t.usd} />
-                  <span className="num text-fg-3">{formatDateTime(t.ts)}</span>
-                  <TxRef hash={t.tx} />
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="border-t border-line-soft px-4 py-2.5 text-[11px] leading-4 text-fg-3">
-            Evidence, not a signal: each line is a verified swap with its transaction. Past results don’t predict this token.
-          </p>
-        </Panel>
+                      {s.stats30d && (
+                        <span className="flex flex-wrap items-center gap-3 text-xs text-fg-3">
+                          <span>
+                            30D <Usd value={s.stats30d.realized} signed colored compact />
+                          </span>
+                          <span>win {s.stats30d.winRate === null ? '—' : `${Math.round(s.stats30d.winRate * 100)}%`}</span>
+                          <span>{s.stats30d.closed} closed</span>
+                          <span>coverage {s.stats30d.coverage === null ? '—' : `${Math.round(s.stats30d.coverage * 100)}%`}</span>
+                        </span>
+                      )}
+                    </div>
+                    <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                      {s.trades.map((t) => (
+                        <li key={t.tx + t.side} className="flex items-center gap-2 text-xs">
+                          <Tag tone={t.side === 'buy' ? 'accent' : 'neg'}>{t.side}</Tag>
+                          <Usd value={t.usd} />
+                          <span className="num text-fg-3">{formatDateTime(t.ts)}</span>
+                          <TxRef hash={t.tx} />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+                {mine.map((t) => (
+                  <li key={t.tx + t.trader} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-xs">
+                    <Tag tone="neutral">You follow</Tag>
+                    <Link to={`/top-wallets/${encodeURIComponent(t.trader)}`} className="num text-fg hover:underline">
+                      {t.trader}
+                    </Link>
+                    <Tag tone={t.side === 'buy' ? 'accent' : 'neg'}>{t.side}</Tag>
+                    <Usd value={t.usd} />
+                    <span className="num text-fg-3">{formatDateTime(t.ts)}</span>
+                    <TxRef hash={t.tx} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="border-t border-line-soft px-4 py-2.5 text-[11px] leading-4 text-fg-3">
+              Evidence, not a signal: each line is a verified swap with its transaction. Past results don’t predict this token.
+            </p>
+          </Panel>
+        )}
 
         <Panel>
           <PanelHeader title="Latest swaps" actions={d.tradesAt ? <span className="num text-xs text-fg-3">{formatAgo(d.tradesAt, now)}</span> : undefined} />

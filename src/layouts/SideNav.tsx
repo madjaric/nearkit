@@ -4,6 +4,7 @@ import { LogoMark, Wordmark } from '@/components/brand/Brand'
 import { SocialLinks } from '@/components/brand/Social'
 import { Led, Tag } from '@/components/ui/Indicators'
 import { KIT } from '@/config/kit'
+import { isPaused, soonLabel } from '@/config/paused'
 import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { cn } from '@/lib/cn'
 import { useNetworkWording } from '@/lib/modeCopy'
@@ -50,7 +51,12 @@ function NavEntry({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
           <>
             <Icon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', isActive ? iconOn : iconOff)} />
             <span className="flex-1 truncate">{item.label}</span>
-            {isSoon(item) && <Tag tone="soon">Soon</Tag>}
+            {isSoon(item) && (
+              // A paused tool says Coming soon in full: compact, and a little closer, so its label stays whole.
+              <Tag tone="soon" compact={isPaused(item.to)} className={isPaused(item.to) ? '-ml-1.5' : undefined}>
+                {soonLabel(item.to)}
+              </Tag>
+            )}
           </>
         )}
       </NavLink>

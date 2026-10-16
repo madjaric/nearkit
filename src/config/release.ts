@@ -1,5 +1,6 @@
 import type { StrategyKind } from '@/lib/automation/config'
 import { ENV, PRODUCTION_BUILD, type AppEnv } from './env'
+import { isPaused } from './paused'
 
 /**
  * Routes the public beta shows as COMING SOON. They keep their pages,
@@ -19,9 +20,9 @@ export function comingSoonRoutes(build: { services: AppEnv['services']; network:
 
 const COMING_SOON = comingSoonRoutes({ services: ENV.services, network: ENV.network, production: PRODUCTION_BUILD })
 
-/** True when this route is COMING SOON in this build. */
+/** True when this route is COMING SOON in this build (the beta's list, or a paused tool: paused.ts). */
 export function isComingSoon(path: string): boolean {
-  return COMING_SOON.includes(path)
+  return COMING_SOON.includes(path) || isPaused(path)
 }
 
 /** The trading automation each COMING SOON route is (the server switches each kind on by itself). */
@@ -47,17 +48,20 @@ export function routeComingSoon(path: string, comingSoon: readonly string[], ena
   return !(kind !== undefined && enabled !== null && enabled.includes(kind))
 }
 
-/** `isComingSoon` for this build, with the kinds the server switched on for this user (null: none known). */
+/** `isComingSoon` for this build, with the kinds the server switched on for this user (null: none known). A paused tool stays COMING SOON. */
 export function isComingSoonFor(path: string, enabled: readonly StrategyKind[] | null): boolean {
-  return routeComingSoon(path, COMING_SOON, enabled)
+  return isPaused(path) || routeComingSoon(path, COMING_SOON, enabled)
 }
 
 /** Launch Radar and Top Wallets: live where NEARKITS' server runs its indexer (its /health `discovery`). */
 export const DISCOVERY_ROUTES: readonly string[] = ['/launch-radar', '/top-wallets']
 
-/** A discovery route is COMING SOON in real mode until NEARKITS' server says it runs it (`on`: its answer; true in the demo). */
+/**
+ * A discovery route is COMING SOON in real mode until NEARKITS' server says it runs it (`on`: its answer;
+ * true in the demo). A paused one (Top Wallets, paused.ts) is COMING SOON whatever the server says.
+ */
 export function discoverySoon(path: string, on: boolean | null): boolean {
-  return DISCOVERY_ROUTES.includes(path) && on !== true
+  return isPaused(path) || (DISCOVERY_ROUTES.includes(path) && on !== true)
 }
 
 /**

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Popover } from '@/components/ui/Floating'
 import { Kbd, Tag } from '@/components/ui/Indicators'
+import { soonLabel } from '@/config/paused'
 import { cn } from '@/lib/cn'
 import { looksLikeContract } from '@/lib/validation'
 import { describeError } from '@/services/errors'
@@ -143,7 +144,7 @@ export function GlobalSearch({ className, autoFocus = false, onDone }: { classNa
                   {/* A label is never cut for a long detail ("Token not found" stays whole): the detail gives way. */}
                   <span className={cn('truncate text-sm text-fg', r.detail ? 'max-w-[60%] shrink-0' : 'min-w-0 flex-1')}>{r.label}</span>
                   {r.detail && <span className="min-w-0 flex-1 truncate text-right text-xs text-fg-3">{r.detail}</span>}
-                  {r.soon && <Tag tone="soon">Soon</Tag>}
+                  {r.soon && <Tag tone="soon">{soonLabel(r.to.split('?')[0] ?? r.to)}</Tag>}
                   {i === active && <CornerDownLeft size={13} className="shrink-0 text-fg-4" aria-hidden="true" />}
                 </div>
               </li>
