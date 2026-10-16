@@ -1,4 +1,4 @@
-import type { LaunchPeriod, LaunchRow, QualifyReason, TradeView, WalletCategory, WalletMetric, WalletWindowKey } from '@/lib/discovery/api'
+import type { IndexStatus, LaunchPeriod, LaunchRow, QualifyReason, TradeView, WalletCategory, WalletMetric, WalletWindowKey } from '@/lib/discovery/api'
 
 /**
  * Launch Radar's and Top Wallets' page rules (DISCOVERY.md): the quality score, the tabs' order, the
@@ -52,10 +52,33 @@ export function launchScore(r: LaunchRow, w: ScoreWeights = DEFAULT_WEIGHTS): nu
   return (100 * (w.liquidity * c.liquidity + w.holders * c.holders + w.traders * c.traders + w.buys * c.buys + w.reputation * c.reputation)) / total
 }
 
+export type ChangeWindow = '5m' | '1h' | '6h' | '24h'
+
 /** The price change that matches the period's window (1h → 1h, 6h → 6h, 24h and 7d → 24h), in percent. */
 export const changeFor = (r: LaunchRow, period: LaunchPeriod): number | null => (period === '1h' ? r.priceChange1h : period === '6h' ? r.priceChange6h : r.priceChange24h)
 export const volumeFor = (r: LaunchRow, period: LaunchPeriod): number | null => (period === '1h' ? r.volume1h : period === '6h' ? r.volume6h : r.volume24h)
 export const changeWindow = (period: LaunchPeriod): '1h' | '6h' | '24h' => (period === '1h' ? '1h' : period === '6h' ? '6h' : '24h')
+
+const CHANGE_OF: Record<ChangeWindow, (r: LaunchRow) => number | null> = {
+  '5m': (r) => r.priceChange5m,
+  '1h': (r) => r.priceChange1h,
+  '6h': (r) => r.priceChange6h,
+  '24h': (r) => r.priceChange24h,
+}
+const SHORTER: Record<'1h' | '6h' | '24h', ChangeWindow[]> = { '1h': ['1h', '5m'], '6h': ['6h', '1h', '5m'], '24h': ['24h', '6h', '1h', '5m'] }
+
+/**
+ * The period's price change with the window it is measured over: the period's own window, or, when Intear
+ * reports none (a launch younger than that window has no price that old), the longest shorter window it
+ * reports. The page shows that window next to the figure. Null when Intear reports no change at all.
+ */
+export function periodChange(r: LaunchRow, period: LaunchPeriod): { value: number; window: ChangeWindow } | null {
+  for (const window of SHORTER[changeWindow(period)]) {
+    const value = CHANGE_OF[window](r)
+    if (value !== null) return { value, window }
+  }
+  return null
+}
 
 export interface RadarFilter {
   tab: RadarTab
@@ -74,7 +97,7 @@ export interface RadarItem {
 
 /**
  * The tab's list: Last, newest first; Last Best, launches with a market by score; Top, launches with
- * TOP_MIN_LIQUIDITY and TOP_MIN_TRADES by the period's price change. Filters first: source, search
+ * TOP_MIN_LIQUIDITY and TOP_MIN_TRADES by the period's price change (periodChange). Filters first: source, search
  * (symbol, name or contract), spam (hidden unless asked), watchlist.
  */
 export function radarItems(rows: readonly LaunchRow[], f: RadarFilter, period: LaunchPeriod, weights: ScoreWeights = DEFAULT_WEIGHTS): RadarItem[] {
@@ -90,8 +113,8 @@ export function radarItems(rows: readonly LaunchRow[], f: RadarFilter, period: L
   if (f.tab === 'best') return items.filter((i) => i.score !== null).sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || (b.row.createdAt ?? 0) - (a.row.createdAt ?? 0))
   if (f.tab === 'top')
     return items
-      .filter((i) => (i.row.liquidityUsd ?? 0) >= TOP_MIN_LIQUIDITY && (i.row.buys24h ?? 0) + (i.row.sells24h ?? 0) >= TOP_MIN_TRADES && changeFor(i.row, period) !== null)
-      .sort((a, b) => (changeFor(b.row, period) ?? 0) - (changeFor(a.row, period) ?? 0))
+      .filter((i) => (i.row.liquidityUsd ?? 0) >= TOP_MIN_LIQUIDITY && (i.row.buys24h ?? 0) + (i.row.sells24h ?? 0) >= TOP_MIN_TRADES && periodChange(i.row, period) !== null)
+      .sort((a, b) => (periodChange(b.row, period)?.value ?? 0) - (periodChange(a.row, period)?.value ?? 0))
   return items.sort((a, b) => (b.row.createdAt ?? 0) - (a.row.createdAt ?? 0))
 }
 
@@ -143,6 +166,32 @@ export const CATEGORY_RULE: Readonly<Record<WalletCategory, string>> = {
   traders: 'Qualified, not automated, at least 10 closed trades in the window.',
   early: 'Bought 3 or more different tokens within an hour of their creation in the window.',
   fresh: 'First indexed swap within the last 14 days (needs 28 indexed days).',
+}
+
+const DAY_MS = 86_400_000
+const WINDOW_DAYS: Readonly<Record<WalletWindowKey, number | null>> = { all: null, '7d': 7, '30d': 30, '90d': 90 }
+
+export interface WindowCoverage {
+  /** The window's length in days; null for all indexed history. */
+  days: number | null
+  /** Whole days of the window the trade index holds. */
+  covered: number
+  /** full: every day of the window is indexed; catching-up: the index is still reading history, so the
+   *  recent days aren't in it yet; young: the index started after the window did. */
+  state: 'full' | 'catching-up' | 'young'
+}
+
+/**
+ * How much of a ranking window the trade index holds: the window's days between where the index starts
+ * and how far it has read (tradesTo), never up to "now" while it is still catching up on history.
+ */
+export function windowCoverage(window: WalletWindowKey, index: Pick<IndexStatus, 'indexStart' | 'tradesTo' | 'backfilling'>, asOf: number): WindowCoverage {
+  const days = WINDOW_DAYS[window]
+  const to = Math.min(index.tradesTo ?? index.indexStart, asOf)
+  const from = days === null ? index.indexStart : Math.max(index.indexStart, asOf - days * DAY_MS)
+  const indexed = Math.max(0, Math.floor((to - from) / DAY_MS))
+  const state = index.backfilling || index.tradesTo === null ? 'catching-up' : days !== null && index.indexStart > asOf - days * DAY_MS ? 'young' : 'full'
+  return { days, covered: state === 'full' && days !== null ? days : days === null ? indexed : Math.min(days, indexed), state }
 }
 
 export const REASON_TEXT: Readonly<Record<QualifyReason, string>> = {

@@ -174,8 +174,8 @@ export default function LaunchDetailPage() {
                   </Line>
                 </Lines>
                 <div className="flex flex-wrap gap-1.5">
-                  <Kind tone="accent">Verified on chain: account, block, creator</Kind>
-                  <Kind>Reported by Intear: deployer, market, holders</Kind>
+                  <Kind tone="accent">Verified on chain: token account, parent account</Kind>
+                  <Kind>Reported by Intear: first block, deployer, market, holders</Kind>
                 </div>
                 <div className="flex flex-wrap gap-3 text-xs">
                   {caps.explorerUrl && (

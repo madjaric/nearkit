@@ -14,7 +14,7 @@ import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
 import { AccountRef, FollowButton, IndexNote, Methodology, ShareBar } from '@/features/discovery/parts'
-import { CATEGORY_LABEL, CATEGORY_RULE, METRIC_LABEL, REASON_TEXT, WINDOW_LABEL } from '@/features/discovery/model'
+import { CATEGORY_LABEL, CATEGORY_RULE, METRIC_LABEL, REASON_TEXT, WINDOW_LABEL, windowCoverage, type WindowCoverage } from '@/features/discovery/model'
 import { useDiscoveryOn, useFollowed, useWallets } from '@/features/discovery/queries'
 import { WALLET_WINDOWS, type WalletCategory, type WalletMetric, type WalletRow, type WalletWindowKey } from '@/lib/discovery/api'
 import { formatAgo, formatUsdCompact } from '@/lib/format'
@@ -47,6 +47,12 @@ function WalletTags({ row }: { row: WalletRow }) {
       )}
     </span>
   )
+}
+
+const COVER_TEXT: Readonly<Record<WindowCoverage['state'], string>> = {
+  full: 'Full window indexed',
+  'catching-up': 'Partial: the index is still catching up on history',
+  young: 'Partial: the index is younger than the window',
 }
 
 function TopTokens({ row }: { row: WalletRow }) {
@@ -102,6 +108,7 @@ export default function TopWalletsPage() {
   const rows = useMemo(() => (data ? (followedOnly ? data.rows.filter((r) => followed.isFollowed(r.trader)) : data.rows) : []), [data, followedOnly, followed])
   const searchAccount = search.trim().toLowerCase()
   const openable = searchAccount && isValidAccountId(searchAccount) && !rows.some((r) => r.trader === searchAccount) ? searchAccount : null
+  const cover = data ? windowCoverage(range, data.index, data.asOf) : null
 
   if (on === false)
     return (
@@ -138,8 +145,8 @@ export default function TopWalletsPage() {
         <ReadoutSlot
           legend="Window covered"
           loading={q.isPending}
-          value={<span className="num">{data ? (data.coverage.days === null ? `${data.coverage.covered}d` : `${data.coverage.covered}/${data.coverage.days}d`) : '—'}</span>}
-          sub={data ? (data.coverage.days !== null && data.coverage.covered < data.coverage.days ? 'Partial: the index is younger than the window' : 'Full window indexed') : '—'}
+          value={<span className="num">{cover ? (cover.days === null ? `${cover.covered}d` : `${cover.covered}/${cover.days}d`) : '—'}</span>}
+          sub={cover ? COVER_TEXT[cover.state] : '—'}
         />
         <ReadoutSlot
           legend="Indexed to"

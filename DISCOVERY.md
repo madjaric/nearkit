@@ -52,8 +52,12 @@ server, which reads each source once for everyone.
 - **Launch**: a NEP-141 token whose first block (Intear `created_at`) is within the period. The
   launchpad is the token's parent account when it is a validated launchpad; otherwise "Direct" with
   the first liquidity venue (the main pool: Rhea DCL, Ref v1, Intear, Aidols).
-- **Verified facts**: the token account, its creation block and time, its parent account (on-chain
-  account structure), the dev account the indexer saw deploy it, and its pools.
+- **Verified facts**: the token account and its parent account (on-chain account structure: only
+  `x.near` can create `token.x.near`). The first block and time, the deployer and the pools are
+  Intear's report, labeled as such. Intear's first block is not checked on chain yet: for a few older
+  tokens it is a later contract update (seen 2026-10-16: `token.v2.ref-finance.near`,
+  `meta-token.near`, `sol.token.a11bd.near` existed before their reported block), so an established
+  token can show up as a launch (Limitations).
 - **Market figures** (Intear, refreshed every minute): price, change over 5m/1h/6h/24h, volume,
   liquidity, buys/sells, traders, holders. Absent values print "—", never zero.
 - **Summary**: launches in the period; with an active market (main pool and liquidity > 0); their
@@ -68,7 +72,10 @@ server, which reads each source once for everyone.
   `c_reputation = Reputable 1, NotFake 0.75, Unknown 0.4, Spam 0`.
   Default weights 3, 2, 2, 1, 1; the page lets the user change them.
 - **Top**: launches with liquidity ≥ $1,000 and ≥ 10 trades in 24h, ranked by price change over the
-  period's window (1h → 1h, 6h → 6h, 24h and 7d → 24h).
+  period's window (1h → 1h, 6h → 6h, 24h and 7d → 24h). A launch younger than that window has no price
+  that old, so Intear reports no change over it: such a launch is ranked by the longest shorter window
+  Intear reports (24h → 6h → 1h → 5m), and the page names that window beside the figure. The change
+  column of every tab reads the same way.
 - **Risk flags** (each with its evidence): reputation Spam (Intear), liquidity under $1,000, no
   active market, top 10 holders over 50% of supply, dev account over 10% of supply. Pool, launchpad,
   token-contract and burn accounts are excluded from concentration. "No flags" is not "safe".
@@ -100,6 +107,8 @@ Window figures (7D, 30D, 90D; "Top 100" = the whole indexed history), from daily
 - **Realized PnL** = Σ realized. **Return %** = realized ÷ cost basis of the units sold.
 - **Win rate** = wins ÷ closed trades. **Average gain / loss** = Σ gains ÷ wins, Σ losses ÷ losses.
 - **Coverage** = matched sale value ÷ all sale value.
+- **Window covered** (Top Wallets' summary): the window's days between the index start and the newest
+  indexed swap, never up to "now" while the indexer is still catching up on history ("Partial").
 - **Max drawdown** = the largest fall of cumulative realized PnL from a previous peak (daily).
 - **Unrealized PnL** (estimate) = open quantity × current price − its cost, for positions built
   from indexed trades only.
@@ -131,5 +140,8 @@ Window figures (7D, 30D, 90D; "Top 100" = the whole indexed history), from daily
   intermediate token can show as a tiny round trip (rare; close to zero PnL either way).
 - A token's creation time for tokens older than Intear's start (2026-08-05) is the index start, so
   launches are only listed from then.
+- Intear's first block can be a later contract update of an older token, so an established token can
+  appear as a launch until the first block is checked on chain (planned: the account must not exist
+  one block before it).
 - Intear is a single free dependency without published terms; when it fails, the pages keep the last
   data with its age and say it is stale.
