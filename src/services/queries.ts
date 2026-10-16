@@ -56,6 +56,7 @@ export const qk = {
   volumeBot: (token: string | null, botId: string | null) => ['nearkit', 'bots', token, botId] as const,
   autoFeatures: (token: string | null) => ['nearkit', 'auto', 'features', token] as const,
   serverAutomation: ['nearkit', 'auto', 'server'] as const,
+  serverDiscovery: ['nearkit', 'discovery', 'server'] as const,
   autoList: (token: string | null) => ['nearkit', 'auto', 'list', token] as const,
   autoDetail: (token: string | null, id: string | null) => ['nearkit', 'auto', 'list', token, id] as const,
   tokenPrice: (id: string | null) => ['market', 'price', id] as const,
@@ -214,6 +215,25 @@ export function useServerAutomation() {
     refetchInterval: 120_000,
     retry: 1,
   })
+}
+
+/**
+ * Whether Launch Radar and Top Wallets run here: always in the demo; in real mode, as NEARKITS' server
+ * says on its public /health (null while that answer is on its way or the server doesn't say).
+ */
+export function useDiscoveryOn(): boolean | null {
+  const s = useServices()
+  const q = useQuery({
+    queryKey: qk.serverDiscovery,
+    queryFn: () => s.nearkit.serverDiscovery(),
+    enabled: s.mode === 'near' && s.nearkit.available,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    retry: 1,
+  })
+  if (s.mode === 'demo') return true
+  if (!s.nearkit.available) return false
+  return q.data ?? null
 }
 
 /**

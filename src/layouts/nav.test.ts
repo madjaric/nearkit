@@ -15,7 +15,7 @@ describe('the sidebar’s groups', () => {
     expect(labels('Tools')).toEqual(['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets'])
     expect(labels('Automation')).toEqual(['Volume Bot', 'DCA', 'Copy Trade', 'Sniper'])
     expect(labels('Portfolio')).toEqual(['Positions', 'PnL'])
-    expect(labels('Intelligence')).toEqual(['Scanner'])
+    expect(labels('Intelligence')).toEqual(['Scanner', 'Launch Radar', 'Top Wallets'])
     // Recover needs NEARKITS' server: the demo build (the tests') has none.
     expect(labels('Other')).toEqual(['Settings', 'Documentation', 'Telegram'])
   })
@@ -50,13 +50,13 @@ describe('the All Tools directory', () => {
   const groups = directoryGroups(NAV_GROUPS)
   const found = (query: string, group: string | null = null) => filterDirectory(groups, query, group).flatMap((g) => g.items.map((i) => i.label))
 
-  it('lists every tool in the sidebar’s groups, in the same order; the bridges under Main; still 20 tools', () => {
+  it('lists every tool in the sidebar’s groups, in the same order; the bridges under Main; 22 tools with Launch Radar and Top Wallets', () => {
     expect(groups.map((g) => g.slug)).toEqual(['main', 'trade', 'tools', 'automation', 'portfolio', 'intelligence', 'other'])
     expect(found('')).toEqual(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.label)))
     expect(found('', 'main')).toEqual(['Bridge', 'Bridge & Buy'])
     expect(found('', 'other')).toEqual(['Settings', 'Documentation', 'Telegram'])
-    // The demo build (the tests') has no Recover: 20 tools, as before the bridges moved.
-    expect(found('')).toHaveLength(20)
+    // The demo build (the tests') has no Recover: 22 tools (Launch Radar and Top Wallets joined Intelligence).
+    expect(found('')).toHaveLength(22)
   })
 
   it('finds a tool by its name, by what it does, by a keyword, and a whole group by its name', () => {

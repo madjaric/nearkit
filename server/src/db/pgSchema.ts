@@ -644,4 +644,121 @@ export const PG_MIGRATIONS: readonly { version: number; name: string; sql: strin
         PRIMARY KEY (network, source)
       );`,
   },
+  {
+    version: 11,
+    name: 'Launch Radar and Top Wallets: launches, launch sources, wallet accounting, follows',
+    sql: `
+      -- Launch Radar and Top Wallets (DISCOVERY.md). A token Launch Radar has seen: recorded once with its
+      -- creation block and time, the account that deployed it, its parent account (who created the token
+      -- account: on-chain account structure) and when NEARKITS first saw it; its latest market figures
+      -- (JSON, as Intear reported them) and holder concentration (JSON, with the accounts left out).
+      CREATE TABLE disc_tokens (
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        symbol TEXT,
+        name TEXT,
+        decimals INTEGER,
+        created_height BIGINT,
+        created_at BIGINT,
+        dev TEXT,
+        parent TEXT,
+        first_seen_at BIGINT NOT NULL,
+        market TEXT,
+        market_at BIGINT,
+        holders TEXT,
+        holders_at BIGINT,
+        PRIMARY KEY (network, token)
+      );
+      CREATE INDEX disc_tokens_created ON disc_tokens(network, created_at);
+      -- Parent accounts of launched tokens: a launchpad once it has a deployed contract and enough tokens.
+      CREATE TABLE disc_sources (
+        network TEXT NOT NULL,
+        parent TEXT NOT NULL,
+        has_contract INTEGER,
+        launches INTEGER NOT NULL DEFAULT 0,
+        checked_at BIGINT,
+        PRIMARY KEY (network, parent)
+      );
+      -- Top Wallets' accounting: a wallet's average-cost position in one token, with its running totals.
+      CREATE TABLE disc_wallet_tokens (
+        network TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        token TEXT NOT NULL,
+        qty DOUBLE PRECISION NOT NULL,
+        cost DOUBLE PRECISION NOT NULL,
+        unknown_qty DOUBLE PRECISION NOT NULL,
+        open_since BIGINT,
+        realized DOUBLE PRECISION NOT NULL,
+        closed INTEGER NOT NULL,
+        wins INTEGER NOT NULL,
+        hold_ms BIGINT NOT NULL,
+        holds INTEGER NOT NULL,
+        buys INTEGER NOT NULL,
+        sells INTEGER NOT NULL,
+        buy_usd DOUBLE PRECISION NOT NULL,
+        sell_usd DOUBLE PRECISION NOT NULL,
+        first_buy_at BIGINT,
+        last_at BIGINT,
+        last_sell_at BIGINT,
+        early_buy_at BIGINT,
+        PRIMARY KEY (network, trader, token)
+      );
+      CREATE INDEX disc_wallet_tokens_sold ON disc_wallet_tokens(network, last_sell_at);
+      -- A wallet's figures per UTC day (days since 1970): windows are sums of these.
+      CREATE TABLE disc_wallet_days (
+        network TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        day INTEGER NOT NULL,
+        realized DOUBLE PRECISION NOT NULL,
+        cost_closed DOUBLE PRECISION NOT NULL,
+        closed INTEGER NOT NULL,
+        wins INTEGER NOT NULL,
+        gains DOUBLE PRECISION NOT NULL,
+        losses DOUBLE PRECISION NOT NULL,
+        buy_usd DOUBLE PRECISION NOT NULL,
+        sell_usd DOUBLE PRECISION NOT NULL,
+        unmatched_usd DOUBLE PRECISION NOT NULL,
+        unpriced INTEGER NOT NULL,
+        legs INTEGER NOT NULL,
+        PRIMARY KEY (network, trader, day)
+      );
+      CREATE INDEX disc_wallet_days_day ON disc_wallet_days(network, day);
+      -- A wallet's first and last indexed swap, and the last one's gist.
+      CREATE TABLE disc_wallets (
+        network TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        first_ts BIGINT NOT NULL,
+        last_ts BIGINT NOT NULL,
+        legs INTEGER NOT NULL,
+        last_side TEXT,
+        last_token TEXT,
+        last_usd DOUBLE PRECISION,
+        last_tx TEXT,
+        PRIMARY KEY (network, trader)
+      );
+      -- Swaps in tokens launched in the last week, kept as rows for launch-to-wallet evidence (pruned).
+      CREATE TABLE disc_launch_trades (
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+        qty DOUBLE PRECISION NOT NULL,
+        usd DOUBLE PRECISION,
+        ts BIGINT NOT NULL,
+        tx TEXT NOT NULL,
+        UNIQUE (network, tx, trader, token, side)
+      );
+      CREATE INDEX disc_launch_trades_token ON disc_launch_trades(network, token, ts);
+      CREATE INDEX disc_launch_trades_trader ON disc_launch_trades(network, trader, ts);
+      -- Wallets a NEARKITS user follows, and whether the bot tells them about each new swap.
+      CREATE TABLE disc_follows (
+        user_id BIGINT NOT NULL,
+        network TEXT NOT NULL,
+        account TEXT NOT NULL,
+        alerts INTEGER NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, network, account)
+      );
+      CREATE INDEX disc_follows_account ON disc_follows(network, account);`,
+  },
 ]

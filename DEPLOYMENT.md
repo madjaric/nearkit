@@ -83,6 +83,7 @@ Every server process fails closed on its configuration: a missing or doubtful cr
 | `ONECLICK_API_URL` | unset | NEAR Intents' 1Click API, `https://1click.chaindefuser.com` |
 | `ONECLICK_API_KEY` | secret, optional | A 1Click partner JWT. Never logged; sent only to 1Click |
 | `SOLANA_RPC_URL` | unset, or a private Solana RPC | Blockhash and balance reads for the page's SOL transfer |
+| `NEARKIT_DISCOVERY` | `on` (unset: off) | Launch Radar and Top Wallets (DISCOVERY.md): the indexer of new tokens and every swap, from Intear's free API; one instance at a time (lease `discovery-indexer`). Needs schema v20 / PG v11. First start backfills swaps from `NEARKIT_DISCOVERY_START` (default 2026-09-18), a few hours at about two pages a second |
 | `NEARKIT_AUTOMATION` | `limit,dca,sniper,copy` (unset: off) | The trading automation kinds the worker runs (AUTOMATION.md). Limits stay at their defaults: 50 NEAR a trade, 200 NEAR per user and 2,000 NEAR in all per 24 h |
 | `NEARKIT_AUTOMATION_SNIPER_BUY` | `on` (unset: off) | Snipers may buy; each still needs its owner's explicit yes. Off: snipers only notify. `/health` `sniperBuy` shows it |
 

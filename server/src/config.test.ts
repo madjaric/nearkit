@@ -239,3 +239,31 @@ describe('trading wallets (custody)', () => {
     expect(config.custody.enabled).toBe(false)
   })
 })
+
+describe('Launch Radar and Top Wallets (NEARKIT_DISCOVERY)', () => {
+  const MAINNET = { NEAR_NETWORK: 'mainnet', NEARKIT_FEE_RECIPIENT: 'nearkitfee.near', BUYBOT_ENABLED: 'false' }
+
+  it('is off unless switched on, and says why', () => {
+    const { config, issues } = loadConfig(MAINNET)
+    expect(issues).toEqual([])
+    expect(config.discovery).toMatchObject({
+      enabled: false,
+      reason: 'Off (NEARKIT_DISCOVERY is not "on").',
+      url: 'https://api.intea.rs',
+      startAt: Date.parse('2026-09-18T00:00:00Z'),
+    })
+  })
+
+  it('on mainnet: on, with its source and start', () => {
+    const { config, issues } = loadConfig({ ...MAINNET, NEARKIT_DISCOVERY: 'on', NEARKIT_DISCOVERY_START: '2026-10-01' })
+    expect(issues).toEqual([])
+    expect(config.discovery).toMatchObject({ enabled: true, reason: null, startAt: Date.parse('2026-10-01') })
+  })
+
+  it('on testnet, a bad switch, a bad date or a bad URL: refused', () => {
+    expect(loadConfig({ NEARKIT_DISCOVERY: 'on' }).issues.map((i) => i.key)).toEqual(['NEARKIT_DISCOVERY'])
+    expect(loadConfig({ ...MAINNET, NEARKIT_DISCOVERY: 'yes' }).issues.map((i) => i.key)).toEqual(['NEARKIT_DISCOVERY'])
+    expect(loadConfig({ ...MAINNET, NEARKIT_DISCOVERY_START: 'soon' }).issues.map((i) => i.key)).toEqual(['NEARKIT_DISCOVERY_START'])
+    expect(loadConfig({ ...MAINNET, NEARKIT_DISCOVERY_URL: 'ftp://x' }).issues.map((i) => i.key)).toEqual(['NEARKIT_DISCOVERY_URL'])
+  })
+})

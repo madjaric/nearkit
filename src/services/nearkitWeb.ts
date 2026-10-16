@@ -1,5 +1,6 @@
 import type { AutomationFeatures, CreateStrategyInput, StrategyDetail, StrategyPreview, StrategyView } from '@/lib/automation/api'
 import type { StrategyConfig, StrategyKind } from '@/lib/automation/config'
+import type { FollowView } from '@/lib/discovery/api'
 import type { BotDetail, BotSummary } from '@/lib/volumeBot/api'
 import type { BotConfig } from '@/lib/volumeBot/types'
 import type { QuoteCosts } from '@/types/domain'
@@ -256,6 +257,15 @@ export interface NearKitWeb {
   autoCancel(id: string): Promise<StrategyView>
   /** Pauses every live automation of the user's; answers how many paused. */
   autoPauseAll(): Promise<number>
+  /**
+   * Whether NEARKITS' server runs Launch Radar and Top Wallets (its public /health `discovery`). Null
+   * where this build has no server or the server doesn't say (an older server).
+   */
+  serverDiscovery(): Promise<boolean | null>
+  /** Wallets the user follows on Top Wallets, with whether the bot alerts them (NEARKITS session). */
+  discoveryFollows(): Promise<FollowView[]>
+  discoveryFollow(account: string, alerts: boolean): Promise<FollowView[]>
+  discoveryUnfollow(account: string): Promise<FollowView[]>
   /** Called whenever the session starts or ends. */
   subscribe(listener: () => void): () => void
 }
@@ -565,6 +575,17 @@ export function createNearKitWeb(options: { apiUrl: string | null; network: stri
     autoResume: async (id) => (await call<{ strategy: StrategyView }>('/api/web/auto/resume', { id })).strategy,
     autoCancel: async (id) => (await call<{ strategy: StrategyView }>('/api/web/auto/cancel', { id })).strategy,
     autoPauseAll: async () => (await call<{ paused: number }>('/api/web/auto/pause-all', {})).paused,
+
+    serverDiscovery: async () => {
+      if (!apiUrl) return null
+      const res = await fetchImpl(`${apiUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(8_000) })
+      if (!res.ok) throw new LinkRequestError(res.status, 'unavailable', 'NEARKITS’ server didn’t answer.')
+      const said = ((await res.json()) as { discovery?: unknown }).discovery
+      return said === 'on' ? true : said === 'off' ? false : null
+    },
+    discoveryFollows: async () => (await call<{ follows: FollowView[] }>('/api/web/discovery/follows', {})).follows,
+    discoveryFollow: async (account, alerts) => (await call<{ follows: FollowView[] }>('/api/web/discovery/follow', { account, alerts })).follows,
+    discoveryUnfollow: async (account) => (await call<{ follows: FollowView[] }>('/api/web/discovery/unfollow', { account })).follows,
 
     subscribe(listener) {
       listeners.add(listener)

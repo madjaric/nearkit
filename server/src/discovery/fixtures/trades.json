@@ -1,0 +1,87 @@
+{
+  "height": 220147172,
+  "timestamp_millis": 1792108370834,
+  "columns": ["id", "height", "timestamp_millis", "trader", "pool_id", "token_in", "amount_in", "token_out", "amount_out", "usd_value", "transaction_id"],
+  "rows": [
+    [
+      7163845,
+      220147164,
+      1792108366430,
+      "66fb1d3d0c8b3893b1b53a4a964a8b03586cc0db5c9621014f54efb11068b72e",
+      "REF-5469",
+      "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near",
+      "2744104288920424236215",
+      "wrap.near",
+      "31953285225681110173679146",
+      "168.81914582729192072",
+      "85gyudDMHGyRSbPiTd8vAjDRBRpotydvpZ6PqcmUoEJq"
+    ],
+    [
+      7163843,
+      220147161,
+      1792108364605,
+      "zerotest.near",
+      "REF-5469",
+      "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near",
+      "303926200311198258329",
+      "wrap.near",
+      "3543182434767843734478692",
+      "18.687995814122947255",
+      "6qVBqfoTpRFLVexovCp29fEAFWUrhC98EAbn1MKjj3xv"
+    ],
+    [
+      7163841,
+      220147161,
+      1792108364605,
+      "zerotest.near",
+      "REF-1395",
+      "wrap.near",
+      "3539672642453050216694098",
+      "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near",
+      "303926200311198258329",
+      "18.611293569576188654",
+      "6qVBqfoTpRFLVexovCp29fEAFWUrhC98EAbn1MKjj3xv"
+    ],
+    [
+      7163839,
+      220147160,
+      1792108363959,
+      "hmime.near",
+      "REF-5469",
+      "wrap.near",
+      "62136776326737009507866463",
+      "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near",
+      "5308312190830642837863",
+      "326.67927626017695145",
+      "Au2caoVtT1sYL4H7aMq8euDZ3ppsmx84kGdhmjFHnazE"
+    ],
+    [
+      7163837,
+      220147160,
+      1792108363959,
+      "hmime.near",
+      "REF-6063",
+      "usdt.tether-token.near",
+      "327677600",
+      "wrap.near",
+      "62136776326737009507866463",
+      "326.67927626017695145",
+      "Au2caoVtT1sYL4H7aMq8euDZ3ppsmx84kGdhmjFHnazE"
+    ],
+    [
+      7163835,
+      220147155,
+      1792108360971,
+      "rakatuka.near",
+      "REFDCL-nearly-993927.nearlytrade.near|wrap.near|10000",
+      "wrap.near",
+      "99101999999999999999999985",
+      "nearly-993927.nearlytrade.near",
+      "136113248484422433730380",
+      "521.02106916038241532",
+      "Ha5kbFjfpVXdHX32MAgFAziGxjmyNM99ToR2VbgZvukB"
+    ]
+  ],
+  "next_cursor": "1792108360971541834:7163835",
+  "latest_id": 7163846
+}

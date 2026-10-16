@@ -1,16 +1,20 @@
 import { useLocation } from 'react-router'
-import { isComingSoonFor } from '@/config/release'
-import { useAutomationEnabled, useCapabilities } from '@/services/queries'
+import { discoverySoon, isComingSoonFor } from '@/config/release'
+import { useAutomationEnabled, useCapabilities, useDiscoveryOn } from '@/services/queries'
 
 /** The current page is COMING SOON in this build (the public beta), unless NEARKITS switched its automation on for this user. */
 export function useComingSoonPage(): boolean {
   return useIsComingSoon()(useLocation().pathname)
 }
 
-/** `isComingSoon` for this user: an automation route the server switched on (with a NEARKITS session) is live. */
+/**
+ * `isComingSoon` for this user: an automation route the server switched on is live; Launch Radar and
+ * Top Wallets are live where NEARKITS' server runs them.
+ */
 export function useIsComingSoon(): (path: string) => boolean {
   const enabled = useAutomationEnabled()
-  return (path: string) => isComingSoonFor(path, enabled)
+  const discovery = useDiscoveryOn()
+  return (path: string) => isComingSoonFor(path, enabled) || discoverySoon(path, discovery)
 }
 
 /**

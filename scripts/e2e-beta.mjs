@@ -89,7 +89,8 @@ const SIDEBAR = [
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
   ['Automation', ['Volume Bot SOON', 'DCA SOON', 'Copy Trade SOON', 'Sniper SOON']],
   ['Portfolio', ['Positions', 'PnL']],
-  ['Intelligence', ['Scanner']],
+  // Launch Radar and Top Wallets need NEARKITS' server to say it runs them: held back without one.
+  ['Intelligence', ['Scanner', 'Launch Radar SOON', 'Top Wallets SOON']],
   // The bot is held back on the testnet beta too.
   ['Other', ['Settings', 'Documentation', 'Telegram SOON']],
 ]
