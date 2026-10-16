@@ -53,6 +53,18 @@ export const API_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   '/api/web/auto/pause-all': 10,
   '/api/kits/burns': 60,
   '/api/kits/rewards': 60,
+  // Launch Radar and Top Wallets: cached answers for everyone; a detail view may read Intear once (cached).
+  '/api/discovery/status': 60,
+  '/api/discovery/launches': 60,
+  '/api/discovery/extras': 60,
+  '/api/discovery/launch': 30,
+  '/api/discovery/wallets': 60,
+  '/api/discovery/wallet': 30,
+  '/api/discovery/wallet/trades': 20,
+  '/api/discovery/signals': 30,
+  '/api/web/discovery/follows': 60,
+  '/api/web/discovery/follow': 30,
+  '/api/web/discovery/unfollow': 30,
   // Bridge & Buy: a quote asks NEAR Intents (and prices $KITS), a start makes a deposit address.
   '/api/bridge/assets': 60,
   '/api/bridge/quote': 30,

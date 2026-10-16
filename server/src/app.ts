@@ -39,6 +39,12 @@ import { checkChainIds } from './chainId'
 import { createKitsBurnTracker } from './kits/burns'
 import { createKitsRewardsTracker } from './kits/rewards'
 import { kitsRoutes } from './kits/routes'
+import { createDiscoveryAlerts } from './discovery/alerts'
+import { createDiscoveryIndexer, type DiscoveryIndexer } from './discovery/indexer'
+import { createIntear } from './discovery/intear'
+import { discoveryRoutes } from './discovery/routes'
+import { createDiscoveryService } from './discovery/service'
+import { DiscoveryStore } from './discovery/store'
 import { createServerNear } from './near'
 import { createTelegramApi, type TelegramApi } from './telegram/api'
 import { startPolling } from './telegram/poller'
@@ -454,6 +460,38 @@ export async function startServer(options: { env: Record<string, string | undefi
     if (r.previousUserId !== null) await bot.notify(r.previousUserId, movedAwayText(r.accountId))
   }
   // NEARKITS' Mini App names its Telegram user with launch data Telegram signed for this bot (its id is the token's public prefix).
+  // Launch Radar and Top Wallets (DISCOVERY.md): an indexer of new tokens and of every swap on NEAR, from
+  // Intear's free API, on one instance at a time (a role lease); public read-only routes; followed-wallet alerts.
+  const discoveryStore = config.discovery.enabled ? new DiscoveryStore(db, now) : null
+  let discoveryIndexer: DiscoveryIndexer | null = null
+  let discoveryApi: ReturnType<typeof discoveryRoutes> = {}
+  if (discoveryStore) {
+    const intear = createIntear({ baseUrl: config.discovery.url, fetch: fetchImpl })
+    const alerts = createDiscoveryAlerts({
+      store: discoveryStore,
+      network: config.network,
+      webUrl: config.webUrl,
+      notify: async (userId, html) => (bot ? bot.notify(userId, html) : false),
+      log,
+      now,
+    })
+    discoveryIndexer = createDiscoveryIndexer({
+      store: discoveryStore,
+      intear,
+      network: config.network,
+      hasContract: async (account) => {
+        const a = await near.ctx.rpc.viewAccount(account, 'final')
+        return a.code_hash !== '11111111111111111111111111111111' || Boolean(a.global_contract_hash ?? a.global_contract_account_id)
+      },
+      lease: { hold: () => leases.acquire('discovery-indexer', instance, 120_000), release: () => leases.release('discovery-indexer', instance) },
+      log,
+      now,
+      startAt: config.discovery.startAt,
+      onLive: (actions) => alerts(actions),
+    })
+    const service = createDiscoveryService({ store: discoveryStore, intear, indexer: discoveryIndexer, network: config.network, log, now })
+    discoveryApi = discoveryRoutes({ service, store: discoveryStore, network: config.network.id, sessions: web })
+  }
   const miniAppCheck = config.telegramToken ? { botId: Number(config.telegramToken.split(':')[0]), publicKey: hexDecode(TELEGRAM_LAUNCH_KEYS.production) as Uint8Array } : null
 
   const api: Server = createApiServer({
@@ -463,6 +501,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       ...linkRoutes({ link, onLinked }),
       ...handoffRoutes(handoffs),
       ...(kitsBurns ? kitsRoutes({ burns: kitsBurns, rewards: kitsRewards }) : {}),
+      ...discoveryApi,
       ...(bridge
         ? bridgeRoutes({ bridge, sessions: web, solana: createSolanaReads({ rpcUrl: config.bridge.solanaRpcUrl, fetch: fetchImpl, now }), telegram: miniAppCheck, now })
         : {}),
@@ -535,6 +574,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       volumebot: volumeRunner ? 'running' : 'off',
       ...automationHealth(automationRunner !== null, automationEnabled, config.automation.sniperBuy),
       bridge: bridge ? 'on' : 'off',
+      discovery: discoveryIndexer ? 'on' : 'off',
       pauses: health.pauses,
       signer: health.signer,
       boot: boot.boot,
@@ -615,6 +655,8 @@ export async function startServer(options: { env: Record<string, string | undefi
 
   const apiPort = await listen(api, config.api.port, config.api.host)
   log.info('API listening', { url: `http://${config.api.host}:${apiPort}`, public: config.api.publicUrl, origins: config.api.allowedOrigins })
+  discoveryIndexer?.start()
+  if (discoveryIndexer) log.info('launch radar and top wallets indexing', { source: config.discovery.url, from: new Date(config.discovery.startAt).toISOString() })
 
   // Anything in flight when the process stopped is settled from the chain (read only), then every 15 s.
   let resolving = false
@@ -677,6 +719,7 @@ export async function startServer(options: { env: Record<string, string | undefi
       // No bot starts a new step; the one under way finishes (its trade is settled from its intent after a restart anyway).
       await volumeRunner?.stop()
       await automationRunner?.stop()
+      await discoveryIndexer?.stop()
       await bridgeWorker?.stop()
       await buybotRunner?.stop()
       await poller?.stop()

@@ -13,6 +13,7 @@ const MODULES = [
   '../volumebot/routes.ts',
   '../kits/routes.ts',
   '../bridge/routes.ts',
+  '../discovery/routes.ts',
 ]
 const routes = MODULES.flatMap((m) => [...readFileSync(new URL(m, import.meta.url), 'utf8').matchAll(/^\s+'(\/api\/[a-z/-]+)': async/gm)].map((x) => x[1] as string))
 

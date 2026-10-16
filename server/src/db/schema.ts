@@ -813,6 +813,123 @@ export const MIGRATIONS: readonly { version: number; name: string; sql: string }
         PRIMARY KEY (network, source)
       );`,
   },
+  {
+    version: 20,
+    name: 'Launch Radar and Top Wallets: launches, launch sources, wallet accounting, follows',
+    sql: `
+      -- Launch Radar and Top Wallets (DISCOVERY.md). A token Launch Radar has seen: recorded once with its
+      -- creation block and time, the account that deployed it, its parent account (who created the token
+      -- account: on-chain account structure) and when NEARKITS first saw it; its latest market figures
+      -- (JSON, as Intear reported them) and holder concentration (JSON, with the accounts left out).
+      CREATE TABLE disc_tokens (
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        symbol TEXT,
+        name TEXT,
+        decimals INTEGER,
+        created_height INTEGER,
+        created_at INTEGER,
+        dev TEXT,
+        parent TEXT,
+        first_seen_at INTEGER NOT NULL,
+        market TEXT,
+        market_at INTEGER,
+        holders TEXT,
+        holders_at INTEGER,
+        PRIMARY KEY (network, token)
+      );
+      CREATE INDEX disc_tokens_created ON disc_tokens(network, created_at);
+      -- Parent accounts of launched tokens: a launchpad once it has a deployed contract and enough tokens.
+      CREATE TABLE disc_sources (
+        network TEXT NOT NULL,
+        parent TEXT NOT NULL,
+        has_contract INTEGER,
+        launches INTEGER NOT NULL DEFAULT 0,
+        checked_at INTEGER,
+        PRIMARY KEY (network, parent)
+      );
+      -- Top Wallets' accounting: a wallet's average-cost position in one token, with its running totals.
+      CREATE TABLE disc_wallet_tokens (
+        network TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        token TEXT NOT NULL,
+        qty REAL NOT NULL,
+        cost REAL NOT NULL,
+        unknown_qty REAL NOT NULL,
+        open_since INTEGER,
+        realized REAL NOT NULL,
+        closed INTEGER NOT NULL,
+        wins INTEGER NOT NULL,
+        hold_ms INTEGER NOT NULL,
+        holds INTEGER NOT NULL,
+        buys INTEGER NOT NULL,
+        sells INTEGER NOT NULL,
+        buy_usd REAL NOT NULL,
+        sell_usd REAL NOT NULL,
+        first_buy_at INTEGER,
+        last_at INTEGER,
+        last_sell_at INTEGER,
+        early_buy_at INTEGER,
+        PRIMARY KEY (network, trader, token)
+      );
+      CREATE INDEX disc_wallet_tokens_sold ON disc_wallet_tokens(network, last_sell_at);
+      -- A wallet's figures per UTC day (days since 1970): windows are sums of these.
+      CREATE TABLE disc_wallet_days (
+        network TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        day INTEGER NOT NULL,
+        realized REAL NOT NULL,
+        cost_closed REAL NOT NULL,
+        closed INTEGER NOT NULL,
+        wins INTEGER NOT NULL,
+        gains REAL NOT NULL,
+        losses REAL NOT NULL,
+        buy_usd REAL NOT NULL,
+        sell_usd REAL NOT NULL,
+        unmatched_usd REAL NOT NULL,
+        unpriced INTEGER NOT NULL,
+        legs INTEGER NOT NULL,
+        PRIMARY KEY (network, trader, day)
+      );
+      CREATE INDEX disc_wallet_days_day ON disc_wallet_days(network, day);
+      -- A wallet's first and last indexed swap, and the last one's gist.
+      CREATE TABLE disc_wallets (
+        network TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        first_ts INTEGER NOT NULL,
+        last_ts INTEGER NOT NULL,
+        legs INTEGER NOT NULL,
+        last_side TEXT,
+        last_token TEXT,
+        last_usd REAL,
+        last_tx TEXT,
+        PRIMARY KEY (network, trader)
+      );
+      -- Swaps in tokens launched in the last week, kept as rows for launch-to-wallet evidence (pruned).
+      CREATE TABLE disc_launch_trades (
+        network TEXT NOT NULL,
+        token TEXT NOT NULL,
+        trader TEXT NOT NULL,
+        side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+        qty REAL NOT NULL,
+        usd REAL,
+        ts INTEGER NOT NULL,
+        tx TEXT NOT NULL,
+        UNIQUE (network, tx, trader, token, side)
+      );
+      CREATE INDEX disc_launch_trades_token ON disc_launch_trades(network, token, ts);
+      CREATE INDEX disc_launch_trades_trader ON disc_launch_trades(network, trader, ts);
+      -- Wallets a NEARKITS user follows, and whether the bot tells them about each new swap.
+      CREATE TABLE disc_follows (
+        user_id INTEGER NOT NULL,
+        network TEXT NOT NULL,
+        account TEXT NOT NULL,
+        alerts INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, network, account)
+      );
+      CREATE INDEX disc_follows_account ON disc_follows(network, account);`,
+  },
 ]
 
 /**

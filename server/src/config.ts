@@ -82,10 +82,20 @@ export interface ServerConfig {
    * `apiKey` (ONECLICK_API_KEY, a 1Click partner JWT) is a secret: sent only to 1Click, never logged.
    */
   bridge: { enabled: boolean; reason: string | null; oneclickUrl: string; apiKey: string | null; solanaRpcUrl: string }
+  /**
+   * Launch Radar and Top Wallets (discovery/, DISCOVERY.md): an indexer of new tokens and of every swap
+   * on NEAR, read from Intear's free API. Off unless NEARKIT_DISCOVERY=on; mainnet only. `startAt`
+   * (NEARKIT_DISCOVERY_START, an ISO date) is where the trade index begins.
+   */
+  discovery: { enabled: boolean; reason: string | null; url: string; startAt: number }
   /** Kill switches the host holds paused from its environment (NEARKIT_OPS_PAUSED), for hosts without a shell. */
   ops: { hostPaused: SwitchName[] }
   logLevel: LogLevel
 }
+
+/** Intear's public API, and where its trade history begins (DISCOVERY.md). */
+export const DISCOVERY_DEFAULT_URL = 'https://api.intea.rs'
+export const DISCOVERY_DEFAULT_START = '2026-09-18T00:00:00Z'
 
 export type CustodySigner = { kind: 'in-process'; kek: Buffer } | { kind: 'remote'; url: string; authKey: Buffer; tlsPin: TlsPin | null }
 
@@ -323,6 +333,15 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
           : null
   if (bridgeRaw === 'on' && bridgeReason) issue('NEARKIT_BRIDGE', bridgeReason)
 
+  const discoveryRaw = raw.NEARKIT_DISCOVERY?.trim()
+  if (!blank(discoveryRaw) && discoveryRaw !== 'on' && discoveryRaw !== 'off') issue('NEARKIT_DISCOVERY', 'Expected "on" or "off"')
+  const discoveryUrl = blank(raw.NEARKIT_DISCOVERY_URL) ? new URL(DISCOVERY_DEFAULT_URL) : httpUrl(raw.NEARKIT_DISCOVERY_URL)
+  if (!discoveryUrl) issue('NEARKIT_DISCOVERY_URL', 'Must be an https:// URL')
+  const discoveryStart = blank(raw.NEARKIT_DISCOVERY_START) ? Date.parse(DISCOVERY_DEFAULT_START) : Date.parse(raw.NEARKIT_DISCOVERY_START.trim())
+  if (!Number.isFinite(discoveryStart)) issue('NEARKIT_DISCOVERY_START', 'Expected a date, e.g. 2026-09-18')
+  const discoveryReason = discoveryRaw !== 'on' ? 'Off (NEARKIT_DISCOVERY is not "on").' : network.id !== 'mainnet' ? 'Launch Radar and Top Wallets index NEAR mainnet only.' : null
+  if (discoveryRaw === 'on' && discoveryReason) issue('NEARKIT_DISCOVERY', discoveryReason)
+
   const trustProxyRaw = raw.NEARKIT_API_TRUST_PROXY?.trim()
   if (!blank(trustProxyRaw) && trustProxyRaw !== 'true' && trustProxyRaw !== 'false') issue('NEARKIT_API_TRUST_PROXY', 'Expected "true" or "false"')
 
@@ -362,6 +381,12 @@ export function loadConfig(raw: Record<string, string | undefined>): { config: S
         oneclickUrl: oneclick ? oneclick.origin : 'https://1click.chaindefuser.com',
         apiKey: oneclickKey,
         solanaRpcUrl: solanaRpc ? solanaRpc.toString().replace(/\/$/, '') : 'https://api.mainnet-beta.solana.com',
+      },
+      discovery: {
+        enabled: discoveryReason === null,
+        reason: discoveryReason,
+        url: discoveryUrl ? discoveryUrl.origin : DISCOVERY_DEFAULT_URL,
+        startAt: Number.isFinite(discoveryStart) ? discoveryStart : Date.parse(DISCOVERY_DEFAULT_START),
       },
       ops: { hostPaused: hostPaused.filter((s): s is SwitchName => SWITCHES.includes(s as SwitchName)) },
       logLevel,
