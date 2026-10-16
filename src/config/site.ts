@@ -16,6 +16,8 @@ export const SITEMAP_PATHS: readonly string[] = [
   '/consolidate',
   '/batch-send',
   '/scanner',
+  '/launch-radar',
+  '/top-wallets',
   '/volume-bot',
   '/kit',
   '/telegram',

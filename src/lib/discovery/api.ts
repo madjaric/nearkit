@@ -55,6 +55,7 @@ export interface LaunchRow {
   mainPool: string | null
   mainPoolUrl: string | null
   priceUsd: number | null
+  /** Price change in percent (12.5 = +12.5%) over 5 minutes, 1, 6 and 24 hours. */
   priceChange5m: number | null
   priceChange1h: number | null
   priceChange6h: number | null

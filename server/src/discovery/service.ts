@@ -237,6 +237,8 @@ export function createDiscoveryService(deps: {
     return out
   }
 
+  const pct = (v: number | null | undefined): number | null => (v === null || v === undefined ? null : v * 100)
+
   function launchRow(t: StoredToken, sources: Map<string, LaunchSourceView & { validated: boolean }>, trackedCount: number): LaunchRow {
     const m = t.market
     const parent = t.parent ?? parentOf(t.token)
@@ -256,10 +258,11 @@ export function createDiscoveryService(deps: {
       mainPool: m?.mainPool ?? null,
       mainPoolUrl: m?.mainPoolUrl ?? null,
       priceUsd: m?.priceUsd ?? null,
-      priceChange5m: m?.priceChange5m ?? null,
-      priceChange1h: m?.priceChange1h ?? null,
-      priceChange6h: m?.priceChange6h ?? null,
-      priceChange24h: m?.priceChange24h ?? null,
+      // Intear reports changes as fractions (0.117 = +11.7%); the API carries percent.
+      priceChange5m: pct(m?.priceChange5m),
+      priceChange1h: pct(m?.priceChange1h),
+      priceChange6h: pct(m?.priceChange6h),
+      priceChange24h: pct(m?.priceChange24h),
       volume1h: m?.volumeUsd1h ?? null,
       volume6h: m?.volumeUsd6h ?? null,
       volume24h: m?.volumeUsd24h ?? null,

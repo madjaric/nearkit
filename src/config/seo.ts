@@ -115,6 +115,16 @@ export function publicPages(): PageSeo[] {
       description: 'Contract facts and risk indicators for any NEAR token, read from chain and public indexers, each with its source. Indicators, never verdicts.',
       name: 'Scanner',
     },
+    '/launch-radar': {
+      title: 'Launch Radar: new NEAR tokens as they launch · NEARKITS',
+      description: 'New NEAR tokens as they launch: launchpad, market, liquidity, holders and risk evidence, and which tracked wallets traded them. Refreshed every minute.',
+      name: 'Launch Radar',
+    },
+    '/top-wallets': {
+      title: 'Top Wallets: NEAR traders ranked by realized PnL · NEARKITS',
+      description: 'NEAR wallets ranked by verifiable trading performance: realized PnL from indexed swaps at average cost, win rate and coverage, with the method shown.',
+      name: 'Top Wallets',
+    },
     [VOLUME_BOT_PATH]: { title: VOLUME_BOT_TITLE, description: VOLUME_BOT_DESCRIPTION, name: 'Volume Bot' },
     '/kit': { title: `${KIT.ticker} (${KIT.name}), the NEARKITS token · NEARKITS`, description: kitDescription(), name: KIT.ticker, facts: kitFacts() },
     '/telegram': {

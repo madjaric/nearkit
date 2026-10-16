@@ -133,10 +133,10 @@ await step('sidebar: MAIN, Trade, Tools, Automation, Portfolio, Intelligence and
 
 await step('All Tools: every tool by group; search by name, task or group; a group key narrows it; a row opens its tool', async () => {
   await page.goto(BASE + '/tools', { waitUntil: 'networkidle' })
-  await page.getByRole('status').getByText('20 tools').waitFor()
+  await page.getByRole('status').getByText('22 tools').waitFor()
   const search = page.getByRole('searchbox', { name: 'Search tools' })
   await search.fill('take profit')
-  await page.getByRole('status').getByText('1 of 20 tools').waitFor()
+  await page.getByRole('status').getByText('1 of 22 tools').waitFor()
   await page
     .getByRole('main')
     .getByRole('link', { name: /Limit Orders/ })
@@ -149,7 +149,7 @@ await step('All Tools: every tool by group; search by name, task or group; a gro
     .getByRole('button', { name: /^Automation/ })
     .click()
   await page.waitForURL(/group=automation/)
-  await page.getByRole('status').getByText('4 of 20 tools').waitFor()
+  await page.getByRole('status').getByText('4 of 22 tools').waitFor()
   await page
     .getByRole('main')
     .getByRole('link', { name: /^Copy Trade/ })
@@ -157,7 +157,7 @@ await step('All Tools: every tool by group; search by name, task or group; a gro
   await page.waitForURL(/\/copy-trade$/)
   // Main lists the two bridges, first, as the sidebar does; each opens its own page.
   await page.goto(BASE + '/tools?group=main', { waitUntil: 'networkidle' })
-  await page.getByRole('status').getByText('2 of 20 tools').waitFor()
+  await page.getByRole('status').getByText('2 of 22 tools').waitFor()
   const mainRows = await page
     .getByRole('main')
     .locator('section a')
@@ -574,6 +574,93 @@ await step('scanner: sample report, real token and unknown states', async () => 
   if (/\b(SAFE|SCAM)\b/.test(text)) throw new Error('Scanner must not print SAFE/SCAM verdicts')
 })
 
+await step('Launch Radar: summary cards, a populated table, tabs, search with its empty state, the watchlist, and Trade into the token page', async () => {
+  await page.goto(BASE + '/launch-radar', { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Launch Radar', level: 1 }).waitFor()
+  await visible(page, 'Launches · 24h')
+  await visible(page, 'With an active market')
+  const table = page.getByRole('table', { name: 'Launches' })
+  await table.waitFor()
+  if ((await table.locator('tbody tr').count()) < 5) throw new Error('Launch Radar lists too few demo launches')
+  // Demo data is labeled as such, and every token is on the sample namespace.
+  await page.getByText('Demo data').first().waitFor()
+  for (const href of await table.locator('tbody a[href^="/launch-radar/"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')))) {
+    if (!/\.sample\.near$/.test(decodeURIComponent(href))) throw new Error(`a demo launch outside the sample namespace: ${href}`)
+  }
+  // Last Best adds the score; Top keeps only launches with a market and trades.
+  await page.getByRole('tab', { name: 'Last Best' }).click()
+  await table.getByRole('columnheader', { name: /Score/ }).waitFor()
+  await page.getByRole('tab', { name: 'Top' }).click()
+  await table.locator('tbody tr').first().waitFor()
+  await page.getByRole('tab', { name: 'Last', exact: true }).click()
+  // Search: a symbol narrows it; nothing matching says so.
+  await page.getByRole('searchbox', { name: 'Search launches' }).fill('moss')
+  await table.locator('tbody tr').first().waitFor()
+  if ((await table.locator('tbody tr').count()) !== 1) throw new Error('search for MOSS should leave one launch')
+  await page.getByRole('searchbox', { name: 'Search launches' }).fill('zzzz-nothing')
+  await visible(page, 'No launch matches these filters')
+  await page.getByRole('button', { name: 'Clear search' }).click()
+  // Watchlist: star one, filter to it.
+  await table
+    .locator('tbody tr')
+    .first()
+    .getByRole('button', { name: /to your watchlist/ })
+    .click()
+  // The filter lives in the address (?watch=1): click its label as a person would, then read the result.
+  const rowsAre = (n) => page.waitForFunction((k) => document.querySelectorAll('table[aria-label="Launches"] tbody tr').length === k, n, { timeout: 6000 })
+  const all = await table.locator('tbody tr').count()
+  await page.getByText(/^Watchlist only/).click()
+  await rowsAre(1)
+  await page.getByText(/^Watchlist only/).click()
+  await rowsAre(all)
+  // Trade opens the token's own page (where trading is reviewed and confirmed as anywhere else).
+  await table
+    .locator('tbody tr')
+    .first()
+    .getByRole('link', { name: /^Trade / })
+    .click()
+  await page.waitForURL(/\/token\//)
+})
+
+await step('Launch Radar: a launch opens its detail with launch facts, risk evidence, holders, the chart and tracked wallets', async () => {
+  await page.goto(BASE + '/launch-radar', { waitUntil: 'networkidle' })
+  await page.getByRole('table', { name: 'Launches' }).locator('tbody a[href^="/launch-radar/"]').first().click()
+  await page.waitForURL(/\/launch-radar\/.+/)
+  for (const t of ['Launch facts', 'Risk evidence', 'Holders', 'Tracked wallets', 'Latest swaps']) await visible(page, new RegExp(t, 'i'))
+  await visible(page, 'Verified on chain: account, block, creator')
+  await page
+    .getByRole('link', { name: /^Trade / })
+    .first()
+    .waitFor()
+})
+
+await step('Top Wallets: a populated ranking, categories, the activity ranking, search, follow, and a wallet analysis with its curve and export', async () => {
+  await page.goto(BASE + '/top-wallets', { waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Top Wallets', level: 1 }).waitFor()
+  const table = page.getByRole('table', { name: /Top wallets/ })
+  await table.locator('tbody tr').first().waitFor()
+  await page.getByRole('radio', { name: 'Smart Money' }).click()
+  await table.locator('tbody tr').first().waitFor()
+  await page.getByRole('radio', { name: 'All', exact: true }).click()
+  await page.getByLabel('Rank by').selectOption('activity')
+  await visible(page, 'Activity ranks every wallet by volume traded and says nothing about profit.')
+  await page.getByRole('searchbox', { name: 'Search wallets' }).fill('trader-0')
+  await table.locator('tbody tr').first().waitFor()
+  await page.getByRole('searchbox', { name: 'Search wallets' }).fill('nobody.near')
+  await visible(page, 'No wallet qualifies here yet')
+  await page.getByRole('button', { name: 'Clear search' }).click()
+  const first = table.locator('tbody tr').first()
+  await first.getByRole('button', { name: 'Follow' }).click()
+  await first.getByRole('button', { name: 'Following' }).waitFor()
+  await first.getByRole('link', { name: 'Open' }).click()
+  await page.waitForURL(/\/top-wallets\/.+/)
+  for (const t of ['Realized PnL · cumulative', 'Token by token', 'Latest swaps', 'Data coverage']) await visible(page, t)
+  await page.getByRole('button', { name: 'Following' }).waitFor()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export CSV' }).click()
+  if (!(await download).suggestedFilename().endsWith('.csv')) throw new Error('the export is not a CSV')
+})
+
 await step('PnL: cursor handle moves with the keyboard', async () => {
   await page.goto(BASE + '/pnl', { waitUntil: 'networkidle' })
   const handle = page.getByRole('slider', { name: 'Cursor A' })
@@ -778,6 +865,17 @@ await step('phone: tab bar, drawer navigation and trade access', async () => {
   await phone.getByRole('list', { name: 'Positions' }).getByRole('button', { name: 'Buy KITS' }).click()
   await phone.getByRole('dialog', { name: 'Trade ticket' }).getByText('Trade KITS').waitFor()
   await shot(phone, 'phone-trade-sheet')
+})
+
+await step('phone: Launch Radar and Top Wallets read as cards, without sideways scrolling', async () => {
+  for (const [path, list] of [
+    ['/launch-radar', 'Launches'],
+    ['/top-wallets', /Top wallets/],
+  ]) {
+    await phone.goto(BASE + path, { waitUntil: 'networkidle' })
+    await phone.getByRole('list', { name: list }).locator('li').first().waitFor()
+    if (await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error(`${path} scrolls sideways on a phone`)
+  }
 })
 
 await browser.close()

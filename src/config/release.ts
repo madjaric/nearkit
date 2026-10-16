@@ -52,6 +52,14 @@ export function isComingSoonFor(path: string, enabled: readonly StrategyKind[] |
   return routeComingSoon(path, COMING_SOON, enabled)
 }
 
+/** Launch Radar and Top Wallets: live where NEARKITS' server runs its indexer (its /health `discovery`). */
+export const DISCOVERY_ROUTES: readonly string[] = ['/launch-radar', '/top-wallets']
+
+/** A discovery route is COMING SOON in real mode until NEARKITS' server says it runs it (`on`: its answer; true in the demo). */
+export function discoverySoon(path: string, on: boolean | null): boolean {
+  return DISCOVERY_ROUTES.includes(path) && on !== true
+}
+
 /**
  * The Telegram bot is live in a build only when that build names the bot and the
  * NearKit server it talks to (VITE_TELEGRAM_BOT, VITE_NEARKIT_API_URL). Otherwise

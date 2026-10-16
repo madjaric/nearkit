@@ -30,8 +30,8 @@ server, which reads each source once for everyone.
     ones get their product name.
   - `trades.ts`: the chain-wide swap follower. It backfills oldest-first from the configured start,
     then follows the head, with a cursor in `meta` (`disc_trades_cursor`: last timestamp and id).
-    Each page is applied in one transaction and the cursor moves only after it commits, so a
-    restart replays at most one page; trades are applied once (`disc_trade_ids` guards replays).
+    Each page is applied in the same database transaction that moves the cursor, so a page is
+    applied exactly once, even across a restart or a crash.
     It keeps per-wallet aggregates, not every trade: `disc_wallet_tokens` (the position state
     for average cost), `disc_wallet_days` (per-day realized PnL and counts), and `disc_wallets`
     (first and last activity). Trades in tokens launched in the last 7 days are also kept as rows
@@ -127,6 +127,8 @@ Window figures (7D, 30D, 90D; "Top 100" = the whole indexed history), from daily
 
 - History starts at 2026-09-18 (Intear's trade index); 90D fills in by 2026-12-17.
 - Swaps outside the indexed venues (NEAR Intents, Veax, meme.cooking presale deposits) are not seen.
+- A multi-hop route whose legs land on two different pages of the index is netted per page, so its
+  intermediate token can show as a tiny round trip (rare; close to zero PnL either way).
 - A token's creation time for tokens older than Intear's start (2026-08-05) is the index start, so
   launches are only listed from then.
 - Intear is a single free dependency without published terms; when it fails, the pages keep the last

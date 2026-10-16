@@ -12,7 +12,7 @@
       "permanent": true
     },
     {
-      "source": "/(swap|bridge|bridge-near|multi-trade|split|consolidate|batch-send|scanner|volume-bot|kit|telegram|docs|tools).html",
+      "source": "/(swap|bridge|bridge-near|multi-trade|split|consolidate|batch-send|scanner|launch-radar|top-wallets|volume-bot|kit|telegram|docs|tools).html",
       "destination": "/$1",
       "permanent": true
     }
@@ -71,6 +71,14 @@
       "destination": "/tools.html"
     },
     {
+      "source": "/launch-radar",
+      "destination": "/launch-radar.html"
+    },
+    {
+      "source": "/top-wallets",
+      "destination": "/top-wallets.html"
+    },
+    {
       "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg)",
       "destination": "/app.html"
     },
@@ -80,6 +88,14 @@
     },
     {
       "source": "/token/:id",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/launch-radar/:id",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/top-wallets/:id",
       "destination": "/app.html"
     },
     {
@@ -153,6 +169,15 @@
     },
     {
       "source": "/volume-bot/console",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/(launch-radar|top-wallets)/:id",
       "headers": [
         {
           "key": "X-Robots-Tag",

@@ -202,3 +202,14 @@ describe('routes', () => {
     expect(r.trades.map((t) => [t.token, t.tx])).toEqual([[X, 'early']])
   })
 })
+
+describe('units', () => {
+  it('price changes are percent in the API (Intear reports fractions)', async () => {
+    const store = new DiscoveryStore(await openTestDatabase('sqlite'), () => NOW)
+    await store.upsertTokens('mainnet', [token({ token: X, priceChange24h: 0.117, priceChange1h: -0.5 })])
+    const service = createDiscoveryService({ store, intear: fakeIntear(), indexer: { status: () => status }, network: NET, log: silentLogger, now: () => NOW })
+    const x = (await service.launches('24h')).launches[0]
+    expect(x?.priceChange24h).toBeCloseTo(11.7)
+    expect(x?.priceChange1h).toBeCloseTo(-50)
+  })
+})
