@@ -18,9 +18,9 @@ import type { SortDir, SortProps } from '@/components/ui/useSort'
 import { IndexNote, Methodology, RiskKey, ShareBar, WatchStar } from '@/features/discovery/parts'
 import { watchlist, useList } from '@/features/discovery/local'
 import {
-  changeFor,
   changeWindow,
   DEFAULT_WEIGHTS,
+  periodChange,
   radarItems,
   radarSummary,
   sourceLabel,
@@ -52,7 +52,7 @@ const TABS: { value: RadarTab; label: string }[] = [
 const TAB_RULE: Record<RadarTab, string> = {
   last: 'Newest first, by the token’s first block.',
   best: 'Launches with an active market, by the quality score (liquidity, holders, traders, buy pressure, reputation).',
-  top: `Launches with at least $${TOP_MIN_LIQUIDITY.toLocaleString('en-US')} liquidity and ${TOP_MIN_TRADES} trades in 24h, by price change over the period.`,
+  top: `Launches with at least $${TOP_MIN_LIQUIDITY.toLocaleString('en-US')} liquidity and ${TOP_MIN_TRADES} trades in 24h, by price change over the period (a launch younger than the period: over the longest window Intear reports for it, marked next to the figure).`,
 }
 const WEIGHT_KEYS: { key: keyof ScoreWeights; label: string }[] = [
   { key: 'liquidity', label: 'Liquidity' },
@@ -112,6 +112,20 @@ function ScoreWeightsKey({ weights, onChange }: { weights: ScoreWeights; onChang
         </div>
       </Popover>
     </>
+  )
+}
+
+/** The period's price change; a shorter window (a launch younger than the period's) is named beside it. */
+function PeriodPct({ row, period }: { row: LaunchRow; period: LaunchPeriod }) {
+  const win = changeWindow(period)
+  const c = periodChange(row, period)
+  if (!c) return <Pct value={null} unknownHint="No price change reported yet (too new, or no trades)" />
+  if (c.window === win) return <Pct value={c.value} />
+  return (
+    <span className="inline-flex items-baseline gap-1" title={`Younger than ${win}: change over the last ${c.window}, the longest window Intear reports for it`}>
+      <Pct value={c.value} />
+      <span className="num text-[10px] text-fg-3">{c.window}</span>
+    </span>
   )
 }
 
@@ -191,7 +205,7 @@ export default function LaunchRadarPage() {
     const get: Record<SortKey, (i: RadarItem) => number | null> = {
       age: (i) => ageOf(i.row, now),
       price: (i) => i.row.priceUsd,
-      change: (i) => changeFor(i.row, period),
+      change: (i) => periodChange(i.row, period)?.value ?? null,
       volume: (i) => volumeFor(i.row, period),
       liquidity: (i) => i.row.liquidityUsd,
       holders: (i) => i.row.holders,
@@ -224,7 +238,9 @@ export default function LaunchRadarPage() {
     dir: sort?.key === key ? sort.dir : 'desc',
     onSort: () => {
       setPage(0)
-      setSort((s) => (s?.key === key ? (s.dir === 'desc' ? { key, dir: 'asc' } : null) : { key, dir: key === 'age' ? 'asc' : 'desc' }))
+      // First click: the column's natural order (age: newest first); second: reversed; third: the tab's own order.
+      const first: SortDir = key === 'age' ? 'asc' : 'desc'
+      setSort((s) => (s?.key !== key ? { key, dir: first } : s.dir === first ? { key, dir: first === 'asc' ? 'desc' : 'asc' } : null))
     },
   })
   const win = changeWindow(period)
@@ -262,7 +278,7 @@ export default function LaunchRadarPage() {
           legend={`Launches · ${period}`}
           loading={launches.isPending}
           value={<span className="num">{summary.launches.toLocaleString('en-US')}</span>}
-          sub="Tokens whose first block is in the period"
+          sub="Tokens whose first block (as Intear reports it) is in the period"
         />
         <ReadoutSlot
           legend="With an active market"
@@ -450,7 +466,7 @@ export default function LaunchRadarPage() {
                           <Price value={r.priceUsd} unknownHint="No price reported yet" />
                         </Td>
                         <Td align="right">
-                          <Pct value={changeFor(r, period)} unknownHint={`No ${win} change reported (too new, or no trades)`} />
+                          <PeriodPct row={r} period={period} />
                         </Td>
                         <Td className="hidden @[80rem]:table-cell">
                           {ex?.spark ? <Sparkline values={ex.spark} width={88} height={26} /> : <span className="num text-xs text-fg-4">—</span>}
@@ -510,7 +526,7 @@ export default function LaunchRadarPage() {
                       <div className="flex flex-col">
                         <dt className="legend">{win}</dt>
                         <dd>
-                          <Pct value={changeFor(r, period)} />
+                          <PeriodPct row={r} period={period} />
                         </dd>
                       </div>
                       <div className="flex flex-col">
@@ -568,9 +584,9 @@ export default function LaunchRadarPage() {
 
       <Methodology>
         <p>
-          A launch is a NEP-141 token whose first block falls in the period. Its source is the account that created the token account (only <span className="num">x.near</span> can
-          create <span className="num">token.x.near</span>): a known launchpad by name, any other token factory with a contract and 3 or more tokens by its account, otherwise
-          Direct with its first pool’s venue.
+          A launch is a NEP-141 token whose first block, as Intear reports it, falls in the period. Its source is the account that created the token account (only{' '}
+          <span className="num">x.near</span> can create <span className="num">token.x.near</span>): a known launchpad by name, any other token factory with a contract and 3 or
+          more tokens by its account, otherwise Direct with its first pool’s venue.
         </p>
         <ul>
           <li>
@@ -581,7 +597,11 @@ export default function LaunchRadarPage() {
             Last Best’s score is 100 × Σ weight × part ÷ Σ weights; parts: liquidity (log scale to $50,000), holders (to 1,000), 24h traders (to 200), buy share of 24h trades (0.5
             under 5 trades), reputation. Default weights 3 · 2 · 2 · 1 · 1.
           </li>
-          <li>Top: launches with at least $1,000 liquidity and 10 trades in 24h, by price change over the period’s window.</li>
+          <li>
+            Top: launches with at least $1,000 liquidity and 10 trades in 24h, by price change over the period’s window. A launch younger than that window has no price that old, so
+            it is ranked by the longest window Intear reports for it, named beside the figure.
+          </li>
+          <li>The first block is Intear’s, not yet checked on chain: for a few older tokens it is a later contract update, so an established token can show up as a launch.</li>
           <li>Risk flags each name their evidence; pools, the launchpad and the token contract are left out of holder concentration. No flag is not “safe”.</li>
           <li>
             Tracked: distinct wallets qualified over 30 days on Top Wallets that traded the token in the period, each with its transaction on the token’s page; yours (followed

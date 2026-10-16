@@ -144,6 +144,8 @@ await step('All Tools: every tool by group; search by name, task or group; a gro
   await search.fill('zzz')
   await page.getByText('No tool matches “zzz”').waitFor()
   await page.getByRole('button', { name: 'Show every tool' }).click()
+  // The list comes back in a transition: a group click before it lands would still carry "zzz".
+  await page.getByRole('status').getByText('22 tools', { exact: true }).waitFor()
   await page
     .getByRole('group', { name: 'Filter by group' })
     .getByRole('button', { name: /^Automation/ })
@@ -594,9 +596,13 @@ await step('Launch Radar: summary cards, a populated table, tabs, search with it
   await table.locator('tbody tr').first().waitFor()
   await page.getByRole('tab', { name: 'Last', exact: true }).click()
   // Search: a symbol narrows it; nothing matching says so.
+  // The list follows the search in a transition: wait for the result rather than count at once.
   await page.getByRole('searchbox', { name: 'Search launches' }).fill('moss')
-  await table.locator('tbody tr').first().waitFor()
-  if ((await table.locator('tbody tr').count()) !== 1) throw new Error('search for MOSS should leave one launch')
+  await page
+    .waitForFunction(() => document.querySelectorAll('table[aria-label="Launches"] tbody tr').length === 1, null, { timeout: 6000 })
+    .catch(() => {
+      throw new Error('search for MOSS should leave one launch')
+    })
   await page.getByRole('searchbox', { name: 'Search launches' }).fill('zzzz-nothing')
   await visible(page, 'No launch matches these filters')
   await page.getByRole('button', { name: 'Clear search' }).click()
@@ -627,7 +633,7 @@ await step('Launch Radar: a launch opens its detail with launch facts, risk evid
   await page.getByRole('table', { name: 'Launches' }).locator('tbody a[href^="/launch-radar/"]').first().click()
   await page.waitForURL(/\/launch-radar\/.+/)
   for (const t of ['Launch facts', 'Risk evidence', 'Holders', 'Tracked wallets', 'Latest swaps']) await visible(page, new RegExp(t, 'i'))
-  await visible(page, 'Verified on chain: account, block, creator')
+  await visible(page, 'Verified on chain: token account, parent account')
   await page
     .getByRole('link', { name: /^Trade / })
     .first()

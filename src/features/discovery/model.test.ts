@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LaunchRow, TradeView } from '@/lib/discovery/api'
-import { DEFAULT_WEIGHTS, launchScore, radarItems, radarSummary, riskFlags, sourceLabel, tradesCsv, type RadarFilter } from './model'
+import { DEFAULT_WEIGHTS, launchScore, periodChange, radarItems, radarSummary, riskFlags, sourceLabel, tradesCsv, windowCoverage, type RadarFilter } from './model'
 
 /** Launch Radar's page rules (DISCOVERY.md, Launch Radar). */
 
@@ -86,12 +86,60 @@ describe('the tabs', () => {
     expect(radarItems(rows, filter({ tab: 'top' }), '1h').map((i) => i.row.token)).toEqual(['old.near', 'mid.near'])
   })
 
+  it('Top keeps launches younger than the period (no change that old reported), by their longest reported window', () => {
+    // As on mainnet 2026-10-16: launches under 24h old carry no 24h change, so Top on 24h was always empty.
+    const young = [
+      row({ token: 'a.near', priceChange24h: null, priceChange6h: null, priceChange1h: 8 }),
+      row({ token: 'b.near', priceChange24h: null, priceChange6h: 40 }),
+      row({ token: 'c.near', priceChange24h: null, priceChange6h: null, priceChange1h: null, priceChange5m: null }),
+    ]
+    expect(radarItems(young, filter({ tab: 'top' }), '24h').map((i) => i.row.token)).toEqual(['b.near', 'a.near'])
+    expect(radarItems(young, filter({ tab: 'top' }), '6h').map((i) => i.row.token)).toEqual(['b.near', 'a.near'])
+  })
+
   it('source, search and watchlist filters', () => {
     const more = [...rows, row({ token: 'pad.other.near', source: { id: null, name: null, kind: 'direct', launches: 0 }, symbol: 'PADX', createdAt: 9 })]
     expect(radarItems(more, filter({ source: 'direct' }), '24h').map((i) => i.row.token)).toEqual(['pad.other.near'])
     expect(radarItems(more, filter({ q: 'padx' }), '24h').map((i) => i.row.token)).toEqual(['pad.other.near'])
     expect(radarItems(more, filter({ q: 'mid.near' }), '24h').map((i) => i.row.token)).toEqual(['mid.near'])
     expect(radarItems(more, filter({ watchOnly: true, watch: new Set(['old.near']) }), '24h').map((i) => i.row.token)).toEqual(['old.near'])
+  })
+})
+
+describe('the period’s price change', () => {
+  it('is the period’s own window when Intear reports it', () => {
+    expect(periodChange(row({ token: 'a.near' }), '24h')).toEqual({ value: 20, window: '24h' })
+    expect(periodChange(row({ token: 'a.near' }), '7d')).toEqual({ value: 20, window: '24h' })
+    expect(periodChange(row({ token: 'a.near' }), '6h')).toEqual({ value: 10, window: '6h' })
+    expect(periodChange(row({ token: 'a.near' }), '1h')).toEqual({ value: 5, window: '1h' })
+  })
+
+  it('falls back to the longest shorter window, never a longer one; none reported: null', () => {
+    expect(periodChange(row({ token: 'a.near', priceChange24h: null }), '24h')).toEqual({ value: 10, window: '6h' })
+    expect(periodChange(row({ token: 'a.near', priceChange24h: null, priceChange6h: null }), '24h')).toEqual({ value: 5, window: '1h' })
+    expect(periodChange(row({ token: 'a.near', priceChange1h: null, priceChange5m: 2 }), '1h')).toEqual({ value: 2, window: '5m' })
+    expect(periodChange(row({ token: 'a.near', priceChange6h: null, priceChange1h: null }), '6h')).toBeNull()
+  })
+})
+
+describe('the window Top Wallets’ index covers', () => {
+  const day = 86_400_000
+  const start = Date.UTC(2026, 8, 18)
+  const now = Date.UTC(2026, 9, 16, 8)
+
+  it('while catching up, counts only up to the newest indexed swap, never to now', () => {
+    const index = { indexStart: start, tradesTo: start + 2.5 * day, backfilling: true }
+    expect(windowCoverage('all', index, now)).toEqual({ days: null, covered: 2, state: 'catching-up' })
+    expect(windowCoverage('7d', index, now)).toEqual({ days: 7, covered: 0, state: 'catching-up' })
+    expect(windowCoverage('30d', index, now)).toEqual({ days: 30, covered: 2, state: 'catching-up' })
+    expect(windowCoverage('all', { indexStart: start, tradesTo: null, backfilling: false }, now)).toEqual({ days: null, covered: 0, state: 'catching-up' })
+  })
+
+  it('live: full when the index is older than the window, partial when it is younger', () => {
+    const index = { indexStart: start, tradesTo: now - 60_000, backfilling: false }
+    expect(windowCoverage('7d', index, now)).toEqual({ days: 7, covered: 7, state: 'full' })
+    expect(windowCoverage('90d', index, now)).toEqual({ days: 90, covered: 28, state: 'young' })
+    expect(windowCoverage('all', index, now)).toEqual({ days: null, covered: 28, state: 'full' })
   })
 })
 
