@@ -1,3 +1,5 @@
+import { isPaused } from './paused'
+
 /**
  * NearKit's public web address: the one pages, search engines and link previews name as its own
  * (canonical). A build may name another with VITE_PUBLIC_URL (an https origin, no path); env.ts
@@ -5,7 +7,7 @@
  */
 export const DEFAULT_PUBLIC_URL = 'https://nearkits.com'
 
-/** The pages sitemap.xml lists: shipped, public, and the same for every visitor (no wallet-specific or COMING SOON pages). Each has its title and description in seo.ts. */
+/** The pages sitemap.xml lists: shipped, public, and the same for every visitor (no wallet-specific, COMING SOON or paused pages: paused.ts). Each has its title and description in seo.ts. */
 export const SITEMAP_PATHS: readonly string[] = [
   '/',
   '/swap',
@@ -23,7 +25,7 @@ export const SITEMAP_PATHS: readonly string[] = [
   '/telegram',
   '/docs',
   '/tools',
-]
+].filter((path) => !isPaused(path))
 
 /** The public address as an origin (https, or http on localhost; no path, query, hash or credentials). Blank: NearKit's own. Null: not one. */
 export function parsePublicUrl(raw: string | undefined): string | null {

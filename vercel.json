@@ -75,11 +75,7 @@
       "destination": "/launch-radar.html"
     },
     {
-      "source": "/top-wallets",
-      "destination": "/top-wallets.html"
-    },
-    {
-      "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg)",
+      "source": "/(limit-orders|wallets|dca|copy-trade|sniper|positions|pnl|recover|settings|tg|top-wallets)",
       "destination": "/app.html"
     },
     {
@@ -159,7 +155,7 @@
       ]
     },
     {
-      "source": "/(wallets|positions|pnl|settings|recover|tg|limit-orders|dca|copy-trade|sniper|app.html|404.html)",
+      "source": "/(wallets|positions|pnl|settings|recover|tg|limit-orders|dca|copy-trade|sniper|top-wallets|app.html|404.html)",
       "headers": [
         {
           "key": "X-Robots-Tag",

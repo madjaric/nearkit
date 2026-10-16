@@ -628,11 +628,11 @@ await step('Launch Radar: summary cards, a populated table, tabs, search with it
   await page.waitForURL(/\/token\//)
 })
 
-await step('Launch Radar: a launch opens its detail with launch facts, risk evidence, holders, the chart and tracked wallets', async () => {
+await step('Launch Radar: a launch opens its detail with launch facts, risk evidence, holders, the chart and its latest swaps', async () => {
   await page.goto(BASE + '/launch-radar', { waitUntil: 'networkidle' })
   await page.getByRole('table', { name: 'Launches' }).locator('tbody a[href^="/launch-radar/"]').first().click()
   await page.waitForURL(/\/launch-radar\/.+/)
-  for (const t of ['Launch facts', 'Risk evidence', 'Holders', 'Tracked wallets', 'Latest swaps']) await visible(page, new RegExp(t, 'i'))
+  for (const t of ['Launch facts', 'Risk evidence', 'Holders', 'Latest swaps']) await visible(page, new RegExp(t, 'i'))
   await visible(page, 'Verified on chain: token account, parent account')
   await page
     .getByRole('link', { name: /^Trade / })
@@ -640,31 +640,42 @@ await step('Launch Radar: a launch opens its detail with launch facts, risk evid
     .waitFor()
 })
 
-await step('Top Wallets: a populated ranking, categories, the activity ranking, search, follow, and a wallet analysis with its curve and export', async () => {
+// Top Wallets is paused (src/config/paused.ts): COMING SOON everywhere, its rankings opened by nothing.
+await step('Top Wallets is paused: its routes show the Coming Soon screen, every listing says Coming soon, and no link opens its rankings', async () => {
+  const comingSoon = async () => {
+    await page.getByRole('heading', { name: 'Top Wallets', level: 1 }).waitFor()
+    await visible(page, 'Top Wallets is coming soon')
+    if (await page.locator('main table').count()) throw new Error(`${page.url()} shows a table`)
+    if (await page.getByRole('button', { name: /^Follow/ }).count()) throw new Error(`${page.url()} offers to follow a wallet`)
+  }
+  for (const path of ['/top-wallets', '/top-wallets/whale.sample.near', '/top-wallets?window=30d&metric=activity']) {
+    await page.goto(BASE + path, { waitUntil: 'networkidle' })
+    await comingSoon()
+  }
+  // The sidebar's entry says so and opens the same screen.
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' })
+  const entry = page.locator('aside nav').getByRole('link', { name: /Top Wallets/ })
+  if (!/coming soon/i.test(await entry.innerText())) throw new Error('the sidebar entry is not marked Coming soon')
+  await entry.click()
+  await page.waitForURL(/\/top-wallets$/)
+  await comingSoon()
+  // All Tools lists it, marked.
+  await page.goto(BASE + '/tools?q=smart%20money', { waitUntil: 'networkidle' })
+  const row = page.getByRole('main').getByRole('link', { name: /Top Wallets/ })
+  if (!/coming soon/i.test(await row.innerText())) throw new Error('All Tools does not mark Top Wallets Coming soon')
+  // Launch Radar, its list and a launch, leads into no wallet page.
+  await page.goto(BASE + '/launch-radar', { waitUntil: 'networkidle' })
+  await page.getByRole('table', { name: 'Launches' }).locator('tbody tr').first().waitFor()
+  const links = () => page.locator('main a[href^="/top-wallets"]').count()
+  if (await links()) throw new Error('Launch Radar links into Top Wallets')
+  await page.getByRole('table', { name: 'Launches' }).locator('tbody a[href^="/launch-radar/"]').first().click()
+  await page.waitForURL(/\/launch-radar\/.+/)
+  await visible(page, /Latest swaps/i)
+  if (await links()) throw new Error('a launch links into Top Wallets')
+  // The screen leads back to Launch Radar.
   await page.goto(BASE + '/top-wallets', { waitUntil: 'networkidle' })
-  await page.getByRole('heading', { name: 'Top Wallets', level: 1 }).waitFor()
-  const table = page.getByRole('table', { name: /Top wallets/ })
-  await table.locator('tbody tr').first().waitFor()
-  await page.getByRole('radio', { name: 'Smart Money' }).click()
-  await table.locator('tbody tr').first().waitFor()
-  await page.getByRole('radio', { name: 'All', exact: true }).click()
-  await page.getByLabel('Rank by').selectOption('activity')
-  await visible(page, 'Activity ranks every wallet by volume traded and says nothing about profit.')
-  await page.getByRole('searchbox', { name: 'Search wallets' }).fill('trader-0')
-  await table.locator('tbody tr').first().waitFor()
-  await page.getByRole('searchbox', { name: 'Search wallets' }).fill('nobody.near')
-  await visible(page, 'No wallet qualifies here yet')
-  await page.getByRole('button', { name: 'Clear search' }).click()
-  const first = table.locator('tbody tr').first()
-  await first.getByRole('button', { name: 'Follow' }).click()
-  await first.getByRole('button', { name: 'Following' }).waitFor()
-  await first.getByRole('link', { name: 'Open' }).click()
-  await page.waitForURL(/\/top-wallets\/.+/)
-  for (const t of ['Realized PnL · cumulative', 'Token by token', 'Latest swaps', 'Data coverage']) await visible(page, t)
-  await page.getByRole('button', { name: 'Following' }).waitFor()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export CSV' }).click()
-  if (!(await download).suggestedFilename().endsWith('.csv')) throw new Error('the export is not a CSV')
+  await page.getByRole('link', { name: 'Open Launch Radar' }).click()
+  await page.waitForURL(/\/launch-radar$/)
 })
 
 await step('PnL: cursor handle moves with the keyboard', async () => {
@@ -873,15 +884,13 @@ await step('phone: tab bar, drawer navigation and trade access', async () => {
   await shot(phone, 'phone-trade-sheet')
 })
 
-await step('phone: Launch Radar and Top Wallets read as cards, without sideways scrolling', async () => {
-  for (const [path, list] of [
-    ['/launch-radar', 'Launches'],
-    ['/top-wallets', /Top wallets/],
-  ]) {
-    await phone.goto(BASE + path, { waitUntil: 'networkidle' })
-    await phone.getByRole('list', { name: list }).locator('li').first().waitFor()
-    if (await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error(`${path} scrolls sideways on a phone`)
-  }
+await step('phone: Launch Radar reads as cards and Top Wallets’ Coming Soon screen fits, without sideways scrolling', async () => {
+  await phone.goto(BASE + '/launch-radar', { waitUntil: 'networkidle' })
+  await phone.getByRole('list', { name: 'Launches' }).locator('li').first().waitFor()
+  if (await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('/launch-radar scrolls sideways on a phone')
+  await phone.goto(BASE + '/top-wallets', { waitUntil: 'networkidle' })
+  await phone.getByText('Top Wallets is coming soon').waitFor()
+  if (await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('/top-wallets scrolls sideways on a phone')
 })
 
 await browser.close()

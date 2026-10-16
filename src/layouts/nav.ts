@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { ENV } from '@/config/env'
+import { TOP_WALLETS_PAUSED } from '@/config/paused'
 import { TELEGRAM_BOT_LIVE } from '@/config/release'
 
 export interface NavItem {
@@ -203,7 +204,9 @@ export const NAV_GROUPS: NavGroup[] = [
         to: '/launch-radar',
         label: 'Launch Radar',
         icon: Radar,
-        description: 'New NEAR tokens as they launch: source, market, holders, risk evidence and tracked wallets.',
+        description: TOP_WALLETS_PAUSED
+          ? 'New NEAR tokens as they launch: source, market, holders and risk evidence.'
+          : 'New NEAR tokens as they launch: source, market, holders, risk evidence and tracked wallets.',
         keywords: ['launch', 'new tokens', 'launchpad', 'memecoin', 'new pools', 'discovery'],
       },
       {

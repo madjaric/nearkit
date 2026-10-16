@@ -107,6 +107,18 @@ describe('what is never indexed', () => {
     for (const p of SITEMAP_PATHS) expect(isNoindexPath(p), p).toBe(false)
     expect(isNoindexPath('/volume-bot/console/')).toBe(true)
   })
+
+  it('a paused tool (Top Wallets) and every page under it: out of the sitemap, llms.txt and the index; listed as coming soon', () => {
+    expect(SITEMAP_PATHS).not.toContain('/top-wallets')
+    expect(SITEMAP_PATHS).toContain('/launch-radar')
+    for (const p of ['/top-wallets', '/top-wallets/', '/top-wallets/abc.near']) expect(isNoindexPath(p), p).toBe(true)
+    expect(isNoindexPath('/launch-radar')).toBe(false)
+    const llms = llmsTxt('https://nearkits.com')
+    expect(llms).not.toMatch(/top-wallets|Top Wallets/)
+    expect(llms).toContain('https://nearkits.com/launch-radar')
+    expect(pageSeo('/launch-radar')?.description).not.toMatch(/tracked wallets/i)
+    expect(pageSeo('/tools')?.facts?.find((f) => f.startsWith('Intelligence:'))).toBe('Intelligence: Scanner, Launch Radar, Top Wallets (coming soon).')
+  })
 })
 
 describe('the head of a page', () => {

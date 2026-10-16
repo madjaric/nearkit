@@ -7,6 +7,7 @@ import { Tip } from '@/components/ui/Floating'
 import { Led, Tag } from '@/components/ui/Indicators'
 import { Usd } from '@/components/ui/Num'
 import { Table, Td, Th, Tr } from '@/components/ui/Table'
+import { TOP_WALLETS_PAUSED } from '@/config/paused'
 import type { IndexStatus, LaunchRow, TradeView } from '@/lib/discovery/api'
 import { cn } from '@/lib/cn'
 import { formatAccount, formatAgo, formatAmount, formatDateTime } from '@/lib/format'
@@ -213,9 +214,15 @@ export function TradeRows({ trades, label, show }: { trades: readonly TradeView[
   )
   const who = (t: TradeView) =>
     show === 'wallet' ? (
-      <Link to={`/top-wallets/${encodeURIComponent(t.trader)}`} className="num block truncate text-xs text-fg-2 hover:text-fg" title={t.trader}>
-        {t.trader}
-      </Link>
+      TOP_WALLETS_PAUSED ? (
+        <span className="num block truncate text-xs text-fg-2" title={t.trader}>
+          {t.trader}
+        </span>
+      ) : (
+        <Link to={`/top-wallets/${encodeURIComponent(t.trader)}`} className="num block truncate text-xs text-fg-2 hover:text-fg" title={t.trader}>
+          {t.trader}
+        </Link>
+      )
     ) : (
       <Link to={`/launch-radar/${encodeURIComponent(t.token)}`} className="block truncate text-fg hover:underline" title={t.token}>
         {t.symbol ?? t.token}

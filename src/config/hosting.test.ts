@@ -40,6 +40,15 @@ describe('hosting (vercel.json)', () => {
     for (const p of rest) expect(rewriteOf(p), p).toBe('/app.html')
   })
 
+  it('a paused tool (Top Wallets) is served from the app’s shell, which opens its Coming Soon screen, and sent noindex with every page under it', () => {
+    expect(rewriteOf('/top-wallets')).toBe('/app.html')
+    expect(rewriteOf('/top-wallets/abc.near')).toBe('/app.html')
+    expect(noindexed('/top-wallets')).toBe(true)
+    expect(noindexed('/top-wallets/abc.near')).toBe(true)
+    expect(rewriteOf('/launch-radar')).toBe('/launch-radar.html')
+    expect(noindexed('/launch-radar')).toBe(false)
+  })
+
   it('has no catch-all: an unknown address is a 404, not the app answering 200', () => {
     for (const p of ['/nope', '/swap/extra', '/token', '/volume-bot/other', '/wallets/x']) expect(rewriteOf(p), p).toBeNull()
     expect(vercel.rewrites.some((r) => r.source.includes('(.*)'))).toBe(false)

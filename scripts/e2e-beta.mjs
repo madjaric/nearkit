@@ -89,8 +89,9 @@ const SIDEBAR = [
   ['Tools', ['Split', 'Consolidate', 'Batch Send', 'Wallets & Presets']],
   ['Automation', ['Volume Bot SOON', 'DCA SOON', 'Copy Trade SOON', 'Sniper SOON']],
   ['Portfolio', ['Positions', 'PnL']],
-  // Launch Radar and Top Wallets need NEARKITS' server to say it runs them: held back without one.
-  ['Intelligence', ['Scanner', 'Launch Radar SOON', 'Top Wallets SOON']],
+  // Launch Radar needs NEARKITS' server to say it runs it: held back without one. Top Wallets is paused
+  // (src/config/paused.ts): COMING SOON whatever the server says.
+  ['Intelligence', ['Scanner', 'Launch Radar SOON', 'Top Wallets COMING SOON']],
   // The bot is held back on the testnet beta too.
   ['Other', ['Settings', 'Documentation', 'Telegram SOON']],
 ]
@@ -103,7 +104,7 @@ const navGroups = (nav) =>
         li.innerText
           .replace(/\s+/g, ' ')
           .trim()
-          .replace(/ (soon|mainnet|live)$/i, (t) => t.toUpperCase()),
+          .replace(/ (coming soon|soon|mainnet|live)$/i, (t) => t.toUpperCase()),
       ),
     ]),
   )

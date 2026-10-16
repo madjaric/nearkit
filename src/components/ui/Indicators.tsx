@@ -35,12 +35,26 @@ const TAG: Record<TagTone, string> = {
 }
 
 /** Small uppercase label. `soon` (dashed) marks anything that is not live yet. */
-export function Tag({ tone = 'neutral', children, className, title }: { tone?: TagTone; children: ReactNode; className?: string; title?: string }) {
+/** `compact`: smaller type and padding, for a long label in a tight row (the sidebar's Coming soon). */
+export function Tag({
+  tone = 'neutral',
+  children,
+  className,
+  title,
+  compact = false,
+}: {
+  tone?: TagTone
+  children: ReactNode
+  className?: string
+  title?: string
+  compact?: boolean
+}) {
   return (
     <span
       title={title}
       className={cn(
-        'inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-xs px-1.5 text-[11px] font-semibold uppercase leading-none tracking-[0.06em]',
+        'inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-xs font-semibold uppercase leading-none',
+        compact ? 'px-1 text-[10px] tracking-[0.02em]' : 'px-1.5 text-[11px] tracking-[0.06em]',
         TAG[tone],
         className,
       )}

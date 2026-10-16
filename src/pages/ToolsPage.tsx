@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input } from '@/components/ui/Form'
 import { Tag } from '@/components/ui/Indicators'
+import { soonLabel } from '@/config/paused'
 import { Panel, PanelHeader } from '@/components/ui/Panel'
 import { useKitsFirstToken } from '@/features/trade/useDefaultToken'
 import { NAV_GROUPS, isNavAction, type NavAction, type NavItem } from '@/layouts/nav'
@@ -31,7 +32,7 @@ function RowBody({ entry, soon, tag }: { entry: NavItem | NavAction; soon: boole
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-base font-medium text-fg">{entry.label}</span>
-          {soon && <Tag tone="soon">Soon</Tag>}
+          {soon && <Tag tone="soon">{soonLabel('to' in entry ? entry.to : '')}</Tag>}
           {tag && <Tag>{tag}</Tag>}
         </span>
         <span className="mt-0.5 block text-sm text-fg-3">{entry.description}</span>
