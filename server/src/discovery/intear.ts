@@ -108,11 +108,11 @@ export interface Intear {
   }>
   holders(token: string, limit: number): Promise<{ total: number | null; rows: { account: string; balance: string }[] }>
   /** Closing prices in USD per token, oldest first. */
-  closes(tokens: readonly string[], resolution: '15' | '60' | '240' | 'D', countBack: number): Promise<Map<string, Closes>>
+  closes(tokens: readonly string[], resolution: '1' | '5' | '15' | '60' | '240' | 'D', countBack: number): Promise<Map<string, Closes>>
   /** OHLCV candles in USD for one token, oldest first. */
   candles(
     token: string,
-    resolution: '15' | '60' | '240' | 'D',
+    resolution: '1' | '5' | '15' | '60' | '240' | 'D',
     countBack: number,
   ): Promise<{ time: number[]; open: (number | null)[]; high: (number | null)[]; low: (number | null)[]; close: (number | null)[]; volume: (number | null)[] } | null>
 }

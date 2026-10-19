@@ -1,12 +1,13 @@
 import { ArrowLeft, ExternalLink } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router'
-import { CandleChart } from '@/components/chart/CandleChart'
+import { useMemo } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router'
+import { PriceChart } from '@/components/chart/PriceChart'
 import { DataTag } from '@/components/domain/Status'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { LoadFailed, Page, PageGrid, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Segmented } from '@/components/ui/Form'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
 import { Price, Pct, Usd } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
@@ -14,72 +15,87 @@ import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { AccountRef, IndexNote, ShareBar, TradeRows, TxRef, WatchStar } from '@/features/discovery/parts'
 import { riskFlags, sourceLabel } from '@/features/discovery/model'
 import { TOP_WALLETS_PAUSED } from '@/config/paused'
-import { useFollowedSignals, useLaunch } from '@/features/discovery/queries'
-import type { LaunchDetail } from '@/lib/discovery/api'
+import { useFollowedSignals, useLaunch, useLaunchCandles } from '@/features/discovery/queries'
+import { candlesFromColumns } from '@/lib/chart/ohlc'
+import { CANDLE_INTERVAL_SEC, CANDLE_INTERVALS, type CandleInterval, type LaunchDetail } from '@/lib/discovery/api'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatCompact, formatDateTime, formatDuration, formatUsdPrice } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
 import { explorerTokenUrl } from '@/services/near/explorer'
 import { useCapabilities } from '@/services/queries'
-import type { Candle } from '@/types/domain'
+import { LinkRequestError } from '@/services/telegramLink'
 
 /**
  * A launch on Launch Radar (DISCOVERY.md): what is verified on chain, what Intear reports, what NEARKITS
  * observed; its hourly chart, holders, risk evidence, latest swaps and tracked wallets' transactions.
  */
 
-function Kind({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'accent' }) {
-  return <Tag tone={tone}>{children}</Tag>
+// Read in capitals as the control prints them: 1MIN is a minute, never a month.
+const INTERVAL_LABEL: Readonly<Record<CandleInterval, string>> = { '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1h', '4h': '4h', '1d': '1d' }
+const INTERVAL_TEXT: Readonly<Record<CandleInterval, string>> = { '1m': '1-minute', '5m': '5-minute', '15m': '15-minute', '1h': 'hourly', '4h': '4-hour', '1d': 'daily' }
+
+/** A launch's first interval: fine while it is young, hourly once it has days of history. */
+function defaultInterval(age: number | null): CandleInterval {
+  if (age === null) return '1h'
+  if (age < 6 * 3_600_000) return '5m'
+  if (age < 3 * 86_400_000) return '15m'
+  return '1h'
 }
 
-function axis(spanMs: number) {
-  const day = spanMs > 36 * 3_600_000
-  return (t: number) => {
-    const d = new Date(t)
-    return day ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-  }
-}
-
-function Chart({ d, now }: { d: LaunchDetail; now: number }) {
-  const candles = useMemo<Candle[]>(() => {
-    const c = d.candles
-    if (!c) return []
-    const out: Candle[] = []
-    c.time.forEach((t, i) => {
-      const [o, h, l, cl] = [c.open[i], c.high[i], c.low[i], c.close[i]]
-      if (o == null || h == null || l == null || cl == null) return
-      out.push({ t, o, h, l, c: cl, v: c.volume[i] ?? null })
-    })
-    return out
-  }, [d.candles])
-  if (candles.length < 2)
-    return (
-      <EmptyState title="Not enough trading yet for a chart" graphic={false} compact>
-        Hourly candles appear once the token has traded in at least two hours.
-      </EmptyState>
-    )
-  const start = (candles[0] as Candle).t
+/**
+ * The launch's price as candles at the interval chosen (Intear's own resolutions, through NEARKITS'
+ * server). A server without the candles route yet answers 404: hourly falls back to the launch's own
+ * hourly candles, any other interval says it has none. Nothing is drawn that wasn't read.
+ */
+function LaunchChart({ d, interval, onInterval }: { d: LaunchDetail; interval: CandleInterval; onInterval: (i: CandleInterval) => void }) {
+  const l = d.launch
+  const demo = useCapabilities().mode === 'demo'
+  const q = useLaunchCandles(l.token, interval)
+  const missing = q.isError && q.error instanceof LinkRequestError && q.error.status === 404
+  const fallback = missing && interval === '1h'
+  const read = useMemo(() => (q.data ? candlesFromColumns(q.data.candles) : fallback ? candlesFromColumns(d.candles) : { candles: [], dropped: {} }), [q.data, fallback, d.candles])
+  const n = read.candles.length
+  const status = n ? 'ready' : q.isPending ? 'loading' : q.isError && !missing ? 'error' : 'ready'
+  const dropped = (read.dropped.invalid ?? 0) + (read.dropped.time ?? 0) + (read.dropped.duplicate ?? 0)
+  const first = read.candles[0]
+  const name = l.symbol ?? l.token
   return (
-    <div className="p-3">
-      <CandleChart
-        candles={candles}
-        start={start}
-        end={now}
-        candleSec={3_600}
-        live={d.launch.priceUsd}
-        label={`${d.launch.symbol ?? d.launch.token} price in USD, hourly`}
-        formatPrice={formatUsdPrice}
-        formatTime={formatDateTime}
-        formatAxis={axis(now - start)}
-        formatVolume={(v) => `$${formatCompact(v, 1)}`}
-        height={300}
+    <Panel>
+      <PanelHeader
+        title="Price"
+        actions={
+          <Segmented label="Candle interval" size="sm" value={interval} onChange={onInterval} options={CANDLE_INTERVALS.map((i) => ({ value: i, label: INTERVAL_LABEL[i] }))} />
+        }
       />
-    </div>
+      <div className="flex flex-col gap-2 p-3">
+        <PriceChart
+          candles={read.candles}
+          intervalSec={CANDLE_INTERVAL_SEC[interval]}
+          status={status}
+          empty={`No ${INTERVAL_TEXT[interval]} candles for ${name} from NEARKITS’ server yet.`}
+          error={`The ${INTERVAL_TEXT[interval]} candles couldn’t be read. NEARKITS asks again shortly.`}
+          onRetry={() => void q.refetch()}
+          livePrice={l.priceUsd}
+          formatPrice={formatUsdPrice}
+          formatVolume={(v) => `$${formatCompact(v, 1)}`}
+          label={`${name} price in USD, ${INTERVAL_TEXT[interval]} candles`}
+          viewKey={`${l.token}:${interval}`}
+        />
+        <p className="text-[11px] leading-4 text-fg-3">
+          {demo ? 'Demo candles' : 'USD candles from Intear'}
+          {fallback ? ' (hourly, as NEARKITS’ server sends them with the launch)' : ''}
+          {first ? `: ${n} ${INTERVAL_TEXT[interval]} candle${n === 1 ? '' : 's'} from ${formatDateTime(first.t)}` : ''}. A period without trades has no candle; nothing is filled
+          in.
+          {dropped > 0 && ` ${dropped} malformed candle${dropped === 1 ? '' : 's'} left out.`} Drag to pan, scroll or pinch to zoom.
+        </p>
+      </div>
+    </Panel>
   )
 }
 
 export default function LaunchDetailPage() {
   const id = decodeURIComponent(useParams().id ?? '')
+  const [params, setParams] = useSearchParams()
   const caps = useCapabilities()
   const now = useNow(15_000)
   const q = useLaunch(id)
@@ -109,6 +125,8 @@ export default function LaunchDetailPage() {
     )
   const flags = riskFlags(l)
   const age = l.createdAt === null ? null : now - l.createdAt
+  const asked = params.get('interval')
+  const chosen = (CANDLE_INTERVALS as readonly string[]).includes(asked ?? '') ? (asked as CandleInterval) : null
   const tradeLink = (
     <Link to={`/token/${encodeURIComponent(l.token)}`} className="inline-flex">
       <Button variant="primary" tabIndex={-1}>
@@ -174,10 +192,10 @@ export default function LaunchDetailPage() {
                     )}
                   </Line>
                 </Lines>
-                <div className="flex flex-wrap gap-1.5">
-                  <Kind tone="accent">Verified on chain: token account, parent account</Kind>
-                  <Kind>Reported by Intear: first block, deployer, market, holders</Kind>
-                </div>
+                <ul className="flex flex-col gap-1 text-[11px] font-medium uppercase leading-4 tracking-[0.04em]">
+                  <li className="text-accent">Verified on chain: token account, parent account</li>
+                  <li className="text-fg-3">Reported by Intear: first block, deployer, market, holders</li>
+                </ul>
                 <div className="flex flex-wrap gap-3 text-xs">
                   {caps.explorerUrl && (
                     <a
@@ -245,10 +263,20 @@ export default function LaunchDetailPage() {
           </>
         }
       >
-        <Panel>
-          <PanelHeader title="Price · hourly" actions={<span className="text-xs text-fg-3">USD, Intear candles</span>} />
-          <Chart d={d} now={now} />
-        </Panel>
+        <LaunchChart
+          d={d}
+          interval={chosen ?? defaultInterval(age)}
+          onInterval={(i) =>
+            setParams(
+              (p) => {
+                const n = new URLSearchParams(p)
+                n.set('interval', i)
+                return n
+              },
+              { replace: true },
+            )
+          }
+        />
 
         {/* Tracked wallets are Top Wallets' qualified wallets: not shown while Top Wallets is paused (config/paused.ts). */}
         {!TOP_WALLETS_PAUSED && (

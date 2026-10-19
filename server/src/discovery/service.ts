@@ -1,5 +1,8 @@
 import {
+  CANDLE_INTERVAL_SEC,
   PERIOD_MS,
+  type CandleInterval,
+  type CandlesResponse,
   type IndexStatus,
   type LaunchDetail,
   type LaunchExtras,
@@ -35,6 +38,15 @@ const RANKING_TTL = 120_000
 const LAUNCHES_TTL = 20_000
 const DETAIL_TTL = 30_000
 const CANDLES_TTL = 300_000
+/** Each interval as Intear's resolution, with the history one request holds and how long a read stays fresh. */
+const CANDLE_READ: Readonly<Record<CandleInterval, { resolution: '1' | '5' | '15' | '60' | '240' | 'D'; countBack: number; ttl: number }>> = {
+  '1m': { resolution: '1', countBack: 360, ttl: 30_000 },
+  '5m': { resolution: '5', countBack: 576, ttl: 60_000 },
+  '15m': { resolution: '15', countBack: 672, ttl: 120_000 },
+  '1h': { resolution: '60', countBack: 720, ttl: 300_000 },
+  '4h': { resolution: '240', countBack: 540, ttl: 600_000 },
+  '1d': { resolution: 'D', countBack: 365, ttl: 1_800_000 },
+}
 const SPARK_TTL = 600_000
 const THUMB_TTL = 6 * 3_600_000
 const META_TTL = 3_600_000
@@ -79,6 +91,8 @@ export interface DiscoveryService {
   launches(period: LaunchPeriod): Promise<LaunchesResponse>
   extras(tokens: readonly string[]): Promise<LaunchExtras>
   launch(token: string): Promise<LaunchDetail | null>
+  /** A token's USD candles at one interval, as Intear serves them; null when it has none. */
+  candles(token: string, interval: CandleInterval): Promise<CandlesResponse | null>
   wallets(q: { window: WalletWindowKey; metric: WalletMetric; category: WalletCategory; limit: number; search?: string }): Promise<WalletsResponse>
   wallet(account: string): Promise<WalletDetail | null>
   walletTrades(account: string, cursor: string | null): Promise<WalletTradesPage>
@@ -401,6 +415,14 @@ export function createDiscoveryService(deps: {
           index: status(),
         }
       }),
+
+    candles: (token, interval) => {
+      const r = CANDLE_READ[interval]
+      return cached(`candles:${token}:${interval}`, r.ttl, async () => {
+        const c = await deps.intear.candles(token, r.resolution, r.countBack)
+        return c ? { token, interval, intervalSec: CANDLE_INTERVAL_SEC[interval], candles: c, at: now() } : null
+      })
+    },
 
     async wallets(q) {
       const rows = await assessed(q.window)

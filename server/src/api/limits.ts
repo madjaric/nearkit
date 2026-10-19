@@ -58,6 +58,7 @@ export const API_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   '/api/discovery/launches': 60,
   '/api/discovery/extras': 60,
   '/api/discovery/launch': 30,
+  '/api/discovery/candles': 60,
   '/api/discovery/wallets': 60,
   '/api/discovery/wallet': 30,
   '/api/discovery/wallet/trades': 20,

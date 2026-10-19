@@ -1,4 +1,13 @@
-import { LAUNCH_PERIODS, MAX_FOLLOWS, type LaunchPeriod, type WalletCategory, type WalletMetric, type WalletWindowKey } from '@/lib/discovery/api'
+import {
+  CANDLE_INTERVALS,
+  LAUNCH_PERIODS,
+  MAX_FOLLOWS,
+  type CandleInterval,
+  type LaunchPeriod,
+  type WalletCategory,
+  type WalletMetric,
+  type WalletWindowKey,
+} from '@/lib/discovery/api'
 import { isValidAccountId } from '@/lib/validation'
 import { field } from '../api/linkRoutes'
 import { HttpError, type Route } from '../api/http'
@@ -68,6 +77,16 @@ export function discoveryRoutes(deps: { service: DiscoveryService; store: Discov
       const d = await fromSource(() => service.launch(token))
       if (!d) throw new HttpError(404, 'not-found', 'NEARKITS hasn’t seen this token.')
       return d
+    },
+    '/api/discovery/candles': async (body) => {
+      const b = obj(body)
+      const token = account(b.token, 'token')
+      if (typeof b.interval !== 'string' || !(CANDLE_INTERVALS as readonly string[]).includes(b.interval))
+        throw new HttpError(400, 'bad-request', `interval: one of ${CANDLE_INTERVALS.join(', ')}`)
+      const interval = b.interval as CandleInterval
+      const c = await fromSource(() => service.candles(token, interval))
+      if (!c) throw new HttpError(404, 'not-found', 'Intear has no candles for this token.')
+      return c
     },
     '/api/discovery/wallets': async (body) => {
       const b = obj(body)
