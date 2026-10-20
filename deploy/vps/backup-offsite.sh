@@ -8,13 +8,15 @@
 # decrypted, no wallet key opens without OpenBao's unseal key, which only the owner has.
 #
 # Retention mirrors the local one: every backup for 48 hours, then the midnight (UTC) one of each
-# day for 30 days. Success and failure are recorded in backups/.offsite.ok / .offsite.error, which
-# bin/monitor checks.
+# day for 30 days. The repository's default branch is the exception: GitHub never deletes it, and it
+# is the first backup pushed, when the repository was created (b-20261012T230207Z). Success and
+# failure are recorded in backups/.offsite.ok / .offsite.error, which bin/monitor checks.
 #   /opt/nearkit/bin/backup-offsite <stamp>     (bin/backup runs it after each local backup)
 set -euo pipefail
 stamp="${1:?usage: backup-offsite <stamp>}"
 [[ "$stamp" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || { echo "not a backup stamp: $stamp" >&2; exit 2; }
-root=/opt/nearkit
+# NEARKIT_BACKUP_ROOT: tests only (server/src/ops/backupOffsite.test.ts); production runs in /opt/nearkit.
+root=${NEARKIT_BACKUP_ROOT:-/opt/nearkit}
 conf="$root/backup-offsite.env"
 dir="$root/backups"
 status="$dir/.offsite"
@@ -93,17 +95,27 @@ remote=$(g ls-remote "$BACKUP_REMOTE" "refs/heads/$branch" | cut -f1)
 
 # Retention. A failure here keeps more copies than needed, never fewer: it is reported, not fatal.
 now=$(date -u +%s)
+# The default branch is never asked for: GitHub refuses, and asking made every run report a failure.
+default=$(g ls-remote --symref "$BACKUP_REMOTE" HEAD | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]].*#\1#p') || default=
 old=()
 while read -r _ ref; do
   b=${ref#refs/heads/}
   [[ "$b" =~ ^b-([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$ ]] || continue
   [ "$b" = "$branch" ] && continue
+  [ "$b" = "$default" ] && continue
   t=$(date -u -d "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}T${BASH_REMATCH[4]}:${BASH_REMATCH[5]}:${BASH_REMATCH[6]}Z" +%s) || continue
   hours=$(((now - t) / 3600))
   if { [ "${BASH_REMATCH[4]}" != 00 ] && [ "$hours" -ge 48 ]; } || [ "$hours" -ge $((30 * 24)) ]; then old+=("$b"); fi
 done < <(g ls-remote --heads "$BACKUP_REMOTE" 'b-*')
-if [ "${#old[@]}" -gt 0 ]; then
-  g push -q "$BACKUP_REMOTE" --delete "${old[@]}" 2> /dev/null || echo "off-site retention: couldn't delete ${#old[@]} old branch(es); kept" >&2
+if [ "${#old[@]}" -gt 0 ] && ! g push -q "$BACKUP_REMOTE" --delete "${old[@]}" 2> "$work/retention.err"; then
+  # A push deletes what it can: the branches still there are the ones kept, named with git's reason.
+  if heads=$(g ls-remote --heads "$BACKUP_REMOTE" 'b-*'); then
+    kept=()
+    for b in "${old[@]}"; do grep -q "refs/heads/$b\$" <<< "$heads" && kept+=("$b"); done
+    [ "${#kept[@]}" -gt 0 ] && echo "off-site retention: kept ${#kept[@]} of ${#old[@]} old branch(es) that couldn't be deleted (${kept[*]}): $(tr '\n' ' ' < "$work/retention.err" | cut -c1-300)" >&2
+  else
+    echo "off-site retention: couldn't confirm which of ${#old[@]} old branch(es) were deleted: $(tr '\n' ' ' < "$work/retention.err" | cut -c1-300)" >&2
+  fi
 fi
 
 printf '%s %s %s\n' "$(date -u +%s)" "$stamp" "$branch" > "$status.ok"
