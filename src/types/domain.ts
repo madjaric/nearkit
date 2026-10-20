@@ -5,6 +5,8 @@
  * never becomes an on-chain amount. `null` means "unknown here", never zero.
  */
 
+import type { CandleInterval } from '@/lib/discovery/api'
+
 export type TokenId = string
 export type WalletId = string
 export type Timestamp = number
@@ -73,6 +75,29 @@ export interface PriceHistory {
   /** The candle size, in seconds. A window shows only the candles that had trades. */
   candleSec: number
   /** When this market started, when known: a window reaching further back has nothing before it. */
+  since: Timestamp | null
+}
+
+/**
+ * A token's price at one candle interval (the intervals every token chart offers), as much history as
+ * one read of its source holds, oldest first. Nothing is made up: a period without trades has no
+ * candle, and an interval the source doesn't have is read as nothing (`supported` says which it has).
+ */
+export interface TokenCandles {
+  interval: CandleInterval
+  /** candles: open, high, low and close (and volume) per period; line: the source has prices only (CoinGecko). */
+  kind: 'candles' | 'line'
+  /** kind `candles`: only periods that had trades; a malformed one is left out. */
+  candles: Candle[]
+  /** kind `line`: the source's prices. */
+  points: PricePoint[]
+  /** What `Candle.v` counts: USD (GeckoTerminal) or NEAR (Coinbase's NEAR/USD); null when no volume is known. */
+  volumeUnit: 'USD' | 'NEAR' | null
+  /** Where the history comes from, and which market it is of (e.g. "SINGULARTY/wNEAR on Rhea"). */
+  source: { name: string; market: string }
+  /** The intervals this source has for this token. */
+  supported: readonly CandleInterval[]
+  /** When this market started, when known. */
   since: Timestamp | null
 }
 

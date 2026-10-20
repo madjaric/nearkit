@@ -1,7 +1,9 @@
 import type { EnvIssue } from '@/config/env'
 import type { OwnerControl } from '@/lib/ownerAccount'
+import type { CandleInterval } from '@/lib/discovery/api'
 import type {
   PriceHistory,
+  TokenCandles,
   TokenMarket,
   ActivityItem,
   ChartRange,
@@ -126,6 +128,13 @@ export interface TokenService {
    * throws. Never filled in or estimated.
    */
   getPriceHistory(id: TokenId, range: ChartRange): Promise<PriceHistory | null>
+  /**
+   * A token's candles at one interval for its chart, as much history as one read of its source holds:
+   * Coinbase's NEAR/USD candles for NEAR, GeckoTerminal's of its main DEX pair, else CoinGecko's prices
+   * (a line). Null when no source has its history. An interval the source doesn't have reads nothing.
+   * A failed read throws. Never filled in or estimated.
+   */
+  getCandles(id: TokenId, interval: CandleInterval): Promise<TokenCandles | null>
   /**
    * Recent buys and sells of a token against NEAR, newest first, read from the chain's own record.
    * Null when there is no source for it (NEAR itself, the demo); empty when none of its latest

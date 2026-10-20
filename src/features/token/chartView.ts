@@ -1,58 +1,21 @@
-import { formatClock, formatDate } from '@/lib/format'
-import { CHART_RANGES } from '@/services/near/candles'
-import type { ChartRange, PricePoint } from '@/types/domain'
-
-/** A history source's candles for the window, with how coarse they are and when the market began. */
-export interface ChartHistory {
-  points: readonly PricePoint[]
-  candleSec: number
-  since: number | null
-}
-
-export interface ChartView {
-  points: PricePoint[]
-  /** `history`: a history source's points with the live prices after them; `live`: only what this page saw. */
-  source: 'history' | 'live'
-  /** The first point is well into the window (a tenth of it, at least a candle): what's before it has no data, and none is drawn. */
-  partial: boolean
-  /** When the market started, if the source knows: a window reaching further back has nothing before it. */
-  since: number | null
-}
-
-const DAY_MS = 24 * 3_600_000
+import type { PricePoint } from '@/types/domain'
 
 /**
- * The label a time axis prints for `range`: the time of day while the window sits within a day,
- * the date beyond it. Short on purpose, so four of them fit under a phone-width plot; the full
- * date and time of any point is in its readout.
+ * The points of a token's price line: its source's prices when the source has no candles (CoinGecko),
+ * then the live prices this page saw after the last of them; with no source, only the live prices.
+ * Only observed prices: nothing is interpolated or carried back, a gap stays a gap. One point a second
+ * (the chart's time unit), the later one kept; a price from the future (clock skew) is not drawn.
  */
-export function axisTime(range: ChartRange): (t: number) => string {
-  return CHART_RANGES[range].windowMs <= DAY_MS ? formatClock : formatDate
-}
-
-/** A page that only watches sees a price a minute at most (its poll), so a gap longer than that is one. */
-const LIVE_STEP_SEC = 60
-
-/**
- * The points a token chart draws for `range`: the history source's candle closes, then the live
- * prices this page saw after its last one; with no history source (null), only the live prices.
- * Only observed prices: nothing is interpolated or carried back, a gap stays a gap, and a window
- * with less data shows less.
- */
-export function chartView(range: ChartRange, now: number, history: ChartHistory | null, live: readonly PricePoint[]): ChartView {
-  const { windowMs } = CHART_RANGES[range]
-  const start = now - windowMs
-  const inWindow = (p: PricePoint) => p.t >= start && p.t <= now && Number.isFinite(p.usd) && p.usd > 0
-  const base = (history?.points ?? []).filter(inWindow)
+export function linePoints(source: readonly PricePoint[], live: readonly PricePoint[], now: number): PricePoint[] {
+  const ok = (p: PricePoint) => Number.isFinite(p.t) && p.t <= now && Number.isFinite(p.usd) && p.usd > 0
+  const base = source.filter(ok)
   const lastT = base.reduce((m, p) => Math.max(m, p.t), Number.NEGATIVE_INFINITY)
-  const tail = live.filter((p) => inWindow(p) && p.t > lastT)
-  const points = [...base, ...tail].sort((a, b) => a.t - b.t).filter((p, i, all) => i === 0 || p.t !== (all[i - 1] as PricePoint).t)
-  const first = points[0]
-  const stepSec = history?.candleSec ?? LIVE_STEP_SEC
-  return {
-    points,
-    source: history ? 'history' : 'live',
-    partial: first !== undefined && first.t > start + Math.max(stepSec * 1000, windowMs / 10),
-    since: history?.since ?? null,
+  const all = [...base, ...live.filter((p) => ok(p) && p.t > lastT)].sort((a, b) => a.t - b.t)
+  const out: PricePoint[] = []
+  for (const p of all) {
+    const prev = out[out.length - 1]
+    if (prev && Math.floor(prev.t / 1000) === Math.floor(p.t / 1000)) out[out.length - 1] = p
+    else out.push(p)
   }
+  return out
 }

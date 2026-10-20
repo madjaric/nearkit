@@ -207,6 +207,8 @@ export interface SegmentOption<T extends string> {
   label: ReactNode
   tone?: 'default' | 'buy' | 'sell'
   disabled?: boolean
+  /** Said on hover: why an option is disabled, for example. */
+  title?: string
 }
 
 interface SegmentedProps<T extends string> {
@@ -264,6 +266,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, s
             role="radio"
             aria-checked={checked}
             disabled={option.disabled}
+            title={option.title}
             tabIndex={checked ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(

@@ -58,10 +58,18 @@ server, which reads each source once for everyone.
     - At most 30 reads from Intear a minute for everyone (the indexer shares that queue). Past that,
       cached answers are still served and anything new gets 503 `busy`.
     - A bad interval answers 400, no candles 404, Intear down 503.
-- **Price chart** (`src/components/chart/PriceChart.tsx`, TradingView Lightweight Charts): the
-  Launch Radar detail and the Token page draw the same interactive candles: pan, zoom, crosshair
-  readout, volume in its own pane when reported. Every candle goes through
-  `src/lib/chart/ohlc.ts` first:
+- **Price chart** (`src/components/chart/PriceChartPanel.tsx` around `PriceChart.tsx`, TradingView
+  Lightweight Charts): the Launch Radar detail and the Token page draw the same panel, with the same
+  candle intervals (1min, 5min, 15min, 1h, 4h, 1d; `src/lib/chart/intervals.ts`), kept in the address
+  (`?interval=`), and the same interactive candles: pan, zoom, crosshair readout, Reset view, volume in
+  its own pane when reported. Each interval reads as much history as one request of its source holds,
+  and the first view shows the newest 90 candles (a shorter history at a normal bar width on the right).
+  - Launch Radar: Intear's candles through NEARKITS' server (below).
+  - Token page (read by the browser): GeckoTerminal's candles of the token's main pool, at the same
+    depths as Launch Radar; Coinbase's NEAR/USD candles for NEAR (300 a read; Coinbase has no 4-hour
+    candles, so 4h is shown disabled with the reason); CoinGecko's prices for a token with no pool, as
+    a line (5min, 1h, 1d: the resolutions it has); with no source, a line of the prices the page has seen.
+  Every candle goes through `src/lib/chart/ohlc.ts` first:
   - timestamps in seconds or ms, told apart by size;
   - sorted, one per period (the last given);
   - a high or low that doesn't contain the open and close is left out and counted, never repaired;

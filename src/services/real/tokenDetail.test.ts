@@ -337,6 +337,133 @@ describe('price history for the chart', () => {
   })
 })
 
+describe('candles for the chart, by interval (as on Launch Radar): as much history as one read holds', () => {
+  const ALL = ['1m', '5m', '15m', '1h', '4h', '1d']
+
+  it('NEAR: Coinbase’s candles at the interval, the most one read gives (300), oldest first, as NEAR/USD with volume in NEAR', async () => {
+    const t = T0 / 1000 - 7200
+    const { services, calls } = setup({
+      // Coinbase answers newest first: [time, low, high, open, close, volume].
+      candles: () => [
+        [t + 3600, 4.9, 5.1, 5.0, 5.05, 7],
+        [t, 4.7, 4.9, 4.8, 4.85, 3],
+      ],
+    })
+    expect(await services.tokens.getCandles('near', '1h')).toEqual({
+      interval: '1h',
+      kind: 'candles',
+      candles: [
+        { t: t * 1000, o: 4.8, h: 4.9, l: 4.7, c: 4.85, v: 3 },
+        { t: (t + 3600) * 1000, o: 5.0, h: 5.1, l: 4.9, c: 5.05, v: 7 },
+      ],
+      points: [],
+      volumeUnit: 'NEAR',
+      source: { name: 'Coinbase', market: 'NEAR/USD' },
+      supported: ['1m', '5m', '15m', '1h', '1d'],
+      since: null,
+    })
+    expect(calls[0]).toContain('granularity=3600')
+    expect(calls[0]).toContain(`start=${new Date(T0 - 300 * 3_600_000).toISOString()}`)
+  })
+
+  it('NEAR: each interval is Coinbase’s own granularity; 4-hour candles Coinbase doesn’t have: nothing is read, and none is made from others', async () => {
+    const { services, calls } = setup({ candles: () => [] })
+    for (const i of ['1m', '5m', '15m', '1d'] as const) await services.tokens.getCandles('near', i)
+    expect(calls.map((c) => new URLSearchParams(c).get('granularity'))).toEqual(['60', '300', '900', '86400'])
+    const four = await services.tokens.getCandles('near', '4h')
+    expect(four).toMatchObject({ interval: '4h', kind: 'candles', candles: [], points: [], source: { name: 'Coinbase' }, supported: ['1m', '5m', '15m', '1h', '1d'] })
+    expect(calls).toHaveLength(4)
+  })
+
+  it('a DEX token: its pair’s GeckoTerminal candles at the interval, the whole answer (not one window of it), named by its market, since the pair began', async () => {
+    const { services, reads } = setup({ now: T1 + 30 * 86_400_000, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    const c = await services.tokens.getCandles(SING, '1h')
+    expect(c).toEqual({
+      interval: '1h',
+      kind: 'candles',
+      // A month later the same six candles are still drawn: history is what the source holds, not a window back from now.
+      candles: parseGtCandles(gtOhlcv),
+      points: [],
+      volumeUnit: 'USD',
+      source: { name: 'GeckoTerminal', market: 'SINGULARTY/wNEAR on Rhea' },
+      supported: ALL,
+      since: 1790616798000,
+    })
+    expect(reads.ohlcv).toEqual([`/pools/${SING_POOL}/ohlcv/hour?aggregate=1&limit=720&currency=usd&token=${SING}`])
+  })
+
+  it('a DEX token: every interval is GeckoTerminal’s own timeframe, as deep as Launch Radar’s (6 h of minutes … a year of days)', async () => {
+    const { services, reads } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty })
+    for (const i of ['1m', '5m', '15m', '4h', '1d'] as const) await services.tokens.getCandles(SING, i)
+    expect(reads.ohlcv.map((u) => u.slice(u.indexOf('/ohlcv/'), u.indexOf('&currency')))).toEqual([
+      '/ohlcv/minute?aggregate=1&limit=360',
+      '/ohlcv/minute?aggregate=5&limit=576',
+      '/ohlcv/minute?aggregate=15&limit=672',
+      '/ohlcv/hour?aggregate=4&limit=540',
+      '/ohlcv/day?aggregate=1&limit=365',
+    ])
+  })
+
+  it('no pool indexed, but CoinGecko lists the token: its prices as a line (never candles), at the resolutions CoinGecko has', async () => {
+    const prices = [
+      [T1 - 2 * 3_600_000, 0.0002],
+      [T1 - 3_600_000, 0.00021],
+    ]
+    const { services, reads } = setup({ now: T1, cgChart: () => ({ prices }) })
+    const c = await services.tokens.getCandles(SING, '1h')
+    expect(c).toEqual({
+      interval: '1h',
+      kind: 'line',
+      candles: [],
+      points: [
+        { t: T1 - 2 * 3_600_000, usd: 0.0002 },
+        { t: T1 - 3_600_000, usd: 0.00021 },
+      ],
+      volumeUnit: null,
+      source: { name: 'CoinGecko', market: 'SINGULARTY on CoinGecko' },
+      supported: ['5m', '1h', '1d'],
+      since: null,
+    })
+    await services.tokens.getCandles(SING, '5m')
+    await services.tokens.getCandles(SING, '1d')
+    expect(reads.cgChart).toEqual([
+      `/contract/${SING}/market_chart?vs_currency=usd&days=30`,
+      `/contract/${SING}/market_chart?vs_currency=usd&days=1`,
+      `/contract/${SING}/market_chart?vs_currency=usd&days=365`,
+    ])
+    // 15 minutes is not a resolution CoinGecko has: nothing is read.
+    expect(await services.tokens.getCandles(SING, '15m')).toMatchObject({ kind: 'line', points: [], supported: ['5m', '1h', '1d'] })
+    expect(reads.cgChart).toHaveLength(3)
+  })
+
+  it('a token no source indexes has no candles: null', async () => {
+    const { services, reads } = setup()
+    expect(await services.tokens.getCandles(SING, '1h')).toBeNull()
+    expect(reads.ohlcv).toEqual([])
+  })
+
+  it('a read is kept until its interval’s next candle can matter: the same interval again soon is not asked again', async () => {
+    const { services, reads, advance } = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => gtOhlcv })
+    await services.tokens.getCandles(SING, '1h')
+    advance(60_000)
+    await services.tokens.getCandles(SING, '1h')
+    expect(reads.ohlcv).toHaveLength(1)
+    advance(5 * 60_000)
+    await services.tokens.getCandles(SING, '1h')
+    expect(reads.ohlcv).toHaveLength(2)
+  })
+
+  it('a failed read is an error the screen shows, not an empty chart', async () => {
+    const limited = setup({ now: T1, dex: () => dexSingularty, gt: () => gtSingularty, ohlcv: () => new Response('{}', { status: 429 }) })
+    await expect(limited.services.tokens.getCandles(SING, '1h')).rejects.toThrow(/rate-limiting/)
+  })
+
+  it('testnet has no candles', async () => {
+    const { services } = setup({ network: 'testnet' })
+    expect(await services.tokens.getCandles('near', '1h')).toBeNull()
+  })
+})
+
 describe('supply for FDV', () => {
   it('reads a token’s total supply on chain; NEAR and unreadable tokens have none', async () => {
     const { services } = setup()

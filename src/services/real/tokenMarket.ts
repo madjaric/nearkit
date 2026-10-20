@@ -3,8 +3,9 @@ import { formatUnits } from '@/lib/amounts'
 import { fetchCoinMarkets, fetchContractChart } from '@/services/market/coingecko'
 import { fetchDexPairs, mainPair, type DexPair } from '@/services/market/dexscreener'
 import { fetchGtHistory, fetchGtToken, type GtToken } from '@/services/market/geckoterminal'
+import { CANDLE_INTERVALS, INTERVAL_REFRESH_MS, SOURCE_INTERVALS, type CandleInterval } from '@/lib/chart/intervals'
 import { CHART_RANGES, fetchNearUsdHistory } from '@/services/near/candles'
-import type { ChartRange, MarketFigure, PriceHistory, TokenMarket, TokenMarketPair } from '@/types/domain'
+import type { Candle, ChartRange, MarketFigure, PriceHistory, PricePoint, TokenCandles, TokenMarket, TokenMarketPair } from '@/types/domain'
 import type { NearContext } from './context'
 import type { Market } from './market'
 
@@ -45,6 +46,26 @@ function allCandles(ageMs: number | null): Gecko {
   if (ageMs <= 166 * DAY_MS) return { timeframe: 'hour', aggregate: 4, limit: 1000 }
   return { timeframe: 'day', aggregate: 1, limit: 1000 }
 }
+/**
+ * One read per candle interval, from each source. Coinbase: its own granularity, 300 candles a read (it
+ * has no 4-hour candles). GeckoTerminal: its own timeframe, as deep as Launch Radar's (6 hours of
+ * minutes, 2 days of 5 minutes, a week of 15, a month of hours, 90 days of 4 hours, a year of days).
+ * CoinGecko: the days whose resolution is the interval (5 minutes for one day, hourly, daily).
+ */
+const COINBASE_SEC: Partial<Record<CandleInterval, 60 | 300 | 900 | 3600 | 86400>> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86_400 }
+const COINBASE_MAX = 300
+const GECKO_READ: Record<CandleInterval, Gecko> = {
+  '1m': { timeframe: 'minute', aggregate: 1, limit: 360 },
+  '5m': { timeframe: 'minute', aggregate: 5, limit: 576 },
+  '15m': { timeframe: 'minute', aggregate: 15, limit: 672 },
+  '1h': { timeframe: 'hour', aggregate: 1, limit: 720 },
+  '4h': { timeframe: 'hour', aggregate: 4, limit: 540 },
+  '1d': { timeframe: 'day', aggregate: 1, limit: 365 },
+}
+const CG_DAYS_OF: Partial<Record<CandleInterval, number>> = { '5m': 1, '1h': 30, '1d': 365 }
+/** A read of an interval is kept a little less than the chart's refresh, so each refresh reads anew. */
+const CANDLES_TTL_MS = Object.fromEntries(CANDLE_INTERVALS.map((i) => [i, INTERVAL_REFRESH_MS[i] * 0.9])) as Record<CandleInterval, number>
+
 /** Day candles fewer than this don't draw a market: ALL asks again by the hour. */
 const FEW_DAYS = 14
 /** GeckoTerminal allows ~30 requests a minute per address: its token figures are read once a minute at most. */
@@ -73,6 +94,7 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
   const lastGood = new Map<string, TokenMarket>()
   const gtTokens = new Map<string, { at: number; value: Promise<GtToken | null> }>()
   const histories = new Map<string, { at: number; value: Promise<PriceHistory | null> }>()
+  const candleReads = new Map<string, { at: number; value: Promise<TokenCandles | null> }>()
   const cgUnlisted = new Map<string, number>()
   const cgApi = config ? `${new URL(config.coingeckoMarkets).origin}/api/v3` : null
 
@@ -181,6 +203,55 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
       volumeUnit: null,
       source: { name: COINGECKO, market: `${symbol} on CoinGecko` },
       candleSec: CG_DAYS[range] <= 1 ? 300 : CG_DAYS[range] <= 90 ? 3600 : 86_400,
+      since: null,
+    }
+  }
+
+  /** Whether CoinGecko lists a token, once a read has said so. */
+  const cgListed = new Set<string>()
+
+  async function readCandles(tokenId: string, interval: CandleInterval): Promise<TokenCandles | null> {
+    if (!config) return null
+    const now = ctx.now()
+    const none = { interval, candles: [] as Candle[], points: [] as PricePoint[] }
+    if (tokenId === NATIVE_TOKEN_ID) {
+      if (!ctx.network.nearUsd) return null
+      const out: TokenCandles = { ...none, kind: 'candles', volumeUnit: 'NEAR', source: { name: COINBASE, market: 'NEAR/USD' }, supported: SOURCE_INTERVALS.Coinbase, since: null }
+      const g = COINBASE_SEC[interval]
+      if (!g) return out
+      const { candles } = await fetchNearUsdHistory(ctx.fetch, ctx.network.nearUsd.coinbase, { windowMs: COINBASE_MAX * g * 1000, granularity: g }, now)
+      return { ...out, candles }
+    }
+    const pool = await poolOf(tokenId)
+    if (pool) {
+      const all = await fetchGtHistory(ctx.fetch, config.geckoterminal, pool.id, GECKO_READ[interval], 'usd', tokenId)
+      const market = pool.market ?? (all.market.base && all.market.quote ? `${all.market.base}/${all.market.quote} on Rhea` : `pool ${pool.id}`)
+      return { ...none, kind: 'candles', candles: all.candles, volumeUnit: 'USD', source: { name: GECKO, market }, supported: SOURCE_INTERVALS.GeckoTerminal, since: pool.since }
+    }
+    // No DEX pool indexed: CoinGecko's prices (a line), when it lists the token.
+    if (!cgApi || (cgUnlisted.get(tokenId) ?? 0) > now) return null
+    const days = CG_DAYS_OF[interval]
+    // An interval CoinGecko doesn't have reads nothing, once it is known to list the token; until then one day says whether it does.
+    if (days === undefined && cgListed.has(tokenId)) return lineOf(tokenId, interval, [])
+    const points = await fetchContractChart(ctx.fetch, cgApi, tokenId, days ?? 1)
+    if (points === null) {
+      cgUnlisted.set(tokenId, now + SOURCE_TTL_MS)
+      return null
+    }
+    cgListed.add(tokenId)
+    return lineOf(tokenId, interval, days === undefined ? [] : points)
+  }
+
+  async function lineOf(tokenId: string, interval: CandleInterval, points: PricePoint[]): Promise<TokenCandles> {
+    const symbol = (await market.listTokens([tokenId]).catch(() => [])).find((t) => t.id === tokenId)?.symbol ?? tokenId
+    return {
+      interval,
+      kind: 'line',
+      candles: [],
+      points,
+      volumeUnit: null,
+      source: { name: COINGECKO, market: `${symbol} on CoinGecko` },
+      supported: SOURCE_INTERVALS.CoinGecko,
       since: null,
     }
   }
@@ -360,6 +431,23 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
       const value = readHistory(tokenId, range)
       histories.set(key, { at: ctx.now(), value })
       value.catch(() => histories.delete(key))
+      return value
+    },
+
+    /**
+     * A token's candles at `interval`, as much history as one read of its source holds (the same depth
+     * as Launch Radar's): Coinbase's NEAR/USD candles for NEAR (no 4-hour: Coinbase has none), the
+     * GeckoTerminal candles of its market, else CoinGecko's prices as a line. Null when no source has
+     * its history. Kept until its interval's newest candle can have changed; a read that fails throws.
+     */
+    candles(tokenId: string, interval: CandleInterval): Promise<TokenCandles | null> {
+      if (!config) return Promise.resolve(null)
+      const key = `${tokenId}|${interval}`
+      const hit = candleReads.get(key)
+      if (hit && ctx.now() - hit.at < CANDLES_TTL_MS[interval]) return hit.value
+      const value = readCandles(tokenId, interval)
+      candleReads.set(key, { at: ctx.now(), value })
+      value.catch(() => candleReads.delete(key))
       return value
     },
   }

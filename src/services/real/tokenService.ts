@@ -109,6 +109,7 @@ export function createTokenService(ctx: NearContext, market: Market, wallets?: P
     getMarketData: (id) => tokenMarket.get(id),
 
     getPriceHistory: (id, range) => tokenMarket.history(id, range),
+    getCandles: (id, interval) => tokenMarket.candles(id, interval),
     scan: (query) => scanner.scan(query),
     scanSuggestions: () => scanner.suggestions(),
   }

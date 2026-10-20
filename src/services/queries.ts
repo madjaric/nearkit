@@ -12,6 +12,7 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { knownAutomation } from '@/config/release'
 import type { NearKitServices as Services } from './types'
 import type { StrategyKind } from '@/lib/automation/config'
+import { INTERVAL_REFRESH_MS, type CandleInterval } from '@/lib/chart/intervals'
 import {
   createRefreshStatus,
   refreshTargets,
@@ -61,6 +62,7 @@ export const qk = {
   autoDetail: (token: string | null, id: string | null) => ['nearkit', 'auto', 'list', token, id] as const,
   tokenPrice: (id: string | null) => ['market', 'price', id] as const,
   priceHistory: (id: string | null, range: ChartRange) => ['market', 'history', id, range] as const,
+  tokenCandles: (id: string | null, interval: CandleInterval) => ['market', 'candles', id, interval] as const,
   totalSupply: (id: string | null) => ['token-supply', id] as const,
   tokenActivity: (id: string | null) => ['market', 'activity', id] as const,
   tokenMarket: (id: string | null) => ['market', 'data', id] as const,
@@ -413,6 +415,21 @@ export function useTokenPrice(id: TokenId | null) {
 export function usePriceHistory(id: TokenId | null, range: ChartRange) {
   const s = useServices()
   return useQuery({ queryKey: qk.priceHistory(id, range), queryFn: () => s.tokens.getPriceHistory(id as TokenId, range), enabled: id !== null, refetchInterval: 60_000, retry: 1 })
+}
+
+/**
+ * A token's candles at one interval for its chart (as on Launch Radar), refreshed about as often as
+ * its newest candle can change; null data: no source has its history. `enabled` waits for what picks the interval.
+ */
+export function useTokenCandles(id: TokenId | null, interval: CandleInterval, enabled = true) {
+  const s = useServices()
+  return useQuery({
+    queryKey: qk.tokenCandles(id, interval),
+    queryFn: () => s.tokens.getCandles(id as TokenId, interval),
+    enabled: enabled && id !== null,
+    refetchInterval: INTERVAL_REFRESH_MS[interval],
+    retry: 1,
+  })
 }
 
 /** How often a token screen asks for new trades. */

@@ -72,6 +72,7 @@ export function createTokenService(state: MockState): TokenService {
     },
     getTotalSupply: async () => null,
     getPriceHistory: async () => null,
+    getCandles: async () => null,
     // No made-up trades: the demo has no activity source.
     getActivity: async () => null,
 
