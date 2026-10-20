@@ -13,6 +13,7 @@ import { Skeleton, Tag } from '@/components/ui/Indicators'
 import { Pct } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
+import { isKitToken, KIT } from '@/config/kit'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { CANDLE_INTERVAL_SEC, CANDLE_INTERVALS, defaultInterval, INTERVAL_LABEL, INTERVAL_TEXT, parseInterval, SOURCE_INTERVALS, type CandleInterval } from '@/lib/chart/intervals'
 import { normalizeCandles } from '@/lib/chart/ohlc'
@@ -50,6 +51,9 @@ import { SendTokenButton } from './SendToken'
  * quote decides that, in the ticket), and that it is in the user's own token list.
  */
 
+/** A token's name where its brand shows: $KITS by its ticker, any other token by its symbol. */
+const brandOf = (token: Pick<Token, 'id' | 'symbol'>) => (isKitToken(token.id) ? KIT.ticker : token.symbol)
+
 const EMPTY_CANDLES: readonly Candle[] = Object.freeze([])
 const EMPTY_POINTS: readonly PricePoint[] = Object.freeze([])
 
@@ -60,7 +64,7 @@ export function TokenDetail({ tokenId }: { tokenId: string }) {
   const lookup = useTokenLookup(tokens.data && !listed && tokenId !== NATIVE_TOKEN_ID ? tokenId : null)
   const token: Token | null = listed ?? lookup.data ?? null
   const loading = tokens.isPending || lookup.isFetching
-  useTokenHead(loading ? 'loading' : !token ? 'missing' : listed ? 'listed' : 'unlisted', token?.symbol, token?.name)
+  useTokenHead(loading ? 'loading' : !token ? 'missing' : listed ? 'listed' : 'unlisted', token ? brandOf(token) : undefined, token?.name)
   if (loading)
     return (
       <Panel className="p-5">
@@ -154,6 +158,8 @@ function figureNote(f: MarketFigure | undefined, now: number): string {
 }
 
 function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
+  // $KITS is named by its ticker where the brand shows (heading, actions, labels); amounts keep the symbol as their unit.
+  const brand = brandOf(token)
   const caps = useCapabilities()
   const { openTrade } = useTradeDrawer()
   const now = useNow(1000)
@@ -228,7 +234,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
       ? 'The demo simulates prices only: it has no market history'
       : price?.state === 'not-applicable'
         ? price.reason.replace(/.$/, '')
-        : `No market-history source has ${token.symbol}${native ? '' : ' (no DEX pool on GeckoTerminal or DEX Screener, and not listed on CoinGecko)'}`
+        : `No market-history source has ${brand}${native ? '' : ' (no DEX pool on GeckoTerminal or DEX Screener, and not listed on CoinGecko)'}`
   const unavailable =
     tc === null
       ? Object.fromEntries(CANDLE_INTERVALS.map((i) => [i, `${noHistory}, so there are no candles to choose from.`]))
@@ -236,7 +242,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         ? Object.fromEntries(
             CANDLE_INTERVALS.filter((i) => !supported.includes(i)).map((i) => [
               i,
-              `${sourceName} has no ${INTERVAL_TEXT[i]} ${tc?.kind === 'line' ? 'prices' : 'candles'} for ${token.symbol}.`,
+              `${sourceName} has no ${INTERVAL_TEXT[i]} ${tc?.kind === 'line' ? 'prices' : 'candles'} for ${brand}.`,
             ]),
           )
         : undefined
@@ -247,8 +253,8 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
   const chartEmpty = (): string => {
     if (tc && !offered)
       return `${tc.source.name} has no ${INTERVAL_TEXT[interval]} ${tc.kind === 'line' ? 'prices' : 'candles'} for ${tc.source.market}. Choose ${tc.supported.map((i) => INTERVAL_LABEL[i]).join(', ')}.`
-    if (tc?.kind === 'candles') return `No ${INTERVAL_TEXT[interval]} candles for ${token.symbol} on ${tc.source.market} yet: a period without trades has no candle.`
-    if (tc?.kind === 'line') return `No ${INTERVAL_TEXT[interval]} prices for ${token.symbol} from ${tc.source.name} yet.`
+    if (tc?.kind === 'candles') return `No ${INTERVAL_TEXT[interval]} candles for ${brand} on ${tc.source.market} yet: a period without trades has no candle.`
+    if (tc?.kind === 'line') return `No ${INTERVAL_TEXT[interval]} prices for ${brand} from ${tc.source.name} yet.`
     const only = line?.[0]
     if (only) return `One price so far: ${formatUsdPrice(only.usd)} at ${formatDateTime(only.t)}. The line starts with the next one.`
     return priceValue !== null ? 'No price seen yet.' : 'Price unavailable: nothing to draw.'
@@ -288,7 +294,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             <TokenGlyph symbol={token.symbol} tokenId={token.id} size={32} />
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
-                {token.symbol}
+                {brand}
                 {token.status === 'prelaunch' && <Tag tone="warn">Pre-launch</Tag>}
               </h2>
               <p className="truncate text-sm text-fg-3">
@@ -306,7 +312,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             {market.isPending ? (
               <Skeleton className="h-8 w-36 @[34rem]:ml-auto" />
             ) : priceValue !== null ? (
-              <p className="num text-2xl text-fg" aria-label={`${token.symbol} price`}>
+              <p className="num text-2xl text-fg" aria-label={`${brand} price`}>
                 {formatUsdPrice(priceValue)}
               </p>
             ) : (
@@ -344,7 +350,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
               <>
                 <span aria-hidden="true">·</span>
                 <a href={pair.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-fg-2 hover:text-fg">
-                  DEX Screener <ExternalLink size={11} aria-hidden="true" />
+                  {pair.source ?? 'DEX Screener'} <ExternalLink size={11} aria-hidden="true" />
                 </a>
               </>
             )}
@@ -357,14 +363,14 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           ) : (
             <>
               <Button variant="primary" onClick={() => openTrade({ tokenId: token.id, side: 'buy' })}>
-                Buy {token.symbol}
+                Buy {brand}
               </Button>
               <Button variant="sell" onClick={() => openTrade({ tokenId: token.id, side: 'sell' })}>
-                Sell {token.symbol}
+                Sell {brand}
               </Button>
             </>
           )}
-          <SendTokenButton token={token} label={`Send ${token.symbol}`} />
+          <SendTokenButton token={token} label={`Send ${brand}`} />
           {!native && nearkitWallets && (
             <span className="text-xs text-fg-3">
               With NEARKITS wallets:{' '}
@@ -382,7 +388,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
             <span className="ml-auto flex items-center gap-2 text-xs text-fg-3">
               <span>Not in your token list</span>
               <Button size="xs" variant="ghost" loading={importer.isPending} disabled={importer.isPending} onClick={() => importer.mutate(token.contract as string)}>
-                Add {token.symbol}
+                Add {brand}
               </Button>
             </span>
           )}
@@ -426,7 +432,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           livePrice: tc === null ? null : priceValue,
           formatPrice: formatUsdPrice,
           formatVolume: volumeText,
-          label: `${token.symbol} price in USD, ${tc === null ? 'prices seen on this page' : tc?.kind === 'line' ? `${INTERVAL_TEXT[interval]} prices` : `${INTERVAL_TEXT[interval]} candles`}`,
+          label: `${brand} price in USD, ${tc === null ? 'prices seen on this page' : tc?.kind === 'line' ? `${INTERVAL_TEXT[interval]} prices` : `${INTERVAL_TEXT[interval]} candles`}`,
           viewKey: `${token.id}:${interval}`,
         }}
         alert={
@@ -452,7 +458,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         ) : !activity.data || activity.data.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-fg-3">No recent trading activity available.</p>
         ) : (
-          <ul className="divide-y divide-line-soft" aria-label={`Recent ${token.symbol} trades`}>
+          <ul className="divide-y divide-line-soft" aria-label={`Recent ${brand} trades`}>
             {activity.data.slice(0, 25).map((t) => (
               <li
                 key={`${t.hash}-${t.account}-${t.side}`}
@@ -502,13 +508,13 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
                     {formatAccount(token.contract, 22)}
                   </span>
                   <AccountText id={token.contract} className="hidden text-fg-2 sm:inline" />
-                  <CopyButton value={token.contract} label={`Copy ${token.symbol} contract`} />
+                  <CopyButton value={token.contract} label={`Copy ${brand} contract`} />
                   {caps.explorerUrl && (
                     <a
                       href={explorerTokenUrl({ explorerUrl: caps.explorerUrl }, token.contract)}
                       target="_blank"
                       rel="noreferrer noopener"
-                      aria-label={`${token.symbol} on the explorer`}
+                      aria-label={`${brand} on the explorer`}
                       className="text-fg-3 hover:text-fg"
                     >
                       <ExternalLink size={13} />
@@ -552,7 +558,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
           </Lines>
         </div>
         {rows.length > 0 && (
-          <ul className="divide-y divide-line-soft border-t border-line-soft" aria-label={`${token.symbol} by wallet`}>
+          <ul className="divide-y divide-line-soft border-t border-line-soft" aria-label={`${brand} by wallet`}>
             {rows.map(({ holding, wallet }) => (
               <li key={wallet.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
                 <span className="flex min-w-0 items-center gap-2">

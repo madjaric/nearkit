@@ -48,6 +48,75 @@ export function parseGtToken(json: unknown): GtToken | null {
   }
 }
 
+/** One side of a pool: the token (without the `near_` prefix), its symbol and its USD price. */
+export interface GtPoolSide {
+  id: string
+  symbol: string | null
+  priceUsd: number | null
+}
+
+/** A pool's figures, as GeckoTerminal reports them; a figure it doesn't give is null, never zero. */
+export interface GtPool {
+  /** The pool's id without the `near_` prefix (Rhea DCL: `refv2-<x>:<y>:<fee>`). */
+  id: string
+  /** GeckoTerminal's id of the DEX (e.g. `rhea-finance`). */
+  dexId: string | null
+  base: GtPoolSide
+  quote: GtPoolSide
+  /** One base token in quote tokens, and one quote token in base tokens. */
+  baseInQuote: number | null
+  quoteInBase: number | null
+  /** The base token's price change over 24 hours, in percent. */
+  change24hPct: number | null
+  /** Both sides of the pool, in USD. */
+  liquidityUsd: number | null
+  volume24hUsd: number | null
+  txns24h: { buys: number; sells: number } | null
+}
+
+const tokenId = (rel: unknown): string | null => {
+  const data = isRecord(rel) && isRecord(rel.data) ? rel.data : null
+  return data && typeof data.id === 'string' ? data.id.replace(/^near_/, '') : null
+}
+
+/** `GET {base}/pools/{pool}?include=base_token,quote_token,dex`: null when it isn't one GeckoTerminal indexes. */
+export function parseGtPool(json: unknown): GtPool | null {
+  const data = isRecord(json) && isRecord(json.data) ? json.data : null
+  const a = data && isRecord(data.attributes) ? data.attributes : null
+  const rel = data && isRecord(data.relationships) ? data.relationships : null
+  const baseId = tokenId(rel?.base_token)
+  const quoteId = tokenId(rel?.quote_token)
+  if (!data || !a || !baseId || !quoteId || typeof data.id !== 'string') return null
+  const included = isRecord(json) && Array.isArray(json.included) ? json.included.filter(isRecord) : []
+  const symbol = (id: string) => {
+    const t = included.find((i) => i.type === 'token' && i.id === `near_${id}`)
+    const s = t && isRecord(t.attributes) ? t.attributes.symbol : null
+    return typeof s === 'string' && s ? s : null
+  }
+  const dex = rel && isRecord(rel.dex) && isRecord(rel.dex.data) && typeof rel.dex.data.id === 'string' ? rel.dex.data.id : null
+  const h24 = isRecord(a.transactions) && isRecord(a.transactions.h24) ? a.transactions.h24 : null
+  const buys = h24 ? num(h24.buys) : null
+  const sells = h24 ? num(h24.sells) : null
+  return {
+    id: data.id.replace(/^near_/, ''),
+    dexId: dex,
+    base: { id: baseId, symbol: symbol(baseId), priceUsd: num(a.base_token_price_usd) },
+    quote: { id: quoteId, symbol: symbol(quoteId), priceUsd: num(a.quote_token_price_usd) },
+    baseInQuote: num(a.base_token_price_quote_token),
+    quoteInBase: num(a.quote_token_price_base_token),
+    change24hPct: isRecord(a.price_change_percentage) ? num(a.price_change_percentage.h24) : null,
+    liquidityUsd: num(a.reserve_in_usd),
+    volume24hUsd: isRecord(a.volume_usd) ? num(a.volume_usd.h24) : null,
+    txns24h: buys !== null && sells !== null ? { buys, sells } : null,
+  }
+}
+
+/** A pool's figures with its two tokens and its DEX; null when GeckoTerminal doesn't index it. */
+export async function fetchGtPool(fetchImpl: typeof fetch, baseUrl: string, pool: string): Promise<GtPool | null> {
+  const json = await getMarketJson(fetchImpl, `${baseUrl}/pools/${pool}?include=base_token,quote_token,dex`, { notFound: 'null' }).catch(unanswered)
+  return json === null ? null : parseGtPool(json)
+}
+
 /** Each candle's close at the candle's start, oldest first; a malformed candle is dropped, not repaired. */
 export function parseGtOhlcv(json: unknown): PricePoint[] {
   const data = isRecord(json) && isRecord(json.data) ? json.data : null

@@ -1,0 +1,58 @@
+{
+  "data": {
+    "id": "near_refv2-kits.nearlytrade.near:wrap.near:10000",
+    "type": "pool",
+    "attributes": {
+      "base_token_price_usd": "0.000010877813611346",
+      "base_token_price_native_currency": "0.00000219310758293266",
+      "quote_token_price_usd": "4.96",
+      "quote_token_price_native_currency": "1.0",
+      "base_token_price_quote_token": "0.000002193107583",
+      "quote_token_price_base_token": "455973.983119781",
+      "address": "refv2-kits.nearlytrade.near:wrap.near:10000",
+      "name": "KITS / wNEAR",
+      "pool_name": "KITS / wNEAR",
+      "pool_fee_percentage": null,
+      "pool_created_at": "2023-04-23T14:34:56Z",
+      "fdv_usd": "10877.81361",
+      "market_cap_usd": null,
+      "price_change_percentage": { "m5": "0", "m15": "0", "m30": "0", "h1": "0", "h6": "0", "h24": "0" },
+      "transactions": {
+        "m5": { "buys": 0, "sells": 0, "buyers": 0, "sellers": 0 },
+        "m15": { "buys": 0, "sells": 0, "buyers": 0, "sellers": 0 },
+        "m30": { "buys": 0, "sells": 0, "buyers": 0, "sellers": 0 },
+        "h1": { "buys": 0, "sells": 0, "buyers": 0, "sellers": 0 },
+        "h6": { "buys": 0, "sells": 0, "buyers": 0, "sellers": 0 },
+        "h24": { "buys": 0, "sells": 0, "buyers": 0, "sellers": 0 }
+      },
+      "volume_usd": { "m5": "0.0", "m15": "0.0", "m30": "0.0", "h1": "0.0", "h6": "0.0", "h24": "0.0" },
+      "reserve_in_usd": "9702.5234",
+      "locked_liquidity_percentage": null
+    },
+    "relationships": {
+      "base_token": { "data": { "id": "near_kits.nearlytrade.near", "type": "token" } },
+      "quote_token": { "data": { "id": "near_wrap.near", "type": "token" } },
+      "dex": { "data": { "id": "rhea-finance", "type": "dex" } }
+    }
+  },
+  "included": [
+    {
+      "id": "near_kits.nearlytrade.near",
+      "type": "token",
+      "attributes": { "address": "kits.nearlytrade.near", "name": "Near Kits", "symbol": "KITS", "decimals": 18, "image_url": null, "coingecko_coin_id": null }
+    },
+    {
+      "id": "near_wrap.near",
+      "type": "token",
+      "attributes": {
+        "address": "wrap.near",
+        "name": "Wrapped NEAR fungible token",
+        "symbol": "wNEAR",
+        "decimals": 24,
+        "image_url": "https://coin-images.coingecko.com/coins/images/18280/large/EX4mrWMW_400x400.jpg?1696517773",
+        "coingecko_coin_id": "wrapped-near"
+      }
+    },
+    { "id": "rhea-finance", "type": "dex", "attributes": { "name": "Rhea Finance" } }
+  ]
+}
