@@ -22,11 +22,15 @@ const DETAIL_MS = 30_000
 
 let demo: DiscoveryClient | null = null
 
-/** The data client for this build: null where there is no NEARKITS server (nothing to read). */
+/**
+ * The data client for this build: null where there is no NEARKITS server (nothing to read). The demo's
+ * generated launches, wallets and candles exist in the demo build only (a build-time constant, as for the
+ * demo's services): every other build leaves them out.
+ */
 export function useDiscoveryClient(): DiscoveryClient | null {
   const s = useServices()
   return useMemo(() => {
-    if (s.mode === 'demo') return (demo ??= createDemoDiscovery())
+    if (__NEARKIT_DEMO__ && s.mode === 'demo') return (demo ??= createDemoDiscovery())
     return ENV.apiUrl ? createDiscoveryClient(ENV.apiUrl) : null
   }, [s.mode])
 }
