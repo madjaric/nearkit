@@ -1,13 +1,12 @@
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
-import { PriceChart } from '@/components/chart/PriceChart'
+import { PriceChartPanel } from '@/components/chart/PriceChartPanel'
 import { DataTag } from '@/components/domain/Status'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { LoadFailed, Page, PageGrid, PageHeader } from '@/components/page/Page'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Segmented } from '@/components/ui/Form'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
 import { Price, Pct, Usd } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
@@ -17,7 +16,8 @@ import { riskFlags, sourceLabel } from '@/features/discovery/model'
 import { TOP_WALLETS_PAUSED } from '@/config/paused'
 import { useFollowedSignals, useLaunch, useLaunchCandles } from '@/features/discovery/queries'
 import { candlesFromColumns } from '@/lib/chart/ohlc'
-import { CANDLE_INTERVAL_SEC, CANDLE_INTERVALS, type CandleInterval, type LaunchDetail } from '@/lib/discovery/api'
+import { CANDLE_INTERVAL_SEC, defaultInterval, INTERVAL_TEXT, parseInterval, type CandleInterval } from '@/lib/chart/intervals'
+import type { LaunchDetail } from '@/lib/discovery/api'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatCompact, formatDateTime, formatDuration, formatUsdPrice } from '@/lib/format'
 import { useNow } from '@/lib/hooks'
@@ -29,18 +29,6 @@ import { LinkRequestError } from '@/services/telegramLink'
  * A launch on Launch Radar (DISCOVERY.md): what is verified on chain, what Intear reports, what NEARKITS
  * observed; its hourly chart, holders, risk evidence, latest swaps and tracked wallets' transactions.
  */
-
-// Read in capitals as the control prints them: 1MIN is a minute, never a month.
-const INTERVAL_LABEL: Readonly<Record<CandleInterval, string>> = { '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1h', '4h': '4h', '1d': '1d' }
-const INTERVAL_TEXT: Readonly<Record<CandleInterval, string>> = { '1m': '1-minute', '5m': '5-minute', '15m': '15-minute', '1h': 'hourly', '4h': '4-hour', '1d': 'daily' }
-
-/** A launch's first interval: fine while it is young, hourly once it has days of history. */
-function defaultInterval(age: number | null): CandleInterval {
-  if (age === null) return '1h'
-  if (age < 6 * 3_600_000) return '5m'
-  if (age < 3 * 86_400_000) return '15m'
-  return '1h'
-}
 
 /**
  * The launch's price as candles at the interval chosen (Intear's own resolutions, through NEARKITS'
@@ -60,36 +48,32 @@ function LaunchChart({ d, interval, onInterval }: { d: LaunchDetail; interval: C
   const first = read.candles[0]
   const name = l.symbol ?? l.token
   return (
-    <Panel>
-      <PanelHeader
-        title="Price"
-        actions={
-          <Segmented label="Candle interval" size="sm" value={interval} onChange={onInterval} options={CANDLE_INTERVALS.map((i) => ({ value: i, label: INTERVAL_LABEL[i] }))} />
-        }
-      />
-      <div className="flex flex-col gap-2 p-3">
-        <PriceChart
-          candles={read.candles}
-          intervalSec={CANDLE_INTERVAL_SEC[interval]}
-          status={status}
-          empty={`No ${INTERVAL_TEXT[interval]} candles for ${name} from NEARKITS’ server yet.`}
-          error={`The ${INTERVAL_TEXT[interval]} candles couldn’t be read. NEARKITS asks again shortly.`}
-          onRetry={() => void q.refetch()}
-          livePrice={l.priceUsd}
-          formatPrice={formatUsdPrice}
-          formatVolume={(v) => `$${formatCompact(v, 1)}`}
-          label={`${name} price in USD, ${INTERVAL_TEXT[interval]} candles`}
-          viewKey={`${l.token}:${interval}`}
-        />
-        <p className="text-[11px] leading-4 text-fg-3">
+    <PriceChartPanel
+      interval={interval}
+      onInterval={onInterval}
+      chart={{
+        candles: read.candles,
+        intervalSec: CANDLE_INTERVAL_SEC[interval],
+        status,
+        empty: `No ${INTERVAL_TEXT[interval]} candles for ${name} from NEARKITS’ server yet.`,
+        error: `The ${INTERVAL_TEXT[interval]} candles couldn’t be read. NEARKITS asks again shortly.`,
+        onRetry: () => void q.refetch(),
+        livePrice: l.priceUsd,
+        formatPrice: formatUsdPrice,
+        formatVolume: (v) => `$${formatCompact(v, 1)}`,
+        label: `${name} price in USD, ${INTERVAL_TEXT[interval]} candles`,
+        viewKey: `${l.token}:${interval}`,
+      }}
+      note={
+        <>
           {demo ? 'Demo candles' : 'USD candles from Intear'}
           {fallback ? ' (hourly, as NEARKITS’ server sends them with the launch)' : ''}
           {first ? `: ${n} ${INTERVAL_TEXT[interval]} candle${n === 1 ? '' : 's'} from ${formatDateTime(first.t)}` : ''}. A period without trades has no candle; nothing is filled
           in.
           {dropped > 0 && ` ${dropped} malformed candle${dropped === 1 ? '' : 's'} left out.`} Drag to pan, scroll or pinch to zoom.
-        </p>
-      </div>
-    </Panel>
+        </>
+      }
+    />
   )
 }
 
@@ -125,8 +109,7 @@ export default function LaunchDetailPage() {
     )
   const flags = riskFlags(l)
   const age = l.createdAt === null ? null : now - l.createdAt
-  const asked = params.get('interval')
-  const chosen = (CANDLE_INTERVALS as readonly string[]).includes(asked ?? '') ? (asked as CandleInterval) : null
+  const chosen = parseInterval(params.get('interval'))
   const tradeLink = (
     <Link to={`/token/${encodeURIComponent(l.token)}`} className="inline-flex">
       <Button variant="primary" tabIndex={-1}>

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { ENV } from '@/config/env'
 import { TOP_WALLETS_PAUSED } from '@/config/paused'
+import { INTERVAL_REFRESH_MS } from '@/lib/chart/intervals'
 import type { CandleInterval, FollowView, LaunchPeriod, WalletCategory, WalletMetric, WalletWindowKey } from '@/lib/discovery/api'
 import { useServices } from '@/services/context'
 import { createDiscoveryClient, type DiscoveryClient } from '@/services/discoveryApi'
@@ -21,11 +22,15 @@ const DETAIL_MS = 30_000
 
 let demo: DiscoveryClient | null = null
 
-/** The data client for this build: null where there is no NEARKITS server (nothing to read). */
+/**
+ * The data client for this build: null where there is no NEARKITS server (nothing to read). The demo's
+ * generated launches, wallets and candles exist in the demo build only (a build-time constant, as for the
+ * demo's services): every other build leaves them out.
+ */
 export function useDiscoveryClient(): DiscoveryClient | null {
   const s = useServices()
   return useMemo(() => {
-    if (s.mode === 'demo') return (demo ??= createDemoDiscovery())
+    if (__NEARKIT_DEMO__ && s.mode === 'demo') return (demo ??= createDemoDiscovery())
     return ENV.apiUrl ? createDiscoveryClient(ENV.apiUrl) : null
   }, [s.mode])
 }
@@ -67,7 +72,6 @@ export function useLaunch(token: string) {
 }
 
 /** How often a chart's candles are read again: about as often as NEARKITS' server reads them from Intear. */
-const CANDLES_MS: Readonly<Record<CandleInterval, number>> = { '1m': 30_000, '5m': 60_000, '15m': 120_000, '1h': 300_000, '4h': 600_000, '1d': 1_800_000 }
 
 /** A token's candles at one interval. A 404 (no candles, or a server without this route yet) is not retried. */
 export function useLaunchCandles(token: string, interval: CandleInterval) {
@@ -76,7 +80,7 @@ export function useLaunchCandles(token: string, interval: CandleInterval) {
     queryKey: dk.candles(token, interval),
     queryFn: () => (client as DiscoveryClient).candles(token, interval),
     enabled: client !== null && token !== '',
-    refetchInterval: CANDLES_MS[interval],
+    refetchInterval: INTERVAL_REFRESH_MS[interval],
     retry: (n, e) => !(e instanceof LinkRequestError && e.status === 404) && n < 1,
   })
 }

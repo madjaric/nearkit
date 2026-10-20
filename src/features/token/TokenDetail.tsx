@@ -1,21 +1,20 @@
 import { ExternalLink } from 'lucide-react'
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Link } from 'react-router'
-import { PriceChart } from '@/components/chart/PriceChart'
-import { ValueTrace } from '@/components/chart/ValueTrace'
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { Link, useSearchParams } from 'react-router'
+import { PriceChartPanel } from '@/components/chart/PriceChartPanel'
 import { AccountText } from '@/components/domain/Account'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
 import { Button } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/Copy'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Figures } from '@/components/ui/Figures'
-import { Segmented } from '@/components/ui/Form'
 import { InfoTip } from '@/components/ui/Help'
 import { Skeleton, Tag } from '@/components/ui/Indicators'
 import { Pct } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { CANDLE_INTERVAL_SEC, CANDLE_INTERVALS, defaultInterval, INTERVAL_LABEL, INTERVAL_TEXT, parseInterval, SOURCE_INTERVALS, type CandleInterval } from '@/lib/chart/intervals'
 import { normalizeCandles } from '@/lib/chart/ohlc'
 import { cn } from '@/lib/cn'
 import { formatUnits, formatUnitsShown } from '@/lib/amounts'
@@ -23,14 +22,13 @@ import { formatAccount, formatAgo, formatAmount, formatCompact, formatDateTime, 
 import { useNow, useTokenHead } from '@/lib/hooks'
 import { canExecute, executesViaNearKit } from '@/lib/wallets'
 import { describeError } from '@/services/errors'
-import { CHART_RANGES } from '@/services/near/candles'
 import { explorerTokenUrl, explorerTxUrl } from '@/services/near/explorer'
 import {
   useCapabilities,
   useHoldings,
   useImportToken,
-  usePriceHistory,
   useTokenActivity,
+  useTokenCandles,
   useTokenLookup,
   useTokenMarket,
   useTokens,
@@ -38,8 +36,8 @@ import {
   useWallets,
 } from '@/services/queries'
 import { useTradeDrawer } from '@/state/contexts'
-import type { ChartRange, Holding, MarketFigure, Token } from '@/types/domain'
-import { axisTime, chartView } from './chartView'
+import type { Candle, Holding, MarketFigure, PricePoint, Token } from '@/types/domain'
+import { linePoints } from './chartView'
 import { livePrices, recordPrice, subscribeLivePrices } from './livePrices'
 import { SendTokenButton } from './SendToken'
 
@@ -52,9 +50,8 @@ import { SendTokenButton } from './SendToken'
  * quote decides that, in the ticket), and that it is in the user's own token list.
  */
 
-const RANGES: readonly ChartRange[] = ['1H', '4H', '1D', '1W', '1M', 'ALL']
-const rangeLabel = (r: ChartRange) => (r === 'ALL' ? 'All' : r)
-const rangeText = (r: ChartRange) => (r === 'ALL' ? 'all its history' : `last ${r}`)
+const EMPTY_CANDLES: readonly Candle[] = Object.freeze([])
+const EMPTY_POINTS: readonly PricePoint[] = Object.freeze([])
 
 /** The token for a route id: listed, else read on chain by its contract (nothing saved). */
 export function TokenDetail({ tokenId }: { tokenId: string }) {
@@ -156,15 +153,12 @@ function figureNote(f: MarketFigure | undefined, now: number): string {
   return `Not applicable: ${f.reason}`
 }
 
-const candleLabel = (sec: number) => (sec % 3600 === 0 ? `${sec / 3600}-hour` : `${sec / 60}-minute`)
-
 function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
   const caps = useCapabilities()
   const { openTrade } = useTradeDrawer()
   const now = useNow(1000)
-  const [range, setRange] = useState<ChartRange>('1H')
+  const [params, setParams] = useSearchParams()
   const market = useTokenMarket(token.id)
-  const history = usePriceHistory(token.id, range)
   const supply = useTotalSupply(token.isNative ? null : token.id)
   const activity = useTokenActivity(token.id)
   const importer = useImportToken()
@@ -185,19 +179,7 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
   }, [token.id, price])
 
   const native = token.id === NATIVE_TOKEN_ID
-  // A refresh that fails keeps the history already read (its error is said below the chart); only with none at all is the line the observed one.
-  const view = history.data === undefined && !history.isError ? null : chartView(range, now, history.data ?? null, live)
-  // The history source's own candles in this window (none made up): drawn as candles; without them, the line of observed prices.
-  const h = view?.source === 'history' ? history.data : undefined
-  // Read once per history answer (its window measured from when it was read), not per clock tick: the chart redraws only when the candles change.
-  const readAt = history.dataUpdatedAt
-  const candles = useMemo(() => {
-    if (!h) return []
-    const at = readAt
-    const from = at - CHART_RANGES[range].windowMs
-    return normalizeCandles(h.candles.filter((c) => c.t + h.candleSec * 1000 > from && c.t <= at)).candles
-  }, [h, range, readAt])
-  const volumeText = (v: number) => (h?.volumeUnit === 'USD' ? formatUsdCompact(v, 1) : h?.volumeUnit === 'NEAR' ? `${formatCompact(v)} NEAR` : formatCompact(v))
+  const pair = m?.pair ?? null
   const byId = new Map(wallets.map((w) => [w.id, w]))
   const held = holdings.filter((h) => h.tokenId === token.id && h.amount > 0)
   const rows = held.flatMap((h) => {
@@ -205,7 +187,6 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
     return wallet ? [{ holding: h, wallet }] : []
   })
   const nearkitWallets = wallets.some(executesViaNearKit)
-  const pair = m?.pair ?? null
 
   const noPrice =
     price && (price.state === 'unavailable' || price.state === 'not-applicable')
@@ -214,39 +195,72 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         ? 'The market sources aren’t answering; NEARKITS asks again shortly.'
         : ''
 
-  const chartNote = (): string => {
-    if (!view) return ''
-    const first = view.points[0]
-    const h = history.data
-    if (view.source === 'history' && h) {
-      const start = now - CHART_RANGES[range].windowMs
-      const began =
-        h.since !== null && h.since > start
-          ? ` This market began ${formatDateTime(h.since)}.`
-          : range === 'ALL' && first
-            ? ` The earliest history ${h.source.name} keeps for it starts ${formatDateTime(first.t)}.`
-            : view.partial && first
-              ? ` This window has data from ${formatDateTime(first.t)}.`
-              : ''
-      if (h.candles.length === 0 && h.source.name !== 'CoinGecko' && h.points.filter((p) => p.t >= start).length === 0)
-        return `No trades on ${h.source.market} in this window: the line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}.`
-      if (h.candles.length === 0) return `${h.source.market}: prices from ${h.source.name}, then the live price this page sees. Nothing between two prices is filled in.${began}`
-      return candles.length > 0
-        ? `${h.source.market}: ${candleLabel(h.candleSec)} candles (open, high, low, close${h.volumeUnit ? `, volume in ${h.volumeUnit}` : ''}) from ${h.source.name}; the dashed line is the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
-        : `${h.source.market}: ${candleLabel(h.candleSec)} candle closes from ${h.source.name}, then the live price. A candle exists only for a period with trades; gaps aren’t filled in.${began}`
-    }
-    return `History unavailable: no market-history source indexes ${token.symbol}${native ? '' : ' yet (no DEX pool on GeckoTerminal or DEX Screener, and not listed on CoinGecko)'}. The line shows only the prices this page has seen${first ? `, since ${formatDateTime(first.t)}` : ''}: that is when this page started watching, not when the market began.`
-  }
+  // The chart, as on Launch Radar: candles at an interval, as much history as one read of the source holds.
+  // The interval: the one in the address, else the market's age decides (a token waits for its market to know it).
+  const chosen = parseInterval(params.get('interval'))
+  const age = pair?.createdAt != null && market.dataUpdatedAt > 0 ? market.dataUpdatedAt - pair.createdAt : null
+  const interval = chosen ?? defaultInterval(age)
+  const history = useTokenCandles(token.id, interval, native || chosen !== null || !market.isPending)
+  const onInterval = (i: CandleInterval) =>
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p)
+        n.set('interval', i)
+        return n
+      },
+      { replace: true },
+    )
+  // undefined: not read yet; null: no source has this token's history (the line is the prices this page has seen).
+  const tc = history.data
+  const read = useMemo(() => (tc?.kind === 'candles' ? normalizeCandles(tc.candles) : null), [tc])
+  const candles = read?.candles ?? EMPTY_CANDLES
+  const dropped = read ? (read.dropped.invalid ?? 0) + (read.dropped.time ?? 0) + (read.dropped.duplicate ?? 0) : 0
+  const lineSource = tc === null ? EMPTY_POINTS : tc?.kind === 'line' ? tc.points : null
+  const line = useMemo(() => (lineSource ? linePoints(lineSource, live, now) : null), [lineSource, live, now])
+  const isLine = line !== null
+  const offered = tc ? tc.supported.includes(interval) : true
+  // What each source has: an interval it doesn't have stays in the control, disabled, saying so.
+  const supported = tc ? tc.supported : native ? SOURCE_INTERVALS.Coinbase : pair ? SOURCE_INTERVALS.GeckoTerminal : null
+  const sourceName = tc ? tc.source.name : native ? 'Coinbase' : 'GeckoTerminal'
+  // Why there is no history at all: the demo simulates prices; a network without market prices has none; else no source indexes the token.
+  const noHistory =
+    caps.mode === 'demo'
+      ? 'The demo simulates prices only: it has no market history'
+      : price?.state === 'not-applicable'
+        ? price.reason.replace(/.$/, '')
+        : `No market-history source has ${token.symbol}${native ? '' : ' (no DEX pool on GeckoTerminal or DEX Screener, and not listed on CoinGecko)'}`
+  const unavailable =
+    tc === null
+      ? Object.fromEntries(CANDLE_INTERVALS.map((i) => [i, `${noHistory}, so there are no candles to choose from.`]))
+      : supported
+        ? Object.fromEntries(
+            CANDLE_INTERVALS.filter((i) => !supported.includes(i)).map((i) => [
+              i,
+              `${sourceName} has no ${INTERVAL_TEXT[i]} ${tc?.kind === 'line' ? 'prices' : 'candles'} for ${token.symbol}.`,
+            ]),
+          )
+        : undefined
+  const volumeText = (v: number) => (tc?.volumeUnit === 'USD' ? formatUsdCompact(v, 1) : tc?.volumeUnit === 'NEAR' ? `${formatCompact(v)} NEAR` : formatCompact(v))
+  const shownLine = line && line.length >= 2 ? line : EMPTY_POINTS
+  const first = isLine ? shownLine[0] : candles[0]
 
   const chartEmpty = (): string => {
-    if (!view) return ''
-    const only = view.points[0]
-    if (history.data && view.source === 'history') {
-      if (only) return `One candle with trades in this window: ${formatUsdPrice(only.usd)} at ${formatDateTime(only.t)}. Nothing to draw a line through yet.`
-      return `No trades in this window on ${history.data.source.market}.`
-    }
+    if (tc && !offered)
+      return `${tc.source.name} has no ${INTERVAL_TEXT[interval]} ${tc.kind === 'line' ? 'prices' : 'candles'} for ${tc.source.market}. Choose ${tc.supported.map((i) => INTERVAL_LABEL[i]).join(', ')}.`
+    if (tc?.kind === 'candles') return `No ${INTERVAL_TEXT[interval]} candles for ${token.symbol} on ${tc.source.market} yet: a period without trades has no candle.`
+    if (tc?.kind === 'line') return `No ${INTERVAL_TEXT[interval]} prices for ${token.symbol} from ${tc.source.name} yet.`
+    const only = line?.[0]
     if (only) return `One price so far: ${formatUsdPrice(only.usd)} at ${formatDateTime(only.t)}. The line starts with the next one.`
-    return priceValue !== null ? 'No price points in this window yet.' : 'Price unavailable: nothing to draw.'
+    return priceValue !== null ? 'No price seen yet.' : 'Price unavailable: nothing to draw.'
+  }
+
+  const chartNote = (): string | undefined => {
+    if (tc === undefined || (tc && !offered)) return undefined
+    if (tc === null) return first ? `${noHistory}: the line shows only the prices this page has seen, since ${formatDateTime(first.t)}, not the market’s history.` : `${noHistory}.`
+    if (tc.kind === 'line')
+      return `${tc.source.market}: ${INTERVAL_TEXT[interval]} prices from ${tc.source.name} (it has no candles for this token), then the live price this page sees. Nothing between two prices is filled in. Drag to pan, scroll or pinch to zoom.`
+    const n = candles.length
+    return `${tc.source.market}: ${INTERVAL_TEXT[interval]} candles (open, high, low, close${tc.volumeUnit ? `, volume in ${tc.volumeUnit}` : ''}) from ${tc.source.name}${first ? `: ${n} from ${formatDateTime(first.t)}` : ''}; the dashed line is the live price. A period without trades has no candle; nothing is filled in.${tc.since !== null ? ` This market began ${formatDateTime(tc.since)}.` : ''}${dropped > 0 ? ` ${dropped} malformed candle${dropped === 1 ? '' : 's'} left out.` : ''} Drag to pan, scroll or pinch to zoom.`
   }
 
   const figures: { key: string; label: ReactNode; figure: MarketFigure | undefined; format: (v: number) => string }[] = [
@@ -396,51 +410,32 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         })}
       </ReadoutStrip>
 
-      <Panel>
-        <PanelHeader
-          title="Price"
-          actions={<Segmented label="Chart window" size="sm" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: rangeLabel(r) }))} />}
-        />
-        <div className="flex flex-col gap-2 p-4">
-          {!view ? (
-            <Skeleton className="h-[320px] w-full sm:h-[400px]" />
-          ) : candles.length > 0 && h ? (
-            <PriceChart
-              candles={candles}
-              intervalSec={h.candleSec}
-              livePrice={priceValue}
-              formatPrice={formatUsdPrice}
-              formatVolume={volumeText}
-              label={`${token.symbol} price, ${rangeText(range)}, ${candleLabel(h.candleSec)} candles`}
-              viewKey={`${token.id}:${range}`}
-            />
-          ) : view.points.length >= 2 ? (
-            <ValueTrace
-              key={range}
-              points={view.points.map((p) => ({ t: p.t, v: p.usd }))}
-              timeScale
-              label={`${token.symbol} price, ${rangeText(range)}`}
-              formatValue={formatUsdPrice}
-              formatTick={formatUsdPrice}
-              formatTime={formatDateTime}
-              formatAxis={axisTime(range)}
-              height={220}
-            />
-          ) : (
-            <p className="py-16 text-center text-sm text-fg-3">
-              <Figures>{chartEmpty()}</Figures>
-            </p>
-          )}
-          {history.isError && (
-            <p className="text-xs text-warn" role="alert">
-              {history.data
-                ? `The last refresh of this history failed (${describeError(history.error).message}): what was read before stays. NEARKITS asks again shortly.`
-                : `Price history can’t be read right now (${describeError(history.error).message}). NEARKITS asks again shortly.`}
-            </p>
-          )}
-          {view && view.points.length > 0 && <p className="text-xs text-fg-3">{chartNote()}</p>}
-        </div>
-      </Panel>
+      <PriceChartPanel
+        interval={interval}
+        onInterval={onInterval}
+        unavailable={unavailable}
+        chartKey={isLine ? 'line' : 'candles'}
+        chart={{
+          ...(isLine ? { line: shownLine } : { candles: offered ? candles : EMPTY_CANDLES }),
+          intervalSec: CANDLE_INTERVAL_SEC[interval],
+          status: tc === undefined ? (history.isError ? 'error' : 'loading') : 'ready',
+          empty: chartEmpty(),
+          error: history.isError ? `Price history can’t be read right now (${describeError(history.error).message}). NEARKITS asks again shortly.` : undefined,
+          onRetry: () => void history.refetch(),
+          // With no source the line ends at the live price itself: no second line for it.
+          livePrice: tc === null ? null : priceValue,
+          formatPrice: formatUsdPrice,
+          formatVolume: volumeText,
+          label: `${token.symbol} price in USD, ${tc === null ? 'prices seen on this page' : tc?.kind === 'line' ? `${INTERVAL_TEXT[interval]} prices` : `${INTERVAL_TEXT[interval]} candles`}`,
+          viewKey: `${token.id}:${interval}`,
+        }}
+        alert={
+          history.isError && tc !== undefined
+            ? `The last refresh failed (${describeError(history.error).message}): what was read before stays. NEARKITS asks again shortly.`
+            : undefined
+        }
+        note={chartNote()}
+      />
 
       <Panel>
         <PanelHeader

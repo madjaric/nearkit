@@ -16,6 +16,8 @@ export interface ChartColors {
   posVolume: string
   negVolume: string
   live: string
+  /** A price line (a source with prices only): the accent, as every other price line in NEARKITS. */
+  line: string
 }
 
 const FALLBACK: ChartColors = {
@@ -30,6 +32,7 @@ const FALLBACK: ChartColors = {
   posVolume: 'rgba(196,232,88,0.32)',
   negVolume: 'rgba(238,104,92,0.32)',
   live: 'rgba(152,158,166,1)',
+  line: 'rgba(196,232,88,1)',
 }
 
 function rgba(ctx: CanvasRenderingContext2D, css: string, alpha = 1): string | null {
@@ -64,5 +67,6 @@ export function chartColors(el: Element | null): ChartColors {
     posVolume: pick('--color-pos', FALLBACK.posVolume, 0.32),
     negVolume: pick('--color-neg', FALLBACK.negVolume, 0.32),
     live: pick('--color-fg-2', FALLBACK.live),
+    line: pick('--color-accent', FALLBACK.line),
   }
 }

@@ -4,12 +4,14 @@ import {
   CrosshairMode,
   createChart,
   HistogramSeries,
+  LineSeries,
   LineStyle,
   type CandlestickData,
   type HistogramData,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type LineData,
   type MouseEventParams,
   type Time,
   type UTCTimestamp,
@@ -20,14 +22,15 @@ import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, use
 import { cn } from '@/lib/cn'
 import { planUpdate, priceMinMove, viewAfterReplace } from '@/lib/chart/ohlc'
 import { formatDateTime } from '@/lib/format'
-import type { Candle } from '@/types/domain'
+import type { Candle, PricePoint } from '@/types/domain'
 import { chartColors, type ChartColors } from './chartColors'
 
 /**
- * NEARKITS' interactive price chart (TradingView Lightweight Charts): real OHLC candles, green when a
- * candle closed at or above its open, red below; volume in its own pane beneath, only when the source
- * reports it; no price at or below zero is ever labelled; drag to pan,
- * wheel, trackpad or pinch to zoom, a crosshair with each candle's figures, the price scale on the right.
+ * NEARKITS' interactive price chart (TradingView Lightweight Charts), the one every token chart uses:
+ * real OHLC candles, green when a candle closed at or above its open, red below; volume in its own
+ * pane beneath, only when the source reports it; no price at or below zero is ever labelled; drag to
+ * pan, wheel, trackpad or pinch to zoom, a crosshair with each candle's figures, the price scale on the
+ * right. A source with prices only (no candles) is drawn as a line in the same chart: never as candles.
  *
  * The chart is created once. A refresh that only moves the last candle (or adds new ones) is drawn in
  * place; anything else replaces the series and puts the view back where the user had it (still
@@ -36,8 +39,14 @@ import { chartColors, type ChartColors } from './chartColors'
  */
 
 export interface PriceChartProps {
-  candles: readonly Candle[]
-  /** The candles' period in seconds (named in the readout). */
+  /** The candles, normalized. */
+  candles?: readonly Candle[]
+  /**
+   * Prices only (a source without candles, or the prices a page has seen), oldest first, one per time:
+   * drawn as a line. Read once: a parent switching between a line and candles gives the chart a new `key`.
+   */
+  line?: readonly PricePoint[]
+  /** The candles' period in seconds (named in the readout); for a line, its prices' spacing. */
   intervalSec: number
   /** loading: the first read is pending; error: nothing could be read. A background refresh keeps the chart. */
   status?: 'loading' | 'error' | 'ready'
@@ -76,11 +85,17 @@ interface Tip {
 
 type ChartRefs = {
   chart: IChartApi
-  candles: ISeriesApi<'Candlestick'>
+  /** The price: candles, or a line for a source with prices only. */
+  price: ISeriesApi<'Candlestick'> | ISeriesApi<'Line'>
+  isLine: boolean
   /** Its own pane under the price; there only while the data has volume. */
   volume: ISeriesApi<'Histogram'> | null
   colors: ChartColors
 }
+
+const EMPTY: readonly Candle[] = Object.freeze([])
+/** A line's price as the chart keeps it internally (planning a refresh, the readout): its close; it has no candle. */
+const asCandles = (points: readonly PricePoint[]): Candle[] => points.map((p) => ({ t: p.t, o: p.usd, h: p.usd, l: p.usd, c: p.usd, v: null }))
 
 /** A price label: none at or below zero (a margin of the scale, never a price). */
 const positiveOnly = (fmt: (v: number) => string) => (p: number) => (p > 0 ? fmt(p) : '')
@@ -105,47 +120,54 @@ function intervalText(sec: number): string {
   return `${Math.round(sec / 60)}-minute`
 }
 
-const HoverTip = forwardRef<{ show(t: Tip | null): void }, { formatPrice: (v: number) => string; formatVolume?: (v: number) => string; intervalSec: number }>(function HoverTip(
-  { formatPrice, formatVolume, intervalSec },
-  ref,
-) {
-  const [tip, setTip] = useState<Tip | null>(null)
-  useImperativeHandle(ref, () => ({ show: setTip }), [])
-  if (!tip) return null
-  const c = tip.candle
-  const up = c.c >= c.o
-  const W = 184
-  const left = tip.x + 16 + W > tip.width - 64 ? Math.max(4, tip.x - 16 - W) : tip.x + 16
-  const top = Math.min(Math.max(6, tip.y - 40), Math.max(6, tip.height - 150))
-  return (
-    <div
-      className="pointer-events-none absolute z-10 w-[184px] rounded-md border border-line bg-panel/95 px-2.5 py-2 text-xs shadow-lg backdrop-blur-sm"
-      style={{ left, top }}
-      role="status"
-      aria-live="off"
-    >
-      <div className="mb-1 text-[11px] text-fg-3">
-        {formatDateTime(c.t)} · {intervalText(intervalSec)}
-      </div>
-      <dl className="num grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-        <dt className="text-fg-4">O</dt>
-        <dd className="text-right text-fg">{formatPrice(c.o)}</dd>
-        <dt className="text-fg-4">H</dt>
-        <dd className="text-right text-fg">{formatPrice(c.h)}</dd>
-        <dt className="text-fg-4">L</dt>
-        <dd className="text-right text-fg">{formatPrice(c.l)}</dd>
-        <dt className="text-fg-4">C</dt>
-        <dd className={cn('text-right', up ? 'text-pos' : 'text-neg')}>{formatPrice(c.c)}</dd>
-        {c.v !== null && formatVolume && (
-          <>
-            <dt className="text-fg-4">Vol</dt>
-            <dd className="text-right text-fg-2">{formatVolume(c.v)}</dd>
-          </>
+const HoverTip = forwardRef<{ show(t: Tip | null): void }, { formatPrice: (v: number) => string; formatVolume?: (v: number) => string; intervalSec: number; line: boolean }>(
+  function HoverTip({ formatPrice, formatVolume, intervalSec, line }, ref) {
+    const [tip, setTip] = useState<Tip | null>(null)
+    useImperativeHandle(ref, () => ({ show: setTip }), [])
+    if (!tip) return null
+    const c = tip.candle
+    const up = c.c >= c.o
+    const W = 184
+    const left = tip.x + 16 + W > tip.width - 64 ? Math.max(4, tip.x - 16 - W) : tip.x + 16
+    const top = Math.min(Math.max(6, tip.y - 40), Math.max(6, tip.height - 150))
+    return (
+      <div
+        className="pointer-events-none absolute z-10 w-[184px] rounded-md border border-line bg-panel/95 px-2.5 py-2 text-xs shadow-lg backdrop-blur-sm"
+        style={{ left, top }}
+        role="status"
+        aria-live="off"
+      >
+        <div className="mb-1 text-[11px] text-fg-3">
+          {formatDateTime(c.t)}
+          {line ? '' : ` · ${intervalText(intervalSec)}`}
+        </div>
+        {line ? (
+          <dl className="num grid grid-cols-[auto_1fr] gap-x-3">
+            <dt className="text-fg-4">Price</dt>
+            <dd className="text-right text-fg">{formatPrice(c.c)}</dd>
+          </dl>
+        ) : (
+          <dl className="num grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            <dt className="text-fg-4">O</dt>
+            <dd className="text-right text-fg">{formatPrice(c.o)}</dd>
+            <dt className="text-fg-4">H</dt>
+            <dd className="text-right text-fg">{formatPrice(c.h)}</dd>
+            <dt className="text-fg-4">L</dt>
+            <dd className="text-right text-fg">{formatPrice(c.l)}</dd>
+            <dt className="text-fg-4">C</dt>
+            <dd className={cn('text-right', up ? 'text-pos' : 'text-neg')}>{formatPrice(c.c)}</dd>
+            {c.v !== null && formatVolume && (
+              <>
+                <dt className="text-fg-4">Vol</dt>
+                <dd className="text-right text-fg-2">{formatVolume(c.v)}</dd>
+              </>
+            )}
+          </dl>
         )}
-      </dl>
-    </div>
-  )
-})
+      </div>
+    )
+  },
+)
 
 /** The first view: everything when it fits (a short history at a normal width, on the right), otherwise the newest candles; the price scale back on auto. */
 function fitView(chart: IChartApi, n: number) {
@@ -159,7 +181,8 @@ function fitView(chart: IChartApi, n: number) {
 }
 
 export function PriceChart({
-  candles,
+  candles: given = EMPTY,
+  line,
   intervalSec,
   status = 'ready',
   empty,
@@ -184,6 +207,9 @@ export function PriceChart({
   const liveLine = useRef<IPriceLine | null>(null)
   const fmt = useRef(formatPrice)
   const summaryId = useId()
+  // Candles, or a line's prices kept as closes: one shape for the view and refresh logic below.
+  const [isLine] = useState(line !== undefined)
+  const candles = useMemo(() => (line ? asCandles(line) : given), [line, given])
 
   // The chart, once per mount: its series, crosshair readout and cleanup.
   useEffect(() => {
@@ -222,23 +248,26 @@ export function PriceChart({
       handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
       kineticScroll: { mouse: false, touch: true },
     })
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: colors.pos,
-      downColor: colors.neg,
-      borderUpColor: colors.pos,
-      borderDownColor: colors.neg,
-      wickUpColor: colors.pos,
-      wickDownColor: colors.neg,
-      priceLineVisible: false,
-      priceFormat: { type: 'custom', minMove: 0.01, formatter: positiveOnly((p) => fmt.current(p)) },
-    })
+    const priceFormat = { type: 'custom' as const, minMove: 0.01, formatter: positiveOnly((p) => fmt.current(p)) }
+    const series = isLine
+      ? chart.addSeries(LineSeries, { color: colors.line, lineWidth: 2, priceLineVisible: false, crosshairMarkerRadius: 3, priceFormat })
+      : chart.addSeries(CandlestickSeries, {
+          upColor: colors.pos,
+          downColor: colors.neg,
+          borderUpColor: colors.pos,
+          borderDownColor: colors.neg,
+          wickUpColor: colors.pos,
+          wickDownColor: colors.neg,
+          priceLineVisible: false,
+          priceFormat,
+        })
     const onMove = (p: MouseEventParams<Time>) => {
       const c = p.time !== undefined ? byTime.current.get(p.time as number) : undefined
       if (!c || !p.point || p.point.x < 0 || p.point.y < 0) return tipRef.current?.show(null)
       tipRef.current?.show({ x: p.point.x, y: p.point.y, width: host.clientWidth, height: host.clientHeight, candle: c })
     }
     chart.subscribeCrosshairMove(onMove)
-    refs.current = { chart, candles: series, volume: null, colors }
+    refs.current = { chart, price: series, isLine, volume: null, colors }
     // A handle for the browser tests (never in a production build).
     if (!import.meta.env.PROD) (host as HTMLDivElement & { __nearkitsChart?: IChartApi }).__nearkitsChart = chart
     return () => {
@@ -254,6 +283,7 @@ export function PriceChart({
       hadVolume.current = false
     }
     // intervalSec only sets whether the axis shows the time of day: read once, a new interval comes with a new viewKey.
+    // isLine is read once by design (a parent switching kinds remounts with a new key).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -276,7 +306,7 @@ export function PriceChart({
     const prev = dataRef.current
     if (candles.length === 0) {
       if (prev.length) {
-        r.candles.setData([])
+        r.price.setData([])
         r.volume?.setData([])
         dataRef.current = []
         byTime.current = new Map()
@@ -288,6 +318,9 @@ export function PriceChart({
     const off = offset.current
     const time = (c: Candle) => (Math.floor(c.t / 1000) + off) as UTCTimestamp
     const bar = (c: Candle): CandlestickData<Time> => ({ time: time(c), open: c.o, high: c.h, low: c.l, close: c.c })
+    const point = (c: Candle): LineData<Time> => ({ time: time(c), value: c.c })
+    const line = r.isLine ? (r.price as ISeriesApi<'Line'>) : null
+    const bars = r.isLine ? null : (r.price as ISeriesApi<'Candlestick'>)
     const vol = (c: Candle): HistogramData<Time> | WhitespaceData<Time> =>
       c.v === null ? { time: time(c) } : { time: time(c), value: c.v, color: c.c >= c.o ? r.colors.posVolume : r.colors.negVolume }
     const hasVolume = candles.some((c) => c.v !== null)
@@ -295,13 +328,14 @@ export function PriceChart({
     if (plan.kind === 'none') return
     const mm = priceMinMove(candles)
     if (mm !== minMove.current) {
-      r.candles.applyOptions({ priceFormat: { type: 'custom', minMove: mm, formatter: positiveOnly((p) => fmt.current(p)) } })
+      r.price.applyOptions({ priceFormat: { type: 'custom', minMove: mm, formatter: positiveOnly((p) => fmt.current(p)) } })
       minMove.current = mm
     }
     if (plan.kind === 'tail') {
       for (let i = plan.from; i < candles.length; i++) {
         const c = candles[i] as Candle
-        r.candles.update(bar(c))
+        if (line) line.update(point(c))
+        else bars?.update(bar(c))
         r.volume?.update(vol(c))
         byTime.current.set(time(c), c)
       }
@@ -309,7 +343,8 @@ export function PriceChart({
       const ts = r.chart.timeScale()
       const logical = fitNext.current ? null : ts.getVisibleLogicalRange()
       const range = fitNext.current ? null : ts.getVisibleRange()
-      r.candles.setData(candles.map(bar))
+      if (line) line.setData(candles.map(point))
+      else bars?.setData(candles.map(bar))
       setVolume(r, hasVolume)
       r.volume?.setData(candles.map(vol))
       byTime.current = new Map(candles.map((c) => [time(c), c]))
@@ -329,14 +364,14 @@ export function PriceChart({
     if (!r) return
     const known = livePrice !== null && Number.isFinite(livePrice) && livePrice > 0
     if (!known) {
-      if (liveLine.current) r.candles.removePriceLine(liveLine.current)
+      if (liveLine.current) r.price.removePriceLine(liveLine.current)
       liveLine.current = null
-      r.candles.applyOptions({ lastValueVisible: true })
+      r.price.applyOptions({ lastValueVisible: true })
       return
     }
     if (liveLine.current) liveLine.current.applyOptions({ price: livePrice })
-    else liveLine.current = r.candles.createPriceLine({ price: livePrice, color: r.colors.live, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '' })
-    r.candles.applyOptions({ lastValueVisible: false })
+    else liveLine.current = r.price.createPriceLine({ price: livePrice, color: r.colors.live, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '' })
+    r.price.applyOptions({ lastValueVisible: false })
   }, [livePrice])
 
   const reset = () => {
@@ -360,21 +395,22 @@ export function PriceChart({
   const summary = useMemo(() => {
     const first = candles[0]
     const last = candles[candles.length - 1]
-    if (!first || !last) return `${label}: no candles.`
+    if (!first || !last) return `${label}: ${isLine ? 'no prices' : 'no candles'}.`
     let hi = -Infinity
     let lo = Infinity
     for (const c of candles) {
       if (c.h > hi) hi = c.h
       if (c.l < lo) lo = c.l
     }
-    return `${label}: ${candles.length} ${intervalText(intervalSec)} candles from ${formatDateTime(first.t)} to ${formatDateTime(last.t)}; last close ${formatPrice(last.c)}, high ${formatPrice(hi)}, low ${formatPrice(lo)}. Arrow keys pan, plus and minus zoom, 0 resets the view.`
-  }, [candles, label, intervalSec, formatPrice])
+    const what = isLine ? `${candles.length} prices` : `${candles.length} ${intervalText(intervalSec)} candles`
+    return `${label}: ${what} from ${formatDateTime(first.t)} to ${formatDateTime(last.t)}; last ${isLine ? 'price' : 'close'} ${formatPrice(last.c)}, high ${formatPrice(hi)}, low ${formatPrice(lo)}. Arrow keys pan, plus and minus zoom, 0 resets the view.`
+  }, [candles, label, intervalSec, formatPrice, isLine])
 
   const overlay =
     candles.length > 0 ? null : status === 'loading' ? (
       <div className="flex flex-col items-center gap-2 text-sm text-fg-3" aria-busy="true">
         <span className="h-1 w-24 animate-pulse rounded-full bg-raised" />
-        Loading candles…
+        {isLine ? 'Loading prices…' : 'Loading candles…'}
       </div>
     ) : status === 'error' ? (
       <div className="flex max-w-sm flex-col items-center gap-2 text-center text-sm text-fg-3" role="alert">
@@ -386,7 +422,7 @@ export function PriceChart({
         )}
       </div>
     ) : (
-      <div className="max-w-sm text-center text-sm text-fg-3">{empty ?? 'No candles in this window.'}</div>
+      <div className="max-w-sm text-center text-sm text-fg-3">{empty ?? (isLine ? 'No prices yet.' : 'No candles yet.')}</div>
     )
 
   return (
@@ -398,7 +434,7 @@ export function PriceChart({
         onPointerLeave={() => tipRef.current?.show(null)}
         className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
       />
-      <HoverTip ref={tipRef} formatPrice={formatPrice} formatVolume={formatVolume} intervalSec={intervalSec} />
+      <HoverTip ref={tipRef} formatPrice={formatPrice} formatVolume={formatVolume} intervalSec={intervalSec} line={isLine} />
       {candles.length > 0 && (
         <button
           type="button"
