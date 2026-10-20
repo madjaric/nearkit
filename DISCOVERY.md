@@ -52,8 +52,12 @@ server, which reads each source once for everyone.
   - `POST /api/discovery/candles {token, interval}`: a token's USD candles at one of Intear's own
     resolutions (verified 2026-10-19). `1m` gives 360 candles (6 h), `5m` 576 (2 days), `15m` 672
     (7 days), `1h` 720 (30 days), `4h` 540 (90 days), `1d` 365. Each token and interval is read once
-    while fresh: 30 s for 1m, up to 30 min for 1d. A bad interval answers 400, a token with no candles
-    404, Intear down 503.
+    while fresh: 30 s for 1m, up to 30 min for 1d.
+    - Only tokens NEARKITS has seen: every listed launch, and any a launch page has looked up. Others
+      get 404 without Intear being asked, so the route is never an open proxy.
+    - At most 30 reads from Intear a minute for everyone (the indexer shares that queue). Past that,
+      cached answers are still served and anything new gets 503 `busy`.
+    - A bad interval answers 400, no candles 404, Intear down 503.
 - **Price chart** (`src/components/chart/PriceChart.tsx`, TradingView Lightweight Charts): the
   Launch Radar detail and the Token page draw the same interactive candles: pan, zoom, crosshair
   readout, volume in its own pane when reported. Every candle goes through

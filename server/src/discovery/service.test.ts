@@ -81,7 +81,7 @@ function fakeIntear(o: { fail?: boolean; candleCalls?: [string, string, number][
     candles: async (token, resolution, countBack) => {
       o.candleCalls?.push([token, resolution, countBack])
       if (o.fail) throw new IntearError(503, 'internal', 'down')
-      return token === 'unknown.near' ? null : { time: [1], open: [1], high: [1], low: [1], close: [1], volume: [1] }
+      return token === Z ? null : { time: [1], open: [1], high: [1], low: [1], close: [1], volume: [1] }
     },
   }
 }
@@ -218,7 +218,7 @@ describe('routes', () => {
     }
   })
 
-  it('candles: one read per token and interval while fresh; 400 for a bad interval or token, 404 for a token Intear has no candles for, 503 when it is down', async () => {
+  it('candles: one read per token and interval while fresh; 400 for a bad interval or token; 404 for a token NEARKITS hasn’t seen (Intear never asked) or one Intear has no candles for; 503 when it is down', async () => {
     const candleCalls: [string, string, number][] = []
     const { call } = await setup({ candleCalls })
     await call('/api/discovery/candles', { token: X, interval: '5m' })
@@ -230,8 +230,33 @@ describe('routes', () => {
     await expect(call('/api/discovery/candles', { token: X })).rejects.toMatchObject({ status: 400 })
     await expect(call('/api/discovery/candles', { token: 'NOT A TOKEN', interval: '1h' })).rejects.toMatchObject({ status: 400 })
     await expect(call('/api/discovery/candles', { token: 'unknown.near', interval: '1h' })).rejects.toMatchObject({ status: 404 })
+    expect(candleCalls.some(([t]) => t === 'unknown.near')).toBe(false)
+    await expect(call('/api/discovery/candles', { token: Z, interval: '1h' })).rejects.toMatchObject({ status: 404 })
     const down = await setup({ fail: true })
     await expect(down.call('/api/discovery/candles', { token: X, interval: '1h' })).rejects.toMatchObject({ status: 503, code: 'source' })
+  })
+
+  it('candles: at most 30 reads from Intear a minute for everyone (the indexer shares its queue); past that, what is cached or 503 busy; the next minute reads again', async () => {
+    const candleCalls: [string, string, number][] = []
+    let clock = NOW
+    const store = new DiscoveryStore(await openTestDatabase('sqlite'), () => clock)
+    const many = Array.from({ length: 40 }, (_, i) => `t${i}.nearlytrade.near`)
+    await store.upsertTokens(
+      'mainnet',
+      many.map((t) => token({ token: t })),
+    )
+    const service = createDiscoveryService({ store, intear: fakeIntear({ candleCalls }), indexer: { status: () => status }, network: NET, log: silentLogger, now: () => clock })
+    const routes = discoveryRoutes({ service, store, network: 'mainnet', sessions: null })
+    const call = (body: unknown) => (routes['/api/discovery/candles'] as (b: unknown, r: never) => Promise<unknown>)(body, {} as never)
+    for (const t of many.slice(0, 30)) await call({ token: t, interval: '1h' })
+    expect(candleCalls).toHaveLength(30)
+    await expect(call({ token: many[30], interval: '1h' })).rejects.toMatchObject({ status: 503, code: 'busy' })
+    expect(candleCalls).toHaveLength(30)
+    // What was read already is served from the cache meanwhile.
+    await expect(call({ token: many[0], interval: '1h' })).resolves.toMatchObject({ token: many[0] })
+    clock += 61_000
+    await expect(call({ token: many[30], interval: '1h' })).resolves.toMatchObject({ token: many[30] })
+    expect(candleCalls).toHaveLength(31)
   })
 
   it('signals: followed wallets’ swaps in recent launches', async () => {

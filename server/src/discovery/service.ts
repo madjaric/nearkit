@@ -20,6 +20,7 @@ import {
   type WalletTradesPage,
   type WalletWindowKey,
 } from '@/lib/discovery/api'
+import { HttpError } from '../api/http'
 import type { Logger } from '../log'
 import { dayOf, type RawTrade } from './accounting'
 import { STALE_MS, type DiscoveryIndexer } from './indexer'
@@ -47,6 +48,12 @@ const CANDLE_READ: Readonly<Record<CandleInterval, { resolution: '1' | '5' | '15
   '4h': { resolution: '240', countBack: 540, ttl: 600_000 },
   '1d': { resolution: 'D', countBack: 365, ttl: 1_800_000 },
 }
+/**
+ * Candle reads from Intear a minute, for everyone together: the indexer shares that one queue, so the
+ * candles route can't be turned into a firehose by asking for many tokens. Past it, a cached answer is
+ * still served; anything new waits for the next minute.
+ */
+const CANDLE_READS_PER_MINUTE = 30
 const SPARK_TTL = 600_000
 const THUMB_TTL = 6 * 3_600_000
 const META_TTL = 3_600_000
@@ -91,7 +98,7 @@ export interface DiscoveryService {
   launches(period: LaunchPeriod): Promise<LaunchesResponse>
   extras(tokens: readonly string[]): Promise<LaunchExtras>
   launch(token: string): Promise<LaunchDetail | null>
-  /** A token's USD candles at one interval, as Intear serves them; null when it has none. */
+  /** A token's USD candles at one interval, as Intear serves them; null when NEARKITS hasn't seen the token or Intear has none. */
   candles(token: string, interval: CandleInterval): Promise<CandlesResponse | null>
   wallets(q: { window: WalletWindowKey; metric: WalletMetric; category: WalletCategory; limit: number; search?: string }): Promise<WalletsResponse>
   wallet(account: string): Promise<WalletDetail | null>
@@ -110,6 +117,7 @@ export function createDiscoveryService(deps: {
 }): DiscoveryService {
   const now = deps.now ?? Date.now
   const net = deps.network.id
+  const candleBudget = { from: 0, used: 0 }
   const cached = cache(now)
   const currency = new Set([deps.network.wrapContract, ...deps.network.stableTokens.map((s) => s.contract)])
   // Row extras, per token: the 24h trace and the icon (kept a while; the list repeats the same tokens).
@@ -416,9 +424,18 @@ export function createDiscoveryService(deps: {
         }
       }),
 
-    candles: (token, interval) => {
+    candles: async (token, interval) => {
+      // Only tokens NEARKITS has seen (every launch it lists, and any a launch page has looked up): never an open proxy.
+      if (!(await deps.store.token(net, token))) return null
       const r = CANDLE_READ[interval]
       return cached(`candles:${token}:${interval}`, r.ttl, async () => {
+        const t = now()
+        if (t - candleBudget.from >= 60_000) {
+          candleBudget.from = t
+          candleBudget.used = 0
+        }
+        if (candleBudget.used >= CANDLE_READS_PER_MINUTE) throw new HttpError(503, 'busy', 'NEARKITS is reading candles for many tokens right now. Try again in a minute.')
+        candleBudget.used++
         const c = await deps.intear.candles(token, r.resolution, r.countBack)
         return c ? { token, interval, intervalSec: CANDLE_INTERVAL_SEC[interval], candles: c, at: now() } : null
       })

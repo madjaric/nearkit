@@ -85,7 +85,7 @@ export function discoveryRoutes(deps: { service: DiscoveryService; store: Discov
         throw new HttpError(400, 'bad-request', `interval: one of ${CANDLE_INTERVALS.join(', ')}`)
       const interval = b.interval as CandleInterval
       const c = await fromSource(() => service.candles(token, interval))
-      if (!c) throw new HttpError(404, 'not-found', 'Intear has no candles for this token.')
+      if (!c) throw new HttpError(404, 'not-found', 'NEARKITS has no candles for this token.')
       return c
     },
     '/api/discovery/wallets': async (body) => {
