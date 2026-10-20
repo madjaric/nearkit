@@ -75,8 +75,9 @@ describe('the Telegram BUY screen', () => {
       'How much NEAR?',
     ])
       expect(text).toContain(part)
-    // NearKit's fee is disclosed on the quote, not here.
-    expect(text).not.toMatch(/fee/i)
+    // NearKit's fee is disclosed on the quote, not here. The wallet's address is random hex (a "3e2fee…"
+    // once failed this check in CI): it is left out of it, everything else on the screen is checked.
+    expect(text.replace(shortAccount(w.accountId), '')).not.toMatch(/fee/i)
     const labels = h.buttons().map((b) => b.text)
     expect(labels.slice(0, 3)).toEqual(['0.1 NEAR', '0.5 NEAR', '1 NEAR'])
     expect(labels.some((l) => l.startsWith('MAX · '))).toBe(true)
