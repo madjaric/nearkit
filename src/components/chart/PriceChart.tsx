@@ -313,7 +313,7 @@ export function PriceChart({
       setVolume(r, hasVolume)
       r.volume?.setData(candles.map(vol))
       byTime.current = new Map(candles.map((c) => [time(c), c]))
-      const view = viewAfterReplace({ prevLength: prev.length, logical, nextLength: candles.length })
+      const view = viewAfterReplace({ prevTimes: prev.map((c) => c.t), logical, nextTimes: candles.map((c) => c.t) })
       if (view.kind === 'fit') fitView(r.chart, candles.length)
       else if (view.kind === 'logical') ts.setVisibleLogicalRange({ from: view.from, to: view.to })
       else if (range) ts.setVisibleRange(range)

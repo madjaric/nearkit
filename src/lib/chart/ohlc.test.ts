@@ -133,20 +133,34 @@ describe('toChartTimes', () => {
 })
 
 describe('viewAfterReplace: where the view goes when a refresh replaces the series', () => {
+  /** Candle times (ms) of candles `from` up to, not including, `to`. */
+  const times = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => T0 + (from + i) * H)
+
   it('following the newest candle (it is in view): the same zoom and right gap, on the new newest candle', () => {
     // 30 candles in view, the newest (index 99) 3 bars from the right edge; the refresh has 101 candles.
-    expect(viewAfterReplace({ prevLength: 100, logical: { from: 72, to: 102 }, nextLength: 101 })).toEqual({ kind: 'logical', from: 73, to: 103 })
+    expect(viewAfterReplace({ prevTimes: times(0, 100), logical: { from: 72, to: 102 }, nextTimes: times(0, 101) })).toEqual({ kind: 'logical', from: 73, to: 103 })
     // History slid (the oldest dropped, one added): same length, still anchored on the newest.
-    expect(viewAfterReplace({ prevLength: 100, logical: { from: 72, to: 102 }, nextLength: 100 })).toEqual({ kind: 'logical', from: 72, to: 102 })
+    expect(viewAfterReplace({ prevTimes: times(0, 100), logical: { from: 72, to: 102 }, nextTimes: times(1, 101) })).toEqual({ kind: 'logical', from: 72, to: 102 })
   })
 
-  it('looking at older candles: the same stretch of time, wherever it now sits in the series', () => {
-    expect(viewAfterReplace({ prevLength: 100, logical: { from: 20, to: 50 }, nextLength: 101 })).toEqual({ kind: 'time' })
+  it('looking at older candles: the very same candles, at the same place and zoom, wherever they now sit in the series', () => {
+    // A drag leaves the view between bars (20.25 … 50.25): kept exactly, never snapped to whole bars.
+    const view = { from: 20.25, to: 50.25 }
+    // History slid by one (the oldest dropped, one added): the same candles are one index lower.
+    expect(viewAfterReplace({ prevTimes: times(0, 100), logical: view, nextTimes: times(1, 101) })).toEqual({ kind: 'logical', from: 19.25, to: 49.25 })
+    // One candle added at the end: nothing in view moved.
+    expect(viewAfterReplace({ prevTimes: times(0, 100), logical: view, nextTimes: times(0, 101) })).toEqual({ kind: 'logical', from: 20.25, to: 50.25 })
+    // A view that starts before the first candle keeps its blank space too.
+    expect(viewAfterReplace({ prevTimes: times(0, 100), logical: { from: -4.5, to: 25.5 }, nextTimes: times(0, 101) })).toEqual({ kind: 'logical', from: -4.5, to: 25.5 })
+  })
+
+  it('looking at older candles the refresh no longer holds: the same stretch of time', () => {
+    expect(viewAfterReplace({ prevTimes: times(0, 100), logical: { from: 2, to: 10 }, nextTimes: times(20, 120) })).toEqual({ kind: 'time' })
   })
 
   it('no view yet: fit', () => {
-    expect(viewAfterReplace({ prevLength: 0, logical: null, nextLength: 10 })).toEqual({ kind: 'fit' })
-    expect(viewAfterReplace({ prevLength: 10, logical: null, nextLength: 10 })).toEqual({ kind: 'fit' })
+    expect(viewAfterReplace({ prevTimes: [], logical: null, nextTimes: times(0, 10) })).toEqual({ kind: 'fit' })
+    expect(viewAfterReplace({ prevTimes: times(0, 10), logical: null, nextTimes: times(0, 10) })).toEqual({ kind: 'fit' })
   })
 })
 

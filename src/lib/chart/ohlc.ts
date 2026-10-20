@@ -99,23 +99,47 @@ export function toChartTimes(candles: readonly Candle[], offsetSec: number): num
   return candles.map((c) => Math.floor(c.t / 1000) + offsetSec)
 }
 
+/** The index of a candle time in ascending times, or -1. */
+function indexOfTime(times: readonly number[], t: number): number {
+  let lo = 0
+  let hi = times.length - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const v = times[mid] as number
+    if (v === t) return mid
+    if (v < t) lo = mid + 1
+    else hi = mid - 1
+  }
+  return -1
+}
+
 /**
- * Where the view goes when a refresh replaces the series. Following the newest candle (it is in view):
- * the same zoom and right gap, on the new newest candle. Looking at older candles: the same stretch of
- * time (restored by time, wherever it now sits in the series). No view yet: fit the data.
+ * Where the view goes when a refresh replaces the series (`prevTimes`, `nextTimes`: candle times in ms,
+ * ascending). Following the newest candle (it is in view): the same zoom and right gap, on the new
+ * newest candle. Looking at older candles: the very same candles at the same place and zoom, shifted by
+ * however far they moved in the series (a view between bars stays between bars); when the refresh no
+ * longer holds them, the same stretch of time. No view yet: fit the data.
  */
 export function viewAfterReplace(o: {
-  prevLength: number
+  prevTimes: readonly number[]
   logical: { from: number; to: number } | null
-  nextLength: number
+  nextTimes: readonly number[]
 }): { kind: 'fit' } | { kind: 'time' } | { kind: 'logical'; from: number; to: number } {
-  if (!o.logical || o.prevLength === 0) return { kind: 'fit' }
-  const lastPrev = o.prevLength - 1
-  if (o.logical.to < lastPrev - 0.5) return { kind: 'time' }
-  const gap = o.logical.to - lastPrev
-  const width = o.logical.to - o.logical.from
-  const lastNext = o.nextLength - 1
-  return { kind: 'logical', from: lastNext + gap - width, to: lastNext + gap }
+  const lastPrev = o.prevTimes.length - 1
+  if (!o.logical || lastPrev < 0) return { kind: 'fit' }
+  const lastNext = o.nextTimes.length - 1
+  if (o.logical.to >= lastPrev - 0.5) {
+    const gap = o.logical.to - lastPrev
+    const width = o.logical.to - o.logical.from
+    return { kind: 'logical', from: lastNext + gap - width, to: lastNext + gap }
+  }
+  // The candles at the view's edges, found again in the new series.
+  for (const edge of [o.logical.from, o.logical.to]) {
+    const i = Math.min(lastPrev, Math.max(0, Math.round(edge)))
+    const j = indexOfTime(o.nextTimes, o.prevTimes[i] as number)
+    if (j >= 0) return { kind: 'logical', from: o.logical.from + (j - i), to: o.logical.to + (j - i) }
+  }
+  return { kind: 'time' }
 }
 
 const same = (a: Candle, b: Candle) => a.t === b.t && a.o === b.o && a.h === b.h && a.l === b.l && a.c === b.c && a.v === b.v
