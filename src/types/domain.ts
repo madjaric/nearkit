@@ -124,6 +124,8 @@ export interface TokenMarketPair {
   createdAt: Timestamp | null
   /** The pair's page at the data source, when it has one. */
   url: string | null
+  /** The data source the pair and its figures come from ("DEX Screener" when not said). */
+  source?: string
   /** Buys and sells on it in the last 24 h. */
   txns24h: { buys: number; sells: number } | null
 }

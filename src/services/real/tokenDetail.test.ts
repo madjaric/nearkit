@@ -9,6 +9,8 @@ import dexSingularty from '@/services/market/fixtures/dexscreener-token-pairs-si
 import dexNearlyNstai from '@/services/market/fixtures/dexscreener-tokens-nearly-nstai.json'
 import gtOhlcv from '@/services/market/fixtures/geckoterminal-ohlcv-singularty-hour.json'
 import { parseGtCandles } from '@/services/market/geckoterminal'
+import gtKitsPool from '@/services/market/fixtures/geckoterminal-pool-kits.json'
+import gtKits from '@/services/market/fixtures/geckoterminal-token-kits.json'
 import gtNearly from '@/services/market/fixtures/geckoterminal-token-nearly.json'
 import gtSingularty from '@/services/market/fixtures/geckoterminal-token-singularty.json'
 import { createNearServices } from './index'
@@ -53,6 +55,8 @@ interface SetupOptions {
   gt?: (token: string) => unknown
   /** GeckoTerminal's candles (default: none). */
   ohlcv?: (url: URL) => unknown
+  /** GeckoTerminal's answer about one pool (default: not indexed, a 404). */
+  pool?: (url: URL) => unknown
   coingecko?: () => unknown
   /** CoinGecko's market chart of a token by its contract (default: not listed, a 404). */
   cgChart?: (token: string, url: URL) => unknown
@@ -77,7 +81,16 @@ function setup(opts: SetupOptions = {}) {
     return opts.candles ? opts.candles(url) : []
   })
   const lastSegment = (url: URL) => decodeURIComponent(url.pathname.split('/').at(-1) ?? '')
-  const reads = { account: [] as string[], transactions: 0, dex: [] as string[], gt: [] as string[], ohlcv: [] as string[], coingecko: 0, cgChart: [] as string[] }
+  const reads = {
+    account: [] as string[],
+    transactions: 0,
+    dex: [] as string[],
+    gt: [] as string[],
+    ohlcv: [] as string[],
+    pool: [] as string[],
+    coingecko: 0,
+    cgChart: [] as string[],
+  }
   chain.route('https://api.coingecko.com/api/v3/coins/near-protocol/contract/', (url) => {
     const token = decodeURIComponent(url.pathname.split('/')[6] ?? '')
     reads.cgChart.push(url.pathname.slice(url.pathname.indexOf('/contract/')) + url.search)
@@ -92,6 +105,10 @@ function setup(opts: SetupOptions = {}) {
     return opts.gt ? opts.gt(lastSegment(url)) : new Response('{"errors":[{"status":"404"}]}', { status: 404 })
   })
   chain.route('https://api.geckoterminal.com/api/v2/networks/near/pools/', (url) => {
+    if (!url.pathname.includes('/ohlcv/')) {
+      reads.pool.push(url.pathname.replace('/api/v2/networks/near', '') + url.search)
+      return opts.pool ? opts.pool(url) : new Response('{"errors":[{"status":"404"}]}', { status: 404 })
+    }
     reads.ohlcv.push(url.pathname.replace('/api/v2/networks/near', '') + url.search)
     return opts.ohlcv ? opts.ohlcv(url) : { data: { attributes: { ohlcv_list: [] } } }
   })
@@ -558,6 +575,7 @@ describe('market data: each figure from a source that has it, or why it’s miss
       quoteSymbol: 'wNEAR',
       createdAt: 1790616798000,
       url: `https://dexscreener.com/near/${SING_POOL}`,
+      source: 'DEX Screener',
       txns24h: { buys: 195, sells: 221 },
     })
     expect(m.supply).toEqual({ circulating: null, total: 1_000_000_000, source: 'GeckoTerminal' })
@@ -599,13 +617,150 @@ describe('market data: each figure from a source that has it, or why it’s miss
     expect(reads.coingecko).toBe(1)
   })
 
-  it('a token DEX Screener doesn’t index keeps the price NEARKITS’ own list has; everything else is missing, with why', async () => {
+  it('a token neither DEX Screener nor GeckoTerminal indexes keeps the price NEARKITS’ own list has; everything else is missing, with why', async () => {
     const { services } = setup()
     const m = await services.tokens.getMarketData(SING)
     expect(m.priceUsd).toMatchObject({ state: 'known', value: 0.00567, source: 'Rhea’s price list' })
     for (const f of [m.marketCapUsd, m.fdvUsd, m.liquidityUsd, m.volume24hUsd, m.change24hPct])
-      expect(f).toEqual({ state: 'unavailable', reason: 'DEX Screener has no pair for this token' })
+      expect(f).toEqual({ state: 'unavailable', reason: 'DEX Screener has no pair for this token, and GeckoTerminal has no pool for it' })
     expect(m.pair).toBeNull()
+  })
+
+  describe('KITS: DEX Screener lists no pair (2026-10-20), GeckoTerminal has its pool', () => {
+    const KITS = 'kits.nearlytrade.near'
+    const KITS_POOL = 'refv2-kits.nearlytrade.near:wrap.near:10000'
+    /** GeckoTerminal's real KITS pool answer (2026-10-20), with some of its attributes replaced. */
+    const poolWith = (attributes: Record<string, unknown>) => ({ ...gtKitsPool, data: { ...gtKitsPool.data, attributes: { ...gtKitsPool.data.attributes, ...attributes } } })
+    const kits = (over: Partial<SetupOptions> = {}) =>
+      setup({ dex: () => [], gt: (t) => (t === KITS ? gtKits : new Response('{}', { status: 404 })), pool: () => gtKitsPool, ...over })
+
+    it('price, 24h change, liquidity, 24h volume and FDV from GeckoTerminal, each named as such; a real zero volume (no trades in 24 h) is shown as zero', async () => {
+      const { services, reads } = kits()
+      const m = await services.tokens.getMarketData(KITS)
+      const gt = (value: number) => ({ state: 'known', value, source: 'GeckoTerminal', at: T0 })
+      expect(m.priceUsd).toEqual(gt(0.000010877813611346))
+      // Priced against wNEAR in the pool itself.
+      expect(m.priceNear).toEqual(gt(0.000002193107583))
+      expect(m.change24hPct).toEqual(gt(0))
+      // The pool's liquidity (both sides, in USD), as DEX Screener counts it.
+      expect(m.liquidityUsd).toEqual(gt(9702.5234))
+      expect(m.volume24hUsd).toEqual(gt(0))
+      expect(m.fdvUsd).toEqual(gt(10877.813611346))
+      // GeckoTerminal knows no circulating supply for KITS: no market cap, never the FDV under another name.
+      expect(m.marketCapUsd).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/circulating supply/) })
+      expect(m.supply).toEqual({ circulating: null, total: 1_000_000_000, source: 'GeckoTerminal' })
+      expect(m.pair).toEqual({
+        id: KITS_POOL,
+        dex: 'Rhea',
+        baseSymbol: 'KITS',
+        quoteSymbol: 'wNEAR',
+        // GeckoTerminal says this pool began in 2023, before KITS existed: no start date rather than a wrong one.
+        createdAt: null,
+        url: `https://www.geckoterminal.com/near/pools/${KITS_POOL}`,
+        source: 'GeckoTerminal',
+        txns24h: { buys: 0, sells: 0 },
+      })
+      expect(reads.dex).toEqual([KITS])
+      expect(reads.pool).toEqual([`/pools/${KITS_POOL}?include=base_token,quote_token,dex`])
+    })
+
+    it('a market with trades: its volume and its buys and sells as GeckoTerminal counts them', async () => {
+      const { services } = kits({
+        pool: () =>
+          poolWith({
+            volume_usd: { ...gtKitsPool.data.attributes.volume_usd, h24: '252.57' },
+            transactions: { ...gtKitsPool.data.attributes.transactions, h24: { buys: 3, sells: 2, buyers: 3, sellers: 2 } },
+            price_change_percentage: { ...gtKitsPool.data.attributes.price_change_percentage, h24: '-4.2' },
+          }),
+      })
+      const m = await services.tokens.getMarketData(KITS)
+      expect(m.volume24hUsd).toMatchObject({ state: 'known', value: 252.57, source: 'GeckoTerminal' })
+      expect(m.change24hPct).toMatchObject({ state: 'known', value: -4.2 })
+      expect(m.pair?.txns24h).toEqual({ buys: 3, sells: 2 })
+    })
+
+    it('a figure GeckoTerminal doesn’t give is unavailable, with why: never zero, never estimated from the chart', async () => {
+      const { services } = kits({ pool: () => poolWith({ reserve_in_usd: null, volume_usd: null, price_change_percentage: null, transactions: null }) })
+      const m = await services.tokens.getMarketData(KITS)
+      expect(m.liquidityUsd).toEqual({ state: 'unavailable', reason: 'GeckoTerminal reports no liquidity for this pool' })
+      expect(m.volume24hUsd).toEqual({ state: 'unavailable', reason: 'GeckoTerminal reports no 24h volume for this pool' })
+      expect(m.change24hPct).toEqual({ state: 'unavailable', reason: 'GeckoTerminal reports no 24h change for this pool' })
+      expect(m.pair?.txns24h).toBeNull()
+      // What it does give stands.
+      expect(m.priceUsd).toMatchObject({ state: 'known', source: 'GeckoTerminal' })
+      expect(m.fdvUsd).toMatchObject({ state: 'known', value: 10877.813611346 })
+    })
+
+    it('GeckoTerminal’s pool read fails: the price from NEARKITS’ own list, the FDV from GeckoTerminal’s token, the rest unavailable naming the failure', async () => {
+      const { services } = kits({ pool: () => new Response('{}', { status: 429 }) })
+      const m = await services.tokens.getMarketData(KITS)
+      // NEARKITS’ own price list doesn’t carry KITS in this test: no price, with why.
+      expect(m.priceUsd).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/GeckoTerminal isn’t answering \(api\.geckoterminal\.com is rate-limiting/) })
+      expect(m.fdvUsd).toMatchObject({ state: 'known', value: 10877.813611346, source: 'GeckoTerminal' })
+      for (const f of [m.liquidityUsd, m.volume24hUsd, m.change24hPct])
+        expect(f).toEqual({
+          state: 'unavailable',
+          reason: 'DEX Screener has no pair for this token, and GeckoTerminal isn’t answering (api.geckoterminal.com is rate-limiting requests right now)',
+        })
+      expect(m.pair).toBeNull()
+    })
+
+    it('after a good read, a GeckoTerminal failure keeps the last figures, marked stale with why (not flipped to unavailable)', async () => {
+      let pool: () => unknown = () => gtKitsPool
+      const { services, advance } = kits({ pool: () => pool() })
+      await services.tokens.getMarketData(KITS)
+      pool = () => new Response('{}', { status: 429 })
+      advance(65_000)
+      const m = await services.tokens.getMarketData(KITS)
+      expect(m.liquidityUsd).toMatchObject({
+        state: 'stale',
+        value: 9702.5234,
+        source: 'GeckoTerminal',
+        reason: expect.stringMatching(/^not refreshed: .*GeckoTerminal isn’t answering/),
+      })
+      expect(m.volume24hUsd).toMatchObject({ state: 'stale', value: 0 })
+    })
+
+    it('GeckoTerminal down altogether: the reason says so, not that the token has no market', async () => {
+      const { services } = kits({ gt: () => new Response('{}', { status: 503 }) })
+      const m = await services.tokens.getMarketData(KITS)
+      for (const f of [m.fdvUsd, m.liquidityUsd, m.volume24hUsd])
+        expect(f).toEqual({ state: 'unavailable', reason: 'DEX Screener has no pair for this token, and GeckoTerminal isn’t answering (api.geckoterminal.com answered HTTP 503)' })
+    })
+
+    it('a token on the quote side of its pool: its own price from the pool, no 24h change (the pool’s is the other token’s)', async () => {
+      const swapped = {
+        ...gtKitsPool,
+        data: {
+          ...gtKitsPool.data,
+          attributes: {
+            ...gtKitsPool.data.attributes,
+            base_token_price_usd: '4.96',
+            quote_token_price_usd: '0.000010877813611346',
+            quote_token_price_base_token: '0.000002193107583',
+          },
+          relationships: { ...gtKitsPool.data.relationships, base_token: gtKitsPool.data.relationships.quote_token, quote_token: gtKitsPool.data.relationships.base_token },
+        },
+      }
+      const { services } = kits({ pool: () => swapped })
+      const m = await services.tokens.getMarketData(KITS)
+      expect(m.priceUsd).toMatchObject({ state: 'known', value: 0.000010877813611346, source: 'GeckoTerminal' })
+      expect(m.priceNear).toMatchObject({ state: 'known', value: 0.000002193107583 })
+      expect(m.change24hPct).toMatchObject({ state: 'unavailable' })
+      expect(m.liquidityUsd).toMatchObject({ state: 'known', value: 9702.5234 })
+      expect(m.pair).toMatchObject({ baseSymbol: 'KITS', quoteSymbol: 'wNEAR' })
+    })
+
+    it('GeckoTerminal’s pool is read once a minute at most (its limit is about 30 requests a minute per address)', async () => {
+      const { services, reads, advance } = kits()
+      await services.tokens.getMarketData(KITS)
+      advance(25_000)
+      await services.tokens.getMarketData(KITS)
+      expect(reads.pool).toHaveLength(1)
+      advance(40_000)
+      await services.tokens.getMarketData(KITS)
+      expect(reads.pool).toHaveLength(2)
+    })
   })
 
   it('reads a token’s figures once per 20 s, then again', async () => {

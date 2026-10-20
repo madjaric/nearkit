@@ -2,7 +2,7 @@ import { NATIVE_TOKEN_ID } from '@/config/networks'
 import { formatUnits } from '@/lib/amounts'
 import { fetchCoinMarkets, fetchContractChart } from '@/services/market/coingecko'
 import { fetchDexPairs, mainPair, type DexPair } from '@/services/market/dexscreener'
-import { fetchGtHistory, fetchGtToken, type GtToken } from '@/services/market/geckoterminal'
+import { fetchGtHistory, fetchGtPool, fetchGtToken, type GtPool, type GtToken } from '@/services/market/geckoterminal'
 import { CANDLE_INTERVALS, INTERVAL_REFRESH_MS, SOURCE_INTERVALS, type CandleInterval } from '@/lib/chart/intervals'
 import { CHART_RANGES, fetchNearUsdHistory } from '@/services/near/candles'
 import type { Candle, ChartRange, MarketFigure, PriceHistory, PricePoint, TokenCandles, TokenMarket, TokenMarketPair } from '@/types/domain'
@@ -13,6 +13,9 @@ import type { Market } from './market'
  * A token's market data for its screen, from sources that really have it:
  * - a token's figures from DEX Screener's deepest indexed pair (price in USD and in wNEAR, 24h
  *   change, liquidity, 24h volume, FDV, trades), refreshed every 20 s;
+ * - when DEX Screener lists no pair (on 2026-10-20 it listed none for $KITS), the same figures from
+ *   GeckoTerminal's deepest pool of the token and its token figures (FDV, supply), each named
+ *   GeckoTerminal; the pool's start date is not used (for Rhea's DCL pools it can predate the token);
  * - its market cap from GeckoTerminal, only when CoinGecko knows a circulating supply (DEX
  *   Screener's "marketCap" repeats the FDV when none is known, and FDV is never relabelled);
  * - NEAR itself from CoinGecko (market cap, FDV, volume, supplies), its price from Coinbase;
@@ -106,6 +109,66 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
     gtTokens.set(token, { at: ctx.now(), value })
     value.catch(() => gtTokens.delete(token))
     return value
+  }
+
+  const gtPools = new Map<string, { at: number; value: Promise<GtPool | null> }>()
+  /** A pool's figures from GeckoTerminal, read once a minute at most (its rate limit). */
+  const gtPool = (id: string): Promise<GtPool | null> => {
+    if (!config) return Promise.resolve(null)
+    const hit = gtPools.get(id)
+    if (hit && ctx.now() - hit.at < GT_TOKEN_TTL_MS) return hit.value
+    const value = fetchGtPool(ctx.fetch, config.geckoterminal, id)
+    gtPools.set(id, { at: ctx.now(), value })
+    value.catch(() => gtPools.delete(id))
+    return value
+  }
+
+  /**
+   * A token's figures from its GeckoTerminal pool, when DEX Screener lists no pair: the price (and in NEAR)
+   * from the pool, its 24h change when the token is the pool's base (the pool's change is the base's),
+   * the pool's liquidity, volume and trades, and the FDV, market cap and supply GeckoTerminal has for the
+   * token. GeckoTerminal's pool start date is not used: for Rhea's DCL pools it can predate the token.
+   */
+  async function fromGtPool(tokenId: string, pool: GtPool, mine: 'base' | 'quote', gt: GtToken | null, near: { priceUsd: number } | null, now: number): Promise<TokenMarket> {
+    const self = mine === 'base' ? pool.base : pool.quote
+    const other = mine === 'base' ? pool.quote : pool.base
+    const priceUsd = self.priceUsd
+    const inWrap = other.id === ctx.network.wrapContract ? (mine === 'base' ? pool.baseInQuote : pool.quoteInBase) : null
+    const priceNear = inWrap ?? (priceUsd !== null && near ? priceUsd / near.priceUsd : null)
+    let fdv: MarketFigure = known(gt?.fdvUsd ?? null, GECKO, now, `${GECKO} reports no FDV for this token`)
+    let total = gt?.totalSupply ?? null
+    if (fdv.state !== 'known' && priceUsd !== null) {
+      total ??= await supplyOnChain(tokenId)
+      if (total !== null) fdv = { state: 'known', value: total * priceUsd, source: 'total supply on chain × price', at: now }
+    }
+    return {
+      tokenId,
+      priceUsd: known(priceUsd, GECKO, now, `${GECKO} reports no price for this token in its pool`),
+      priceNear: known(priceNear, inWrap !== null ? GECKO : `${GECKO} ÷ ${COINBASE}`, now, 'no NEAR price to convert with'),
+      change24hPct:
+        mine === 'base'
+          ? known(pool.change24hPct, GECKO, now, `${GECKO} reports no 24h change for this pool`)
+          : unavailable(`${GECKO} reports the 24h change of the pool’s other token`),
+      marketCapUsd:
+        gt?.marketCapUsd !== null && gt?.marketCapUsd !== undefined
+          ? { state: 'known', value: gt.marketCapUsd, source: `${GECKO} (CoinGecko’s circulating supply)`, at: now }
+          : unavailable(`No source knows the circulating supply (${DEX_SCREENER} has no pair, ${GECKO} has none). FDV is shown instead.`),
+      fdvUsd: fdv,
+      liquidityUsd: known(pool.liquidityUsd, GECKO, now, `${GECKO} reports no liquidity for this pool`),
+      volume24hUsd: known(pool.volume24hUsd, GECKO, now, `${GECKO} reports no 24h volume for this pool`),
+      supply: { circulating: null, total, source: total === null ? null : gt?.totalSupply ? GECKO : 'chain' },
+      pair: {
+        id: pool.id,
+        dex: dexName(pool.dexId ?? 'pool'),
+        baseSymbol: self.symbol ?? tokenId,
+        quoteSymbol: other.symbol ?? other.id,
+        createdAt: null,
+        url: `https://www.geckoterminal.com/near/pools/${pool.id}`,
+        source: GECKO,
+        txns24h: pool.txns24h,
+      },
+      updatedAt: now,
+    }
   }
 
   /** Total supply in whole tokens, from chain; null when it can't be read. */
@@ -264,16 +327,32 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
     const [rhea, near] = await Promise.all([market.quoteFor(tokenId), market.nearQuote()])
     const noPair = `${DEX_SCREENER} has no pair for this token`
     if (!pair) {
+      // DEX Screener lists no pair: GeckoTerminal's deepest pool of the token, as its candles are read (never an intents pseudo-pool).
+      let gt: GtToken | null = null
+      let pool: GtPool | null = null
+      let gtError: string | null = null
+      try {
+        gt = await gtToken(tokenId)
+        const poolId = gt?.topPools.find((p) => !p.startsWith('nep141:')) ?? null
+        if (poolId) pool = await gtPool(poolId)
+      } catch (e) {
+        gtError = describe(e)
+      }
+      const mine = pool ? (pool.base.id === tokenId ? 'base' : pool.quote.id === tokenId ? 'quote' : null) : null
+      if (pool && mine) return fromGtPool(tokenId, pool, mine, gt, near, now)
+      const why = gtError ? `${noPair}, and ${GECKO} isn’t answering (${gtError})` : `${noPair}, and ${GECKO} has no pool for it`
+      // A source that answered before and fails now: its last figures stay, marked stale (afterFailure), rather than vanishing.
+      if (gtError && lastGood.has(tokenId)) throw new Error(why)
       return {
         tokenId,
-        priceUsd: rhea ? { state: 'known', value: rhea.priceUsd, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(`${noPair}, and no price source NEARKITS uses reports it`),
-        priceNear: rhea && rhea.priceNear > 0 ? { state: 'known', value: rhea.priceNear, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(noPair),
-        change24hPct: unavailable(noPair),
-        marketCapUsd: unavailable(noPair),
-        fdvUsd: unavailable(noPair),
-        liquidityUsd: unavailable(noPair),
-        volume24hUsd: unavailable(noPair),
-        supply: { circulating: null, total: null, source: null },
+        priceUsd: rhea ? { state: 'known', value: rhea.priceUsd, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(why),
+        priceNear: rhea && rhea.priceNear > 0 ? { state: 'known', value: rhea.priceNear, source: RHEA_LIST, at: rhea.updatedAt } : unavailable(why),
+        change24hPct: unavailable(why),
+        marketCapUsd: known(gt?.marketCapUsd ?? null, `${GECKO} (CoinGecko’s circulating supply)`, now, why),
+        fdvUsd: known(gt?.fdvUsd ?? null, GECKO, now, why),
+        liquidityUsd: unavailable(why),
+        volume24hUsd: unavailable(why),
+        supply: { circulating: null, total: gt?.totalSupply ?? null, source: gt?.totalSupply ? GECKO : null },
         pair: null,
         updatedAt: now,
       }
@@ -318,6 +397,7 @@ export function createTokenMarket(ctx: NearContext, market: Market) {
       quoteSymbol: pair.quote.symbol,
       createdAt: pair.createdAt,
       url: pair.url,
+      source: DEX_SCREENER,
       txns24h: pair.txns24h,
     }
     return {
