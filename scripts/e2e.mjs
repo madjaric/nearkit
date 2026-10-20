@@ -638,6 +638,15 @@ await step('Launch Radar: a launch opens its detail with launch facts, risk evid
     .getByRole('link', { name: /^Trade / })
     .first()
     .waitFor()
+  // The interactive chart: candles at the interval chosen, said in its summary; another interval is its own candles.
+  const summary = () => page.locator('[role="group"][aria-label*="price in USD"] .sr-only').textContent()
+  await page.waitForFunction(() => /candles from/.test(document.querySelector('[role="group"][aria-label*="price in USD"] .sr-only')?.textContent ?? ''))
+  await page.getByRole('radio', { name: '5min', exact: true }).click()
+  await page.waitForFunction(() => /5-minute candles from/.test(document.querySelector('[role="group"][aria-label*="price in USD"] .sr-only')?.textContent ?? ''))
+  if ((await page.getByRole('radio', { name: '5min', exact: true }).getAttribute('aria-checked')) !== 'true') throw new Error('5min is not shown as chosen')
+  if (!/interval=5m/.test(page.url())) throw new Error(`the address does not keep the interval: ${page.url()}`)
+  await page.getByRole('button', { name: /Reset view/ }).click()
+  if (!/5-minute/.test((await summary()) ?? '')) throw new Error('reset changed the interval')
 })
 
 // Top Wallets is paused (src/config/paused.ts): COMING SOON everywhere, its rankings opened by nothing.

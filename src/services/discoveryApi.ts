@@ -1,4 +1,6 @@
 import type {
+  CandleInterval,
+  CandlesResponse,
   IndexStatus,
   LaunchDetail,
   LaunchExtras,
@@ -32,6 +34,8 @@ export interface DiscoveryClient {
   launches(period: LaunchPeriod): Promise<LaunchesResponse>
   extras(tokens: readonly string[]): Promise<LaunchExtras>
   launch(token: string): Promise<LaunchDetail>
+  /** A token's USD candles at one interval (as Intear serves it). */
+  candles(token: string, interval: CandleInterval): Promise<CandlesResponse>
   wallets(q: { window: WalletWindowKey; metric: WalletMetric; category: WalletCategory; limit?: number; search?: string }): Promise<WalletsResponse>
   wallet(account: string): Promise<WalletDetail>
   walletTrades(account: string, cursor: string | null): Promise<WalletTradesPage>
@@ -46,6 +50,7 @@ export function createDiscoveryClient(apiUrl: string, fetchImpl: typeof fetch = 
     launches: (period) => post('/api/discovery/launches', { period }),
     extras: (tokens) => post('/api/discovery/extras', { tokens: [...tokens] }),
     launch: (token) => post('/api/discovery/launch', { token }),
+    candles: (token, interval) => post('/api/discovery/candles', { token, interval }),
     wallets: (q) => post('/api/discovery/wallets', { ...q }),
     wallet: (account) => post('/api/discovery/wallet', { account }),
     walletTrades: (account, cursor) => post('/api/discovery/wallet/trades', { account, cursor }),

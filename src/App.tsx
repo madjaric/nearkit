@@ -18,6 +18,8 @@ const queryClient = new QueryClient({
     queries: { staleTime: 5_000, refetchOnWindowFocus: false, retry: 1 },
   },
 })
+// A handle for the browser tests to stand in for a background refresh (never in a production build).
+if (!import.meta.env.PROD) (globalThis as { __nearkitsQueryClient?: QueryClient }).__nearkitsQueryClient = queryClient
 
 export function App() {
   if (!services) return <ConfigError issues={ENV_ISSUES} />

@@ -1,7 +1,7 @@
 import { ExternalLink } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { CandleChart } from '@/components/chart/CandleChart'
+import { PriceChart } from '@/components/chart/PriceChart'
 import { ValueTrace } from '@/components/chart/ValueTrace'
 import { AccountText } from '@/components/domain/Account'
 import { TokenGlyph } from '@/components/domain/TokenGlyph'
@@ -16,6 +16,7 @@ import { Pct } from '@/components/ui/Num'
 import { Line, Lines, Panel, PanelHeader } from '@/components/ui/Panel'
 import { ReadoutSlot, ReadoutStrip } from '@/components/ui/Readout'
 import { NATIVE_TOKEN_ID } from '@/config/networks'
+import { normalizeCandles } from '@/lib/chart/ohlc'
 import { cn } from '@/lib/cn'
 import { formatUnits, formatUnitsShown } from '@/lib/amounts'
 import { formatAccount, formatAgo, formatAmount, formatCompact, formatDateTime, formatUsdCompact, formatUsdPrice } from '@/lib/format'
@@ -187,9 +188,15 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
   // A refresh that fails keeps the history already read (its error is said below the chart); only with none at all is the line the observed one.
   const view = history.data === undefined && !history.isError ? null : chartView(range, now, history.data ?? null, live)
   // The history source's own candles in this window (none made up): drawn as candles; without them, the line of observed prices.
-  const windowStart = now - CHART_RANGES[range].windowMs
   const h = view?.source === 'history' ? history.data : undefined
-  const candles = h ? h.candles.filter((c) => c.t + h.candleSec * 1000 > windowStart && c.t <= now) : []
+  // Read once per history answer (its window measured from when it was read), not per clock tick: the chart redraws only when the candles change.
+  const readAt = history.dataUpdatedAt
+  const candles = useMemo(() => {
+    if (!h) return []
+    const at = readAt
+    const from = at - CHART_RANGES[range].windowMs
+    return normalizeCandles(h.candles.filter((c) => c.t + h.candleSec * 1000 > from && c.t <= at)).candles
+  }, [h, range, readAt])
   const volumeText = (v: number) => (h?.volumeUnit === 'USD' ? formatUsdCompact(v, 1) : h?.volumeUnit === 'NEAR' ? `${formatCompact(v)} NEAR` : formatCompact(v))
   const byId = new Map(wallets.map((w) => [w.id, w]))
   const held = holdings.filter((h) => h.tokenId === token.id && h.amount > 0)
@@ -396,21 +403,16 @@ function TokenScreen({ token, inList }: { token: Token; inList: boolean }) {
         />
         <div className="flex flex-col gap-2 p-4">
           {!view ? (
-            <Skeleton className="h-[300px] w-full" />
+            <Skeleton className="h-[320px] w-full sm:h-[400px]" />
           ) : candles.length > 0 && h ? (
-            <CandleChart
-              key={range}
+            <PriceChart
               candles={candles}
-              start={windowStart}
-              end={now}
-              candleSec={h.candleSec}
-              live={priceValue}
-              label={`${token.symbol} price, ${rangeText(range)}`}
+              intervalSec={h.candleSec}
+              livePrice={priceValue}
               formatPrice={formatUsdPrice}
-              formatTime={formatDateTime}
-              formatAxis={axisTime(range)}
               formatVolume={volumeText}
-              height={300}
+              label={`${token.symbol} price, ${rangeText(range)}, ${candleLabel(h.candleSec)} candles`}
+              viewKey={`${token.id}:${range}`}
             />
           ) : view.points.length >= 2 ? (
             <ValueTrace

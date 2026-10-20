@@ -2,10 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { ENV } from '@/config/env'
 import { TOP_WALLETS_PAUSED } from '@/config/paused'
-import type { FollowView, LaunchPeriod, WalletCategory, WalletMetric, WalletWindowKey } from '@/lib/discovery/api'
+import type { CandleInterval, FollowView, LaunchPeriod, WalletCategory, WalletMetric, WalletWindowKey } from '@/lib/discovery/api'
 import { useServices } from '@/services/context'
 import { createDiscoveryClient, type DiscoveryClient } from '@/services/discoveryApi'
 import { createDemoDiscovery } from '@/services/discoveryDemo'
+import { LinkRequestError } from '@/services/telegramLink'
 import { useNearKitSession } from '@/services/queries'
 import { followed, useList } from './local'
 
@@ -33,6 +34,7 @@ export const dk = {
   launches: (p: LaunchPeriod) => ['discovery', 'launches', p] as const,
   extras: (tokens: readonly string[]) => ['discovery', 'extras', tokens.join(',')] as const,
   launch: (t: string) => ['discovery', 'launch', t] as const,
+  candles: (t: string, i: CandleInterval) => ['discovery', 'candles', t, i] as const,
   wallets: (w: WalletWindowKey, m: WalletMetric, c: WalletCategory, q: string) => ['discovery', 'wallets', w, m, c, q] as const,
   wallet: (a: string) => ['discovery', 'wallet', a] as const,
   signals: (ws: readonly string[]) => ['discovery', 'signals', ws.join(',')] as const,
@@ -62,6 +64,21 @@ export function useLaunchExtras(tokens: readonly string[]) {
 export function useLaunch(token: string) {
   const client = useDiscoveryClient()
   return useQuery({ queryKey: dk.launch(token), queryFn: () => (client as DiscoveryClient).launch(token), enabled: client !== null, refetchInterval: DETAIL_MS, retry: 1 })
+}
+
+/** How often a chart's candles are read again: about as often as NEARKITS' server reads them from Intear. */
+const CANDLES_MS: Readonly<Record<CandleInterval, number>> = { '1m': 30_000, '5m': 60_000, '15m': 120_000, '1h': 300_000, '4h': 600_000, '1d': 1_800_000 }
+
+/** A token's candles at one interval. A 404 (no candles, or a server without this route yet) is not retried. */
+export function useLaunchCandles(token: string, interval: CandleInterval) {
+  const client = useDiscoveryClient()
+  return useQuery({
+    queryKey: dk.candles(token, interval),
+    queryFn: () => (client as DiscoveryClient).candles(token, interval),
+    enabled: client !== null && token !== '',
+    refetchInterval: CANDLES_MS[interval],
+    retry: (n, e) => !(e instanceof LinkRequestError && e.status === 404) && n < 1,
+  })
 }
 
 export function useWallets(q: { window: WalletWindowKey; metric: WalletMetric; category: WalletCategory; search: string }) {

@@ -49,6 +49,25 @@ server, which reads each source once for everyone.
   - `ranking.ts`: window aggregates, qualification and categories (pure, tested), cached for 2 minutes.
   - `routes.ts`: public POST routes (`/api/discovery/*`, rate-limited per IP) and session routes for
     followed wallets with Telegram alerts (`/api/web/discovery/*`).
+  - `POST /api/discovery/candles {token, interval}`: a token's USD candles at one of Intear's own
+    resolutions (verified 2026-10-19). `1m` gives 360 candles (6 h), `5m` 576 (2 days), `15m` 672
+    (7 days), `1h` 720 (30 days), `4h` 540 (90 days), `1d` 365. Each token and interval is read once
+    while fresh: 30 s for 1m, up to 30 min for 1d.
+    - Only tokens NEARKITS has seen: every listed launch, and any a launch page has looked up. Others
+      get 404 without Intear being asked, so the route is never an open proxy.
+    - At most 30 reads from Intear a minute for everyone (the indexer shares that queue). Past that,
+      cached answers are still served and anything new gets 503 `busy`.
+    - A bad interval answers 400, no candles 404, Intear down 503.
+- **Price chart** (`src/components/chart/PriceChart.tsx`, TradingView Lightweight Charts): the
+  Launch Radar detail and the Token page draw the same interactive candles: pan, zoom, crosshair
+  readout, volume in its own pane when reported. Every candle goes through
+  `src/lib/chart/ohlc.ts` first:
+  - timestamps in seconds or ms, told apart by size;
+  - sorted, one per period (the last given);
+  - a high or low that doesn't contain the open and close is left out and counted, never repaired;
+  - volume only as reported.
+  - A web app ahead of its server (no candles route yet) shows hourly from the launch detail and says
+    the other intervals have no candles.
   - One role lease (`discovery-indexer`) runs the indexer on one instance only.
 - **Web** (`src/features/discovery/`): `/launch-radar`, `/launch-radar/:id`, `/top-wallets`,
   `/top-wallets/:id`. Sorting, filters, search, score weights and pagination run on the list the

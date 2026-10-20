@@ -11,7 +11,7 @@ import type {
   WalletsResponse,
   WalletWindowKey,
 } from '@/lib/discovery/api'
-import { PERIOD_MS } from '@/lib/discovery/api'
+import { CANDLE_INTERVAL_SEC, PERIOD_MS, type CandleInterval, type CandlesResponse } from '@/lib/discovery/api'
 import { hashString, mulberry32 } from '@/lib/prng'
 import { DAY, HOUR, SEED_NOW } from '@/mocks/time'
 import type { DiscoveryClient } from './discoveryApi'
@@ -179,6 +179,9 @@ function demoTrades(token: string, symbol: string | null, n: number, seed: strin
 
 const pause = () => new Promise((r) => setTimeout(r, 120))
 
+/** As many candles per interval as NEARKITS' server reads from Intear (server/src/discovery/service.ts). */
+const DEMO_CANDLES: Readonly<Record<CandleInterval, number>> = { '1m': 360, '5m': 576, '15m': 672, '1h': 720, '4h': 540, '1d': 365 }
+
 export function createDemoDiscovery(): DiscoveryClient {
   return {
     status: async () => index(),
@@ -200,6 +203,33 @@ export function createDemoDiscovery(): DiscoveryClient {
         out[t] = { spark: Array.from({ length: 24 }, () => (v *= 0.92 + rand() * 0.18)), thumb: null }
       }
       return out
+    },
+    async candles(token, interval): Promise<CandlesResponse> {
+      await pause()
+      const row = launches().find((l) => l.token === token) ?? (launches()[0] as LaunchRow)
+      const step = CANDLE_INTERVAL_SEC[interval] * 1000
+      // Demo candles, walked back from the sample's price: as many as its age allows, up to what NEARKITS' server reads.
+      const count = Math.min(DEMO_CANDLES[interval], Math.max(1, Math.floor((SEED_NOW - (row.createdAt ?? SEED_NOW - 30 * DAY)) / step)))
+      const rand = mulberry32(hashString(`candles-${token}-${interval}`))
+      const last = Math.floor(SEED_NOW / step) * step
+      const time: number[] = []
+      const open: number[] = []
+      const high: number[] = []
+      const low: number[] = []
+      const close: number[] = []
+      const volume: number[] = []
+      let c = row.priceUsd ?? 0.0001
+      for (let i = 0; i < count; i++) {
+        const o = c / (0.95 + rand() * 0.1)
+        time.unshift(last - i * step)
+        open.unshift(o)
+        close.unshift(c)
+        high.unshift(Math.max(o, c) * (1 + rand() * 0.03))
+        low.unshift(Math.min(o, c) * (1 - rand() * 0.03))
+        volume.unshift(Math.round(rand() * 5_000 * (step / HOUR)))
+        c = o
+      }
+      return { token, interval, intervalSec: CANDLE_INTERVAL_SEC[interval], candles: { time, open, high, low, close, volume }, at: SEED_NOW }
     },
     async launch(token): Promise<LaunchDetail> {
       await pause()

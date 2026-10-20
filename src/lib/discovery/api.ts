@@ -139,6 +139,24 @@ export interface Candles {
   volume: (number | null)[]
 }
 
+/**
+ * A token's candle intervals: exactly the resolutions Intear serves (verified 2026-10-19: 1, 5, 15, 60,
+ * 240 minutes and 1 day), each read with as much history as one request holds.
+ */
+export const CANDLE_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'] as const
+export type CandleInterval = (typeof CANDLE_INTERVALS)[number]
+export const CANDLE_INTERVAL_SEC: Readonly<Record<CandleInterval, number>> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3_600, '4h': 14_400, '1d': 86_400 }
+
+/** A token's USD candles at one interval (POST /api/discovery/candles). */
+export interface CandlesResponse {
+  token: string
+  interval: CandleInterval
+  intervalSec: number
+  candles: Candles | null
+  /** When NEARKITS' server read them. */
+  at: number
+}
+
 export interface LaunchDetail {
   launch: LaunchRow
   holders: { total: number | null; top: { account: string; share: number }[]; excluded: string[]; at: number } | null
