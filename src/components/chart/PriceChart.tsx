@@ -169,12 +169,15 @@ const HoverTip = forwardRef<{ show(t: Tip | null): void }, { formatPrice: (v: nu
   },
 )
 
-/** The first view: everything when it fits (a short history at a normal width, on the right), otherwise the newest candles; the price scale back on auto. */
+/**
+ * The first view: everything when it fits (a short history at a normal width, on the right), otherwise the newest candles; the price scale back on auto.
+ * The short history's place is set, not animated: the library's animated scroll stops a frame short of its target, so Reset view wouldn't return to the first view.
+ */
 function fitView(chart: IChartApi, n: number) {
   const ts = chart.timeScale()
   if (n <= FIRST_VIEW && ts.width() / (n + RIGHT_GAP) > FEW_SPACING) {
     ts.applyOptions({ barSpacing: FEW_SPACING })
-    ts.scrollToRealTime()
+    ts.scrollToPosition(RIGHT_GAP, false)
   } else if (n <= FIRST_VIEW) ts.fitContent()
   else ts.setVisibleLogicalRange({ from: n - FIRST_VIEW, to: n - 1 + RIGHT_GAP })
   chart.priceScale('right').applyOptions({ autoScale: true })

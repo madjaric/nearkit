@@ -647,6 +647,38 @@ await step('Launch Radar: a launch opens its detail with launch facts, risk evid
   if (!/interval=5m/.test(page.url())) throw new Error(`the address does not keep the interval: ${page.url()}`)
   await page.getByRole('button', { name: /Reset view/ }).click()
   if (!/5-minute/.test((await summary()) ?? '')) throw new Error('reset changed the interval')
+  // Reset view returns to the first view exactly, however far the view was moved, and a second Reset
+  // leaves it there. A short history (its candles at a set spacing, on the right) is the case to check.
+  const candles = Number(/(\d+) 5-minute candles from/.exec((await summary()) ?? '')?.[1])
+  if (!(candles > 0 && candles <= 90)) throw new Error(`expected a launch with a short history, got ${candles} candles`)
+  const view = () =>
+    page.evaluate(() => {
+      const group = document.querySelector('[role="group"][aria-label*="price in USD"]')
+      const chart = [...group.querySelectorAll('div')].find((d) => d.__nearkitsChart)?.__nearkitsChart
+      const r = chart.timeScale().getVisibleLogicalRange()
+      return { from: r.from, to: r.to }
+    })
+  const same = (a, b) => Math.abs(a.from - b.from) < 1e-6 && Math.abs(a.to - b.to) < 1e-6
+  await page.waitForTimeout(1000)
+  const first = await view()
+  const box = await page.locator('[role="group"][aria-label*="price in USD"]').boundingBox()
+  const y = box.y + box.height * 0.45
+  await page.mouse.move(box.x + box.width * 0.75, y)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * 0.4, y, { steps: 12 })
+  await page.mouse.up()
+  await page.mouse.move(box.x + box.width * 0.6, y)
+  for (let k = 0; k < 4; k++) await page.mouse.wheel(0, -240)
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(500)
+  const moved = await view()
+  if (same(moved, first)) throw new Error('dragging and zooming did not move the view')
+  for (const press of ['Reset', 'a second Reset']) {
+    await page.getByRole('button', { name: /Reset view/ }).click()
+    await page.waitForTimeout(1500)
+    const now = await view()
+    if (!same(now, first)) throw new Error(`after ${press} the view is ${JSON.stringify(now)}, not the first view ${JSON.stringify(first)}`)
+  }
 })
 
 // Top Wallets is paused (src/config/paused.ts): COMING SOON everywhere, its rankings opened by nothing.
