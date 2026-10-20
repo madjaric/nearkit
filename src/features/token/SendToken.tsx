@@ -8,6 +8,7 @@ import { canExecute, executesViaNearKit } from '@/lib/wallets'
 import { useHoldings, useWallets } from '@/services/queries'
 import type { Token, Wallet } from '@/types/domain'
 import { NearKitSendModal } from '../wallets/nearkit'
+import { sendButtonName } from './sendName'
 
 /**
  * Send a token through the flow its wallet already has: a NearKit wallet's send (reviewed
@@ -53,7 +54,7 @@ export function SendTokenButton({
         icon={icon ? <Send size={size === 'xs' ? 12 : 14} /> : undefined}
         disabled={senders.length === 0}
         title={senders.length === 0 ? `None of your wallets that can send holds ${token.symbol}` : undefined}
-        aria-label={`Send ${token.symbol}`}
+        aria-label={sendButtonName(label, token.symbol)}
         onClick={() => (senders.length === 1 && senders[0] ? sendFromWallet(senders[0].wallet) : setChoosing(true))}
       >
         {label}
