@@ -10,15 +10,20 @@
 # bot: once when a check starts failing, again every 6 hours while it fails, and once when it
 # recovers. They name the check and counts only: no secret, account, amount or transaction.
 # Without a chat configured, alerts are written to the journal (journalctl -u nearkit-monitor).
+# Each alert sent is noted in the journal. One Telegram didn't take (asked twice) is kept in
+# monitor/pending and sent, marked delayed, by the next run Telegram answers: an outage of Telegram
+# (or of this host's route to it) delays an alert, never loses it.
 #   /opt/nearkit/bin/monitor            run the checks (the timer does this)
 #   /opt/nearkit/bin/monitor --test     send a test alert, to check the channel
 #   /opt/nearkit/bin/monitor --status   print each check's state, send nothing
 #   /opt/nearkit/bin/monitor --inflight what is under way right now; exit 0 only when nothing is
 set -uo pipefail
-root=/opt/nearkit
+# NEARKIT_MONITOR_ROOT: tests only (server/src/ops/monitorAlerts.test.ts); production runs in /opt/nearkit.
+root=${NEARKIT_MONITOR_ROOT:-/opt/nearkit}
 cd "$root" || exit 1
 state="$root/monitor"
 install -d -m 700 "$state"
+pending="$state/pending"
 conf="$root/monitor.env"
 # shellcheck source=/dev/null
 [ -s "$conf" ] && . "$conf"
@@ -29,23 +34,71 @@ mode=${1:-run}
 now=$(date -u +%s)
 ms=$((now * 1000))
 
+telegram_ready() { [ -n "${ALERT_TELEGRAM_CHAT_ID:-}" ] && [ -s secrets/telegram_bot_token ]; }
+
+# One message to the alert chat, asked twice (a moment apart); 0 when Telegram took it. Once Telegram
+# hasn't taken one, the rest of this run doesn't ask again (each ask can wait 15 s; the run has 120).
+telegram_down=
+why=
+deliver() {
+  local text=$1 token code rc try
+  [ -n "$telegram_down" ] && return 1
+  token=$(cat secrets/telegram_bot_token)
+  for try in 1 2; do
+    # The URL (which holds the token) goes to curl on stdin, never in its arguments. Only the HTTP
+    # status and curl's exit code are logged, never its output.
+    code=$(printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$token" |
+      curl -sS --max-time 15 -o /dev/null -w '%{http_code}' --config - \
+        --data-urlencode "chat_id=$ALERT_TELEGRAM_CHAT_ID" --data-urlencode "text=$text" 2> /dev/null)
+    rc=$?
+    [ "$rc" -eq 0 ] && [ "$code" = 200 ] && return 0
+    why="HTTP ${code:-none}, curl exit $rc"
+    [ "$try" = 1 ] && sleep "${MONITOR_RETRY_SECONDS:-3}"
+  done
+  telegram_down=1
+  return 1
+}
+
+# Keeps an alert to send with the next run Telegram answers. A long outage keeps the newest lines,
+# within one Telegram message; the cut drops the line it falls in, so the text stays valid UTF-8.
+keep() {
+  printf '%s\n' "$1" >> "$pending"
+  if [ "$(wc -c < "$pending")" -gt 3000 ]; then
+    tail -c 3000 "$pending" | tail -n +2 > "$pending.tmp" && mv -f "$pending.tmp" "$pending"
+  fi
+}
+
 send() {
-  local text=$1 token
-  if [ -z "${ALERT_TELEGRAM_CHAT_ID:-}" ] || [ ! -s secrets/telegram_bot_token ]; then
+  local text=$1
+  if ! telegram_ready; then
     echo "ALERT (no Telegram chat configured): $text"
     return 0
   fi
-  token=$(cat secrets/telegram_bot_token)
-  # The URL (which holds the token) goes to curl on stdin, never in its arguments.
-  printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$token" |
-    curl -sS --max-time 15 -o /dev/null -w '%{http_code}' --config - \
-      --data-urlencode "chat_id=$ALERT_TELEGRAM_CHAT_ID" --data-urlencode "text=$text" |
-    grep -q '^200$' || echo "monitor: couldn't send the alert to Telegram: $text" >&2
+  if deliver "$text"; then
+    echo "monitor: alert sent: ${text//$'\n'/ · }"
+    return 0
+  fi
+  echo "monitor: Telegram didn't take the alert ($why); kept to send again: ${text//$'\n'/ · }" >&2
+  keep "$text"
+  return 1
+}
+
+# The alerts earlier runs kept, sent first and marked delayed; kept again while Telegram doesn't answer.
+flush_pending() {
+  [ -s "$pending" ] && telegram_ready || return 0
+  if deliver "📬 Delayed: NEARKITS alerts Telegram didn't take at the time
+$(cat "$pending")"; then
+    rm -f "$pending"
+    echo "monitor: delayed alerts sent"
+  else
+    echo "monitor: Telegram still doesn't take alerts ($why); delayed alerts kept" >&2
+  fi
 }
 
 if [ "$mode" = --test ]; then
+  flush_pending
   send "🧪 NEARKITS monitoring test from $(hostname) at $(date -u +%H:%MZ). Alerts reach this chat."
-  exit 0
+  exit
 fi
 
 failing=()
@@ -230,6 +283,7 @@ for f in "$state"/fail-*; do
   messages+=("✅ recovered after $(((now - since) / 60)) min: $k")
   rm -f "$f"
 done
+flush_pending
 if [ "${#messages[@]}" -gt 0 ]; then
   send "NEARKITS $(hostname) · $(date -u +%H:%MZ)
 $(printf '%s\n' "${messages[@]}")"
